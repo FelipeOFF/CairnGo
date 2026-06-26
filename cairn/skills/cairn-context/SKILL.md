@@ -16,14 +16,21 @@ context-mode holds *the compressed memory of doing it*. This skill is the wiring
 
 ## Activation gate
 
-Apply this skill **only when ALL hold**:
-- `.planning/` (GSD) and `.beads/` (beads) both exist — the `cairn` skill is active.
-- `.cairn/context.json` exists with `"enabled": true` — the user opted in.
-- The `ctx_*` MCP tools (context-mode) are available in the session.
+context-mode is a **hard dependency** of cairn, so its `ctx_*` MCP tools are
+present by default. Apply this skill whenever:
+- `.planning/` (GSD) and `.beads/` (beads) both exist — the `cairn` skill is active, **and**
+- The `ctx_*` MCP tools are available in the session.
 
-If `.cairn/context.json` is missing, the user has not opted in — do **not**
-create it implicitly; point them at `/cairn:context-config`. If the `ctx_*`
-tools are absent, this skill does not apply.
+This layer is **on by default** — it does not require opt-in. `.cairn/context.json`
+is **optional tuning**: if present it overrides the defaults below (source
+template, capacity threshold, capacity-guard on/off); if absent, the defaults
+apply. `/cairn:context-config` writes that file to customize them. The only
+case where the skill is inert is the rare one where the `ctx_*` tools are
+genuinely unavailable (context-mode disabled by the user).
+
+**Defaults (when `.cairn/context.json` is absent):** `source_template` =
+`gb/{bd_id}/{phase}`, `capacity_guard.enabled` = true, `token_threshold` =
+`150000`, `reset.mode` = `scope-by-label`.
 
 ## Capability boundaries (do not exceed)
 
@@ -89,7 +96,7 @@ Run these alongside the `cairn` lifecycle (claim → in_progress → close):
 
 ## Capacity guard (proactive token budgeting)
 
-When `capacity_guard.enabled` is true in `.cairn/context.json`:
+When the capacity guard is enabled (the default; override in `.cairn/context.json`):
 
 1. Call `ctx_stats` at each phase transition, and periodically during long
    execution runs.
@@ -113,5 +120,6 @@ When `capacity_guard.enabled` is true in `.cairn/context.json`:
   only destructive op (`ctx_purge`) is never automatic.
 - On any conflict between a bd issue and GSD phase docs, **GSD docs win** —
   identical to the `cairn` skill.
-- If `.cairn/context.json` is absent or `enabled:false`, do nothing here;
-  fall back to plain context-mode usage.
+- `.cairn/context.json` is optional tuning, not a gate — defaults apply when it
+  is absent. The skill is inert only if the user has disabled context-mode so
+  the `ctx_*` tools are unavailable.

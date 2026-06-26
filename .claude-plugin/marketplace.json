@@ -11,9 +11,29 @@
     {
       "name": "cairn",
       "source": "./cairn",
-      "description": "Cairn — marks the trail and remembers the path. Wires the GSD planning workflow (/gsd:*) to the beads issue tracker (bd), optionally mirrors bd issues two-way (hub-and-spoke) to GitHub Issues, GitLab, Jira, Asana, and Azure Boards, and optionally makes the context-mode knowledge base intent-aware (scopes compressed memory to the active issue + phase). Activates only in repos that use both GSD and beads.",
+      "description": "Cairn — marks the trail and remembers the path. Batteries-included: installing it pulls in GSD (a plugin dependency) and bootstraps the beads issue tracker (bd), then a single /cairn:init wires a project end to end. Wires the GSD planning workflow (/gsd:*) to beads (bd) so phases create/claim/close tracked work, optionally mirrors bd issues two-way (hub-and-spoke) to GitHub Issues, GitLab, Jira, Asana, and Azure Boards, and optionally makes the context-mode knowledge base intent-aware (scopes compressed memory to the active issue + phase). The integration conventions activate only in repos that use both GSD and beads.",
       "category": "workflow",
       "tags": ["cairn", "gsd", "beads", "bd", "planning", "issue-tracker", "workflow", "github", "gitlab", "jira", "asana", "azure-boards", "sync", "context-mode", "memory"]
+    },
+    {
+      "name": "gsd",
+      "source": {
+        "source": "github",
+        "repo": "jnuyens/gsd-plugin"
+      },
+      "description": "Get Shit Done — a structured planning/execution/verification workflow for Claude Code (/gsd:*), MCP-backed project state. Re-published here as a dependency of cairn so it installs automatically; upstream is jnuyens/gsd-plugin (tracking open-gsd/get-shit-done-redux). Installable on its own too.",
+      "category": "workflow",
+      "tags": ["gsd", "get-shit-done", "workflow", "planning", "execution", "verification"]
+    },
+    {
+      "name": "context-mode",
+      "source": {
+        "source": "github",
+        "repo": "mksglu/context-mode"
+      },
+      "description": "Context-mode — MCP plugin that saves ~98% of your context window: sandboxed code execution and an FTS5/BM25 knowledge base with intent-driven search. Re-published here as a dependency of cairn so it installs automatically; upstream is mksglu/context-mode. Installable on its own too.",
+      "category": "development",
+      "tags": ["context-mode", "mcp", "context-window", "memory", "search", "fts5", "bm25"]
     }
   ]
 }
