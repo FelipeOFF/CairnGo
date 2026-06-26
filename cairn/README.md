@@ -17,10 +17,11 @@ beads `bd` binary. Then a single [`/cairn:init`](#install) wires a project end t
 end — git, beads, GSD, and the first roadmap.
 
 It stays **thin glue** — it does not fork, vendor, or modify GSD, beads, or
-context-mode. GSD and context-mode are re-published in this marketplace only as
-pointers to their upstreams (`jnuyens/gsd-plugin`, `mksglu/context-mode`) so they
-can be clean dependencies; beads stays an independent upstream binary. Cairn
-ships only the conventions that connect them.
+context-mode. GSD is re-published in this marketplace as a pointer to its
+upstream (`jnuyens/gsd-plugin`) so it can be a clean same-marketplace dependency;
+context-mode is pulled **cross-marketplace** from its own `context-mode`
+marketplace (`mksglu/context-mode`); beads stays an independent upstream binary.
+Cairn ships only the conventions that connect them.
 
 ## What it does
 
@@ -43,8 +44,11 @@ non-GSD or non-beads repos.
 Cairn handles its own dependencies:
 
 - **GSD** — installed automatically as a plugin dependency (provides `/gsd:*`).
-- **context-mode** — installed automatically as a plugin dependency (provides
-  the `ctx_*` tools + intent-aware memory).
+- **context-mode** — a plugin dependency pulled cross-marketplace from the
+  `context-mode` marketplace (provides the `ctx_*` tools + intent-aware memory).
+  Add that marketplace if you don't have it
+  (`/plugin marketplace add mksglu/context-mode`), else the dependency stays
+  unresolved and cairn is disabled until you do.
 - **beads** (`bd`) — a binary, not a plugin, so cairn offers to install it on
   your first session (or run `/cairn:init`). Manual install:
   `brew install beads` · `npm install -g @beads/bd`.

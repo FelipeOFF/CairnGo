@@ -5,8 +5,9 @@
   },
   "metadata": {
     "description": "Claude Code plugins by BigJiggity",
-    "version": "0.2.1"
+    "version": "0.3.0"
   },
+  "allowCrossMarketplaceDependenciesOn": ["context-mode"],
   "plugins": [
     {
       "name": "cairn",
@@ -24,16 +25,6 @@
       "description": "Get Shit Done — a structured planning/execution/verification workflow for Claude Code (/gsd:*), MCP-backed project state. Re-published here as a dependency of cairn so it installs automatically; upstream is jnuyens/gsd-plugin (tracking open-gsd/get-shit-done-redux). Installable on its own too.",
       "category": "workflow",
       "tags": ["gsd", "get-shit-done", "workflow", "planning", "execution", "verification"]
-    },
-    {
-      "name": "context-mode",
-      "source": {
-        "source": "github",
-        "repo": "mksglu/context-mode"
-      },
-      "description": "Context-mode — MCP plugin that saves ~98% of your context window: sandboxed code execution and an FTS5/BM25 knowledge base with intent-driven search. Re-published here as a dependency of cairn so it installs automatically; upstream is mksglu/context-mode. Installable on its own too.",
-      "category": "development",
-      "tags": ["context-mode", "mcp", "context-window", "memory", "search", "fts5", "bm25"]
     }
   ]
 }

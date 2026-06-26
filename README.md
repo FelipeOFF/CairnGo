@@ -14,7 +14,10 @@ Marketplace of Claude Code plugins by BigJiggity.
 |---|---|
 | [**Cairn**](./cairn) | Marks the trail and remembers the path. Batteries-included GSD↔beads glue: installs GSD with it, bootstraps the beads tracker (`bd`), and wires a project end to end with one `/cairn:init`. Wires GSD planning (`/gsd:*`) to beads — create, claim, and close tracked work — optionally mirrors issues to GitHub/GitLab/Jira/Asana/Azure Boards, and optionally makes the context-mode knowledge base intent-aware (memory scoped to the active issue + phase). |
 | [**GSD**](https://github.com/jnuyens/gsd-plugin) | Get Shit Done — structured planning/execution/verification workflow (`/gsd:*`). Re-published here as a cairn dependency; installable on its own. Upstream: `jnuyens/gsd-plugin`. |
-| [**context-mode**](https://github.com/mksglu/context-mode) | MCP plugin that saves ~98% of your context window — sandboxed code execution + an FTS5/BM25 knowledge base with intent-driven search. Re-published here as a cairn dependency; installable on its own. Upstream: `mksglu/context-mode`. |
+
+cairn also depends on [**context-mode**](https://github.com/mksglu/context-mode)
+(`mksglu/context-mode`), pulled cross-marketplace from its own `context-mode`
+marketplace — add that marketplace if you don't already have it.
 
 Install a plugin:
 
