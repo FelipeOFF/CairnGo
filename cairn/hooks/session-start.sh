@@ -37,6 +37,7 @@ fi
 # 2. integration-active reminder — both GSD and beads present in this repo
 #***************************************************************************
 if [ -d "$PROJECT_DIR/.planning" ] && [ -d "$PROJECT_DIR/.beads" ]; then
+  # Always emit the cairn-specific glue — the part neither tool knows on its own.
   cat <<'MSG'
 [cairn] This repo uses BOTH GSD (.planning/) and beads (.beads/).
 The cairn integration is active — use the `cairn` skill conventions:
@@ -45,9 +46,22 @@ The cairn integration is active — use the `cairn` skill conventions:
   • every PLAN.md carries a `beads:` frontmatter list of the bd ids it advances
   • execute-phase: claim -> in_progress -> close each plan's bd ids
   • on conflict, GSD phase docs (CONTEXT/PLAN/ROADMAP) win over bd issue text
+MSG
+
+  # beads installs its OWN Claude integration on `bd init` (a `bd prime`
+  # SessionStart hook + a BEADS INTEGRATION block in CLAUDE.md) that already
+  # injects bd basics, the "use bd for all tracking" rule, and the session-close
+  # protocol. Only restate those when that integration ISN'T present — otherwise
+  # we'd double up at every SessionStart.
+  if grep -q "BEGIN BEADS INTEGRATION" "$PROJECT_DIR/CLAUDE.md" 2>/dev/null \
+     || grep -q "bd prime" "$PROJECT_DIR/.claude/settings.json" 2>/dev/null; then
+    echo "  (bd basics, the all-tracking rule, and session-close come from beads' own \`bd prime\` hook — not repeated here.)"
+  else
+    cat <<'MSG'
   • use `bd` for ALL task tracking (not TodoWrite / markdown TODOs)
 Run `bd prime` for the full bd command reference and session-close protocol.
 MSG
+  fi
 
   # context-mode is a cairn dependency, so the integration is on by default.
   # .cairn/context.json is optional tuning, not a gate.
