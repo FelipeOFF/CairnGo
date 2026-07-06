@@ -44,7 +44,16 @@ else
   echo "  ✓ bd init"
 fi
 
-# 4. GSD presence — soft check; it ships as a cairn plugin dependency
+# 4. keep per-machine markers out of git — the opt-in beacon guard is local-only
+GI=".gitignore"
+if grep -qxF '.cairn/.beacon-sent' "$GI" 2>/dev/null; then
+  echo "  ✓ .cairn/.beacon-sent already gitignored"
+else
+  printf '\n# cairn: per-machine opt-in beacon marker (never commit)\n.cairn/.beacon-sent\n' >> "$GI"
+  echo "  ✓ gitignored .cairn/.beacon-sent"
+fi
+
+# 5. GSD presence — soft check; it ships as a cairn plugin dependency
 if command -v claude >/dev/null 2>&1 && claude plugin list 2>/dev/null | grep -qiw gsd; then
   echo "  ✓ GSD plugin installed"
 else
