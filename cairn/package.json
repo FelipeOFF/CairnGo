@@ -14,18 +14,18 @@
     "workflow",
     "context-mode"
   ],
-  "homepage": "https://github.com/BigJiggity/claude-plugins/tree/main/cairn",
+  "homepage": "https://github.com/eventually-consistent-code/claude-plugins/tree/main/cairn",
   "bugs": {
-    "url": "https://github.com/BigJiggity/claude-plugins/issues"
+    "url": "https://github.com/eventually-consistent-code/claude-plugins/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BigJiggity/claude-plugins.git",
+    "url": "git+https://github.com/eventually-consistent-code/claude-plugins.git",
     "directory": "cairn"
   },
   "author": {
-    "name": "BigJiggity",
-    "url": "https://github.com/BigJiggity"
+    "name": "eventually-consistent-code",
+    "url": "https://github.com/eventually-consistent-code"
   },
   "license": "MIT",
   "publishConfig": {

@@ -12,7 +12,7 @@ GSD ships as a declared dependency of cairn, so it is normally already installed
 Confirm `/gsd:*` commands are available (check `claude plugin list` for `gsd`).
 If GSD is missing, install it and tell the user to `/reload-plugins`:
 ```bash
-claude plugin install gsd@bigjiggity
+claude plugin install gsd@eventually-consistent-code
 ```
 
 ## 2. Ensure beads (`bd`) — prompt, then install

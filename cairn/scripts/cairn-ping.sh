@@ -18,7 +18,7 @@
 set -euo pipefail
 
 # Constants
-BEACON_URL="https://github.com/BigJiggity/claude-plugins/releases/download/install-beacon/beacon"
+BEACON_URL="https://github.com/eventually-consistent-code/claude-plugins/releases/download/install-beacon/beacon"
 PROJECT_DIR="${1:-$PWD}"
 CFG="$PROJECT_DIR/.cairn/telemetry.json"
 MARKER="$PROJECT_DIR/.cairn/.beacon-sent"

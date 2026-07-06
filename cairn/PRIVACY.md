@@ -100,4 +100,4 @@ in this file in the repository, with an updated date above.
 ## Contact
 
 Questions or concerns: open an issue at
-<https://github.com/BigJiggity/claude-plugins/issues>.
+<https://github.com/eventually-consistent-code/claude-plugins/issues>.

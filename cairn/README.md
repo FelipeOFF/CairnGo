@@ -56,8 +56,8 @@ Cairn handles its own dependencies:
 ## Install
 
 ```text
-/plugin marketplace add BigJiggity/claude-plugins
-/plugin install cairn@bigjiggity     # GSD comes with it
+/plugin marketplace add eventually-consistent-code/claude-plugins
+/plugin install cairn@eventually-consistent-code     # GSD comes with it
 ```
 
 Then, in the repo you want to set up:

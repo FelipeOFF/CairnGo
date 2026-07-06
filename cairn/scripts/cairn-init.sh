@@ -58,7 +58,7 @@ if command -v claude >/dev/null 2>&1 && claude plugin list 2>/dev/null | grep -q
   echo "  ✓ GSD plugin installed"
 else
   echo "  ! GSD not detected — it should auto-install as a cairn dependency."
-  echo "    If /gsd:* is unavailable, run: claude plugin install gsd@bigjiggity"
+  echo "    If /gsd:* is unavailable, run: claude plugin install gsd@eventually-consistent-code"
 fi
 
 cat <<'NEXT'

@@ -1,11 +1,11 @@
 # claude-plugins
 
-Marketplace of Claude Code plugins by BigJiggity.
+Marketplace of Claude Code plugins by eventually-consistent-code.
 
 ## Install the marketplace
 
 ```text
-/plugin marketplace add BigJiggity/claude-plugins
+/plugin marketplace add eventually-consistent-code/claude-plugins
 ```
 
 ## Plugins
@@ -22,5 +22,5 @@ marketplace — add that marketplace if you don't already have it.
 Install a plugin:
 
 ```text
-/plugin install cairn@bigjiggity     # GSD installs automatically as a dependency
+/plugin install cairn@eventually-consistent-code     # GSD installs automatically as a dependency
 ```

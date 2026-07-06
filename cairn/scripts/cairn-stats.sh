@@ -17,7 +17,7 @@
 set -uo pipefail
 
 # Constants
-REPO="BigJiggity/claude-plugins"
+REPO="eventually-consistent-code/claude-plugins"
 NPM_PKG="@eventually-consistent/cairn"
 NPM_PKG_ENC="@eventually-consistent%2Fcairn"
 BEACON_TAG="install-beacon"

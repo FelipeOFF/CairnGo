@@ -1,10 +1,10 @@
 {
-  "name": "bigjiggity",
+  "name": "eventually-consistent-code",
   "owner": {
-    "name": "BigJiggity"
+    "name": "eventually-consistent-code"
   },
   "metadata": {
-    "description": "Claude Code plugins by BigJiggity",
+    "description": "Claude Code plugins by eventually-consistent-code",
     "version": "0.3.0"
   },
   "allowCrossMarketplaceDependenciesOn": ["context-mode"],

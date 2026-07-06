@@ -7,11 +7,11 @@
     { "name": "context-mode", "marketplace": "context-mode" }
   ],
   "author": {
-    "name": "BigJiggity",
-    "url": "https://github.com/BigJiggity"
+    "name": "eventually-consistent-code",
+    "url": "https://github.com/eventually-consistent-code"
   },
-  "homepage": "https://github.com/BigJiggity/claude-plugins/tree/main/cairn",
-  "repository": "https://github.com/BigJiggity/claude-plugins",
+  "homepage": "https://github.com/eventually-consistent-code/claude-plugins/tree/main/cairn",
+  "repository": "https://github.com/eventually-consistent-code/claude-plugins",
   "license": "MIT",
   "keywords": [
     "claude-code",
