@@ -1,17 +1,45 @@
 # Privacy Policy — Cairn
 
-_Last updated: 2026-06-24_
+_Last updated: 2026-07-05_
 
 Cairn is an open-source Claude Code plugin. It runs **entirely on your own
-machine**. The author operates no servers, collects no telemetry, and receives
-no data from your use of the plugin.
+machine**. The author operates no servers and, by default, collects nothing. The
+one exception is a single **opt-in install beacon** that is **off unless you
+turn it on** — and even then the author receives only an anonymous running total,
+never your IP, your repository, or any identifier (see
+[Telemetry](#telemetry-opt-in-off-by-default)).
 
 ## What the plugin does with data
 
 - **Runs locally.** All logic (the dispatcher, hooks, and adapters) executes on
   your machine within your own repository. There is no "cairn service."
-- **No collection by the author.** The plugin sends nothing to the author or any
-  author-controlled endpoint. There is no analytics, tracking, or phone-home.
+- **No collection by the author, by default.** With telemetry off (the default),
+  the plugin sends nothing to the author or any author-controlled endpoint — no
+  analytics, no tracking. The only thing that ever reaches the author is the
+  opt-in install beacon described below, and only if you enable it.
+
+## Telemetry (opt-in, off by default)
+
+Cairn can send a single **install beacon** so the author can tell whether the
+plugin is actually being used. It is **disabled by default** and only turns on if
+you explicitly opt in during `/cairn:init` (which writes `"enabled": true` to
+`.cairn/telemetry.json`).
+
+- **How it works.** When enabled, cairn does **one anonymous HTTPS GET** of a
+  tiny "beacon" file published as a GitHub release asset. GitHub increments that
+  asset's public `download_count`. There is no author-run server.
+- **What the author receives.** Only that aggregate integer — a count. The author
+  never sees your IP address, your repository, your username, timestamps, or any
+  per-event record. (GitHub, as the file host, sees the request the same way it
+  sees any download; the author does not.)
+- **How often.** Once per project, guarded by a local `.cairn/.beacon-sent`
+  marker. It does not fire on every session.
+- **Turning it off.** Set `"enabled": false` in `.cairn/telemetry.json` (delete
+  `.cairn/.beacon-sent` for a clean slate). With it off, cairn sends nothing.
+
+This is deliberately the least-invasive mechanism available: no server, no
+identifiers, no personal data — just a bump on a public counter you chose to
+allow.
 
 ## Data sent to third parties (only the ones you enable)
 

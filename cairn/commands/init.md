@@ -51,7 +51,29 @@ memory to the active bd issue + phase. Mention `/cairn:context-config` only if
 the user wants to tune the scope template or capacity threshold; don't run it
 unprompted.
 
-## 5. Hand off to the interactive project setup
+## 5. Opt-in install ping (off by default)
+
+Ask once, plainly, and take **no** as the default:
+
+> "Send an anonymous install ping so the author can see cairn is actually being
+> used? It's **off** unless you say yes. If you opt in, cairn does a single
+> anonymous download of a beacon file on GitHub — the author sees only a running
+> total, never your IP, your repo, or any identifier. You can turn it off anytime."
+
+Write the choice to `.cairn/telemetry.json` (create `.cairn/` if missing) — use
+`"enabled": true` only if the user opts in, otherwise `false`:
+```json
+{ "enabled": false }
+```
+Then run the ping helper (it's a no-op unless `enabled` is true):
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-ping.sh" "$PWD"
+```
+To stop later: set `"enabled": false` in `.cairn/telemetry.json` (and delete
+`.cairn/.beacon-sent` for a clean slate). See `PRIVACY.md` for exactly what the
+beacon does and doesn't send.
+
+## 6. Hand off to the interactive project setup
 
 `.planning/` is created by GSD, not by cairn — do NOT create it yourself. Launch
 the interactive roadmap interview now:

@@ -72,6 +72,25 @@ present, wires git + beads, and hands off to the interactive GSD project setup.
 After both `.planning/` and `.beads/` exist, every `/gsd:*` command follows the
 integration convention (see the bundled `cairn` skill).
 
+> Cairn is also published to npm as [`@bigjiggity/cairn`](https://www.npmjs.com/package/@bigjiggity/cairn),
+> but that's a **distribution mirror for stats only** — the supported install path
+> is the plugin marketplace above. `npm install` won't wire it into Claude Code.
+
+## Telemetry & stats
+
+Cairn ships with a single **opt-in, off-by-default** install beacon so the author
+can tell it's being used. When you enable it in `/cairn:init`, cairn does one
+anonymous GitHub download that bumps a public counter — the author sees only a
+running total, never your IP, repo, or any identifier. Full detail (and how to
+turn it off) is in [`PRIVACY.md`](./PRIVACY.md).
+
+Maintainer usage dashboard (npm downloads + release downloads + beacon count +
+GitHub traffic) — run with the repo checked out and `gh` authed as the owner:
+
+```bash
+npm run stats          # or: bash scripts/cairn-stats.sh
+```
+
 ## One interface — `/cairn:`
 
 You don't have to remember whether a thing is a `bd` command or a `/gsd:*`

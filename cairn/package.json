@@ -1,0 +1,50 @@
+{
+  "name": "@bigjiggity/cairn",
+  "version": "0.9.3",
+  "description": "Batteries-included glue for three tools — GSD planning, the beads issue tracker (bd), and context-mode memory — behind one unified /cairn: command interface for Claude Code. Published to npm as a distribution mirror; the supported install path is the Claude Code plugin marketplace (see README).",
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "gsd",
+    "get-shit-done",
+    "beads",
+    "bd",
+    "planning",
+    "issue-tracker",
+    "workflow",
+    "context-mode"
+  ],
+  "homepage": "https://github.com/BigJiggity/claude-plugins/tree/main/cairn",
+  "bugs": {
+    "url": "https://github.com/BigJiggity/claude-plugins/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BigJiggity/claude-plugins.git",
+    "directory": "cairn"
+  },
+  "author": {
+    "name": "BigJiggity",
+    "url": "https://github.com/BigJiggity"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "commands",
+    "skills",
+    "hooks",
+    "adapters",
+    "scripts",
+    "templates",
+    "docs",
+    ".claude-plugin",
+    "README.md",
+    "PRIVACY.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "stats": "bash scripts/cairn-stats.sh"
+  }
+}
