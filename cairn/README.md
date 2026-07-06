@@ -72,7 +72,7 @@ present, wires git + beads, and hands off to the interactive GSD project setup.
 After both `.planning/` and `.beads/` exist, every `/gsd:*` command follows the
 integration convention (see the bundled `cairn` skill).
 
-> Cairn is also published to npm as [`@bigjiggity/cairn`](https://www.npmjs.com/package/@bigjiggity/cairn),
+> Cairn is also published to npm as [`@eventually-consistent/cairn`](https://www.npmjs.com/package/@eventually-consistent/cairn),
 > but that's a **distribution mirror for stats only** — the supported install path
 > is the plugin marketplace above. `npm install` won't wire it into Claude Code.
 

@@ -1,5 +1,5 @@
 {
-  "name": "@bigjiggity/cairn",
+  "name": "@eventually-consistent/cairn",
   "version": "0.9.3",
   "description": "Batteries-included glue for three tools — GSD planning, the beads issue tracker (bd), and context-mode memory — behind one unified /cairn: command interface for Claude Code. Published to npm as a distribution mirror; the supported install path is the Claude Code plugin marketplace (see README).",
   "keywords": [

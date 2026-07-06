@@ -18,8 +18,8 @@ set -uo pipefail
 
 # Constants
 REPO="BigJiggity/claude-plugins"
-NPM_PKG="@bigjiggity/cairn"
-NPM_PKG_ENC="@bigjiggity%2Fcairn"
+NPM_PKG="@eventually-consistent/cairn"
+NPM_PKG_ENC="@eventually-consistent%2Fcairn"
 BEACON_TAG="install-beacon"
 BEACON_ASSET="beacon"
 
