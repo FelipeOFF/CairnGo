@@ -45,6 +45,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "stats": "bash scripts/cairn-stats.sh"
+    "stats": "bash scripts/cairn-stats.sh",
+    "prepublishOnly": "find . -type d -name __pycache__ -prune -exec rm -rf {} +"
   }
 }
