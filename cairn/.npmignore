@@ -7,3 +7,5 @@ scripts/__pycache__/
 *.pyo
 .cairn/.beacon-sent
 *.log
+server/node_modules
+server/dist
