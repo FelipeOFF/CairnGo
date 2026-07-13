@@ -8,4 +8,3 @@ scripts/__pycache__/
 .cairn/.beacon-sent
 *.log
 server/node_modules
-server/dist
