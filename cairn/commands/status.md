@@ -1,13 +1,13 @@
 ---
-description: One combined view — beads ready/blocked work plus GSD project progress
+description: One combined view — plan phases, tracker issue states, drift
 ---
 
-Show a single status view that fuses both tools:
+Show project status:
 
-1. `bd ready` — work claimable right now.
-2. Dependency-blocked work — `bd list` and call out issues waiting on open deps.
-3. The active phase's open issues — `bd list -l phase-<current> --status open`.
-4. Roadmap-level state — `/gsd:progress`.
-
-Summarize the four together in a few lines: what's in progress, what's ready to
-pick up next, and what's blocking. Keep it tight.
+1. `plan_status()` — phase table: number, name, artifacts present
+   (C/R/P/V), issue count.
+2. For the active phase (`context_get`), `issue_get` each referenced issue and
+   show id · title · state · assignee.
+3. `plan_drift()` — append flagged items, each with its one-line remedy
+   (missing → recreate + `plan_issues_set`; closed-unverified → verify or reopen).
+4. Keep it to one screen; end with the obvious next `/cairn:` step.
