@@ -1,12 +1,13 @@
 ---
-description: Ship — verify every completed phase's beads are closed, then GSD ship / push
+description: Ship — gate on drift-clean and no open issues in verified phases, then push
 ---
 
 Pre-ship gate, then ship:
 
-1. For each completed phase `N`, `bd list -l phase-N --status open` must be empty.
-   If any issues are still open, **stop** and report them — do not push.
-2. When all completed phases are clean, run `/gsd:ship` to finalize (it handles
-   the push). If the project doesn't use `/gsd:ship`, push the branch directly.
+1. `plan_drift()` — anything flagged: **stop** and report; do not push.
+2. `plan_status()` — every phase with VERIFICATION.md must show all its issues
+   closed (`issue_get` spot-check); report any still open and stop.
+3. Clean gate → commit outstanding plan-doc changes, push the branch, and (if the
+   project uses PRs) offer to open/update one.
 
-Never push with open issues on a phase marked done.
+Never push with flagged drift or open issues on a verified phase.
