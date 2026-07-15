@@ -1,18 +1,15 @@
 ---
-description: Start a new cairn project — interview, plan artifacts, tracker mirror, issues
-argument-hint: "[project name]"
+description: Start a new cairn project — GSD new-project, then create the bd issues and phase↔beads maps
 ---
 
-Start a new cairn 2.0 project in this repo, per the `cairn-planning` skill.
+Kick off a new project end to end, under the `cairn` conventions:
 
-1. Confirm `cairn.json` exists (else point at `templates/cairn.json.example` and stop).
-2. Interview the user briefly: vision, 3–10 requirements, phase breakdown. Native
-   plan mode is appropriate for this conversation at standard/deep depth.
-3. `plan_scaffold_project(name: $ARGUMENTS or the agreed name)`, then write the
-   vision and requirements into `.cairn/plans/PROJECT.md` and the phase table
-   into `roadmap.md`.
-4. For each phase N: `plan_scaffold_phase(number, name)` and
-   `plan_phase_ensure(number, name)` → tracker phase id.
-5. For each requirement: `issue_create(title, body, phase: <phase id>)`, then
-   record the ids per phase with `plan_issues_set(phaseDir, issues)`.
-6. Report: phases created, issues created, next step `/cairn:plan 1`.
+1. If `bd` or `.beads/` is missing, run `/cairn:init` first and stop.
+2. Run `/gsd:new-project` to create `.planning/` + the ROADMAP (interactive).
+3. Once the roadmap exists, apply the `cairn` skill: for every requirement,
+   `bd create` one issue, label it `phase-N`, and write each phase's
+   `.planning/phases/NN-<slug>/NN-BEADS-MAP.md`. Capture roadmap-implied
+   ordering with `bd dep add`.
+4. Confirm: `bd list` shows the new issues and each phase dir has its map.
+
+Then the loop is `/cairn:plan N` → `/cairn:work N` → `/cairn:ship`.

@@ -1,19 +1,17 @@
 ---
-description: Execute a phase — claim issues, do the work, close on verified done
-argument-hint: "<phase-number>"
+description: Execute a phase — claim its beads, run GSD execute-phase, close on success
+argument-hint: <phase-number>
 ---
 
-Execute phase **$ARGUMENTS** per the `cairn-planning` skill.
+Execute phase **$ARGUMENTS** under the `cairn` conventions:
 
-1. `plan_status()` → this phase's `issues` list. Empty → stop and point at
-   `/cairn:plan $ARGUMENTS`.
-2. For each issue id, in order: `issue_get(id)` — skip closed ones; if assigned
-   to someone else, say so and skip unless the user overrides.
-3. Before starting an issue: `issue_update(id, state: "in_progress")` and
-   `context_set(phase: $ARGUMENTS, issueId: id)`.
-4. Do the work the issue + PLAN.md describe. Track in-session with TaskCreate;
-   the tracker stays the durable truth.
-5. On completion **with tests passing**: `issue_close(id)`. On stopping early:
-   leave in_progress and report why.
-6. After the last issue: `context_set(issueId: null)` and suggest
-   `/cairn:verify $ARGUMENTS`.
+1. For each plan in the phase, **before starting it**: for every id in that
+   plan's `beads:` frontmatter run
+   `bd update <id> --claim && bd update <id> --status in_progress`.
+2. Run `/gsd:execute-phase $ARGUMENTS`.
+3. On a plan's successful completion **and** verification, close its ids:
+   `bd close <id> --reason="<1–2 sentence summary>"`.
+4. Done check: `bd list -l phase-$ARGUMENTS --status open` should be empty when
+   the phase is complete — report anything still open.
+
+Next: `/cairn:verify $ARGUMENTS` or `/cairn:ship`.

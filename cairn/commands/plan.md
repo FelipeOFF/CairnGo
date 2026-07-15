@@ -1,21 +1,16 @@
 ---
-description: Plan a phase — research (per depth), write PLAN.md, reconcile tracker
-argument-hint: "<phase-number> [--quick|--deep] [--model <auto|haiku|sonnet|opus>]"
+description: Plan a phase — GSD plan-phase plus beads map reconciliation
+argument-hint: <phase-number>
 ---
 
-Plan phase **$ARGUMENTS** per the `cairn-planning` skill's depth dial.
+Plan phase **$ARGUMENTS** under the `cairn` conventions:
 
-1. `plan_status()` — confirm the phase dir exists (else `plan_scaffold_phase` first;
-   deep depth passes `research: true`).
-2. Depth (flag > PLAN.md frontmatter `depth:` > cairn.json default > standard):
-   - quick: no research; draft PLAN.md tasks directly.
-   - standard: one research subagent for unknowns; write RESEARCH.md if material.
-   - deep: parallel research fan-out per the skill's model-routing rubric, then a
-     plan-checker pass over the draft.
-3. Write the task breakdown into the phase's PLAN.md body. Keep decisions in
-   CONTEXT.md — on conflict with tracker issue text, CONTEXT.md wins; update the
-   issue via `issue_update`, never silently follow it.
-4. Reconcile: `plan_drift()` — resolve anything flagged for this phase
-   (recreate missing issues via `issue_create` + `plan_issues_set`; question
-   closed-unverified ones with the user).
-5. Report the plan summary and next step `/cairn:work <N>`.
+1. READ that phase's `.planning/phases/$ARGUMENTS*-*/NN-BEADS-MAP.md` first.
+2. Run `/gsd:plan-phase $ARGUMENTS`.
+3. Reconcile divergence: where a bd issue conflicts with the phase `CONTEXT.md`,
+   **CONTEXT wins** — flag it ⚠ and `bd update` the issue to match (with a dated
+   note pointing at the GSD doc). Create issues for any unmapped requirement and
+   add them to the map.
+4. Set each generated `PLAN.md`'s `beads:` frontmatter to the bd ids it advances.
+
+Next: `/cairn:work $ARGUMENTS`.
