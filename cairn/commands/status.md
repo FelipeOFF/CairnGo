@@ -6,7 +6,10 @@ Show a single status view that fuses both tools:
 
 1. `bd ready` — work claimable right now.
 2. Dependency-blocked work — `bd list` and call out issues waiting on open deps.
-3. The active phase's open issues — `bd list -l phase-<current> --status open`.
+3. The active phase's open issues —
+   `bd list -l m-<milestone>,phase-<current> --status open`, with the milestone
+   from ROADMAP.md's current milestone header (drop the `m-*` label in legacy
+   repos without milestone labels).
 4. Roadmap-level state — `/gsd:progress`.
 
 Summarize the four together in a few lines: what's in progress, what's ready to

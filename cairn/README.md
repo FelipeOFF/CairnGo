@@ -27,13 +27,20 @@ Cairn ships only the conventions that connect them.
 
 When a repo contains **both** `.planning/` (GSD) and `.beads/` (beads):
 
-- **Phase ↔ issues** — each GSD phase `NN` maps requirement IDs → bd issue IDs
-  in `.planning/phases/NN-<slug>/NN-BEADS-MAP.md`.
-- **Labels** — every bd issue for phase `N` carries `phase-N` (`bd list -l phase-N`).
+- **Labels** — every cairn-managed issue carries the pair `m-<milestone>` +
+  `phase-<N>` (e.g. `bd list -l m-v1.0,phase-3`); the milestone label
+  disambiguates phase numbers that repeat across milestones.
+- **Metadata** — every cairn-managed issue is stamped with
+  `{"gsd": {"req", "phase", "milestone"}}`; `(gsd.req, gsd.milestone)` is the
+  dedup key.
+- **Phase ↔ issues** — each GSD phase `NN` gets a **generated**
+  `.planning/phases/NN-<slug>/NN-BEADS-MAP.md`: `cairn-map` renders bd state
+  between markers, and human notes outside the markers survive regeneration.
 - **Plan frontmatter** — each `PLAN.md` carries `beads: [ids]` it advances.
-- **Lifecycle** — `new-project` creates issues, `plan-phase` reads the map and
-  sets frontmatter, `execute-phase` claims → in_progress → closes, `ship`
-  verifies all closed before push.
+- **Lifecycle** — `new-project` creates stamped issues and generates the maps,
+  `plan-phase` regenerates + reads the map and sets frontmatter,
+  `execute-phase` claims → in_progress → closes, `ship` verifies all closed
+  before push.
 - **Precedence** — GSD phase docs win over conflicting bd issue text.
 
 It activates **only** when both directories are present, so it's silent in

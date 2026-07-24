@@ -9,10 +9,10 @@ workflow. Show it to the user, then offer the obvious next step for their repo
 ```text
 SETUP
   /cairn:init             ensure GSD + beads, wire git + bd init, then hand off
-  /cairn:new              new project: /gsd:new-project + create bd issues + maps
+  /cairn:new              new project: /gsd:new-project + stamped bd issues + generated maps
 
 LOOP
-  /cairn:plan  <N>        plan phase N  (GSD plan-phase + reconcile beads map)
+  /cairn:plan  <N>        plan phase N  (GSD plan-phase + regenerate/reconcile beads map)
   /cairn:work  <N>        execute phase N  (claim → execute → close per plan)
   /cairn:verify <N>       verify phase N  (GSD verify-work × beads cross-check)
   /cairn:ship             gate on all phase issues closed, then GSD ship / push

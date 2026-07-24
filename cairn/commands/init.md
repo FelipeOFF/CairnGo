@@ -81,7 +81,9 @@ the interactive roadmap interview now:
 /gsd:new-project
 ```
 After the roadmap exists, follow the `cairn` skill: create one bd issue per
-requirement, label each `phase-N`, and write each `NN-BEADS-MAP.md`. Then the
+requirement, stamped with the `gsd` metadata and the `m-<milestone>` +
+`phase-<N>` label pair; generate each `NN-BEADS-MAP.md` with
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>`. Then the
 normal loop — `/gsd:plan-phase 1`, `/gsd:execute-phase 1`, … — runs under the
 cairn conventions, which activate automatically once both `.planning/` and
 `.beads/` exist.
