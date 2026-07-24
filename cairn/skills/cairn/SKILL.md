@@ -59,13 +59,17 @@ Requirements with no bd issue yet → create them (see lifecycle below).
   create one bd issue per requirement (`bd create`), label each `phase-N`, and
   write each phase's `NN-BEADS-MAP.md`. Capture dependencies with bd's
   dependency support where the roadmap implies ordering.
-- **`/gsd:plan-phase N`** — READ `NN-BEADS-MAP.md` first. Reconcile any
+- **`/gsd:plan-phase N`** — READ the phase's `NN-BEADS-MAP.md` first (resolve
+  the phase directory by its numeric prefix — `3` and `03` are the same phase,
+  and the directory name may carry a project-code prefix). Reconcile any
   divergence between existing bd issues and the phase `CONTEXT.md` (CONTEXT
   wins — flag ⚠ and update the issue). Create issues for unmapped requirements.
   Set the `beads:` frontmatter on each generated `PLAN.md`.
 - **`/gsd:execute-phase N` / `/gsd:execute-plan`** — for each plan, on start:
-  `bd update <id> --claim && bd update <id> --status in_progress` for every id
-  in that plan's `beads:` frontmatter. On successful completion + verification:
+  `bd update <id> --claim` for every id in that plan's `beads:` frontmatter
+  (`--claim` atomically assigns the issue and sets its status to
+  `in_progress` — no separate `--status` call needed). On successful
+  completion + verification:
   `bd close <id> --reason="<1-2 sentence summary>"`.
 - **`/gsd:ship` / session close** — before pushing, confirm every bd issue for
   completed plans is closed (`bd list -l phase-N --status open` should be empty
@@ -90,7 +94,7 @@ create `.planning/`.
 If the repo also has `.cairn/sync.json` with an enabled backend, bd issues
 are mirrored two-way (hub-and-spoke) to GitHub Issues / GitLab / Jira / Asana /
 Azure Boards — see the **`cairn-sync`** skill. PUSH the matching mirror right
-after each bd lifecycle write (`create` / claim→`update` / `close`); reconcile
+after each bd lifecycle write (`create` / `--claim` / `close`); reconcile
 external edits back with `/cairn:sync-pull`. Configure via
 `/cairn:sync-config`.
 

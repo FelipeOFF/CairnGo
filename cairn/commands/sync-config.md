@@ -38,10 +38,11 @@ truth; tools sync to bd (hub-and-spoke). Do the following:
    - Azure DevOps PAT (Work Items Read & Write): `https://dev.azure.com/<org>/_usersSettings/tokens`
    - GitHub: `gh auth status` (no separate token needed)
 
-5. Add `.cairn/id-map.json`, `.cairn/state.json`, and
-   `.cairn/conflicts.json` are generated at sync time. `sync.json` is meant
-   to be committed; the others may be committed or gitignored per the user's
-   preference — ask.
+5. Explain the generated files: `.cairn/id-map.json`, `.cairn/state.json`, and
+   `.cairn/conflicts.json` are generated automatically at sync time — do not
+   create them by hand. `sync.json` is meant to be committed; the generated
+   three are gitignored by default (`cairn-init.sh` adds the entries) — a team
+   that prefers to commit any of them can remove its line from `.gitignore`.
 
 6. Tell the user how to drive it:
    - PUSH happens automatically during the `cairn-sync` lifecycle, or
