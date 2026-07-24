@@ -44,13 +44,31 @@ else
   echo "  ✓ bd init"
 fi
 
-# 4. keep per-machine markers out of git — the opt-in beacon guard is local-only
+# 4. keep generated sync state and per-machine markers out of git — the sync
+#    id-map/state/conflicts files and the opt-in beacon guard are local-only
+#    (docs/sync.md §4). Idempotent: each entry is appended at most once.
 GI=".gitignore"
-if grep -qxF '.cairn/.beacon-sent' "$GI" 2>/dev/null; then
-  echo "  ✓ .cairn/.beacon-sent already gitignored"
+CAIRN_IGNORES=(
+  '.cairn/.beacon-sent'
+  '.cairn/id-map.json'
+  '.cairn/state.json'
+  '.cairn/conflicts.json'
+)
+ADDED=0
+for entry in "${CAIRN_IGNORES[@]}"; do
+  if grep -qxF "$entry" "$GI" 2>/dev/null; then
+    continue
+  fi
+  if [ "$ADDED" -eq 0 ]; then
+    printf '\n# cairn: generated sync state + per-machine markers (never commit)\n' >> "$GI"
+  fi
+  printf '%s\n' "$entry" >> "$GI"
+  ADDED=1
+done
+if [ "$ADDED" -eq 1 ]; then
+  echo "  ✓ gitignored .cairn state files (.beacon-sent, id-map, state, conflicts)"
 else
-  printf '\n# cairn: per-machine opt-in beacon marker (never commit)\n.cairn/.beacon-sent\n' >> "$GI"
-  echo "  ✓ gitignored .cairn/.beacon-sent"
+  echo "  ✓ .cairn state files already gitignored"
 fi
 
 # 5. GSD presence — soft check; it ships as a cairn plugin dependency

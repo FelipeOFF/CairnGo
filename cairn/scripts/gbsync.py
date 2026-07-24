@@ -14,6 +14,10 @@ never sync to each other. Two directions:
         reconciles into bd with last-writer-wins by timestamp. Genuine
         both-sides-changed cases are written to .cairn/conflicts.json.
 
+Both directions accept --dry-run: walk the same decision logic but only print
+the would-be operations (issue ids + operations, one per line, prefixed
+'DRY-RUN:') without invoking any adapter or writing id-map/state/conflicts.
+
 State files (all under <project>/.cairn/):
     sync.json       backends config (committed; contains ENV VAR NAMES, no secrets)
     id-map.json     { bd_id: { backend_type: external_id } }
@@ -150,7 +154,7 @@ def enabled_backends(cfg):
 # --------------------------------------------------------------------------- #
 # PUSH:  bd -> tools
 # --------------------------------------------------------------------------- #
-def do_push(action, bd_id, base, cfg):
+def do_push(action, bd_id, base, cfg, dry_run=False):
     backends = enabled_backends(cfg)
     if not backends:
         print("[gbsync] no enabled backends — nothing to mirror")
@@ -158,6 +162,17 @@ def do_push(action, bd_id, base, cfg):
     issue = bd_fetch(bd_id)
     idmap = load_json(base / "id-map.json", {})
     entry = idmap.setdefault(bd_id, {})
+    if dry_run:
+        for b in backends:
+            btype = b.get("type", "?")
+            adapter = resolve_adapter(b.get("adapter", btype))
+            if not adapter:
+                print(f"DRY-RUN: {btype} skip {bd_id} "
+                      f"(adapter '{b.get('adapter', btype)}' not found)")
+                continue
+            ext = entry.get(btype)
+            print(f"DRY-RUN: {btype} {action} {bd_id} -> {ext or '(new)'}")
+        return 0
     results = []
     for b in backends:
         btype = b.get("type", "?")
@@ -188,7 +203,7 @@ def do_push(action, bd_id, base, cfg):
 # --------------------------------------------------------------------------- #
 # PULL:  tools -> bd  (reconcile, last-writer-wins)
 # --------------------------------------------------------------------------- #
-def do_pull(base, cfg, since_override):
+def do_pull(base, cfg, since_override, dry_run=False):
     backends = enabled_backends(cfg)
     if not backends:
         print("[gbsync] no enabled backends — nothing to pull")
@@ -204,14 +219,26 @@ def do_pull(base, cfg, since_override):
         btype = b.get("type", "?")
         adapter = resolve_adapter(b.get("adapter", btype))
         if not adapter:
-            results.append((btype, "skip", "adapter not found"))
+            if dry_run:
+                print(f"DRY-RUN: {btype} skip (adapter not found)")
+            else:
+                results.append((btype, "skip", "adapter not found"))
             continue
         items = [{"bd_id": bid, "external_id": m[btype]}
                  for bid, m in idmap.items() if m.get(btype)]
         if not items:
-            results.append((btype, "skip", "no mapped items"))
+            if dry_run:
+                print(f"DRY-RUN: {btype} skip (no mapped items)")
+            else:
+                results.append((btype, "skip", "no mapped items"))
             continue
         watermark = parse_ts(since_override or last_pull.get(btype))
+        if dry_run:
+            wm = watermark.strftime("%Y-%m-%dT%H:%M:%SZ")
+            for it in items:
+                print(f"DRY-RUN: {btype} pull {it['bd_id']} "
+                      f"<- {it['external_id']} (since {wm})")
+            continue
         out, err = run_adapter(adapter, {"action": "pull",
                                          "config": b.get("config", {}),
                                          "items": items})
@@ -259,6 +286,8 @@ def do_pull(base, cfg, since_override):
         results.append((btype, "ok",
                         f"applied={applied} conflicts={conflicted} skipped={skipped}"))
 
+    if dry_run:
+        return 0
     write_json(base / "state.json", state)
     if conflicts:
         write_json(base / "conflicts.json", conflicts)
@@ -276,9 +305,12 @@ def main():
     since = None
     if "--since" in args:
         i = args.index("--since"); since = args[i + 1]; del args[i:i + 2]
+    dry_run = "--dry-run" in args
+    if dry_run:
+        args.remove("--dry-run")
     if not args:
         die("usage: gbsync.py <create|update|close> <bd_id> | pull [--since <iso>] "
-            "[--dir <project_dir>]")
+            "[--dir <project_dir>] [--dry-run]")
 
     base = Path(project_dir) / ".cairn"
     cfg = load_json(base / "sync.json", None)
@@ -287,11 +319,11 @@ def main():
 
     action = args[0]
     if action == "pull":
-        sys.exit(do_pull(base, cfg, since))
+        sys.exit(do_pull(base, cfg, since, dry_run))
     elif action in PUSH_ACTIONS:
         if len(args) != 2:
-            die(f"usage: gbsync.py {action} <bd_id>")
-        sys.exit(do_push(action, args[1], base, cfg))
+            die(f"usage: gbsync.py {action} <bd_id> [--dry-run]")
+        sys.exit(do_push(action, args[1], base, cfg, dry_run))
     else:
         die(f"unknown action '{action}' (use create|update|close|pull)")
 
