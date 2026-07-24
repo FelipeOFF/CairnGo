@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bd (beads)
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install bats-core
+        run: npm install -g bats
+
+      - name: Lint Python scripts
+        run: python3 -m py_compile cairn/scripts/*.py cairn/adapters/*.py
+
+      - name: Run tests
+        run: |
+          bd version
+          bats tests/
