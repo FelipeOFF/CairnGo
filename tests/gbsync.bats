@@ -49,7 +49,10 @@ EOF
   [ -n "$output" ]
   local line
   while IFS= read -r line; do
-    [[ "$line" == DRY-RUN:* ]]
+    case "$line" in
+      DRY-RUN:*) ;;
+      *) echo "unexpected non-DRY-RUN line: $line" >&2; return 1 ;;
+    esac
   done <<< "$output"
 }
 
@@ -80,7 +83,10 @@ EOF
 
   run bash "$CAIRN_SCRIPTS_DIR/gbsync.sh" update "$BD_EPIC" --dir "$PWD" --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == DRY-RUN:* ]]
+  case "$output" in
+    DRY-RUN:*) ;;
+    *) echo "output does not start with DRY-RUN:: $output" >&2; return 1 ;;
+  esac
 
   [ ! -e .cairn/id-map.json ]
   [ ! -e .cairn/state.json ]

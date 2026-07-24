@@ -36,7 +36,7 @@ CAIRN_GITIGNORE_ENTRIES=(
   [ "$status" -eq 0 ]
   run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh" "$PWD"
   [ "$status" -eq 0 ]
-  [[ "$output" == *".cairn state files already gitignored"* ]]
+  grep -qF '.cairn state files already gitignored' <<< "$output"
 
   local entry
   for entry in "${CAIRN_GITIGNORE_ENTRIES[@]}"; do

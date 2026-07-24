@@ -106,6 +106,6 @@ EOF
   # bats); /usr/bin:/bin carries bash and coreutils but never bd.
   run env -i PATH="/usr/bin:/bin" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" "$bats_bin" --tap "$stub"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"# skip"* ]]
-  [[ "$output" == *"bd is not on PATH"* ]]
+  grep -qF '# skip' <<< "$output"
+  grep -qF 'bd is not on PATH' <<< "$output"
 }
