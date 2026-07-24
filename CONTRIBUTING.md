@@ -9,7 +9,8 @@
   gating, sync) is a CLI script in `cairn/scripts/`, invoked by the prose
   commands. If a SKILL.md sentence can be a script check, make it one.
 - **Generated artifacts stay generated.** `NN-BEADS-MAP.md` content between
-  `<!-- cairn:generated -->` markers is written only by `cairn-map.sh`.
+  the `<!-- cairn:generated:start -->` / `<!-- cairn:generated:end -->` markers
+  is written only by `cairn-map.sh`.
 
 ## Repo layout
 
