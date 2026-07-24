@@ -62,16 +62,19 @@ If you enable **no** backends, the plugin sends no data anywhere.
 
 ## Context-mode integration (local memory only)
 
-The optional context-mode integration (`.cairn/context.json`,
-`cairn-context` skill) sends **no data anywhere**. It only adds labels to,
-and runs searches against, the local knowledge base owned by the separate
+The context-mode integration (`cairn-context` skill) is **on by default** —
+context-mode ships as a cairn plugin dependency — and sends **no data
+anywhere**. It only adds labels to, and runs searches against, the local
+knowledge base owned by the separate
 [context-mode](https://github.com/mksglu/context-mode) plugin — all on your
 machine. It transmits nothing to the author or any third party, and it is
 **non-destructive**: it never deletes that knowledge base (it never calls
 `ctx_purge`); any wipe is a manual action you take yourself. context-mode is a
 separate plugin governed by **its own** behavior and policy; review that project
-for how it stores data locally. `context.json` (committed) holds only switches
-and a numeric threshold — no secrets.
+for how it stores data locally. `.cairn/context.json` is **optional tuning**
+(defaults apply without it; set `enabled: false` in it to switch the
+conventions off); when created it is meant to be committed and holds only
+switches and a numeric threshold — no secrets.
 
 ## Credentials and secrets
 
@@ -89,8 +92,8 @@ The plugin reads and writes files inside your repository: `.beads/`,
 `.planning/`, and `.cairn/` (`sync.json`, `context.json`, `id-map.json`,
 `state.json`, `conflicts.json`). These stay in your working tree under your
 control. The generated state files are gitignored by default; `sync.json` and
-`context.json` are meant to be committed and whether to commit the rest is your
-choice.
+`context.json` (both optional) are meant to be committed when you create them,
+and whether to commit the rest is your choice.
 
 ## Changes
 
