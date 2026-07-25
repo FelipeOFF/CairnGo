@@ -4,109 +4,133 @@
 > took. This plugin does the same for a project: it stacks **plan → work →
 > memory** into one marker so a solo build stays on-trail.*
 
-**Cairn** is a Claude Code plugin that wires the [GSD](https://github.com/jnuyens/gsd-plugin)
-planning workflow (`/gsd:*`, `.planning/`) to the [beads](https://github.com/gastownhall/beads)
-issue tracker (`bd`, `.beads/`) so phase planning and execution **create,
-claim, and close** tracked work automatically — and makes the
-[context-mode](https://github.com/mksglu/context-mode) knowledge base
-**intent-aware**, scoping compressed memory to the active issue and phase.
+**Cairn is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin**
+that fuses the [GSD](https://github.com/jnuyens/gsd-plugin) planning workflow
+(`/gsd:*`, `.planning/`), the [beads](https://github.com/gastownhall/beads)
+issue tracker (`bd`, `.beads/`), and
+[context-mode](https://github.com/mksglu/context-mode) memory (`ctx_*`) into
+**one lifecycle**: planning creates tracked issues, execution claims and closes
+them, shipping is gated on the tracker, and compressed memory is scoped to the
+issue you are actually working on. Cairn forks none of the three — it installs
+the machinery (a GSD capability, Claude Code hooks, a git pre-push gate) that
+makes them behave as a single tool.
 
-**Batteries included.** Installing cairn auto-installs GSD **and** context-mode
-(declared plugin dependencies) and, on your first session, offers to install the
-beads `bd` binary. Then a single [`/cairn:init`](#install) wires a project end to
-end — git, beads, GSD, and the first roadmap.
+## How it feels
 
-It stays **thin glue** — it does not fork, vendor, or modify GSD, beads, or
-context-mode. GSD is re-published in this marketplace as a pointer to its
-upstream (`jnuyens/gsd-plugin`) so it can be a clean same-marketplace dependency;
-context-mode is pulled **cross-marketplace** from its own `context-mode`
-marketplace (`mksglu/context-mode`); beads stays an independent upstream binary.
-Cairn ships only the conventions that connect them.
+You run the loop you already know — plain `/gsd:*`, or the `/cairn:*` verbs —
+and tracking happens invisibly:
 
-## What it does
+```text
+/gsd:plan-phase 3       # plans link issues: beads: frontmatter set, phase map regenerated
+/gsd:execute-phase 3    # each plan's issues claimed at wave start, closed with a summary on completion
+/gsd:ship               # gated: blocked while the phase still has non-closed issues
+```
 
-When a repo contains **both** `.planning/` (GSD) and `.beads/` (beads):
-
-- **Labels** — every cairn-managed issue carries the pair `m-<milestone>` +
-  `phase-<N>` (e.g. `bd list -l m-v1.0,phase-3`); the milestone label
-  disambiguates phase numbers that repeat across milestones.
-- **Metadata** — every cairn-managed issue is stamped with
-  `{"gsd": {"req", "phase", "milestone"}}`; `(gsd.req, gsd.milestone)` is the
-  dedup key.
-- **Phase ↔ issues** — each GSD phase `NN` gets a **generated**
-  `.planning/phases/NN-<slug>/NN-BEADS-MAP.md`: `cairn-map` renders bd state
-  between markers, and human notes outside the markers survive regeneration.
-- **Plan frontmatter** — each `PLAN.md` carries `beads: [ids]` it advances.
-- **Lifecycle** — `new-project` creates stamped issues and generates the maps,
-  `plan-phase` regenerates + reads the map and sets frontmatter,
-  `execute-phase` claims → in_progress → closes, `ship` verifies all closed
-  before push.
-- **Precedence** — GSD phase docs win over conflicting bd issue text.
-- **Migration & health** — `/cairn:migrate` adopts pre-existing GSD-only,
-  beads-only, or unwired repos and `/cairn:doctor` audits the wiring (full
-  migration guide: `docs/MIGRATION.md`, coming in a later phase).
-
-It activates **only** when both directories are present, so it's silent in
-non-GSD or non-beads repos.
-
-## Requirements
-
-Cairn handles its own dependencies:
-
-- **GSD** — installed automatically as a plugin dependency (provides `/gsd:*`).
-- **context-mode** — a plugin dependency pulled cross-marketplace from the
-  `context-mode` marketplace (provides the `ctx_*` tools + intent-aware memory).
-  Add that marketplace if you don't have it
-  (`/plugin marketplace add mksglu/context-mode`), else the dependency stays
-  unresolved and cairn is disabled until you do.
-- **beads** (`bd`) — a binary, not a plugin, so cairn offers to install it on
-  your first session (or run `/cairn:init`). Manual install:
-  `brew install beads` · `npm install -g @beads/bd`.
+No `bd` invocations to remember, no status tables to maintain by hand. The
+tracker fills itself in as the plan advances, and `/cairn:status` (driven by
+`bd ready`) tells you the one next action.
 
 ## Install
 
-```text
-/plugin marketplace add eventually-consistent-code/claude-plugins
-/plugin install cairn@eventually-consistent-code     # GSD comes with it
-```
-
-Then, in the repo you want to set up:
+> **Cross-marketplace dependency — read this first.** cairn depends on
+> [context-mode](https://github.com/mksglu/context-mode), which lives in its
+> **own** `context-mode` marketplace. Add that marketplace too, otherwise the
+> dependency stays unresolved and cairn is disabled until you do.
 
 ```text
-/cairn:init        # soup to nuts: ensures GSD + bd, runs git + bd init,
-                   # then launches /gsd:new-project for the roadmap interview
+/plugin marketplace add mksglu/context-mode    # the context-mode dependency lives here
+/plugin marketplace add FelipeOFF/CairnGo
+/plugin install cairn@cairngo                  # GSD installs with it (declared dependency)
 ```
 
-`/cairn:init` is the one command you need to start — it ensures both tools are
-present, wires git + beads, and hands off to the interactive GSD project setup.
-After both `.planning/` and `.beads/` exist, every `/gsd:*` command follows the
-integration convention (see the bundled `cairn` skill).
+- **GSD** installs automatically — it is re-published in this marketplace as a
+  pointer to its upstream (`jnuyens/gsd-plugin`), so it stays a clean
+  same-marketplace dependency without being forked.
+- **beads** (`bd`) is a binary, not a plugin, so cairn offers to install it on
+  your first session. Manual install: `brew install beads` ·
+  `npm install -g @beads/bd`.
 
-> Cairn is also published to npm as [`@eventually-consistent/cairn`](https://www.npmjs.com/package/@eventually-consistent/cairn),
-> but that's a **distribution mirror for stats only** — the supported install path
-> is the plugin marketplace above. `npm install` won't wire it into Claude Code.
+Then, in the repo you want wired:
 
-## Telemetry & stats
-
-Cairn ships with a single **opt-in, off-by-default** install beacon so the author
-can tell it's being used. When you enable it in `/cairn:init`, cairn does one
-anonymous GitHub download that bumps a public counter — the author sees only a
-running total, never your IP, repo, or any identifier. Full detail (and how to
-turn it off) is in [`PRIVACY.md`](./PRIVACY.md).
-
-Maintainer usage dashboard (npm downloads + release downloads + beacon count +
-GitHub traffic) — run with the repo checked out and `gh` authed as the owner:
-
-```bash
-npm run stats          # or: bash scripts/cairn-stats.sh
+```text
+/cairn:init
 ```
+
+`/cairn:init` detects the repo's state before touching anything. Greenfield →
+it wires git + `bd init`, installs the GSD capability project-scope, and hands
+off to the interactive `/gsd:new-project`. A repo with existing `.planning/`
+or `.beads/` history → it stops and routes to `/cairn:migrate` (next section)
+instead of re-interviewing you.
+
+## Already using GSD or beads? Start here
+
+`/cairn:migrate` adopts an existing repo without losing history. It detects
+which of four states the repo is in and builds the matching plan:
+
+| State | You have | What migration does |
+|---|---|---|
+| **A** — GSD-only | `.planning/`, no `.beads/` | **Backfill**: one epic per roadmap phase (+ phase deps), one stamped issue per requirement; completed phases become *closed* issues, `beads:` frontmatter is appended to plans, maps are generated |
+| **B** — beads-only | `.beads/`, no `.planning/` | **Bootstrap**: epics (or topological layers of the dependency graph) become proposed phases — you confirm the grouping before anything is written — and REQUIREMENTS / ROADMAP / STATE are generated from the issues |
+| **C** — both, unwired | both dirs, no stamps or maps | **Reconcile**: exact `CAT-NN` title matches link automatically, fuzzy matches only with your per-item confirmation, orphan issues listed for you to route |
+| **W** — wired | both, already stamped | Nothing to migrate — run `/cairn:doctor` instead |
+
+What it will **never** do: run `/gsd:new-project` over an existing
+`.planning/` — no re-interview, no clobbered setup. Every mode is **dry-run
+first** (the full plan of creates, closes, labels, and writes is shown before
+a single mutation) and **idempotent**: already-adopted issues are updated, not
+recreated (the `gsd` metadata stamp is the dedup key), and an interrupted run
+resumes from the journal at `.cairn/migrate-state.json`.
+
+**📖 Full guide:** [`docs/migration.md`](./docs/migration.md)
+
+## What the fusion is made of
+
+Four layers, ordered from "enforced by machinery" down to "enforced by
+convention":
+
+| Layer | Where | What it guarantees |
+|---|---|---|
+| **GSD capability** | `.gsd/capabilities/cairn/` (installed by `/cairn:init`) | plain `/gsd:*` drives beads: `plan:post` writes `beads:` frontmatter + regenerates the map, `execute:wave:pre` claims, `execute:wave:post` closes with a SUMMARY-derived reason, `verify:post` cross-checks, and `ship:pre` is a **blocking, deterministic gate** |
+| **Claude Code hooks** | `hooks/` | SessionStart injects context + migration nudges; PostToolUse on `bd create/update/close` fires the sync mirror push + phase-map refresh; Stop warns about claims left `in_progress` |
+| **git pre-push gate** | `.git/hooks/pre-push` (chainable shim installed by `cairn-init.sh`) | the ship gate holds with no LLM in the loop: a push with non-closed issues in a completed phase fails |
+| **Conventions** | `skills/` | the same rules in prose — the fallback layer every runtime gets |
+
+The data model underneath (bd is the machine-readable source of truth):
+
+- **Pair labels** — every managed issue carries `m-<milestone>` + `phase-<N>`;
+  the milestone label disambiguates phase numbers that repeat across
+  milestones (`bd list -l m-v1.0,phase-3` — a comma list is AND).
+- **Metadata stamp** — every managed issue carries
+  `{"gsd": {"req", "phase", "milestone", "plan"}}`; `(gsd.req, gsd.milestone)`
+  is the dedup key, so re-runs update instead of duplicating.
+- **Generated maps** — each phase's `NN-BEADS-MAP.md` is rendered from
+  `bd list --json` between `<!-- cairn:generated -->` markers; notes outside
+  the markers survive regeneration.
+- **Plan frontmatter** — every `PLAN.md` lists the bd ids it advances
+  (`beads: [ids]`); that list is what claim and close operate on.
+- **Precedence** — when an issue's text conflicts with GSD phase docs, the GSD
+  doc wins; the issue is updated with a dated reconciliation note.
+
+Drift never accumulates invisibly: **`/cairn:doctor`** is a nine-check
+deterministic audit (requirement ↔ issue ↔ map ↔ frontmatter, superseded
+plans, orphans, label pairs, stale claims, plus `bd doctor` delegation) with a
+`--fix-labels` repair.
+
+## Version floor
+
+- **beads ≥ 1.1.0** — check with `bd version`. The metadata-merge and
+  bulk-create behavior cairn relies on lands in 1.1.0.
+- **GSD ≥ 1.8.0** — pinned by the capability's `engines.gsd`; GSD itself
+  installs from upstream as a plugin dependency.
+- **Enforcement is Claude Code-only** — the capability, hooks, and pre-push
+  shim are Claude Code plugin machinery; other GSD runtimes get the
+  conventions (the skills), not the enforcement.
 
 ## One interface — `/cairn:`
 
 You don't have to remember whether a thing is a `bd` command or a `/gsd:*`
-command. `/cairn:` is a single namespace over both; each workflow verb runs the
-combined GSD+beads lifecycle per the integration conventions. `/cairn:help`
-prints this map.
+command. `/cairn:` is a single namespace over all three tools; each workflow
+verb runs the combined GSD+beads lifecycle. `/cairn:help` prints this map.
 
 ```text
 SETUP
@@ -147,113 +171,85 @@ ESCAPE HATCHES (raw passthrough — reach anything the verbs don't wrap)
   /cairn:ctx <op> [args]  run any context-mode op  (e.g. /cairn:ctx stats)
 ```
 
-The verbs are a curated facade over all three tools, not a full mirror — the
-three passthroughs (`/cairn:bd`, `/cairn:gsd`, `/cairn:ctx`) reach anything a
-verb doesn't wrap, so the whole of beads, GSD, and context-mode stays one
-keystroke away without cairn drifting as they change. All three are
-dependencies, so the memory verbs work out of the box; `/cairn:context-config`
-only tunes the scope template and capacity threshold.
+The verbs are a curated facade, not a full mirror — the three passthroughs
+(`/cairn:bd`, `/cairn:gsd`, `/cairn:ctx`) reach anything a verb doesn't wrap,
+so the whole of beads, GSD, and context-mode stays one keystroke away without
+cairn drifting as they change.
 
 ## Two-way sync to external tools (optional)
 
-Mirror bd issues to **GitHub Issues, GitLab, Jira, Asana, and/or Azure Boards** —
-**hub-and-spoke, pull-on-demand**. bd is the hub and source of truth; every tool
-syncs to bd, never tool-to-tool.
-
-- **PUSH** (bd → tools): fires on bd lifecycle events (create / claim / close).
-- **PULL** (tools → bd): `/cairn:sync-pull` reconciles external edits back
-  into bd with **last-writer-wins by timestamp**; genuine both-sides-changed
-  cases are logged to `.cairn/conflicts.json`.
-
-Setup:
+Mirror bd issues to **GitHub Issues, GitLab, Jira, Asana, and/or Azure
+Boards** — hub-and-spoke, with bd as the source of truth. PUSH fires
+automatically after every bd lifecycle write (the PostToolUse hook); PULL is
+on-demand:
 
 ```text
 /cairn:sync-config     # pick backends, write .cairn/sync.json
-# export the API tokens it tells you to (tokens are referenced by ENV VAR NAME,
-# never stored in the repo)
-/cairn:sync-pull       # reconcile external edits into bd, on demand
+/cairn:sync-pull       # reconcile external edits back into bd (last-writer-wins)
 ```
 
-Each tool is a small **adapter** in `adapters/` implementing a simple
-stdin/stdout contract (`adapters/_contract.md`). Add another tool (Linear,
-Trello, …) by dropping in one adapter and a `sync.json` block — no dispatcher
-changes. Adapters read API tokens from environment variables named in
-`sync.json`; **no secrets are ever written to disk**.
+Each backend is a small adapter in `adapters/` implementing a stdin/stdout
+contract (`adapters/_contract.md`) — add another tool by dropping in one
+adapter and a `sync.json` block, no dispatcher changes. API tokens are
+referenced by environment-variable name only; no secrets ever touch the repo.
 
-> GitHub is live-tested (via the `gh` CLI's auth). GitLab / Jira / Asana /
-> Azure Boards adapters are implemented to each tool's REST spec; supply the
-> relevant API token env var to use them.
+**📖 Full guide:** [`docs/sync.md`](./docs/sync.md)
 
-**📖 Full guide:** [`docs/sync.md`](./docs/sync.md) — architecture, data model,
-the reconciliation algorithm, per-backend setup, the adapter contract, security,
-and troubleshooting.
+## Intent-aware memory (context-mode)
 
-## Intent-aware memory (context-mode integration)
+context-mode ships as a dependency, so this is on by default. Cairn scopes its
+compressed memory to the **active bd issue + GSD phase**: `/cairn:remember`
+indexes under `gb/<id>/<phase>`, `/cairn:recall` searches only that scope, the
+scope switches when the phase does, and a capacity guard suggests splitting
+the active issue into sub-tasks before the context window degrades. This layer
+never deletes the knowledge base — any real wipe stays a manual, user-confirmed
+action. Tuning is optional: `/cairn:context-config`.
 
-[context-mode](https://github.com/mksglu/context-mode) ships with cairn as a
-dependency, so this is on by default. Cairn gives its knowledge base
-**architectural awareness**: context-mode compresses runtime data well but is
-blind to *what the work is*; Cairn ties its memory to the **active bd issue**
-and **GSD phase** (drive it with `/cairn:remember` and `/cairn:recall`):
-
-- **Scope by intent** — index during execution under a `source` label
-  `gb/<bd_id>/<phase>`, then recall scoped to the active task
-  (`ctx_search(source: "<bd_id>")`) instead of the whole session's noise.
-- **Phase-driven scope switch** — on `Execute → Verify`, checkpoint `ctx_stats`
-  and switch the active scope to the new phase's label; the prior phase's noise
-  is simply no longer searched.
-- **Capacity guard** — when `ctx_stats` token usage crosses a configurable
-  threshold, the agent is told to split the active bd issue into sub-tasks
-  (`bd create` + `bd dep add`) — a natural context reset before the window degrades.
-
-**Scope-by-label only** — this layer never deletes the knowledge base.
-context-mode can only purge by whole session or whole project, so any real wipe
-(`ctx_purge`) stays a manual, user-confirmed action.
-
-Tuning (optional):
-
-```text
-/cairn:context-config   # write .cairn/context.json to tune the scope template / threshold
-```
-
-The `cairn-context` skill is active by default whenever the `ctx_*` tools are
-present (they ship with cairn). `.cairn/context.json` is optional — defaults
-apply without it; this command only overrides them.
-
-**📖 Full guide:** [`docs/context.md`](./docs/context.md) — the layered model,
-the source-label convention, the three behaviors, configuration, capability
-boundaries, and troubleshooting.
+**📖 Full guide:** [`docs/context.md`](./docs/context.md) · how all the pieces
+fit: [`docs/architecture.md`](./docs/architecture.md)
 
 ## Components
 
 | Path | Purpose |
 |---|---|
-| `skills/cairn/SKILL.md` | the GSD↔bd integration convention |
-| `skills/cairn-sync/SKILL.md` | the bd↔external-tools sync convention |
+| `skills/cairn/SKILL.md` | the GSD↔beads integration convention (the fallback layer) |
+| `skills/cairn-sync/SKILL.md` | the bd ↔ external-tools sync convention |
 | `skills/cairn-context/SKILL.md` | the context-mode intent-aware memory convention |
-| `commands/init.md` | `/cairn:init` — soup-to-nuts setup (ensure GSD + bd, git + bd init, hand off to `/gsd:new-project`) |
-| `commands/help.md` | `/cairn:help` — print the unified `/cairn:` interface |
-| `commands/new.md` · `plan.md` · `work.md` · `verify.md` · `ship.md` | workflow verbs — the combined GSD+beads lifecycle |
+| `capability/capability.json` | the GSD capability manifest — loop contributions + the blocking `ship:pre` gate |
+| `capability/fragments/*.md` | prompt fragments for `plan:post`, `execute:wave:pre/post`, `verify:post` |
+| `capability/scripts/` | the bundled deterministic loop gate (`cairn-loop-gate`) + map wrapper |
+| `commands/init.md` · `new.md` | setup: detect-and-route init, new project with stamped issues |
+| `commands/plan.md` · `work.md` · `quick.md` · `verify.md` · `ship.md` · `milestone.md` | the loop verbs |
 | `commands/status.md` · `progress.md` · `issues.md` | views over beads + GSD state |
-| `commands/remember.md` · `recall.md` | intent-scoped context-mode index / search (active issue + phase) |
+| `commands/migrate.md` · `doctor.md` | adoption + health |
+| `commands/remember.md` · `recall.md` · `context-config.md` | the memory verbs |
+| `commands/sync-config.md` · `sync-pull.md` | the sync verbs |
 | `commands/bd.md` · `gsd.md` · `ctx.md` | raw passthroughs to `bd` / `/gsd:*` / `ctx_*` |
-| `commands/sync-config.md` | `/cairn:sync-config` — configure backends |
-| `commands/sync-pull.md` | `/cairn:sync-pull` — reconcile tools → bd |
-| `commands/context-config.md` | `/cairn:context-config` — tune the context-mode integration (optional) |
-| `scripts/gbsync.py` · `gbsync.sh` | the push/pull sync dispatcher |
-| `adapters/*.py` | github · gitlab · jira · asana · azure-boards adapters |
-| `adapters/_contract.md` | the adapter interface spec |
-| `hooks/session-start.sh` | "integration active" reminder when both dirs present |
-| `scripts/cairn-init.sh` | the bootstrap script (git + bd init) |
-| `templates/sync.json.example` | starter sync config |
-| `templates/context.json.example` | starter context-mode config |
+| `commands/help.md` | prints the verb map above |
+| `hooks/hooks.json` | hook registration (SessionStart · PostToolUse · Stop) |
+| `hooks/session-start.sh` | context injection + migration nudges |
+| `hooks/post-bd-write.sh` | mirror push + phase-map refresh after `bd create/update/close` |
+| `hooks/session-stop.sh` | end-of-session warning for stale `in_progress` claims |
+| `scripts/cairn-init.sh` | bootstrap: git + `bd init` + pre-push shim + `.cairn` gitignore entries |
+| `scripts/cairn-map.py` / `.sh` | generate `NN-BEADS-MAP.md` from bd state |
+| `scripts/cairn-relabel.py` / `.sh` | milestone label pairing + phase renumbering |
+| `scripts/cairn-gate.py` / `.sh` | the ship gate (also run by the git pre-push shim) |
+| `scripts/cairn-migrate.py` / `.sh` | the migration engine: detect / plan / apply |
+| `scripts/cairn-doctor.py` / `.sh` | the nine-check consistency audit |
+| `scripts/gbsync.py` / `.sh` | the push/pull sync dispatcher |
+| `adapters/*.py` · `_contract.md` | github · gitlab · jira · asana · azure-boards adapters + the interface spec |
+| `templates/*.example` | starter `sync.json` / `context.json` |
+| `docs/` | deep dives: migration · sync · context-mode memory · architecture |
 
-## Privacy
+Tests live at the repo root (`tests/`, bats) and run the deterministic scripts
+against fixture repos with a real `bd` — see `tests/README.md`.
 
-Cairn runs entirely on your machine, collects no telemetry, and sends data
-only to the external trackers you explicitly enable (using your own
-credentials). See [`PRIVACY.md`](./PRIVACY.md).
+## Origin & license
 
-## License
+Cairn began as [cairn](https://github.com/eventually-consistent-code/claude-plugins)
+by John Reed (eventually-consistent-code); this fork carries that design
+forward into a GSD capability with deterministic enforcement and migration.
 
-MIT
+MIT — see [LICENSE](./LICENSE). Cairn runs entirely on your machine and
+collects nothing; the only outbound traffic is the sync you explicitly
+configure, with your own credentials ([PRIVACY.md](./PRIVACY.md)).
