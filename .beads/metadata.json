@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "CairnGo",
+  "project_id": "fba2115d-e459-4ef2-9fc1-705cf2c07f19"
+}
