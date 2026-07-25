@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-25
+
+### Added
+
+- `/cairn:autonomous [start-phase]` — run every remaining phase hands-off
+  through the full cairn loop (map → plan → claim → execute → close →
+  verify per phase), with `cairn-doctor` checkpoints between phases,
+  explicit stop rules (doctor failure, unrecoverable execution, unclosable
+  verification gap, bd unavailable, ship gate blocked) and a resume path
+  that skips completed phases. Stops at the ship gate — the push stays a
+  human decision. The beads-aware counterpart of `/gsd:autonomous`.
+
 ## [1.1.0] - 2026-07-25
 
 ### Added

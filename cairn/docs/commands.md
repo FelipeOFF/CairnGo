@@ -22,6 +22,7 @@ files each command touches.
 | [`/cairn:verify`](./commands/verify.md) | Verify a phase's work — GSD verify-work cross-checked against beads |
 | [`/cairn:ship`](./commands/ship.md) | Ship — verify every completed phase's beads are closed, then GSD ship / push |
 | [`/cairn:milestone`](./commands/milestone.md) | Milestone lifecycle — new (roadmap + stamped issues + maps) or complete (gate → reconcile → archive → compact) |
+| [`/cairn:autonomous`](./commands/autonomous.md) | Run every remaining phase hands-off — the full cairn loop per phase, doctor between phases, ship gate at the end |
 
 ## View
 
