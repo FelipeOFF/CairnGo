@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-07-25)
 Phase: 1 of 6 (Verification Core + First Real Run)
 Plan: - of - in current phase
 Status: Ready to plan
-Last activity: 2026-07-25 — Roadmap created (6 phases, 16/16 requirements mapped)
+Last activity: 2026-07-25 — Completed quick task 260725-mbr: status board + docs dos 22 comandos
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -55,6 +55,12 @@ None yet.
 - Competitor plugin headless-mode support ainda não verificado por plugin específico — investigar antes de detalhar Phase 4 (research/SUMMARY.md)
 - gnuplot vs. SVG stdlib hand-rolled é julgamento de valor, não fato documentado — decidir no planejamento da Phase 6
 - Tamanho/diversidade do corpus (Phase 5) não tem regra universal — decisão deliberada no planejamento da Phase 5, informada pela restrição de custo previsível
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 260725-mbr | Status board kanban no /cairn:status + docs dos 22 comandos (bd: CairnGo-4ju) | 2026-07-25 | (ver PR) | Verified | [260725-mbr-status-board-e-docs-completa](./quick/260725-mbr-status-board-e-docs-completa/) |
 
 ## Deferred Items
 
