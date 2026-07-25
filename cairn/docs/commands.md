@@ -1,0 +1,70 @@
+# Command reference
+
+One page per `/cairn:` command — 22 in total — grouped the same way
+`/cairn:help` prints the map. Each description below is the command's own
+one-liner; follow the link for usage, flags, exit codes, examples, and the
+files each command touches.
+
+## Setup
+
+| Command | Description |
+|---|---|
+| [`/cairn:init`](./commands/init.md) | One-command, soup-to-nuts project setup — ensure GSD + beads, wire git + bd init, then hand off to the interactive GSD project setup |
+| [`/cairn:new`](./commands/new.md) | Start a new cairn project — GSD new-project, then create the bd issues and generate the phase↔beads maps |
+
+## Loop
+
+| Command | Description |
+|---|---|
+| [`/cairn:plan`](./commands/plan.md) | Plan a phase — GSD plan-phase plus beads map reconciliation |
+| [`/cairn:work`](./commands/work.md) | Execute a phase — claim its beads, run GSD execute-phase, close on success |
+| [`/cairn:quick`](./commands/quick.md) | Tracked side-quest — stamped quick issue with discovered-from provenance, then GSD quick |
+| [`/cairn:verify`](./commands/verify.md) | Verify a phase's work — GSD verify-work cross-checked against beads |
+| [`/cairn:ship`](./commands/ship.md) | Ship — verify every completed phase's beads are closed, then GSD ship / push |
+| [`/cairn:milestone`](./commands/milestone.md) | Milestone lifecycle — new (roadmap + stamped issues + maps) or complete (gate → reconcile → archive → compact) |
+
+## View
+
+| Command | Description |
+|---|---|
+| [`/cairn:status`](./commands/status.md) | Render the status board — READY / DOING / BLOCKED lanes from bd, GSD position, one next action |
+| [`/cairn:progress`](./commands/progress.md) | Roadmap-level project progress (GSD) |
+| [`/cairn:issues`](./commands/issues.md) | List beads issues, optionally scoped to a phase |
+| [`/cairn:help`](./commands/help.md) | Show the cairn unified command interface (one namespace for GSD + beads) |
+
+## Migrate & health
+
+| Command | Description |
+|---|---|
+| [`/cairn:migrate`](./commands/migrate.md) | Adopt an existing repo into cairn — detect GSD/beads state, dry-run a plan, confirm with the user, apply with resume journaling |
+| [`/cairn:doctor`](./commands/doctor.md) | Health-check the GSD↔beads wiring — run cairn-doctor, explain the report, route each finding to its fix |
+
+## Memory (context-mode — on by default)
+
+| Command | Description |
+|---|---|
+| [`/cairn:remember`](./commands/remember.md) | Index current work into context-mode under the active bd issue + phase label |
+| [`/cairn:recall`](./commands/recall.md) | Recall context-mode memory scoped to the active bd issue + phase (intent-aware search) |
+| [`/cairn:context-config`](./commands/context-config.md) | Tune the context-mode integration (intent-aware memory) — writes .cairn/context.json to override the defaults |
+
+## Sync (optional)
+
+| Command | Description |
+|---|---|
+| [`/cairn:sync-config`](./commands/sync-config.md) | Configure two-way bd↔external sync (GitHub/GitLab/Jira/Asana/Azure Boards) — writes .cairn/sync.json |
+| [`/cairn:sync-pull`](./commands/sync-pull.md) | Reconcile external work-management tools back into bd (pull-on-demand, last-writer-wins) |
+
+## Escape hatches (raw passthrough)
+
+| Command | Description |
+|---|---|
+| [`/cairn:bd`](./commands/bd.md) | Run any beads (bd) command directly — raw passthrough |
+| [`/cairn:gsd`](./commands/gsd.md) | Run any GSD command directly — raw passthrough |
+| [`/cairn:ctx`](./commands/ctx.md) | Run a context-mode operation directly — raw passthrough to the ctx_* tools |
+
+## See also
+
+- [Architecture](./architecture.md) — how the pieces fit together
+- [Migration guide](./migration.md) — adopting existing repos
+- [Sync guide](./sync.md) — mirroring bd to external trackers
+- [Memory guide](./context.md) — the context-mode integration

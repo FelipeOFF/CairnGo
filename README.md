@@ -79,6 +79,7 @@ Always dry-run first, idempotent on re-runs, resumable if interrupted — and it
 | Doc | What's inside |
 |---|---|
 | [Plugin README](cairn/README.md) | the full feature tour, data model and command map |
+| [Command reference](cairn/docs/commands.md) | all 22 `/cairn:` commands — grouped index, one doc per verb |
 | [Architecture](cairn/docs/architecture.md) | ownership model, linking contract, enforcement layers |
 | [Migration guide](cairn/docs/migration.md) | adopting existing repos, safety model, troubleshooting |
 | [Sync guide](cairn/docs/sync.md) | mirroring bd to external trackers |
