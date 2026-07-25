@@ -14,6 +14,10 @@ The dispatcher passes one JSON object on **stdin** and reads the result from
 **stdout**. Exit `0` on success; any nonzero exit is logged by the dispatcher,
 which then continues with the other backends.
 
+Both directions accept `--dry-run` at the dispatcher level: the would-be
+operations are printed as `DRY-RUN:` lines and the adapter is **never
+invoked** (nothing is written to id-map/state/conflicts either).
+
 ### PUSH — `create` | `update` | `close`  (bd → tool)
 
 stdin:
@@ -32,7 +36,9 @@ stdin:
 stdout: the **external id** as a bare string (e.g. `42`, `CHN-101`, `1209…`).
 On `create`, mint the item and return its id. On `update`/`close`, act on
 `external_id` (if it is null, treat as `create`). The dispatcher stores the
-returned id in `.cairn/id-map.json`.
+returned id in `.cairn/id-map.json` — per-machine state that `/cairn:init`
+gitignores (along with `state.json` and `conflicts.json`); `sync.json` is the
+only committed `.cairn/` file.
 
 ### PULL — `pull`  (tool → bd)
 

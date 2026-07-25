@@ -98,12 +98,13 @@ All state lives under `<project>/.cairn/`:
 | File | Committed? | Purpose |
 |---|---|---|
 | `sync.json` | **yes** | Backend config. Holds ENV VAR *names*, never secrets. |
-| `id-map.json` | optional | `{ bd_id: { backend: external_id } }` — the identity link. |
+| `id-map.json` | no (gitignored by default) | `{ bd_id: { backend: external_id } }` — the identity link. |
 | `state.json` | no (gitignored) | Pull watermarks: `{ last_pull: { backend: iso8601 } }`. |
 | `conflicts.json` | no (gitignored) | Append-only log of both-sides-changed reconciliations. |
 
-The plugin's `.gitignore` excludes the generated three by default. `sync.json`
-is meant to be committed so the whole team shares the same backend config.
+`cairn-init.sh` appends the generated three to the target repo's `.gitignore`,
+so they are excluded by default. `sync.json` is meant to be committed so the whole team
+shares the same backend config.
 
 ### Identity mapping
 
@@ -296,6 +297,8 @@ gbsync.sh update  <bd_id>      # push title/body/status changes
 gbsync.sh close   <bd_id>      # close the external items
 gbsync.sh pull    [--since X]  # pull external state back into bd
 gbsync.sh <...>   --dir <path> # operate on a specific project dir
+gbsync.sh <...>   --dry-run    # print the would-be operations ("DRY-RUN:" lines)
+                               # without calling adapters or writing any state
 ```
 
 ---
@@ -381,8 +384,11 @@ Full spec: [`adapters/_contract.md`](../adapters/_contract.md).
 | Unexpected overwrite in bd after pull | Both sides changed → LWW picked the remote. Check `conflicts.json` and reconcile by hand. |
 | Status not reflected (e.g. "in progress") | GitHub/GitLab/Asana have no native in-progress; only open/closed mirror. |
 
-Dry-check a backend without changing anything: run a single
-`gbsync.sh update <bd_id>` and read the per-backend result line.
+Dry-check without changing anything: add `--dry-run` to any `gbsync.sh` call —
+it prints one `DRY-RUN:` line per would-be operation and never calls an adapter
+or writes `id-map.json` / `state.json` / `conflicts.json`. Note that dry-run
+still exercises the real decision logic, including a local `bd show <id>`
+lookup — an unknown bd id fails the same way it would on a real push.
 
 ---
 

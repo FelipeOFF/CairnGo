@@ -1,17 +1,24 @@
 ---
-description: Enable/configure the context-mode integration (intent-aware memory) — writes .cairn/context.json
+description: Tune the context-mode integration (intent-aware memory) — writes .cairn/context.json to override the defaults
 ---
 
-Opt this repo into the cairn ↔ context-mode integration, which scopes
-context-mode's knowledge base by the active bd issue + GSD phase and watches
-token usage to advise task-splitting. Do the following:
+Tune the cairn ↔ context-mode integration, which scopes context-mode's
+knowledge base by the active bd issue + GSD phase and watches token usage to
+advise task-splitting. The integration is **on by default** — context-mode
+ships as a cairn plugin dependency, so the defaults apply in every repo where
+the cairn integration is active, with no config file needed. This command only
+writes `.cairn/context.json` to override those defaults (source template,
+capacity threshold). Do the following:
 
 1. Confirm prerequisites:
    - `.beads/` exists (`ls .beads/`). If not, tell the user to run
      `/cairn:init` first and stop.
-   - The `ctx_*` MCP tools (context-mode) are available this session. If not,
-     tell the user to install the **context-mode** plugin first and stop —
-     without it this integration does nothing.
+   - The `ctx_*` MCP tools (context-mode) are available this session. They
+     ship with cairn (context-mode is a plugin dependency), so if they are
+     missing the dependency is unresolved or the plugin was disabled — tell the
+     user to add its marketplace (`/plugin marketplace add mksglu/context-mode`)
+     or re-enable context-mode, and stop — without the tools there is nothing
+     to tune.
 
 2. If `.cairn/context.json` does not exist, create `.cairn/` and seed it
    from the template:
@@ -35,6 +42,7 @@ token usage to advise task-splitting. Do the following:
    manual, user-confirmed action. Do not offer an auto-purge mode; context-mode
    has no per-phase or per-task delete.
 
-5. Confirm what you wrote (path + the values set) and point the user at the
-   `cairn-context` skill, which activates automatically now that the config
-   exists.
+5. Confirm what you wrote (path + the values set). Remind the user that the
+   `cairn-context` skill was already active with the defaults — this file only
+   overrides them — and that setting `enabled: false` here is the way to switch
+   the conventions off in this repo.
