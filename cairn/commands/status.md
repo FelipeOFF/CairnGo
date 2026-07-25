@@ -1,29 +1,62 @@
 ---
-description: One combined view driven by bd ready — actionable, in-flight, blocked, GSD position, one next action
+description: Render the status board — READY / DOING / BLOCKED lanes from bd, GSD position, one next action
 ---
 
-Show a single status view. `bd ready` drives it — everything else is context.
+Show the status board. A deterministic script renders it — `bd ready` drives
+the lanes, GSD files supply the position, and the output is the answer.
 
-1. **Actionable** — `bd ready --json` (a JSON array: id, title, priority,
-   labels, `metadata.gsd`). This is the truly claimable list: dependencies,
-   gates, and `defer_until` are all respected, and in_progress/blocked issues
-   are excluded — say that in one line so the user trusts it.
-2. **In flight** — `bd list --status in_progress` (note assignees).
-3. **Blocked** — `bd blocked`; for anything listed, show the chain with
-   `bd dep tree <id>` (who is waiting on whom).
-4. **Roadmap position** — `/gsd:progress`.
-5. **Synthesize: ONE suggested next action.** In order:
-   - an in_progress issue exists → continue it;
-   - else the highest-priority ready issue of the **active phase** — filter
-     the ready list by the pair label `m-<milestone>,phase-<active>` (active
-     phase from STATE.md, milestone from ROADMAP.md's current header);
-   - else the next GSD step from STATE.md's position/next action (e.g. "plan
-     phase 3").
-   When the bd-ready pick and STATE.md's next action disagree, say so: **bd
-   wins for work items, STATE.md wins for workflow steps** — "issue X is
-   ready" doesn't override "phase 3 still needs planning", and vice versa.
-6. When `.cairn/sync.json` exists, add a one-liner on sync staleness from the
-   last-pull watermark in `.cairn/state.json` (stale or missing → suggest
-   `/cairn:sync-pull`).
+## 1. Render the board
 
-Keep the whole thing tight: a few lines per section, one clear next action.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" --width 100
+```
+
+(`--width 100` forces the board renderer at a fixed width — without it a
+non-TTY run degrades to the machine-readable `--plain` format.) Present the
+board **verbatim** in a fenced code block. Do not paraphrase it, reflow it,
+or re-list the issues in prose — the render IS the view. After the fence, add
+at most one or two sentences of commentary when something needs explaining
+(a blocked chain, a stale claim, a disagreement — see step 3).
+
+What the board shows:
+
+- **READY** — `bd ready`: the truly claimable list. Dependencies, gates, and
+  `defer_until` are all respected; in_progress and blocked issues are
+  excluded. Say that in one line so the user trusts it.
+- **DOING** — in_progress issues (`◆ assignee` when claimed).
+- **BLOCKED** — blocked issues (`⧗ id` names the blocking issue; for a deep
+  chain the user can ask and you run `bd dep tree <id>`).
+- **Footer** — `phase X/Y · milestone · done: N`, then `▶ next:` with ONE
+  suggested action, plus a sync-staleness line when `.cairn/sync.json`
+  exists and the last pull is missing or older than 24h (offer
+  `/cairn:sync-pull`).
+
+## 2. Exit codes
+
+- `0` — board rendered.
+- `2` — usage error (bad flag); fix the invocation.
+- `5` — **bd unavailable** (not on PATH, or a bd query failed). Never treat
+  this as fatal for the user: fall back to a minimal prose view — run
+  `/gsd:progress` for the roadmap position and say tracked-issue lanes are
+  unavailable until beads is installed
+  (https://github.com/gastownhall/beads).
+
+## 3. The next action
+
+The script synthesizes ONE next action (in order: continue an in_progress
+issue → highest-priority ready issue labeled `m-<milestone>,phase-<active>` →
+STATE.md's `next_action` → highest-priority ready issue overall). When the
+bd-ready pick and STATE.md's next action disagree, say so: **bd wins for work
+items, STATE.md wins for workflow steps** — "issue X is ready" doesn't
+override "phase 3 still needs planning", and vice versa. The `--json` output
+carries both (`next` and `next.state_next`) if you need to compare.
+
+## 4. Variants
+
+- User wants the one-glance version → `--brief` (three lines: position,
+  counts, next action).
+- Scripting / parsing → `--json` (one machine line) or `--plain`
+  (tab-separated rows; also the automatic non-TTY default — pipes never
+  receive box-drawing or ANSI escapes).
+- Full contract (degradation thresholds, `--max-rows`, `--ascii`, `--color`,
+  `NO_COLOR`): see the docstring in `scripts/cairn-status.py`.
