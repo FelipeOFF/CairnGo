@@ -466,3 +466,23 @@ PLANEOF
   # ...with the old block items consumed, not duplicated below the list.
   refute_contains "- mgd-99" "$(cat "$plan_md")"
 }
+
+@test "plan notes checked ROADMAP phases that migrate will not close (gate mismatch)" {
+  make_tmp_repo
+  make_gsd_fixture "$CAIRN_TMP_REPO"
+  # Phase 2 checked in ROADMAP but with no SUMMARY / passed VERIFICATION:
+  # the ship gates treat every '[x]' phase as completed, while migrate only
+  # closes issues for evidence-complete phases — the note must flag it.
+  sed -i.bak 's/^- \[ \] \*\*Phase 2: API\*\*/- [x] **Phase 2: API**/' \
+    .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+
+  run MIGRATE plan --mode A --milestone v1.0
+  [ "$status" -eq 0 ]
+  grep -qF "note: ROADMAP marks phase(s) 2 complete" <<<"$output"
+  grep -qF "ship gate" <<<"$output"
+  # Phase 1 has a SUMMARY + passed VERIFICATION — never flagged.
+  refute_contains "phase(s) 1" "$output"
+  # The note is persisted in the plan file for the prose command to surface.
+  grep -qF "ROADMAP marks phase(s) 2 complete" .cairn/migrate-plan.json
+}

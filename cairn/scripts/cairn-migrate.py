@@ -387,6 +387,25 @@ def phase_is_complete(phase_dir):
                for v in phase_dir.glob("*-VERIFICATION.md"))
 
 
+def note_gate_incomplete_phases(roadmap, dirs, notes):
+    """Plan-time heads-up for the migrate/gate completion mismatch: migrate
+    only closes issues for phases with SUMMARIES + a passed VERIFICATION,
+    while the ship gates (cairn-gate / the pre-push shim / the capability
+    ship-gate) treat every ROADMAP '[x]' phase as completed. A checked phase
+    without that evidence migrates to OPEN issues that will block pushes."""
+    stranded = [n for n in sorted(roadmap)
+                if roadmap[n]["completed"]
+                and not phase_is_complete(dirs.get(n))]
+    if stranded:
+        nums = ", ".join(f"{n}" for n in stranded)
+        notes.append(
+            f"ROADMAP marks phase(s) {nums} complete, but migrate closes "
+            "issues only for phases with SUMMARIES + a passed VERIFICATION "
+            "— their issues stay OPEN and the pre-push ship gate will block "
+            "pushes; close them manually (bd close <id> --reason ...) or "
+            "uncheck the phase in ROADMAP.md")
+
+
 def pending_todos(planning_dir):
     """[(title, description, filename)] from .planning/todos/pending/*."""
     todos = []
@@ -625,6 +644,7 @@ def build_plan_a(project, planning, milestone, index, notes):
                      f"no ROADMAP phase (skipped): {', '.join(unassigned)}")
 
     # (4) completed phases: close children, then the epic
+    note_gate_incomplete_phases(roadmap, dirs, notes)
     for n in phase_nums:
         if not phase_is_complete(dirs.get(n)):
             continue
@@ -1083,6 +1103,7 @@ def build_plan_c(project, planning, milestone, index, notes, plan_extra):
 
     # divergence: complete phases with open matched issues -> offer close
     # (pending_confirmation: pre-existing issues may be externally mirrored)
+    note_gate_incomplete_phases(roadmap, dirs, notes)
     warnings = []
     for n in sorted(roadmap):
         complete = phase_is_complete(dirs.get(n))
