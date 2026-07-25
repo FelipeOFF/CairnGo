@@ -22,7 +22,7 @@ LOOP
   /cairn:milestone <op>   new: roadmap + issues + maps · complete: gate → reconcile → archive
 
 VIEW
-  /cairn:status           bd-ready-driven: actionable / in-flight / blocked + one next action
+  /cairn:status           board render: READY / DOING / BLOCKED lanes + one next action (--brief)
   /cairn:progress         roadmap-level progress (GSD)
   /cairn:issues [N]       list beads issues, optionally scoped to phase N
 
