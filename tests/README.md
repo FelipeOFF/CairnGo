@@ -10,6 +10,14 @@ codes, and bd state via `bd list --json` — never on script internals. If a
 behavior can't be asserted through a script's CLI contract, move the behavior
 into a script first.
 
+## Assertion style
+
+A failing `[[ ]]` or `! cmd` mid-test does NOT fail a bats test on this bash
+(bash's `!` suppresses errexit). So: substring checks use plain `grep -qF`,
+negative checks go through a `refute_in_output`-style helper that explicitly
+`return 1`s, and computed comparisons use `[ ... ]` as the last command or a
+helper. Never rely on an inline `! grep` or `[[ ]]` to fail a test.
+
 ## Fixture helpers (`tests/helpers.bash`)
 
 - `require_bd` — skip the test when `bd` is not installed
