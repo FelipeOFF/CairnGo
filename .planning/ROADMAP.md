@@ -34,7 +34,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `bench-run.py` executes one (task, baseline, rep) run against a stubbed `claude` binary via an env-var seam, and the deterministic harness logic runs in bats CI at zero API cost
   3. `bench-run.py` executes one real, non-stubbed `claude -p --output-format json` call and correctly captures `total_cost_usd`, full `usage` (input/output/cache_creation/cache_read), `duration_ms`, `duration_api_ms`, `num_turns`, and `is_error` into a JSONL row
   4. Running the harness twice against the same stub input produces byte-identical JSONL output
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Task fixture + objective verify.sh, proven solved/unsolved via bats (HARN-01)
+- [ ] 01-02-PLAN.md — bench-run.py harness + stub-based bats suite, byte-identical determinism (HARN-02, HARN-03)
+- [ ] 01-03-PLAN.md — The single live claude -p run + methodology doc (HARN-02 live validation)
 
 ### Phase 2: Baseline Isolation + Multi-Baseline Harness
 **Goal**: Every baseline (vanilla, GSD-only, cairn) runs under mechanically enforced, identical, isolated conditions, so no comparative number can later be attributed to environment leakage
