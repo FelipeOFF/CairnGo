@@ -464,6 +464,32 @@ def check_claims_stale(issues, milestone, active_phase):
             "detail": detail, "items": items}
 
 
+BD_MIN_VERSION = (1, 1, 0)
+
+
+def check_bd_version():
+    """Check 0 — the bd binary meets the minimum version cairn relies on
+    (--claim semantics, --all, label add/remove, nested --metadata)."""
+    need = ".".join(map(str, BD_MIN_VERSION))
+    proc = subprocess.run(["bd", "version"], capture_output=True, text=True)
+    out = (proc.stdout or "").strip()
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+    if proc.returncode != 0 or not m:
+        return {"id": "bd-version", "status": "warn",
+                "detail": "could not parse bd version output: "
+                          f"{out or proc.stderr.strip() or '(empty)'}",
+                "items": []}
+    ver = tuple(int(x) for x in m.groups())
+    got = ".".join(map(str, ver))
+    if ver < BD_MIN_VERSION:
+        return {"id": "bd-version", "status": "fail",
+                "detail": f"bd {got} < required {need} — upgrade beads "
+                          "(brew upgrade beads / npm update -g @beads/bd)",
+                "items": []}
+    return {"id": "bd-version", "status": "ok",
+            "detail": f"bd {got} >= {need}", "items": []}
+
+
 def check_bd_doctor(root):
     try:
         proc = subprocess.run(["bd", "doctor"], capture_output=True,
@@ -565,6 +591,7 @@ def main():
             issues = bd_all_issues(root)
 
     checks = [
+        check_bd_version(),
         check_req_issue(issues, reqs_by_phase, milestone),
         check_frontmatter_ids(plans, issues),
         check_maps_fresh(root, planning_dir, issues),

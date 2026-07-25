@@ -5,7 +5,7 @@
 #   applicable, 2 usage / refused --fix-labels, 5 bd unavailable, 7 any
 #   check failed.
 #
-# Each test starts from the HEALTHY wired fixture (all eight checks ✓) and
+# Each test starts from the HEALTHY wired fixture (all nine checks ✓) and
 # breaks exactly one check, asserting on that check's reported status.
 #
 # Assertion style note: a failing `[[ ]]` or `! cmd` mid-test does NOT fail
@@ -80,7 +80,7 @@ make_doctor_fixture() {
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '8'
+  assert_json_eq "$output" '.checks | length' '9'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
