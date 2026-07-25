@@ -5,9 +5,8 @@
 
 load 'helpers'
 
-# The four entries cairn-init must gitignore (docs/sync.md §4).
+# The three entries cairn-init must gitignore (docs/sync.md §4).
 CAIRN_GITIGNORE_ENTRIES=(
-  '.cairn/.beacon-sent'
   '.cairn/id-map.json'
   '.cairn/state.json'
   '.cairn/conflicts.json'
@@ -44,7 +43,7 @@ CAIRN_GITIGNORE_ENTRIES=(
   done
 }
 
-@test "cairn-init completes a legacy .gitignore that only has .beacon-sent" {
+@test "cairn-init completes a legacy .gitignore that only has the retired .beacon-sent marker" {
   require_bd
   make_tmp_repo
   printf '.cairn/.beacon-sent\n' > .gitignore
@@ -52,7 +51,9 @@ CAIRN_GITIGNORE_ENTRIES=(
   run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh" "$PWD"
   [ "$status" -eq 0 ]
 
-  # The pre-existing entry stays single; the missing three are appended once.
+  # The legacy entry is left alone (still single); the missing three are
+  # appended once each. cairn-init no longer writes .beacon-sent itself.
+  [ "$(grep -cxF '.cairn/.beacon-sent' .gitignore)" -eq 1 ]
   local entry
   for entry in "${CAIRN_GITIGNORE_ENTRIES[@]}"; do
     [ "$(grep -cxF "$entry" .gitignore)" -eq 1 ]

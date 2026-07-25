@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 ########################
-# Script by John Reed  #
 # cairn-init           #
 ########################
 
@@ -36,6 +35,13 @@ if ! command -v bd >/dev/null 2>&1; then
   exit 1
 fi
 
+# cairn relies on bd >= 1.1.0 (--claim semantics, --all, nested --metadata).
+BD_MIN_VERSION="1.1.0"
+BD_VER="$(bd version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+if [ -n "$BD_VER" ] && [ "$(printf '%s\n' "$BD_MIN_VERSION" "$BD_VER" | sort -V | head -1)" != "$BD_MIN_VERSION" ]; then
+  echo "  ⚠ bd $BD_VER < $BD_MIN_VERSION — some cairn conventions may misbehave; upgrade beads" >&2
+fi
+
 # 3. beads project
 if [ -d .beads ]; then
   echo "  ✓ .beads/ already present"
@@ -44,12 +50,11 @@ else
   echo "  ✓ bd init"
 fi
 
-# 4. keep generated sync state and per-machine markers out of git — the sync
-#    id-map/state/conflicts files and the opt-in beacon guard are local-only
-#    (docs/sync.md §4). Idempotent: each entry is appended at most once.
+# 4. keep generated sync state out of git — the sync id-map/state/conflicts
+#    files are local-only (docs/sync.md §4). Idempotent: each entry is
+#    appended at most once.
 GI=".gitignore"
 CAIRN_IGNORES=(
-  '.cairn/.beacon-sent'
   '.cairn/id-map.json'
   '.cairn/state.json'
   '.cairn/conflicts.json'
@@ -60,13 +65,13 @@ for entry in "${CAIRN_IGNORES[@]}"; do
     continue
   fi
   if [ "$ADDED" -eq 0 ]; then
-    printf '\n# cairn: generated sync state + per-machine markers (never commit)\n' >> "$GI"
+    printf '\n# cairn: generated sync state (never commit)\n' >> "$GI"
   fi
   printf '%s\n' "$entry" >> "$GI"
   ADDED=1
 done
 if [ "$ADDED" -eq 1 ]; then
-  echo "  ✓ gitignored .cairn state files (.beacon-sent, id-map, state, conflicts)"
+  echo "  ✓ gitignored .cairn state files (id-map, state, conflicts)"
 else
   echo "  ✓ .cairn state files already gitignored"
 fi
@@ -128,7 +133,7 @@ if command -v claude >/dev/null 2>&1 && claude plugin list 2>/dev/null | grep -q
   echo "  ✓ GSD plugin installed"
 else
   echo "  ! GSD not detected — it should auto-install as a cairn dependency."
-  echo "    If /gsd:* is unavailable, run: claude plugin install gsd@eventually-consistent-code"
+  echo "    If /gsd:* is unavailable, run: claude plugin install gsd@cairngo"
 fi
 
 cat <<'NEXT'

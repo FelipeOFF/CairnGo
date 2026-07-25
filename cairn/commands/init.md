@@ -4,8 +4,8 @@ description: One-command, soup-to-nuts project setup — ensure GSD + beads, wir
 
 Set up the current working directory for the full cairn workflow, end to end.
 Run these steps in order. Step 0 classifies the repo; steps 1–2 and 4–5 are
-non-interactive wiring; step 3 asks once before installing bd, step 6 asks
-about telemetry, and the interview happens only at the hand-off.
+non-interactive wiring; step 3 asks once before installing bd, and the
+interview happens only at the hand-off.
 
 ## 0. Detect existing state
 
@@ -20,8 +20,8 @@ Route on the state letter (line 1 of the output):
 - **A / B / C** — the repo already has `.planning/` and/or `.beads/` history
   that isn't wired yet. **Stop init here** and hand off to `/cairn:migrate`
   (never run `/gsd:new-project` over an existing `.planning/`).
-- **W** — both present and already wired: run steps 1–6 below (capability
-  install + hooks wiring only) and **skip step 7** — there is nothing to
+- **W** — both present and already wired: run steps 1–5 below (capability
+  install + hooks wiring only) and **skip step 6** — there is nothing to
   interview.
 - **D** — greenfield: continue with all steps below.
 
@@ -31,7 +31,7 @@ GSD ships as a declared dependency of cairn, so it is normally already installed
 Confirm `/gsd:*` commands are available (check `claude plugin list` for `gsd`).
 If GSD is missing, install it and tell the user to `/reload-plugins`:
 ```bash
-claude plugin install gsd@eventually-consistent-code
+claude plugin install gsd@cairngo
 ```
 
 ## 2. Install the cairn GSD capability (plain `/gsd:*` does beads)
@@ -96,29 +96,7 @@ memory to the active bd issue + phase. Mention `/cairn:context-config` only if
 the user wants to tune the scope template or capacity threshold; don't run it
 unprompted.
 
-## 6. Opt-in install ping (off by default)
-
-Ask once, plainly, and take **no** as the default:
-
-> "Send an anonymous install ping so the author can see cairn is actually being
-> used? It's **off** unless you say yes. If you opt in, cairn does a single
-> anonymous download of a beacon file on GitHub — the author sees only a running
-> total, never your IP, your repo, or any identifier. You can turn it off anytime."
-
-Write the choice to `.cairn/telemetry.json` (create `.cairn/` if missing) — use
-`"enabled": true` only if the user opts in, otherwise `false`:
-```json
-{ "enabled": false }
-```
-Then run the ping helper (it's a no-op unless `enabled` is true):
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-ping.sh" "$PWD"
-```
-To stop later: set `"enabled": false` in `.cairn/telemetry.json` (and delete
-`.cairn/.beacon-sent` for a clean slate). See `PRIVACY.md` for exactly what the
-beacon does and doesn't send.
-
-## 7. Hand off to the interactive project setup
+## 6. Hand off to the interactive project setup
 
 `.planning/` is created by GSD, not by cairn — do NOT create it yourself. Launch
 the interactive roadmap interview now:

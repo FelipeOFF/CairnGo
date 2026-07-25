@@ -102,9 +102,8 @@ All state lives under `<project>/.cairn/`:
 | `state.json` | no (gitignored) | Pull watermarks: `{ last_pull: { backend: iso8601 } }`. |
 | `conflicts.json` | no (gitignored) | Append-only log of both-sides-changed reconciliations. |
 
-`cairn-init.sh` appends the generated three (plus the local
-`.cairn/.beacon-sent` marker) to the target repo's `.gitignore`, so they are
-excluded by default. `sync.json` is meant to be committed so the whole team
+`cairn-init.sh` appends the generated three to the target repo's `.gitignore`,
+so they are excluded by default. `sync.json` is meant to be committed so the whole team
 shares the same backend config.
 
 ### Identity mapping
