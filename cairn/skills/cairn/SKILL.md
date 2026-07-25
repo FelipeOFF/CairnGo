@@ -36,9 +36,11 @@ per-phase map file, and per-plan frontmatter.
   `${CLAUDE_PLUGIN_ROOT}/scripts/cairn-relabel.sh pair --milestone <m>`.
 - **Metadata stamp:** every cairn-managed issue carries
   `{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y", "plan": "NN-PP"}}`
-  (`plan` optional), set via `bd create`/`bd update` `--metadata`. The pair
-  `(gsd.req, gsd.milestone)` is the **dedup key** — never create a second
-  issue for the same requirement in the same milestone.
+  (`plan` optional), set via `bd create`/`bd update` `--metadata`. Updates are
+  **read-modify-write**: `--metadata` replaces the whole `gsd` object, so read
+  it from `bd show <id> --json`, change the one field, write the full object
+  back. The pair `(gsd.req, gsd.milestone)` is the **dedup key** — never
+  create a second issue for the same requirement in the same milestone.
 - **Phase ↔ issues:** each GSD phase `NN` has a **generated**
   `{NN}-BEADS-MAP.md` inside the phase directory
   (`.planning/phases/NN-<slug>/NN-BEADS-MAP.md`) — see below.
@@ -113,6 +115,21 @@ divergent issues are flagged ⚠ and updated, not followed.
   completed plans is closed: `bd list -l m-<milestone>,phase-<N> --all` must
   show nothing non-closed for finished phases (any status other than `closed`
   — open, in_progress, blocked — blocks the ship). Then push.
+
+Work discovered mid-phase that belongs to no plan → `/cairn:quick`: a
+`quick`-labeled, unphased issue with a `discovered-from` dep on the active one.
+
+### Pause / resume
+
+- **`/gsd:pause-work` / session end** — for each in_progress issue assigned to
+  you: resuming same-day → add a dated note
+  (`bd comment <id> "paused YYYY-MM-DD: <where it stands, what's next>"`) and
+  **keep the claim**; pause is indefinite → release it
+  (`bd update <id> --assignee "" --status open`) so it returns to the ready
+  pool instead of looking owned. The session-stop hook warns about leftover
+  in_progress claims either way — don't ignore it silently.
+- **`/gsd:resume-work`** — re-claim what you're picking back up:
+  `bd update <id> --claim` (idempotent when it's already yours).
 
 ## Precedence
 

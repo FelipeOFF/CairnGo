@@ -27,8 +27,9 @@ if not isinstance(issues, list):
 ids = [i.get("id", "?") for i in issues]
 if ids:
     print("[cairn] session ending with %d in_progress issue(s) still "
-          "assigned to you: %s — bd close <id> --reason=... or hand off "
-          "before stopping." % (len(ids), ", ".join(ids)))
+          "assigned to you: %s — bd close <id> --reason=..., pause per the "
+          "cairn pause/resume rule, or hand off before stopping."
+          % (len(ids), ", ".join(ids)))
 ' 2>/dev/null || true)"
 
 [ -n "$LINE" ] && echo "$LINE"

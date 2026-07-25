@@ -16,11 +16,13 @@ SETUP
 LOOP
   /cairn:plan  <N>        plan phase N  (GSD plan-phase + regenerate/reconcile beads map)
   /cairn:work  <N>        execute phase N  (claim → execute → close per plan)
+  /cairn:quick <desc>     tracked side-quest: stamped quick issue (discovered-from) + GSD quick
   /cairn:verify <N>       verify phase N  (GSD verify-work × beads cross-check)
   /cairn:ship             gate on all phase issues closed, then GSD ship / push
+  /cairn:milestone <op>   new: roadmap + issues + maps · complete: gate → reconcile → archive
 
 VIEW
-  /cairn:status           combined: bd ready/blocked + active phase + progress
+  /cairn:status           bd-ready-driven: actionable / in-flight / blocked + one next action
   /cairn:progress         roadmap-level progress (GSD)
   /cairn:issues [N]       list beads issues, optionally scoped to phase N
 

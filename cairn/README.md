@@ -111,18 +111,26 @@ prints this map.
 ```text
 SETUP
   /cairn:init             ensure GSD + beads, wire git + bd init, then hand off
-  /cairn:new              new project: /gsd:new-project + create bd issues + maps
+  /cairn:new              new project: /gsd:new-project + stamped bd issues + generated maps
 
 LOOP
-  /cairn:plan  <N>        plan phase N  (GSD plan-phase + reconcile beads map)
+  /cairn:plan  <N>        plan phase N  (GSD plan-phase + regenerate/reconcile beads map)
   /cairn:work  <N>        execute phase N  (claim → execute → close per plan)
+  /cairn:quick <desc>     tracked side-quest: stamped quick issue (discovered-from) + GSD quick
   /cairn:verify <N>       verify phase N  (GSD verify-work × beads cross-check)
   /cairn:ship             gate on all phase issues closed, then GSD ship / push
+  /cairn:milestone <op>   new: roadmap + issues + maps · complete: gate → reconcile → archive
 
 VIEW
-  /cairn:status           combined: bd ready/blocked + active phase + progress
+  /cairn:status           bd-ready-driven: actionable / in-flight / blocked + one next action
   /cairn:progress         roadmap-level progress (GSD)
   /cairn:issues [N]       list beads issues, optionally scoped to phase N
+
+MIGRATE & HEALTH
+  /cairn:migrate          adopt an existing repo (GSD-only, beads-only, or both
+                          unwired): detect → dry-run plan → confirm → apply
+  /cairn:doctor           consistency checks (req↔issue, frontmatter ids, map
+                          freshness, label pairs) + --fix-labels repair
 
 MEMORY (context-mode — on by default)
   /cairn:remember [what]  index reference material under the active gb/<id>/<phase>
@@ -134,9 +142,9 @@ SYNC (optional)
   /cairn:sync-pull        reconcile external edits back into bd
 
 ESCAPE HATCHES (raw passthrough — reach anything the verbs don't wrap)
-  /cairn:bd  <args…>      run any beads command       (e.g. /cairn:bd dep add a b)
-  /cairn:gsd <cmd> [args] run any GSD command          (e.g. /cairn:gsd debug)
-  /cairn:ctx <op> [args]  run any context-mode op      (e.g. /cairn:ctx stats)
+  /cairn:bd  <args…>      run any beads command   (e.g. /cairn:bd dep add a b)
+  /cairn:gsd <cmd> [args] run any GSD command      (e.g. /cairn:gsd debug)
+  /cairn:ctx <op> [args]  run any context-mode op  (e.g. /cairn:ctx stats)
 ```
 
 The verbs are a curated facade over all three tools, not a full mirror — the
