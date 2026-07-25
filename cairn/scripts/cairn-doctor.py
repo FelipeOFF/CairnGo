@@ -27,8 +27,8 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         move them).
     5. orphans          issues labeled phase-<N> where N is not a ROADMAP
                         phase -> WARN; non-closed issues with NO phase-*
-                        label at all (excluding migrated-todo/backlog
-                        labels) -> WARN.
+                        label at all (excluding migrated-todo/backlog/
+                        quick labels) -> WARN.
     6. label-pairs      issues with a phase-* label but no m-* label ->
                         WARN. --fix-labels repairs them via
                         'cairn-relabel.py pair --milestone <active>' BEFORE
@@ -84,8 +84,9 @@ REQ_ID = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
 DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
 
-# Labels that legitimately carry no phase-* label (migration parking lots).
-NO_PHASE_EXEMPT = {"migrated-todo", "backlog"}
+# Labels that legitimately carry no phase-* label (migration parking lots,
+# plus unphased /cairn:quick side-quests).
+NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick"}
 
 
 def die(msg, code):
