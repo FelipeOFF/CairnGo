@@ -146,6 +146,7 @@ LOOP
   /cairn:verify <N>       verify phase N  (GSD verify-work × beads cross-check)
   /cairn:ship             gate on all phase issues closed, then GSD ship / push
   /cairn:milestone <op>   new: roadmap + issues + maps · complete: gate → reconcile → archive
+  /cairn:autonomous [N]   run every remaining phase hands-off (plan → claim → execute → close → verify per phase; stops at the ship gate)
 
 VIEW
   /cairn:status           board render: READY / DOING / BLOCKED lanes + one next action (--brief)
