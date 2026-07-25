@@ -1,5 +1,7 @@
 # Cairn
 
+![CairnGo — plan · work · ship](../assets/cairngo-hero.png)
+
 > *A cairn is a stack of stones that marks a trail — and remembers the path you
 > took. This plugin does the same for a project: it stacks **plan → work →
 > memory** into one marker so a solo build stays on-trail.*

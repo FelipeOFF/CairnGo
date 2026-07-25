@@ -1,5 +1,7 @@
 # CairnGo
 
+![CairnGo — plan · work · ship](assets/cairngo-hero.png)
+
 Claude Code plugin marketplace by [FelipeOFF](https://github.com/FelipeOFF).
 
 ## Install the marketplace
