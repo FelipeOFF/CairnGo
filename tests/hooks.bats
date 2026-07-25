@@ -129,6 +129,33 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   grep -qxF "close my-hyphen-app-e3i" "$GBSYNC_LOG"
 }
 
+@test "post-bd-write: --add-label value is never mistaken for the issue id" {
+  # Label values are id-shaped (phase-3); without --add-label in the
+  # value-flag table the scanner would extract 'phase-3' as the issue and
+  # gbsync would fire on a nonexistent id.
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+
+  run post_bd_write 'bd update --add-label phase-3 map-7'
+  [ "$status" -eq 0 ]
+  wait_for_lines "$GBSYNC_LOG" 1
+  grep -qxF "update map-7" "$GBSYNC_LOG"
+}
+
+@test "post-bd-write: bd reopen mirrors as gbsync update <id>" {
+  # gbsync's push vocabulary is create|update|close — a reopen rides as
+  # update so the mirror's status change is not silently dropped.
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+
+  run post_bd_write "bd reopen map-4 --reason follow-up"
+  [ "$status" -eq 0 ]
+  wait_for_lines "$GBSYNC_LOG" 1
+  grep -qxF "update map-4" "$GBSYNC_LOG"
+}
+
 @test "post-bd-write: sync.json disabled — no gbsync call" {
   make_tmp_repo
   make_recorders

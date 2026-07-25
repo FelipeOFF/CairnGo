@@ -3,11 +3,12 @@
 #
 # Reads the Claude Code hook payload on stdin ({tool_name, tool_input:
 # {command}, ...}) and reacts to bd lifecycle writes — commands matching
-# ^bd (create|update|close). Two fire-and-forget background jobs:
+# ^bd (create|update|close|reopen). Two fire-and-forget background jobs:
 #
 #   a) MIRROR PUSH — when <project>/.cairn/sync.json exists with at least one
 #      enabled backend, fire gbsync for the affected issue:
 #        - update/close with an extractable id  -> gbsync <verb> <id>
+#          (reopen mirrors as update — gbsync speaks create|update|close)
 #        - create (id not knowable) or no id    -> "full push": every bd
 #          issue missing from .cairn/id-map.json is pushed as a create
 #          (self re-invocation with --bg-full-push).
@@ -69,7 +70,7 @@ except Exception:
 if data.get("tool_name", "Bash") != "Bash":
     raise SystemExit
 cmd = (data.get("tool_input") or {}).get("command") or ""
-m = re.match(r"^\s*bd\s+(create|update|close)\b", cmd)
+m = re.match(r"^\s*bd\s+(create|update|close|reopen)\b", cmd)
 if not m:
     raise SystemExit
 verb = m.group(1)
@@ -85,9 +86,10 @@ skip_next = False
 # (--claim, --force, --json, ...) are deliberately NOT listed.
 VALUE_FLAGS = {
     "--parent", "--epic", "--reason", "-l", "--labels", "--label",
+    "--add-label", "--remove-label", "--set-labels",
     "--assignee", "-a", "--status", "-s", "--type", "-t", "--priority",
     "-p", "--description", "-d", "--title", "--metadata", "--estimate",
-    "--defer-until", "--dep", "--deps", "--file", "-f",
+    "--defer", "--due", "--dep", "--deps", "--file", "-f",
 }
 for tok in toks:
     if skip_next:
@@ -126,7 +128,11 @@ print("yes" if on else "no")
 ' "$SYNC_JSON" 2>/dev/null || echo no)"
   if [ "$ENABLED" = "yes" ]; then
     if [ "$VERB" != "create" ] && [ -n "$ISSUE" ]; then
-      nohup bash "$GBSYNC" "$VERB" "$ISSUE" >/dev/null 2>&1 &
+      # gbsync's push vocabulary is create|update|close — a reopen is a
+      # status change on an existing mirror, so it rides as update.
+      SYNC_VERB="$VERB"
+      if [ "$SYNC_VERB" = "reopen" ]; then SYNC_VERB="update"; fi
+      nohup bash "$GBSYNC" "$SYNC_VERB" "$ISSUE" >/dev/null 2>&1 &
     else
       nohup bash "${BASH_SOURCE[0]}" --bg-full-push >/dev/null 2>&1 &
     fi
