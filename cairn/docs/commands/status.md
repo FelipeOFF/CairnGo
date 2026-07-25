@@ -1,0 +1,119 @@
+# /cairn:status
+
+> One combined view driven by `bd ready` — a kanban status board (actionable, in-flight, blocked), GSD roadmap position, and one suggested next action.
+
+## Usage
+
+```
+/cairn:status
+```
+
+No arguments. The command runs the deterministic renderer and presents its
+output verbatim:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" [flags]
+```
+
+## What it does
+
+1. Runs `cairn-status.sh` (a thin wrapper over `cairn-status.py`, zero-dependency
+   Python 3). The script gathers everything itself:
+   - **READY** lane — `bd ready --json`: the truly claimable list. Dependencies,
+     gates, and `defer_until` are respected; in_progress and blocked issues are
+     excluded.
+   - **DOING** lane — `bd list --status in_progress --json` (assignees shown
+     with a `◆` marker).
+   - **BLOCKED** lane — `bd blocked --json` (blocking dependency shown with a
+     `⧗ <dep-id>` marker).
+   - **Roadmap position** — ROADMAP.md and STATE.md parsed leniently (completed
+     phases, 🚧 milestone marker, `active_phase` / `milestone` frontmatter).
+   - **Sync staleness** — when `.cairn/sync.json` exists, checked against the
+     last-pull watermark in `.cairn/state.json`.
+2. Renders a three-lane kanban board on one shared box-drawing grid (never a
+   box per card), with lane headers like `READY (3)`.
+3. Prints a footer **outside** the grid: `phase X/Y · <milestone> · done: N`,
+   then `▶ next: <one action>`, then a sync-staleness line when relevant
+   (stale or missing watermark → suggests `/cairn:sync-pull`).
+4. **Synthesizes ONE next action**, in order: an in_progress issue exists →
+   continue it; else the highest-priority ready issue of the active phase
+   (filtered by the `m-<milestone>,phase-<active>` label pair); else the next
+   GSD step from STATE.md. When bd and STATE.md disagree, the rule is stated
+   explicitly: **bd wins for work items, STATE.md wins for workflow steps** —
+   neither overrides the other.
+5. Degrades gracefully by width: full columns → vertically stacked lanes
+   (below ~64 columns) → raw `LANE  id  title` list (below 40 columns). The
+   grid never wraps.
+6. When stdout is **not a TTY** (pipes, redirects) and no output flag was
+   given, the script automatically switches to `--plain`: clean tabular
+   output, zero ANSI escapes, zero box-drawing, titles untruncated.
+
+The skill presents the board verbatim (in a code fence, never paraphrased).
+On exit 5 it falls back to a minimal prose view via `/gsd:progress`.
+
+## Flags & arguments
+
+| Flag | Effect |
+| --- | --- |
+| `--json` | Single-line machine-readable JSON (stable dict shape) |
+| `--plain` | Tabular TSV-like output, no color, no box-drawing |
+| `--brief` | Three lines only: header, counts, next action |
+| `--width N` | Override detected terminal width (deterministic output) |
+| `--max-rows N` | Rows per lane before a `+k more` footer (default 15) |
+| `--ascii` | ASCII borders and `...` truncation instead of Unicode |
+| `--color=always\|never` | Force color on or off |
+| `--planning-dir <dir>` | Use an alternate planning dir (default `.planning/`) |
+
+Color precedence: `--color` > `CAIRN_NO_COLOR` > `NO_COLOR` > `TERM=dumb` >
+`isatty(stdout)`. Colors are 4-bit only: DOING yellow, BLOCKED red, done
+green in the footer; color on headers/counts/glyphs, never on whole cards.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Board rendered |
+| `2` | Usage error (unknown flag, bad value) |
+| `5` | `bd` not on PATH — fall back to the GSD-only prose view (`/gsd:progress`) |
+
+## Examples
+
+Full board in a terminal:
+
+```
+$ bash cairn/scripts/cairn-status.sh --width 100
+┌──────────────────────┬──────────────────────┬──────────────────────┐
+│ READY (2)            │ DOING (1)            │ BLOCKED (1)          │
+├──────────────────────┼──────────────────────┼──────────────────────┤
+│ app-12  Add auth …   │ app-9  Status boa…   │ app-14  Deploy pi…   │
+│ app-13  Fix flaky…   │        ◆ felipe      │         ⧗ app-12     │
+└──────────────────────┴──────────────────────┴──────────────────────┘
+phase 3/5 · v1.0 · done: 7
+▶ next: continue app-9 (Status board renderer)
+```
+
+Three-line summary:
+
+```
+$ bash cairn/scripts/cairn-status.sh --brief
+```
+
+Machine consumption (also what pipes get, minus the JSON shape):
+
+```
+$ bash cairn/scripts/cairn-status.sh --json | jq .ready
+```
+
+## Files touched
+
+- **Reads:** beads state via `bd` (`ready`, `list`, `blocked`),
+  `.planning/ROADMAP.md`, `.planning/STATE.md`, `.cairn/sync.json`,
+  `.cairn/state.json` (sync watermark)
+- **Writes:** nothing — read-only
+
+## Related
+
+- [/cairn:progress](progress.md) — GSD-only roadmap view (no beads)
+- [/cairn:issues](issues.md) — flat issue listing, optionally per phase
+- [/cairn:sync-pull](sync-pull.md) — refresh when the sync line reports stale
+- [/cairn:quick](quick.md) — released quick issues reappear in the READY lane

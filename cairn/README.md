@@ -148,7 +148,7 @@ LOOP
   /cairn:milestone <op>   new: roadmap + issues + maps · complete: gate → reconcile → archive
 
 VIEW
-  /cairn:status           bd-ready-driven: actionable / in-flight / blocked + one next action
+  /cairn:status           board render: READY / DOING / BLOCKED lanes + one next action (--brief)
   /cairn:progress         roadmap-level progress (GSD)
   /cairn:issues [N]       list beads issues, optionally scoped to phase N
 
@@ -242,6 +242,7 @@ fit: [`docs/architecture.md`](./docs/architecture.md)
 | `adapters/*.py` · `_contract.md` | github · gitlab · jira · asana · azure-boards adapters + the interface spec |
 | `templates/*.example` | starter `sync.json` / `context.json` |
 | `docs/` | deep dives: migration · sync · context-mode memory · architecture |
+| [`docs/commands.md`](./docs/commands.md) | the command reference index — one doc per `/cairn:` verb under `docs/commands/` |
 
 Tests live at the repo root (`tests/`, bats) and run the deterministic scripts
 against fixture repos with a real `bd` — see `tests/README.md`.
