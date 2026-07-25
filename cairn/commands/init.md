@@ -3,8 +3,9 @@ description: One-command, soup-to-nuts project setup — ensure GSD + beads, wir
 ---
 
 Set up the current working directory for the full cairn workflow, end to end.
-Run these steps in order. Everything up to step 4 is non-interactive wiring; the
-interview happens only at the hand-off.
+Run these steps in order. Steps 1–2 and 4–5 are non-interactive wiring; step 3
+asks once before installing bd, step 6 asks about telemetry, and the interview
+happens only at the hand-off.
 
 ## 1. Verify GSD is present
 
@@ -15,7 +16,33 @@ If GSD is missing, install it and tell the user to `/reload-plugins`:
 claude plugin install gsd@eventually-consistent-code
 ```
 
-## 2. Ensure beads (`bd`) — prompt, then install
+## 2. Install the cairn GSD capability (plain `/gsd:*` does beads)
+
+The capability bundle ships with the plugin at `${CLAUDE_PLUGIN_ROOT}/capability`.
+Installing it project-scope registers cairn's loop hooks with GSD itself — plain
+`/gsd:plan-phase`, `/gsd:execute-phase`, `/gsd:verify-work`, and `/gsd:ship`
+then link, claim, close, and gate bd issues without the `/cairn:*` wrappers.
+Idempotent: a re-run refreshes the bundle via `capability update`.
+
+```bash
+GSD_BIN="$(command -v gsd_run || command -v gsd || true)"
+if [ -n "$GSD_BIN" ]; then
+  "$GSD_BIN" capability install "${CLAUDE_PLUGIN_ROOT}/capability" --scope project --yes \
+    || "$GSD_BIN" capability update cairn --scope project --yes \
+    || echo "capability install skipped — /cairn:* commands and the cairn skill still work"
+  mkdir -p .cairn && printf '%s\n' "${CLAUDE_PLUGIN_ROOT}" > .cairn/plugin-root
+else
+  echo "gsd_run not on PATH — skipping capability install (the cairn skill still applies)"
+fi
+```
+
+`--scope project` stages the bundle at `.gsd/capabilities/cairn/`;
+`.cairn/plugin-root` lets the bundled scripts reuse the plugin's own map
+generator instead of shipping a copy. If the install is blocked (e.g. a
+`capabilities.strict_known_registries` lockdown), continue — the cairn skill
+covers the same conventions conversationally.
+
+## 3. Ensure beads (`bd`) — prompt, then install
 
 beads is a binary, not a plugin, so it can't be a dependency. Check `command -v bd`.
 
@@ -34,7 +61,7 @@ nagging, then stop (the rest of setup needs bd):
 mkdir -p "$CLAUDE_PLUGIN_DATA" && touch "$CLAUDE_PLUGIN_DATA/bd-install.skip"
 ```
 
-## 3. Wire git + beads
+## 4. Wire git + beads
 
 Run the bootstrap script (idempotent — safe to re-run):
 ```bash
@@ -43,7 +70,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-init.sh" "$PWD"
 It ensures the directory is a git repo and runs `bd init` if `.beads/` is missing,
 and reports what it did.
 
-## 4. Intent-aware memory (already on)
+## 5. Intent-aware memory (already on)
 
 context-mode ships as a cairn dependency, so intent-aware memory is active by
 default — `/cairn:remember` and `/cairn:recall` work out of the box, scoping
@@ -51,7 +78,7 @@ memory to the active bd issue + phase. Mention `/cairn:context-config` only if
 the user wants to tune the scope template or capacity threshold; don't run it
 unprompted.
 
-## 5. Opt-in install ping (off by default)
+## 6. Opt-in install ping (off by default)
 
 Ask once, plainly, and take **no** as the default:
 
@@ -73,7 +100,7 @@ To stop later: set `"enabled": false` in `.cairn/telemetry.json` (and delete
 `.cairn/.beacon-sent` for a clean slate). See `PRIVACY.md` for exactly what the
 beacon does and doesn't send.
 
-## 6. Hand off to the interactive project setup
+## 7. Hand off to the interactive project setup
 
 `.planning/` is created by GSD, not by cairn — do NOT create it yourself. Launch
 the interactive roadmap interview now:
