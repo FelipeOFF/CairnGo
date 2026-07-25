@@ -68,13 +68,28 @@ Deferred. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (preenchido na criação do roadmap) | | |
+| HARN-01 | Phase 1 | Pending |
+| HARN-02 | Phase 1 | Pending |
+| HARN-03 | Phase 1 | Pending |
+| FAIR-01 | Phase 2 | Pending |
+| FAIR-02 | Phase 2 | Pending |
+| FAIR-03 | Phase 2 | Pending |
+| METR-01 | Phase 3 | Pending |
+| METR-02 | Phase 3 | Pending |
+| METR-03 | Phase 3 | Pending |
+| COMP-01 | Phase 4 | Pending |
+| CORP-01 | Phase 5 | Pending |
+| CORP-02 | Phase 5 | Pending |
+| REPT-01 | Phase 6 | Pending |
+| REPT-02 | Phase 6 | Pending |
+| REPT-03 | Phase 6 | Pending |
+| REPT-04 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 14 total
-- Mapped to phases: 0 (roadmap pendente)
-- Unmapped: 14 ⚠️
+- v1 requirements: 16 total (corrigido de 14 — contagem original estava desatualizada; a lista de IDs acima é a fonte da verdade)
+- Mapped to phases: 16/16 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-25*
-*Last updated: 2026-07-25 after research synthesis*
+*Last updated: 2026-07-25 after roadmap creation (6 phases)*
