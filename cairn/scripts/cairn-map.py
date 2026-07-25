@@ -16,8 +16,10 @@ Behavior:
        myproj-03-auth is tolerated — the same matching semantics documented
        in commands/plan.md). Default planning dir: $CLAUDE_PROJECT_DIR (or
        cwd) + /.planning.
-    2. Query bd: bd list -l phase-<N>[,m-<milestone>] --all --limit 0 --json
-       (open AND closed issues). When --milestone is omitted it is inferred
+    2. Query bd: bd -C <planning-dir's parent> list -l
+       phase-<N>[,m-<milestone>] --all --limit 0 --json (open AND closed
+       issues, pinned to the planning dir's own repo, never the cwd's).
+       When --milestone is omitted it is inferred
        from the phase issues' m-* labels: a single shared label is used, no
        m-* labels at all (legacy repo) drops the milestone filter, and mixed
        labels are an error asking for an explicit --milestone.
@@ -122,11 +124,15 @@ def resolve_phase_dir(planning_dir, n):
     return hits[0] if hits else None
 
 
-def bd_list(labels):
-    """bd list -l <labels-ANDed> --all (open and closed), parsed JSON."""
+def bd_list(labels, root):
+    """bd -C <root> list -l <labels-ANDed> --all (open and closed), parsed
+    JSON. root pins the query to the planning dir's repo — without it, a
+    --planning-dir pointed at another checkout would render THIS repo's
+    issues into the other repo's map (cairn-gate and cairn-doctor pass
+    -C the same way)."""
     if shutil.which("bd") is None:
         die("'bd' not found on PATH", EXIT_NO_BD)
-    cmd = ["bd", "list", "-l", ",".join(labels),
+    cmd = ["bd", "-C", str(root), "list", "-l", ",".join(labels),
            "--all", "--limit", "0", "--json"]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -261,11 +267,12 @@ def main():
         die(f"no phase directory matching phase {n} under "
             f"{planning_dir / 'phases'}", EXIT_NO_PHASE)
 
+    root = planning_dir.resolve().parent
     milestone = opts["milestone"]
     if milestone:
-        issues = bd_list([f"phase-{n}", f"m-{milestone}"])
+        issues = bd_list([f"phase-{n}", f"m-{milestone}"], root)
     else:
-        issues = bd_list([f"phase-{n}"])
+        issues = bd_list([f"phase-{n}"], root)
         milestone = infer_milestone(issues)
 
     inner, n_rows, n_unmapped, missing = build_inner(

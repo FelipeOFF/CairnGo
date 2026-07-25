@@ -229,3 +229,28 @@ make_map_fixture() {
   run env PATH="$stub" "$stub/bash" "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1
   [ "$status" -eq 5 ]
 }
+
+@test "--planning-dir pointed at another checkout maps THAT repo's issues, not the cwd's" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_map_fixture
+  local target_repo="$CAIRN_TMP_REPO"
+
+  # A second bd repo becomes the cwd; its issues must never leak into the
+  # target repo's map (the generator pins bd to the planning dir's parent).
+  make_tmp_repo
+  bd init -q --prefix other --non-interactive >/dev/null 2>&1
+  local stray
+  stray="$(bd create "Stray issue from the wrong repo" -t task \
+    -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 \
+    --planning-dir "$target_repo/.planning"
+  [ "$status" -eq 0 ]
+  local map="$target_repo/$MAP_FILE"
+  [ -f "$map" ]
+  grep -qF "$MAP_AUTH1" "$map"
+  refute_in_file "$stray" "$map"
+}
