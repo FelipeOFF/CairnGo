@@ -1,6 +1,6 @@
 ---
 name: cairn-context
-description: Use when a repo has .cairn/context.json AND the context-mode ctx_* MCP tools are available — makes context-mode's knowledge base GSD/beads-aware. Scopes indexed memory by the active bd issue + GSD phase (source-label convention), recalls only the active task's context, and watches ctx_stats to advise task-splitting before the window degrades. Scope-by-label only — never deletes. Complements the cairn skill.
+description: Use when the context-mode ctx_* MCP tools are present AND the repo has both .planning/ (GSD) and .beads/ (beads) — on by default, since context-mode ships as a cairn dependency; .cairn/context.json is optional tuning, not a gate. Makes context-mode's knowledge base GSD/beads-aware. Scopes indexed memory by the active bd issue + GSD phase (source-label convention), recalls only the active task's context, and watches ctx_stats to advise task-splitting before the window degrades. Scope-by-label only — never deletes. Complements the cairn skill.
 ---
 
 # cairn context (intent-aware memory for context-mode)
@@ -23,10 +23,11 @@ present by default. Apply this skill whenever:
 
 This layer is **on by default** — it does not require opt-in. `.cairn/context.json`
 is **optional tuning**: if present it overrides the defaults below (source
-template, capacity threshold, capacity-guard on/off); if absent, the defaults
-apply. `/cairn:context-config` writes that file to customize them. The only
-case where the skill is inert is the rare one where the `ctx_*` tools are
-genuinely unavailable (context-mode disabled by the user).
+template, capacity threshold, capacity-guard on/off, or `enabled: false` to
+switch the conventions off in this repo); if absent, the defaults apply.
+`/cairn:context-config` writes that file to customize them. The skill is inert
+only in two cases: the `ctx_*` tools are genuinely unavailable (context-mode
+disabled by the user), or `.cairn/context.json` sets `enabled: false`.
 
 **Defaults (when `.cairn/context.json` is absent):** `source_template` =
 `gb/{bd_id}/{phase}`, `capacity_guard.enabled` = true, `token_threshold` =
@@ -122,4 +123,5 @@ When the capacity guard is enabled (the default; override in `.cairn/context.jso
   identical to the `cairn` skill.
 - `.cairn/context.json` is optional tuning, not a gate — defaults apply when it
   is absent. The skill is inert only if the user has disabled context-mode so
-  the `ctx_*` tools are unavailable.
+  the `ctx_*` tools are unavailable, or set `enabled: false` in
+  `.cairn/context.json`.

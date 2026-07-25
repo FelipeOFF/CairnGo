@@ -18,9 +18,15 @@ stale log as the one compiler error that explains the current failure.
 knowledge base to the **active bd issue** and the **GSD phase**, so retrieval is
 scoped to the task at hand instead of the whole session's noise.
 
-It is **thin glue**: a skill, a hook, and a config file. No dispatcher, no
-runtime, no HTTP. It does not fork, vendor, or modify context-mode, bd, or GSD —
-it only ships the convention that makes them aware of each other.
+It is **thin glue**: a skill, a hook, and an optional tuning file. No
+dispatcher, no runtime, no HTTP. It does not fork, vendor, or modify
+context-mode, bd, or GSD — it only ships the convention that makes them aware
+of each other.
+
+It is also **on by default**: context-mode ships as a cairn plugin dependency,
+so the `ctx_*` tools are present out of the box and the convention applies in
+every repo where the cairn integration is active (both `.planning/` and
+`.beads/` exist). `.cairn/context.json` is optional tuning, not a gate.
 
 ### Design in one line
 
@@ -89,11 +95,11 @@ cairn/
 ├── skills/
 │   └── cairn-context/SKILL.md   # the convention + lifecycle + boundaries
 ├── commands/
-│   └── context-config.md            # /cairn:context-config (opt-in)
+│   └── context-config.md            # /cairn:context-config (optional tuning)
 ├── hooks/
-│   └── session-start.sh             # emits the reminder when context.json exists
+│   └── session-start.sh             # emits the reminder when .planning/ + .beads/ exist
 └── templates/
-    └── context.json.example         # starter config
+    └── context.json.example         # starter tuning config (optional)
 ```
 
 There is **no dispatcher and no adapter** — unlike the sync layer, nothing here
@@ -103,9 +109,9 @@ the agent how, scoped by bd + GSD state.
 
 | Piece | Role |
 |---|---|
-| `cairn-context` skill | The rules: label on index, filter on search, switch on phase, guard on stats. Activates when opted in and `ctx_*` tools exist. |
-| `session-start.sh` | Injects a one-screen reminder of the convention — **only** when `.cairn/context.json` is present. |
-| `context.json` | The opt-in switch + tunables (source template, capacity threshold). |
+| `cairn-context` skill | The rules: label on index, filter on search, switch on phase, guard on stats. On by default — active whenever the cairn integration is (both dirs present) and the `ctx_*` tools exist. |
+| `session-start.sh` | Injects a one-screen reminder of the convention whenever both `.planning/` and `.beads/` exist — **not** gated on `context.json`. |
+| `context.json` | **Optional** tuning overrides (source template, capacity threshold); defaults apply without it. |
 
 ---
 
@@ -130,8 +136,9 @@ Because the filter is a **partial match**, the path prefix is a zoom control:
 | A whole phase | `ctx_search(source: "phase-3")` | every issue in phase 3 |
 | All cairn memory | `ctx_search(source: "gb/")` | everything this layer indexed |
 
-`source_template` in `context.json` defines the pattern; `{bd_id}` and `{phase}`
-are the only interpolated fields.
+The pattern defaults to `gb/{bd_id}/{phase}` and can be overridden via
+`source_template` in `.cairn/context.json`; `{bd_id}` and `{phase}` are the
+only interpolated fields.
 
 ### What to index vs. what to stream
 
@@ -195,16 +202,17 @@ context-mode cannot pause the loop, so the agent acts on the number.
 ## 6. Quick start
 
 ```text
-# 1. The repo already uses bd (+ GSD) and the context-mode plugin is installed.
+# 1. Install cairn — context-mode comes with it as a plugin dependency, so the
+#    ctx_* tools (and this integration) are on by default. Nothing to enable.
 
-# 2. Opt in — interactive; writes .cairn/context.json:
-/cairn:context-config
-
-# 3. That's it. The cairn-context skill activates automatically now that the
-#    config exists and the ctx_* tools are present. During execution:
+# 2. In a repo with both .planning/ and .beads/ (run /cairn:init if needed),
+#    that's it. During execution:
 #      - index docs under  source: gb/<bd_id>/<phase>
 #      - recall with        ctx_search(source: "<bd_id>")
 #      - the SessionStart hook reminds you of the convention each session.
+
+# 3. Optional — override the defaults (scope template, capacity threshold):
+/cairn:context-config      # interactive; writes .cairn/context.json
 ```
 
 ---
@@ -215,10 +223,11 @@ All state lives under `<project>/.cairn/`:
 
 | File | Committed? | Purpose |
 |---|---|---|
-| `context.json` | **yes** | Opt-in switch + tunables. Holds no secrets. |
+| `context.json` | **yes** | Optional tuning overrides. Holds no secrets. |
 
-`context.json` is meant to be committed so the whole team shares the convention.
-Its presence is what activates the integration.
+`context.json` is **optional** — the integration is on by default and the
+defaults below apply without it. When you do tune, commit the file so the whole
+team shares the same settings.
 
 ```json
 {
@@ -239,7 +248,7 @@ Its presence is what activates the integration.
 
 | Field | Meaning | Default |
 |---|---|---|
-| `enabled` | Master switch for the integration. | `true` |
+| `enabled` | Master switch — set `false` to turn the conventions off in this repo. Absent file = `true`. | `true` |
 | `scoping.source_template` | Label pattern; `{bd_id}` + `{phase}` interpolated. | `gb/{bd_id}/{phase}` |
 | `capacity_guard.enabled` | Watch `ctx_stats` and advise splitting. | `true` |
 | `capacity_guard.token_threshold` | Cumulative tool-output tokens that trigger the split advice. | `150000` |
@@ -304,8 +313,10 @@ a bd issue and GSD phase docs, **GSD docs win** — same precedence as the
 - **Non-destructive by design.** The only destructive context-mode op
   (`ctx_purge`) is never invoked automatically. A reset is always a deliberate,
   user-confirmed action.
-- **Opt-in.** Absent `context.json` (or with `enabled:false`), the skill and the
-  hook block do nothing — plain context-mode usage is unaffected.
+- **On by default, tunable.** context-mode ships as a cairn dependency, so the
+  convention applies with no setup; `.cairn/context.json` only tunes it. To
+  switch the conventions off in a repo, set `enabled: false` there (or disable
+  the context-mode plugin) — plain context-mode usage is unaffected either way.
 
 ---
 
@@ -313,8 +324,8 @@ a bd issue and GSD phase docs, **GSD docs win** — same precedence as the
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Skill never engages | `.cairn/context.json` missing → run `/cairn:context-config`; or the `ctx_*` tools aren't loaded (context-mode not installed). |
-| No SessionStart reminder | The hook only emits when `.cairn/context.json` exists. Create it via the command. |
+| Skill never engages | The `ctx_*` tools aren't loaded (context-mode dependency unresolved or plugin disabled); `.planning/` or `.beads/` missing (cairn integration not active); or `.cairn/context.json` sets `enabled: false`. No config file is needed — defaults apply without it. |
+| No SessionStart reminder | The hook emits whenever both `.planning/` and `.beads/` exist — it is not gated on `context.json`. Check both directories are present (run `/cairn:init` if not). |
 | `ctx_search` returns other tasks' noise | You didn't pass `source:` — scope it: `ctx_search(source: "<bd_id>")`. |
 | Recall misses something you expected | It was streamed (`ctx_execute_file`), not indexed — only indexed content is queryable. Index it under the active label if you need it later. |
 | Capacity guard never fires | Usage below `token_threshold`, or `capacity_guard.enabled:false`. Lower the threshold for shorter loops. |
@@ -330,5 +341,6 @@ a bd issue and GSD phase docs, **GSD docs win** — same precedence as the
 - Three behaviors: **scope** (label + filter), **switch** (move the label on
   phase change), **guard** (`ctx_stats` over threshold → advise a `bd` split).
 - **Scope-by-label only** — never deletes. `ctx_purge` stays a manual user action.
-- Config in `.cairn/context.json` (committed, no secrets); presence = opt-in.
+- **On by default** — context-mode is a cairn dependency; `.cairn/context.json`
+  is optional tuning (committed, no secrets), not a gate.
 - No dispatcher, no adapter, no network — just a skill, a hook, and a convention.
