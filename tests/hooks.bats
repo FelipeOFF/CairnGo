@@ -1,0 +1,279 @@
+#!/usr/bin/env bats
+# hooks.bats — exercises the cairn Claude Code hooks as processes:
+#   post-bd-write.sh  (PostToolUse, matcher Bash) — fake hook JSON on stdin;
+#                     background gbsync mirror push + phase map refresh are
+#                     observed through recorder stubs (CAIRN_GBSYNC/CAIRN_MAP
+#                     seams) that append their argv to a log file.
+#   session-start.sh  — migration-discovery nudge branches.
+#   session-stop.sh   — in_progress-issues warning, silent when clean.
+# Every hook must ALWAYS exit 0 and never break the tool call / session.
+
+load 'helpers'
+
+CAIRN_HOOKS_DIR="$CAIRN_REPO_ROOT/cairn/hooks"
+
+refute_in_output() {
+  if grep -qF -- "$1" <<<"$output"; then
+    echo "unexpectedly found '$1' in output" >&2
+    return 1
+  fi
+}
+
+# Recorder stubs: append "$@" to a log, exit 0. Wired in via the CAIRN_GBSYNC
+# and CAIRN_MAP env seams (the hook invokes them through bash).
+make_recorders() {
+  GBSYNC_STUB="$BATS_TEST_TMPDIR/gbsync-recorder"
+  GBSYNC_LOG="$BATS_TEST_TMPDIR/gbsync.log"
+  MAP_STUB="$BATS_TEST_TMPDIR/map-recorder"
+  MAP_LOG="$BATS_TEST_TMPDIR/map.log"
+  printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$GBSYNC_LOG" > "$GBSYNC_STUB"
+  printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$MAP_LOG" > "$MAP_STUB"
+  chmod +x "$GBSYNC_STUB" "$MAP_STUB"
+}
+
+# Feed a fake PostToolUse payload for COMMAND into the hook.
+post_bd_write() {
+  printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" \
+    | env CLAUDE_PROJECT_DIR="$PWD" \
+          CAIRN_GBSYNC="$GBSYNC_STUB" CAIRN_MAP="$MAP_STUB" \
+          bash "$CAIRN_HOOKS_DIR/post-bd-write.sh"
+}
+
+write_sync_json() {  # $1 = true|false (enabled flag of the single backend)
+  mkdir -p .cairn
+  printf '{"backends":[{"type":"github","enabled":%s,"adapter":"github","config":{"repo":"o/n"}}]}\n' \
+    "$1" > .cairn/sync.json
+}
+
+# The hook backgrounds its work (nohup + &): poll for the recorder log.
+wait_for_lines() {  # $1 = file, $2 = minimum line count
+  local i
+  for i in $(seq 1 50); do
+    if [ -f "$1" ] && [ "$(wc -l < "$1")" -ge "$2" ]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "timed out waiting for $2 line(s) in $1" >&2
+  return 1
+}
+
+#-----------------------------------------------------------------------------
+# post-bd-write.sh
+#-----------------------------------------------------------------------------
+
+@test "post-bd-write: bd close with enabled sync fires gbsync close <id> in background" {
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+
+  run post_bd_write "bd close map-1 --reason=done"
+  [ "$status" -eq 0 ]
+  # At most one short stdout line.
+  [ "${#lines[@]}" -le 1 ]
+  grep -qF "queued" <<<"$output"
+
+  wait_for_lines "$GBSYNC_LOG" 1
+  grep -qxF "close map-1" "$GBSYNC_LOG"
+  [ ! -f "$MAP_LOG" ]   # no phase label in the command, no .planning/
+}
+
+@test "post-bd-write: id AFTER a value flag — bd close --reason \"x\" <id> still mirrors" {
+  # The reason value is a quoted token that fails the id shape, so the scanner
+  # must keep going and find the id later in the command line.
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+
+  # \" keeps the payload valid JSON (the real Claude Code payload arrives
+  # properly escaped too); the decoded command carries the quoted reason.
+  run post_bd_write 'bd close --reason \"superseded by map-9\" map-7'
+  [ "$status" -eq 0 ]
+  wait_for_lines "$GBSYNC_LOG" 1
+  grep -qxF "close map-7" "$GBSYNC_LOG"
+}
+
+@test "post-bd-write: --parent value is never mistaken for the issue id" {
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+
+  run post_bd_write 'bd update --parent map-epic map-3 -s open'
+  [ "$status" -eq 0 ]
+  wait_for_lines "$GBSYNC_LOG" 1
+  grep -qxF "update map-3" "$GBSYNC_LOG"
+}
+
+@test "post-bd-write: bd update <id> mirrors as gbsync update <id>" {
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+
+  run post_bd_write "bd update map-2 -s open"
+  [ "$status" -eq 0 ]
+  wait_for_lines "$GBSYNC_LOG" 1
+  grep -qxF "update map-2" "$GBSYNC_LOG"
+}
+
+@test "post-bd-write: hyphenated repo prefix — id like my-app-3fk still mirrors" {
+  # bd derives the id prefix from the directory name, so ids routinely carry
+  # interior hyphens (my-app-3fk). The extractor must not degrade those to the
+  # full-push path.
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+
+  run post_bd_write "bd close my-hyphen-app-e3i --reason done"
+  [ "$status" -eq 0 ]
+  wait_for_lines "$GBSYNC_LOG" 1
+  grep -qxF "close my-hyphen-app-e3i" "$GBSYNC_LOG"
+}
+
+@test "post-bd-write: sync.json disabled — no gbsync call" {
+  make_tmp_repo
+  make_recorders
+  write_sync_json false
+
+  run post_bd_write "bd close map-1"
+  [ "$status" -eq 0 ]
+  sleep 0.5
+  [ ! -f "$GBSYNC_LOG" ]
+}
+
+@test "post-bd-write: non-bd command is a silent no-op" {
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+
+  run post_bd_write "git status"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  sleep 0.5
+  [ ! -f "$GBSYNC_LOG" ]
+  [ ! -f "$MAP_LOG" ]
+}
+
+@test "post-bd-write: phase-N in the command refreshes that phase's map" {
+  make_tmp_repo
+  make_recorders
+  mkdir .planning
+
+  run post_bd_write "bd update gate-1 --add-label phase-2"
+  [ "$status" -eq 0 ]
+  wait_for_lines "$MAP_LOG" 1
+  grep -qxF "2" "$MAP_LOG"
+  [ ! -f "$GBSYNC_LOG" ]   # no sync.json in this repo
+}
+
+@test "post-bd-write: no .planning/ — phase label does NOT trigger a map refresh" {
+  make_tmp_repo
+  make_recorders
+
+  run post_bd_write "bd update gate-1 --add-label phase-2"
+  [ "$status" -eq 0 ]
+  sleep 0.5
+  [ ! -f "$MAP_LOG" ]
+}
+
+@test "post-bd-write: bd create runs a full push of every unmapped issue" {
+  require_bd
+  make_tmp_repo
+  make_recorders
+  write_sync_json true
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+  local a b
+  a="$(bd create "First" -t task --silent)"
+  b="$(bd create "Second" -t task --silent)"
+
+  run post_bd_write "bd create Third -t task"
+  [ "$status" -eq 0 ]
+  wait_for_lines "$GBSYNC_LOG" 2
+  grep -qxF "create $a" "$GBSYNC_LOG"
+  grep -qxF "create $b" "$GBSYNC_LOG"
+}
+
+#-----------------------------------------------------------------------------
+# session-start.sh — migration discovery branches
+#-----------------------------------------------------------------------------
+
+@test "session-start: .planning/ without .beads/ nudges /cairn:migrate" {
+  require_bd
+  make_tmp_repo
+  mkdir .planning
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "/cairn:migrate" <<<"$output"
+  refute_in_output "integration is active"
+}
+
+@test "session-start: both dirs but no NN-BEADS-MAP.md nudges the wire-up" {
+  require_bd
+  make_tmp_repo
+  mkdir -p .planning/phases/01-auth .beads
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "BEADS-MAP" <<<"$output"
+  grep -qF "/cairn:migrate" <<<"$output"
+  # The integration-active reminder still fires alongside the nudge.
+  grep -qF "integration is active" <<<"$output"
+}
+
+@test "session-start: dedup — no migrate nudge once a phase map exists" {
+  require_bd
+  make_tmp_repo
+  mkdir -p .planning/phases/01-auth .beads
+  touch .planning/phases/01-auth/01-BEADS-MAP.md
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+  refute_in_output "/cairn:migrate"
+  grep -qF "integration is active" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# session-stop.sh
+#-----------------------------------------------------------------------------
+
+@test "session-stop: silent and exit 0 when nothing is in_progress" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+  bd create "Open but unclaimed" -t task --silent >/dev/null
+
+  run env CLAUDE_PROJECT_DIR="$PWD" BEADS_ACTOR="tester" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "session-stop: warns (one line) about in_progress issues assigned to the actor" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+  local id
+  id="$(bd create "Mid-flight work" -t task --silent)"
+  env BEADS_ACTOR="tester" bd update "$id" --claim >/dev/null
+
+  run env CLAUDE_PROJECT_DIR="$PWD" BEADS_ACTOR="tester" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 1 ]
+  grep -qF "$id" <<<"$output"
+  grep -qF "in_progress" <<<"$output"
+
+  # A different actor's session stays silent — the issue isn't theirs.
+  run env CLAUDE_PROJECT_DIR="$PWD" BEADS_ACTOR="someone-else" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "session-stop: no .beads/ — silent exit 0" {
+  make_tmp_repo
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
