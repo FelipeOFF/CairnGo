@@ -3,9 +3,27 @@ description: One-command, soup-to-nuts project setup — ensure GSD + beads, wir
 ---
 
 Set up the current working directory for the full cairn workflow, end to end.
-Run these steps in order. Steps 1–2 and 4–5 are non-interactive wiring; step 3
-asks once before installing bd, step 6 asks about telemetry, and the interview
-happens only at the hand-off.
+Run these steps in order. Step 0 classifies the repo; steps 1–2 and 4–5 are
+non-interactive wiring; step 3 asks once before installing bd, step 6 asks
+about telemetry, and the interview happens only at the hand-off.
+
+## 0. Detect existing state
+
+Before anything else, classify the repo:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-migrate.sh" detect
+```
+
+Route on the state letter (line 1 of the output):
+
+- **A / B / C** — the repo already has `.planning/` and/or `.beads/` history
+  that isn't wired yet. **Stop init here** and hand off to `/cairn:migrate`
+  (never run `/gsd:new-project` over an existing `.planning/`).
+- **W** — both present and already wired: run steps 1–6 below (capability
+  install + hooks wiring only) and **skip step 7** — there is nothing to
+  interview.
+- **D** — greenfield: continue with all steps below.
 
 ## 1. Verify GSD is present
 

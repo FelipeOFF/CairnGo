@@ -4,7 +4,9 @@ description: Show the cairn unified command interface (one namespace for GSD + b
 
 Print this map — `/cairn:` is the single interface for the whole GSD↔beads
 workflow. Show it to the user, then offer the obvious next step for their repo
-(if no `.planning/`, suggest `/cairn:new`; otherwise `/cairn:status`).
+(no `.planning/` and no `.beads/` → `/cairn:new`; `.beads/` but no
+`.planning/` — or the reverse — → `/cairn:migrate`; both present →
+`/cairn:status`).
 
 ```text
 SETUP
@@ -21,6 +23,12 @@ VIEW
   /cairn:status           combined: bd ready/blocked + active phase + progress
   /cairn:progress         roadmap-level progress (GSD)
   /cairn:issues [N]       list beads issues, optionally scoped to phase N
+
+MIGRATE & HEALTH
+  /cairn:migrate          adopt an existing repo (GSD-only, beads-only, or both
+                          unwired): detect → dry-run plan → confirm → apply
+  /cairn:doctor           consistency checks (req↔issue, frontmatter ids, map
+                          freshness, label pairs) + --fix-labels repair
 
 MEMORY (context-mode — on by default)
   /cairn:remember [what]  index reference material under the active gb/<id>/<phase>

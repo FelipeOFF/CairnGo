@@ -128,6 +128,19 @@ Run the `/cairn:init` command (or `cairn-init.sh`) to ensure `git` +
 `bd init` are done so this skill activates, then run `/gsd:new-project` to
 create `.planning/`.
 
+## Migration & health
+
+Existing repos are adopted with `/cairn:migrate` (detect → plan → apply):
+GSD-only repos get their beads backfilled, beads-only repos get `.planning/`
+bootstrapped, and both-present-but-unwired repos get linked. When nudged about
+an unwired repo (session-start hook, a missing map, `.beads/` without
+`.planning/`), route to `/cairn:migrate` — **never** `/gsd:new-project` over
+an existing `.planning/`. Run `/cairn:doctor` periodically (and right after a
+migration) to audit req↔issue coverage, `beads:` frontmatter, map freshness,
+and label pairs. Never hand-create an issue for an existing requirement
+without the metadata stamp — an unstamped issue is invisible to the dedup key
+`(gsd.req, gsd.milestone)`, so a later migrate or plan run will duplicate it.
+
 ## Mirror to external tools (optional)
 
 If the repo also has `.cairn/sync.json` with an enabled backend, bd issues

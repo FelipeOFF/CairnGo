@@ -42,6 +42,9 @@ When a repo contains **both** `.planning/` (GSD) and `.beads/` (beads):
   `execute-phase` claims → in_progress → closes, `ship` verifies all closed
   before push.
 - **Precedence** — GSD phase docs win over conflicting bd issue text.
+- **Migration & health** — `/cairn:migrate` adopts pre-existing GSD-only,
+  beads-only, or unwired repos and `/cairn:doctor` audits the wiring (full
+  migration guide: `docs/MIGRATION.md`, coming in a later phase).
 
 It activates **only** when both directories are present, so it's silent in
 non-GSD or non-beads repos.

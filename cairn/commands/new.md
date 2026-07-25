@@ -2,7 +2,11 @@
 description: Start a new cairn project — GSD new-project, then create the bd issues and generate the phase↔beads maps
 ---
 
-Kick off a new project end to end, under the `cairn` conventions:
+Kick off a new project end to end, under the `cairn` conventions.
+
+**Guard:** if `.planning/` already exists, refuse and stop — this repo already
+has GSD history. Route the user to `/cairn:migrate` instead; never run
+`/gsd:new-project` over an existing `.planning/`.
 
 1. If `bd` or `.beads/` is missing, run `/cairn:init` first and stop.
 2. Run `/gsd:new-project` to create `.planning/` + the ROADMAP (interactive).
