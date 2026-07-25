@@ -1,0 +1,426 @@
+{
+  "commands": [
+    {
+      "name": "bd",
+      "purpose": "Passthrough cru para qualquer comando beads (bd), sem orquestração cairn. Escape hatch para tudo que os verbos do workflow não cobrem.",
+      "flow_summary": "- Executa `bd $ARGUMENTS` literalmente\n- Mostra a saída ao usuário\n- Nenhuma validação, stamp ou label é aplicado",
+      "flags": [
+        "<bd args…> — argumentos repassados verbatim ao binário bd (ex.: dep add a b, prime, show app-7)"
+      ],
+      "scripts_called": [
+        "bd (binário, direto)"
+      ],
+      "related": [
+        "gsd",
+        "ctx",
+        "issues",
+        "help"
+      ],
+      "gotchas": "Sem convenções cairn (sem label pair, sem metadata stamp). Usar apenas para operações que /cairn:plan, work, quick etc. não envolvem."
+    },
+    {
+      "name": "context-config",
+      "purpose": "Ajusta a integração cairn↔context-mode (memória intent-aware). Escreve .cairn/context.json apenas para sobrescrever os defaults — a integração já vem ligada por padrão.",
+      "flow_summary": "- Confirma pré-requisitos: `.beads/` existe e as tools MCP ctx_* estão disponíveis\n- Se .cairn/context.json não existe, seed a partir de ${CLAUDE_PLUGIN_ROOT}/templates/context.json.example; se existe, edita in place\n- AskUserQuestion: capacity guard on/off + token_threshold (80000 curto / 150000 default / 300000 longo)\n- AskUserQuestion: source template (default gb/{bd_id}/{phase}; só {bd_id} e {phase} são interpolados)\n- Mantém reset.mode = scope-by-label; nunca oferece auto-purge\n- Confirma path + valores gravados",
+      "flags": [],
+      "scripts_called": [
+        "cp ${CLAUDE_PLUGIN_ROOT}/templates/context.json.example",
+        "ctx_* (MCP tools, só verificação de presença)"
+      ],
+      "related": [
+        "remember",
+        "recall",
+        "ctx",
+        "init"
+      ],
+      "gotchas": "Pré-condições: .beads/ (senão rota para /cairn:init e para) e tools ctx_* presentes (senão instrui /plugin marketplace add mksglu/context-mode e para). ctx_purge fica sempre manual e confirmado pelo usuário — não existe delete por fase/tarefa. Defaults aplicam sem arquivo; enabled:false no json é o jeito de desligar a convenção no repo."
+    },
+    {
+      "name": "ctx",
+      "purpose": "Passthrough cru para operações context-mode (tools MCP ctx_*), sem o escopo por issue/fase do cairn.",
+      "flow_summary": "- Mapeia o primeiro token de $ARGUMENTS para a tool ctx_* correspondente\n- Passa o resto como argumentos\n- purge exige confirmação explícita do usuário antes de rodar",
+      "flags": [
+        "search <query> → ctx_search(queries:[query])",
+        "stats → ctx_stats",
+        "index <text> → ctx_index",
+        "fetch <url> → ctx_fetch_and_index",
+        "insight → ctx_insight",
+        "doctor → ctx_doctor",
+        "upgrade → ctx_upgrade",
+        "purge <session|project> → ctx_purge (DESTRUTIVO)"
+      ],
+      "scripts_called": [
+        "ctx_search",
+        "ctx_stats",
+        "ctx_index",
+        "ctx_fetch_and_index",
+        "ctx_insight",
+        "ctx_doctor",
+        "ctx_upgrade",
+        "ctx_purge (todas MCP)"
+      ],
+      "related": [
+        "recall",
+        "remember",
+        "context-config"
+      ],
+      "gotchas": "purge é destrutivo (sessão ou projeto inteiro — não há escopo menor): confirmar antes. Para memória escopada ao issue+fase ativos, preferir /cairn:recall e /cairn:remember."
+    },
+    {
+      "name": "doctor",
+      "purpose": "Health-check da fiação GSD↔beads: roda cairn-doctor, explica o relatório check a check e roteia cada finding para o fix correto.",
+      "flow_summary": "- Roda bash ${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh\n- Explica o report: header (root, milestone, fase ativa) + linha ✓/⚠/✗ por check com findings itemizados\n- Se o check 6 (label-pairs) warnar, oferece re-rodar com --fix-labels (roda cairn-relabel pair ANTES dos checks)\n- Roteia remediação por check: req-issue → /cairn:migrate ou bd create com stamp; frontmatter-ids → editar beads: do PLAN ou label phase-<N>; maps-fresh → cairn-map.sh <N>; superseded-released → fechar/mover ids; orphans → label + stamp, backlog ou close; claims-stale → fechar/liberar claim ou corrigir active_phase em STATE.md; bd-doctor → rodar bd doctor\n- Re-roda o doctor para confirmar footer ok",
+      "flags": [
+        "--json — saída máquina",
+        "--fix-labels — repara pares de label via cairn-relabel pair usando o milestone ativo"
+      ],
+      "scripts_called": [
+        "cairn/scripts/cairn-doctor.sh (→ cairn-doctor.py)",
+        "cairn/scripts/cairn-relabel (via --fix-labels)",
+        "cairn/scripts/cairn-map.sh (remediação maps-fresh)",
+        "bd (create/update/doctor nas remediações)"
+      ],
+      "related": [
+        "migrate",
+        "init",
+        "milestone",
+        "ship"
+      ],
+      "gotchas": "Exit codes: 0 ok (warnings não mudam exit) ou not-applicable (.planning/ ou .beads/ ausente — roteia migrate/init); 5 bd indisponível; 7 pelo menos um check FALHOU. --fix-labels recusa (exit 2) quando há candidatos mas o milestone é irresolvível — setar milestone: no frontmatter de STATE.md ou marcar o milestone in-progress do ROADMAP com 🚧 antes. Failures (✗) bloqueiam; warnings (⚠) são advisórios."
+    },
+    {
+      "name": "gsd",
+      "purpose": "Passthrough cru para qualquer comando GSD que os verbos cairn não embrulham.",
+      "flow_summary": "- Primeiro token de $ARGUMENTS = nome do comando GSD, resto = argumentos\n- Invoca /gsd:<comando> diretamente\n- Nenhuma orquestração cairn",
+      "flags": [
+        "<gsd-command> [args…] — ex.: debug, new-milestone, help"
+      ],
+      "scripts_called": [
+        "/gsd:* (delegação de skill, nenhum script próprio)"
+      ],
+      "related": [
+        "bd",
+        "ctx",
+        "help"
+      ],
+      "gotchas": "Sem bookkeeping beads adicional além do que a capability GSD instalada já faz sozinha."
+    },
+    {
+      "name": "help",
+      "purpose": "Imprime o mapa unificado de comandos /cairn: (namespace único sobre GSD + beads + context-mode) e sugere o próximo passo óbvio para o estado do repo.",
+      "flow_summary": "- Imprime o mapa completo agrupado: SETUP, LOOP, VIEW, MIGRATE & HEALTH, MEMORY, SYNC, ESCAPE HATCHES\n- Roteia pelo estado: sem .planning/ e sem .beads/ → /cairn:new; só um dos dois → /cairn:migrate; ambos → /cairn:status",
+      "flags": [],
+      "scripts_called": [],
+      "related": [
+        "new",
+        "migrate",
+        "status",
+        "init"
+      ],
+      "gotchas": "O mapa impresso é duplicado literalmente em cairn/README.md — mudanças precisam ser espelhadas nos dois lugares."
+    },
+    {
+      "name": "init",
+      "purpose": "Setup completo de projeto em um comando: garante GSD + beads, instala a capability cairn no GSD, faz wire de git + bd init e entrega para o /gsd:new-project interativo.",
+      "flow_summary": "- Passo 0: `cairn-migrate.sh detect` classifica o repo (A/B/C → para e roteia /cairn:migrate; W → só wiring, pula interview; D → greenfield completo)\n- Passo 1: confirma GSD instalado (claude plugin list); se faltar, `claude plugin install gsd@cairngo` + /reload-plugins\n- Passo 2: instala a capability project-scope via gsd_run/gsd `capability install ${CLAUDE_PLUGIN_ROOT}/capability --scope project --yes` (fallback `capability update cairn`); grava ${CLAUDE_PLUGIN_ROOT} em .cairn/plugin-root\n- Passo 3: se bd ausente, pergunta antes de instalar (brew install beads / npm i -g @beads/bd / curl installer); verifica com bd version; recusa → cria marker $CLAUDE_PLUGIN_DATA/bd-install.skip e PARA\n- Passo 4: `cairn-init.sh $PWD` — garante git repo + bd init (idempotente)\n- Passo 6: handoff para /gsd:new-project; depois do roadmap, issues stampadas + cairn-map.sh <N> por fase",
+      "flags": [],
+      "scripts_called": [
+        "cairn/scripts/cairn-migrate.sh detect",
+        "cairn/scripts/cairn-init.sh",
+        "gsd_run / gsd (capability install/update)",
+        "claude plugin install",
+        "bd (bd init via script, bd version)",
+        "brew / npm / curl (instaladores do bd)",
+        "cairn/scripts/cairn-map.sh (pós-handoff)"
+      ],
+      "related": [
+        "migrate",
+        "new",
+        "doctor",
+        "context-config"
+      ],
+      "gotchas": "NUNCA roda /gsd:new-project sobre .planning/ existente (estados A/B/C param aqui e vão para migrate). .planning/ é criado pelo GSD, não pelo cairn. Side effects: capability em .gsd/capabilities/cairn/, arquivo .cairn/plugin-root, shim git pre-push + entradas .cairn no .gitignore (via cairn-init.sh). Capability install pode ser bloqueada por lockdown (capabilities.strict_known_registries) — segue mesmo assim, a skill cobre por convenção. Recusar bd interrompe o setup (o resto precisa dele). Estado W pula o passo 6 — nada a entrevistar."
+    },
+    {
+      "name": "issues",
+      "purpose": "Lista issues do beads, opcionalmente escopadas a uma fase, agrupadas por status.",
+      "flow_summary": "- Com número de fase: `bd list -l m-<milestone>,phase-N` (milestone do header atual do ROADMAP.md)\n- Repos legacy sem labels m-*: fallback `bd list -l phase-N`\n- Sem argumento: `bd list` do projeto inteiro\n- Agrupa por open / in_progress / closed e destaca issues bloqueadas por dependência",
+      "flags": [
+        "[phase-number] — posicional opcional, escopa à fase"
+      ],
+      "scripts_called": [
+        "bd (list)"
+      ],
+      "related": [
+        "status",
+        "work",
+        "verify"
+      ],
+      "gotchas": "O par de labels usa AND (`-l a,b`); em repos antigos sem m-* o fallback com phase-N sozinho pode misturar fases de milestones diferentes."
+    },
+    {
+      "name": "migrate",
+      "purpose": "Adota um repo existente nas convenções cairn (label pair + stamp gsd + beads: frontmatter + maps gerados): detect → dry-run plan → confirm → apply com journal de resume. Todas as escritas passam pelo engine determinístico.",
+      "flow_summary": "- Passo 0: `cairn-migrate.sh detect` → A (.planning/ só), B (.beads/ só), C (ambos sem wire), W (já wired → doctor, para), D (nada → init, para)\n- Modo A (backfill): `plan` escreve .cairn/migrate-plan.json (epics por fase + deps, issue stampada por requirement, closes de fases completas, appends de beads: frontmatter, migrated-todo de todos pendentes, maps); confirma; `apply --yes`; fecha com doctor\n- Modo B (bootstrap): `plan --milestone vX.Y` (perguntar antes; sem flag → v1.0 com warning; `--force` para substituir docs gerados); apresentar o agrupamento de fases para edição no plan file; `apply --yes`; PROJECT.md por interview curta seeded (ou /gsd:ingest-docs / /gsd:onboard se há docs ricos)\n- Modo C (reconcile): match literal CAT-NN automático; fuzzy (similaridade ≥ 0.6) fica pending_confirmation até o usuário aceitar (setar params.confirmed:true no plan file); órfãos roteados (attach-to-phase-<N> / label-backlog / report); divergence report com close_issue confirmado issue a issue; `apply --yes`; rodar `plan` de novo — close offers de fuzzy recém-confirmados só aparecem no segundo pass\n- Sempre: com .cairn/sync.json presente, lembrar /cairn:sync-pull ao final; fechar todo modo com /cairn:doctor",
+      "flags": [
+        "detect | plan | apply — subcomandos do engine",
+        "--json — detect com detalhes",
+        "--milestone vX.Y — modo B, nome do milestone",
+        "--force — modo B, re-planejar substituindo docs gerados",
+        "--yes — apply sem prompt do script"
+      ],
+      "scripts_called": [
+        "cairn/scripts/cairn-migrate.sh (→ cairn-migrate.py)",
+        "bd (via engine: creates sequenciais, updates, closes)"
+      ],
+      "related": [
+        "init",
+        "doctor",
+        "sync-pull",
+        "plan",
+        "new"
+      ],
+      "gotchas": "Regra dura: NUNCA rodar /gsd:new-project ou /gsd:new-milestone sobre .planning/ existente. Exit codes plan/apply: 0 ok, 2 usage/modo errado/sem plano/abort, 5 bd indisponível, 8 falha parcial (journal .cairn/migrate-state.json registra o que completou; re-rodar apply --yes resume sem duplicar — handlers dedupam contra bd vivo em (gsd.req, gsd.milestone)). Passos sensíveis (fuzzy links, closes de issues pré-existentes) ficam pending_confirmation no plan file e são pulados até confirmação. Modo B nunca fabrica PLAN.md nem escreve PROJECT.md pelo engine. Modo C nunca cria epics. Pushes de mirror não disparam durante a migração — reconciliar uma vez no final com sync-pull. Em plano enorme, resumir contagens por tipo de step em vez de colar centenas de linhas."
+    },
+    {
+      "name": "milestone",
+      "purpose": "Ciclo de vida do milestone: `new` (roadmap GSD + issues stampadas + maps) ou `complete` (gate determinístico → reconciliar stragglers → arquivar → compactação semântica opcional).",
+      "flow_summary": "- new: /gsd:new-milestone (numeração de fases CONTÍNUA entre milestones — nunca reinicia em 1); bd create por requirement com check de dedup (gsd.req, gsd.milestone) antes — carried-over vira update, não duplicata; bd dep add para ordering do roadmap; cairn-map.sh <N> por fase nova; sugerir doctor + /cairn:plan <N>\n- complete: cairn-gate.sh primeiro — qualquer issue non-closed em fase completa bloqueia (exit 6 lista ids); reconciliar stragglers COM o usuário: bd close --reason, ou carry-over trocando o par de labels (bd update --remove-label m-<old>,phase-<N> --add-label m-<new>) + stamp por read-modify-write; /gsd:complete-milestone arquiva ROADMAP/REQUIREMENTS + dirs de fase (maps arquivados JUNTO — não limpar nem regenerar); oferecer bd admin compact --analyze --json e, só com confirmação explícita por issue, --apply --id <id> --summary -; sugerir milestone new",
+      "flags": [
+        "<new|complete> — posicional; sem argumento, perguntar qual"
+      ],
+      "scripts_called": [
+        "cairn/scripts/cairn-gate.sh",
+        "cairn/scripts/cairn-map.sh",
+        "bd (create, dep add, close, update, show --json, admin compact)",
+        "/gsd:new-milestone",
+        "/gsd:complete-milestone"
+      ],
+      "related": [
+        "ship",
+        "doctor",
+        "plan",
+        "new"
+      ],
+      "gotchas": "Gate: exit 6 bloqueia (para até resolver), exit 5 = bd indisponível (checar à mão conforme /cairn:ship). bd update --metadata substitui o objeto gsd INTEIRO — ler de bd show --json, mudar só milestone, gravar o objeto completo de volta. Issue carried-over fica como orphan warn transitório no doctor até o próximo roadmap dar o label de fase — esperado. Compactação é PERMANENTE. bd compact (top-level) é squash de commits Dolt — ferramenta diferente do bd admin compact; não confundir."
+    },
+    {
+      "name": "new",
+      "purpose": "Novo projeto end-to-end sob as convenções cairn: /gsd:new-project interativo + uma issue bd stampada por requirement + maps de fase gerados.",
+      "flow_summary": "- Guard: .planning/ já existe → recusa e roteia /cairn:migrate\n- bd ou .beads/ ausente → rodar /cairn:init primeiro e parar\n- /gsd:new-project cria .planning/ + ROADMAP (interativo)\n- Por requirement: bd create com labels m-<milestone>,phase-<N> + stamp gsd (dedup em gsd.req+gsd.milestone: update, não duplicar); bd dep add para ordering do roadmap\n- cairn-map.sh <N> por fase — nunca escrever as tabelas à mão\n- Confirmar: bd list mostra as issues e cada dir de fase tem NN-BEADS-MAP.md",
+      "flags": [],
+      "scripts_called": [
+        "cairn/scripts/cairn-map.sh",
+        "bd (create, dep add, list)",
+        "/gsd:new-project",
+        "/cairn:init (pré-requisito)"
+      ],
+      "related": [
+        "init",
+        "migrate",
+        "plan",
+        "work",
+        "ship"
+      ],
+      "gotchas": "Nunca rodar /gsd:new-project sobre .planning/ existente. Maps são gerados, nunca hand-written. Próximo passo: loop /cairn:plan N → work N → ship."
+    },
+    {
+      "name": "plan",
+      "purpose": "Planeja a fase N: regenera e lê o beads map, roda GSD plan-phase, reconcilia divergências bd↔CONTEXT e liga os PLAN.md aos ids bd via frontmatter.",
+      "flow_summary": "- `cairn-map.sh $ARGUMENTS` regenera o map da fase e imprime o path; ler o arquivo inteiro incluindo notas manuais fora dos markers\n- Exit 5 (bd indisponível) → fallback: ler o *-BEADS-MAP.md existente como está (resolver o dir da fase pelo prefixo numérico em .planning/phases/)\n- /gsd:plan-phase $ARGUMENTS\n- Reconciliar divergências: CONTEXT.md VENCE — flag ⚠ fora dos markers + bd update na issue com nota datada apontando o doc GSD; criar issues para requirements não mapeados (label pair + stamp); regenerar o map; `cairn-map.sh N --check` valida (exit 3 + diff quando stale)\n- Setar o frontmatter `beads:` de cada PLAN.md gerado com os ids bd que ele avança",
+      "flags": [
+        "<phase-number> — posicional obrigatório",
+        "--check (do cairn-map.sh) — verifica frescor do map, exit 3 + diff quando stale"
+      ],
+      "scripts_called": [
+        "cairn/scripts/cairn-map.sh",
+        "bd (update, create)",
+        "/gsd:plan-phase"
+      ],
+      "related": [
+        "work",
+        "verify",
+        "new",
+        "milestone"
+      ],
+      "gotchas": "O map é gerado do estado bd — nunca editar entre os markers cairn:generated. cairn-map resolve o dir da fase sozinho (3 casa com 3-auth, 03-auth e prefixo de projeto tipo myproj-03-auth). Precedência: CONTEXT.md vence sobre o texto da issue; a issue é atualizada, nunca seguida silenciosamente."
+    },
+    {
+      "name": "progress",
+      "purpose": "Progresso roadmap-level via GSD: roda /gsd:progress e resume conclusão de roadmap e fases.",
+      "flow_summary": "- Roda /gsd:progress\n- Resume roadmap + fases\n- Aponta /cairn:status para a visão operacional que inclui ready/blocked do beads",
+      "flags": [],
+      "scripts_called": [
+        "/gsd:progress"
+      ],
+      "related": [
+        "status"
+      ],
+      "gotchas": "Só GSD — não consulta beads. Para a visão combinada, /cairn:status."
+    },
+    {
+      "name": "quick",
+      "purpose": "Side-quest rastreada: cria issue quick stampada com proveniência discovered-from da issue ativa, roda /gsd:quick e fecha ao concluir. Nunca trabalho \"rapidinho\" fora dos registros.",
+      "flow_summary": "- Achar a issue ativa: `bd list --status in_progress --assignee <actor>` (actor: $BEADS_ACTOR → git user.name → $USER); vários hits → a do frontmatter beads: do plano atual; nenhum → pular o dep\n- `bd create \"$ARGUMENTS\" -t task -l m-<milestone>,quick --metadata '{\"gsd\":{\"milestone\":\"vX.Y\"}}' --deps discovered-from:<active-id>` (milestone do header do ROADMAP.md ou STATE.md; SEM label phase-*)\n- `bd update <quick-id> --claim`, depois /gsd:quick com a descrição\n- Concluído: `bd close <quick-id> --reason=\"<resumo 1–2 frases>\"`\n- Abandonado/deferido: release (`bd update --assignee \"\" --status open`) — fica visível na lista ready do /cairn:status",
+      "flags": [
+        "<task description> — posicional, vira o título da issue e a descrição do /gsd:quick"
+      ],
+      "scripts_called": [
+        "bd (list, create, update --claim, close, dep add)",
+        "/gsd:quick"
+      ],
+      "related": [
+        "work",
+        "status"
+      ],
+      "gotchas": "`bd q` NÃO stampa metadata — usar bd create. Quick é unphased: nunca leva label phase-*. --deps discovered-from: registra proveniência sem bloquear; a posteriori o mesmo edge é `bd dep add <quick-id> <active-id> -t discovered-from`. Nunca deixar a issue evaporar: fechar com reason ou liberar aberta."
+    },
+    {
+      "name": "recall",
+      "purpose": "Busca a memória context-mode escopada ao issue bd ativo + fase (intent-aware), em vez do ruído da sessão inteira.",
+      "flow_summary": "- Resolver o escopo ativo: issue in_progress (`bd list --status in_progress`) + seu label phase-N\n- `ctx_search(queries: [\"$ARGUMENTS\"], source: \"<bd_id>\")`\n- Ampliar para a fase inteira com source: \"phase-N\", ou estreitar com o prefixo completo gb/<bd_id>/<phase> (o filtro source é partial match)\n- Retornar só as seções que casaram",
+      "flags": [
+        "<query> — posicional, o texto da busca"
+      ],
+      "scripts_called": [
+        "bd (list, para resolver a issue ativa)",
+        "ctx_search (MCP)"
+      ],
+      "related": [
+        "remember",
+        "ctx",
+        "context-config"
+      ],
+      "gotchas": "context-mode é dependência do cairn — ctx_* presentes por default, sem opt-in; se ausentes (plugin desabilitado), dizer e parar. .cairn/context.json só ajusta o template — defaults valem sem ele. Busca sem escopo → /cairn:ctx search."
+    },
+    {
+      "name": "remember",
+      "purpose": "Indexa material de referência no context-mode sob o label intent-scoped do issue bd ativo + fase (gb/<bd_id>/<phase>).",
+      "flow_summary": "- Resolver o label ativo pelo scoping.source_template (default gb/{bd_id}/{phase}) usando a issue in_progress + sua fase\n- `ctx_index(content: <material ou $ARGUMENTS>, source: \"gb/<bd_id>/<phase>\")`\n- Indexar SÓ material reference-grade (docs, specs, decisões citáveis)\n- Logs/test/build output: NÃO indexar — stream via ctx_execute_file e guardar só a conclusão",
+      "flags": [
+        "[what to remember] — posicional opcional; sem ele, indexa o material em mãos"
+      ],
+      "scripts_called": [
+        "bd (resolver issue ativa)",
+        "ctx_index (MCP)",
+        "ctx_execute_file (MCP, para streams)"
+      ],
+      "related": [
+        "recall",
+        "ctx",
+        "context-config"
+      ],
+      "gotchas": "Camada nunca deleta — isolamento é scope-by-label. ctx_* presentes por default (dependência); ausentes → dizer e parar. Indexar log bruto polui a base — a regra reference-grade é o gotcha principal."
+    },
+    {
+      "name": "ship",
+      "purpose": "Gate pré-ship determinístico (toda fase completa precisa ter todas as issues fechadas) e então /gsd:ship (ou push direto).",
+      "flow_summary": "- `cairn-gate.sh`: exit 6 = bloqueado (lista os ids ofensores); exit 5 = bd indisponível (warn + checar manualmente)\n- Fallback manual: por fase completa N, `bd list -l m-<milestone>,phase-<N> --all` não pode ter issue non-closed (qualquer status ≠ closed bloqueia)\n- Algo non-closed → PARAR e reportar; não fazer push\n- Tudo limpo → /gsd:ship finaliza (ele faz o push); projeto sem /gsd:ship → push direto da branch",
+      "flags": [],
+      "scripts_called": [
+        "cairn/scripts/cairn-gate.sh",
+        "bd (list, fallback manual)",
+        "/gsd:ship"
+      ],
+      "related": [
+        "work",
+        "verify",
+        "milestone",
+        "init"
+      ],
+      "gotchas": "Nunca push com issues non-closed em fase marcada done. O shim git pre-push instalado por /cairn:init roda o MESMO gate fora do agente (bloqueia só em exit 6; exit 5 warna e deixa passar). A capability ship:pre do GSD também aplica esse gate quando se usa /gsd:ship puro."
+    },
+    {
+      "name": "status",
+      "purpose": "Visão única de status guiada por `bd ready`: actionable, in-flight, blocked, posição no roadmap GSD e UMA ação seguinte sugerida.",
+      "flow_summary": "- Actionable: `bd ready --json` (deps, gates e defer_until respeitados; in_progress/blocked excluídos — dizer isso em uma linha)\n- In flight: `bd list --status in_progress` (com assignees)\n- Blocked: `bd blocked`; para cada um, `bd dep tree <id>` mostra a cadeia\n- Posição no roadmap: /gsd:progress\n- Sintetizar UMA próxima ação, nesta ordem: issue in_progress existente → continuar; senão a ready de maior prioridade da fase ativa (filtro m-<milestone>,phase-<ativa>; fase de STATE.md, milestone do ROADMAP); senão o próximo passo GSD de STATE.md\n- Com .cairn/sync.json presente: one-liner de staleness do sync pelo watermark de .cairn/state.json (stale/ausente → sugerir /cairn:sync-pull)",
+      "flags": [],
+      "scripts_called": [
+        "bd (ready --json, list, blocked, dep tree)",
+        "/gsd:progress"
+      ],
+      "related": [
+        "progress",
+        "issues",
+        "sync-pull",
+        "quick"
+      ],
+      "gotchas": "Quando bd-ready e STATE.md discordam, dizer explicitamente: bd vence para work items, STATE.md vence para passos de workflow — um não sobrescreve o outro. Manter tudo curto: poucas linhas por seção, uma ação clara."
+    },
+    {
+      "name": "sync-config",
+      "purpose": "Configura o sync bidirecional bd↔ferramentas externas (GitHub/GitLab/Jira/Asana/Azure Boards), hub-and-spoke com bd como fonte de verdade. Escreve .cairn/sync.json.",
+      "flow_summary": "- Pré-requisito: .beads/ existe (senão /cairn:init e parar)\n- Seed de .cairn/sync.json a partir de ${CLAUDE_PLUGIN_ROOT}/templates/sync.json.example (ou editar in place preservando valores)\n- AskUserQuestion multiSelect de backends; por backend coletar config e setar enabled:true — github: repo (usa auth do gh CLI, sem token); gitlab: project, base_url, token_env; jira: base_url, project_key, issue_type, email_env/token_env, transitions; asana: project_gid, token_env; azure-boards: org_url, project, work_item_type, pat_env, states\n- Regra de secrets: gravar SÓ nomes de env vars; depois dizer exatamente quais exportar e onde mintar cada credencial\n- Explicar os gerados: id-map.json / state.json / conflicts.json nascem no sync, gitignored por default (cairn-init.sh adiciona); sync.json é para commitar\n- Como usar: PUSH automático no ciclo cairn ou `gbsync.sh update <bd_id>`; PULL via /cairn:sync-pull",
+      "flags": [],
+      "scripts_called": [
+        "cp ${CLAUDE_PLUGIN_ROOT}/templates/sync.json.example",
+        "cairn/scripts/gbsync.sh (mencionado para push manual e validação)",
+        "gh (auth do backend github)"
+      ],
+      "related": [
+        "sync-pull",
+        "init",
+        "status"
+      ],
+      "gotchas": "Nunca gravar valor de token no sync.json — só o NOME da env var. sync.json commit-yes; os três gerados são gitignored (time que quiser commitar remove a linha do .gitignore). Validação sem chamar APIs: um único gbsync.sh update <bd_id> e ler as linhas de resultado por backend."
+    },
+    {
+      "name": "sync-pull",
+      "purpose": "Reconcilia edições feitas nas ferramentas externas de volta para o bd (hub), pull-on-demand com last-writer-wins por updated_at.",
+      "flow_summary": "- Confirmar .cairn/sync.json com backend habilitado (senão /cairn:sync-config e parar)\n- `bash ${CLAUDE_PLUGIN_ROOT}/scripts/gbsync.sh pull` (default usa o watermark por backend em .cairn/state.json)\n- LWW: externo mais novo → aplicado no bd via bd update; bd mais novo → fica para o próximo push; ambos mudaram desde o último pull → CONFLITO logado em .cairn/conflicts.json com a resolução escolhida\n- Ler conflicts.json; entradas novas → resumir (bd_id, backend, lado vencedor) e perguntar se alguma auto-resolução deve ser sobrescrita à mão\n- Reportar counts applied / conflicts / skipped da saída do dispatcher",
+      "flags": [
+        "--since <iso8601> — força janela mais ampla que o watermark"
+      ],
+      "scripts_called": [
+        "cairn/scripts/gbsync.sh (→ gbsync.py)",
+        "bd (update, indireto via dispatcher)"
+      ],
+      "related": [
+        "sync-config",
+        "status",
+        "migrate"
+      ],
+      "gotchas": "Both-changed sempre resolve por LWW e loga — sobrescrita inesperada no bd é sinal de conferir conflicts.json. Rodar após migração quando sync está configurado (pushes de mirror são suprimidos durante a migração por design). O gbsync.sh também aceita --dry-run e --dir (documentados em docs/sync.md, não no comando)."
+    },
+    {
+      "name": "verify",
+      "purpose": "Verifica o trabalho da fase: /gsd:verify-work cruzado contra o estado das issues beads, com reconciliação de mismatches e refresh do map.",
+      "flow_summary": "- /gsd:verify-work $ARGUMENTS\n- Cross-check beads: `bd list -l m-<milestone>,phase-N` (milestone do header do ROADMAP; desconhecido → fallback `bd list -l phase-N`) — toda issue que o trabalho declara pronta deve estar CLOSED\n- Flag de mismatch nas duas direções: GSD-verified mas bd aberto, ou bd fechado mas GSD insatisfeito — reconciliar (fechar a issue ou reabrir o trabalho)\n- Refresh do map gerado: `cairn-map.sh $ARGUMENTS`",
+      "flags": [
+        "[phase-number] — posicional"
+      ],
+      "scripts_called": [
+        "bd (list)",
+        "cairn/scripts/cairn-map.sh",
+        "/gsd:verify-work"
+      ],
+      "related": [
+        "work",
+        "ship",
+        "plan"
+      ],
+      "gotchas": "Labels usam número de fase SEM padding (phase-3, nunca phase-03) — remover zero à esquerda de $ARGUMENTS antes de montar o label."
+    },
+    {
+      "name": "work",
+      "purpose": "Executa a fase N: claim das issues beads de cada plano, /gsd:execute-phase, close com reason no sucesso verificado, done-check e refresh do map.",
+      "flow_summary": "- Por plano da fase, ANTES de começar: `bd update <id> --claim` para cada id do frontmatter beads: (--claim atômico: assign + in_progress numa chamada; idempotente se já for seu)\n- /gsd:execute-phase $ARGUMENTS\n- Conclusão bem-sucedida E verificação de um plano → `bd close <id> --reason=\"<resumo 1–2 frases>\"` para seus ids\n- Done check: `bd list -l m-<milestone>,phase-N --status open` deve vir vazio (milestone do ROADMAP ou STATE.md); reportar o que sobrar aberto\n- Refresh do map: `cairn-map.sh $ARGUMENTS`\n- Próximo: /cairn:verify N ou /cairn:ship",
+      "flags": [
+        "<phase-number> — posicional obrigatório"
+      ],
+      "scripts_called": [
+        "bd (update --claim, close, list)",
+        "cairn/scripts/cairn-map.sh",
+        "/gsd:execute-phase"
+      ],
+      "related": [
+        "plan",
+        "verify",
+        "ship",
+        "quick"
+      ],
+      "gotchas": "Close SÓ após conclusão E verificação — não no fim da execução crua. Labels com número unpadded (phase-3, nunca phase-03). O hook Stop do plugin avisa sobre claims deixados in_progress ao fim da sessão; a capability instalada faz o mesmo claim/close quando se usa /gsd:execute-phase puro (side effect duplicado esperado, idempotente)."
+    }
+  ],
+  "doc_gaps": "COBERTURA ATUAL — (1) cairn/README.md contém o mapa de comandos completo (idêntico ao help.md — duplicação literal, dois pontos de manutenção) e uma tabela Components com uma linha por arquivo de comando (todos os 22 listados). É o único lugar com visão geral de todos, mas só em nível de one-liner. (2) docs/migration.md cobre /cairn:migrate em profundidade e está consistente com migrate.md (modos A/B/C/W/D, safety model, exit 8/journal, troubleshooting) — porém NÃO documenta as flags --force e --json do engine (só o comando as menciona). (3) docs/sync.md cobre sync-config e sync-pull em profundidade e vai ALÉM dos comandos: documenta flags do gbsync.sh (--dir, --dry-run) ausentes dos arquivos de comando — conteúdo a puxar para as páginas de sync. (4) docs/context.md cobre remember/recall/context-config/ctx a fundo (source template, capacity guard, tabela de campos do context.json, thresholds 80k/150k/300k) — consistente com os comandos. (5) docs/architecture.md cobre o modelo por trás de doctor (nove checks, exit codes 0/2/5/7), ship (gate, pre-push shim exit-6-bloqueia/exit-5-avisa), migração (invariantes) e a capability — consistente.\n\nDESATUALIZADO/CONTRADITÓRIO — (a) docs/sync.md §8 descreve /cairn:init como só \"git init + bd init\"; init.md hoje faz detect A/B/C/W/D, capability install, prompt de instalação do bd e handoff — tabela incompleta/desatualizada. (b) Inconsistência de upstream do GSD entre docs: README raiz aponta open-gsd/get-shit-done-redux, cairn/README.md aponta jnuyens/gsd-plugin. (c) doctor.md roteia 8 checks nomeados (req-issue, frontmatter-ids, maps-fresh, superseded-released, orphans, label-pairs, claims-stale, bd-doctor) enquanto README/architecture falam em \"nove checks\" — o nono (probe de versão mínima do bd) só aparece em architecture.md; os nomes de check usados no doctor.md não aparecem em nenhum doc.\n\nAUSENTE (só existe nos arquivos de comando, nenhum doc cobre) — os verbos do loop têm apenas one-liners: plan (fallback exit 5, resolução de dir de fase, --check/exit 3, precedência CONTEXT-wins), work (semântica atômica do --claim, close só após verificação, unpadded phase labels), verify (regra strip-leading-zero, mismatch bidirecional), quick (limitação do bd q sem metadata, resolução de actor, release-on-abandon, semântica discovered-from), milestone (numeração contínua de fases, read-modify-write do stamp no carry-over, orphan warn transitório, bd admin compact vs bd compact — a compactação semântica não aparece em doc nenhum), status (regra de precedência bd-vs-STATE.md, one-liner de staleness do sync), issues (fallback legacy sem m-*), e os três passthroughs bd/gsd/ctx (mapa de operações do ctx incluindo o aviso de purge destrutivo). Não existe hoje nenhuma página de referência por comando — as 22 páginas novas preencherão exatamente esse vazio; para sync-config/sync-pull/migrate/context-config as páginas podem referenciar os guias existentes em docs/ em vez de duplicá-los."
+}
