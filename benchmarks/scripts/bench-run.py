@@ -15,8 +15,9 @@ Behavior:
        --model claude-haiku --permission-mode acceptEdits
        --no-session-persistence`, cwd=workdir, capture_output=True,
        timeout=timeout_s.
-    5. Parse stdout as JSON regardless of returncode; on parse failure or
-       timeout, synthesize {"is_error": true, "parse_error": "..."}.
+    5. Parse stdout as JSON regardless of returncode; on parse failure,
+       timeout, or an unlaunchable claude binary, synthesize
+       {"is_error": true, "parse_error": "..."}.
     6. Invoke <task-dir>/verify.sh <workdir>; verify_passed = (returncode==0).
     7. Append one JSON line to --out: task_id, wall_clock_ms, payload fields,
        verify_passed.
@@ -108,6 +109,10 @@ def main():
             wall_ms = int((time.time() - start) * 1000)
             payload = {"is_error": True,
                        "parse_error": f"timeout after {task['timeout_s']}s"}
+        except FileNotFoundError as e:
+            wall_ms = int((time.time() - start) * 1000)
+            payload = {"is_error": True,
+                       "parse_error": f"claude binary not found: {e}"}
         else:
             wall_ms = int((time.time() - start) * 1000)
             # Parse regardless of returncode: error results still carry
