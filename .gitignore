@@ -7,3 +7,9 @@ __pycache__/
 
 # cairn 2.0 per-machine state (never commit)
 .cairn/state/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
