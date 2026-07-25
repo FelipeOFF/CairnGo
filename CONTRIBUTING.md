@@ -19,8 +19,10 @@
 | `cairn/commands/*.md` | `/cairn:*` slash commands (prose, thin wrappers) |
 | `cairn/skills/*/SKILL.md` | conventions the agent follows |
 | `cairn/hooks/` | Claude Code hooks (SessionStart, PostToolUse, Stop) |
+| `cairn/capability/` | GSD capability bundle — manifest, loop-point prompt fragments, bundled gate scripts |
 | `cairn/scripts/` | deterministic CLI scripts — the tested surface |
 | `cairn/adapters/*.py` | sync adapters (stdin/stdout contract: `adapters/_contract.md`) |
+| `cairn/docs/` | full guides (architecture, migration, sync, context) |
 | `tests/` | bats suite + fixture helpers |
 
 ## Tests
@@ -29,15 +31,17 @@
 bats tests/
 ```
 
-- Requires [bats-core](https://github.com/bats-core/bats-core) and, for the
-  integration tests, a real `bd` binary (`brew install beads`). Tests that
-  need `bd` skip cleanly when it is missing.
+- Requires [bats-core](https://github.com/bats-core/bats-core), `jq`, and,
+  for the integration tests, a real `bd` binary (`brew install beads`).
+  Tests that need `bd` skip cleanly when it is missing.
 - The seam: tests invoke scripts by their CLI against disposable fixture
   repos (see `tests/helpers.bash` — `make_gsd_fixture`, `make_bd_fixture`)
   and assert on files, exit codes and `bd list --json`. Never test script
   internals; never reach into `.beads/` storage.
 - Every new script ships with a `.bats` file. Every bug fix in a script
   ships with the test that would have caught it.
+- Prose commands delegate to scripts: new deterministic behavior ships as a
+  script in `cairn/scripts/` plus its bats file, never as prose only.
 
 ## Style
 
