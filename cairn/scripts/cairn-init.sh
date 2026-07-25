@@ -87,6 +87,15 @@ mkdir -p "$HOOKS_DIR"
 SHIM="$HOOKS_DIR/pre-push"
 SHIM_MARKER="cairn pre-push gate"
 if [ -f "$SHIM" ] && ! grep -qF "$SHIM_MARKER" "$SHIM"; then
+  # Never clobber a pre-push.old that chains an EARLIER foreign hook: cairn
+  # chained hook X aside, another tool later wrote a fresh pre-push, and a
+  # re-run would silently delete X. Refuse and let the user consolidate.
+  if [ -f "$SHIM.old" ] && ! grep -qF "$SHIM_MARKER" "$SHIM.old"; then
+    echo "  ✗ both $SHIM and $SHIM.old exist and neither is the cairn shim —" >&2
+    echo "    refusing to overwrite pre-push.old (it chains an earlier hook)." >&2
+    echo "    Merge the two hooks manually, then re-run cairn-init.sh." >&2
+    exit 1
+  fi
   mv "$SHIM" "$SHIM.old"
   echo "  ✓ existing pre-push hook moved to pre-push.old (chained — runs first)"
 fi
@@ -109,11 +118,15 @@ if ! command -v "\$GATE" >/dev/null 2>&1 && [ ! -e "\$GATE" ]; then
   echo "[cairn] pre-push: cairn-gate not found (\$GATE) — ship gate skipped" >&2
   exit 0
 fi
+# Pin the gate to THIS repo: cairn-gate prefers \$CLAUDE_PROJECT_DIR over the
+# cwd, so a 'git -C /other/repo push' from a Claude session would otherwise
+# gate the session's project instead of the repo being pushed.
+REPO_ROOT="\$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 rc=0
 if command -v "\$GATE" >/dev/null 2>&1; then
-  "\$GATE" || rc=\$?
+  "\$GATE" --planning-dir "\$REPO_ROOT/.planning" || rc=\$?
 else
-  bash "\$GATE" || rc=\$?
+  bash "\$GATE" --planning-dir "\$REPO_ROOT/.planning" || rc=\$?
 fi
 if [ "\$rc" -eq 6 ]; then
   echo "[cairn] PUSH BLOCKED — completed phases still have open bd issues (listed above)." >&2

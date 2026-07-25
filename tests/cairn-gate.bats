@@ -263,3 +263,54 @@ make_gate_stub() {
   run git push origin HEAD
   [ "$status" -eq 0 ]
 }
+
+@test "cairn-init refuses to clobber a foreign pre-push.old (earlier chained hook kept)" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix gate --non-interactive >/dev/null 2>&1
+  local hooks_dir
+  hooks_dir="$(git rev-parse --git-path hooks)"
+  mkdir -p "$hooks_dir"
+  printf '#!/usr/bin/env bash\n# foreign hook X\nexit 0\n' > "$hooks_dir/pre-push"
+  chmod +x "$hooks_dir/pre-push"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh" "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "foreign hook X" "$hooks_dir/pre-push.old"
+
+  # Another tool later replaces the shim with a fresh foreign hook. A re-run
+  # must refuse instead of overwriting pre-push.old (silently deleting X).
+  printf '#!/usr/bin/env bash\n# foreign hook Y\nexit 0\n' > "$hooks_dir/pre-push"
+  chmod +x "$hooks_dir/pre-push"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh" "$PWD"
+  [ "$status" -ne 0 ]
+  grep -qF "refusing to overwrite" <<<"$output"
+  grep -qF "foreign hook X" "$hooks_dir/pre-push.old"
+  grep -qF "foreign hook Y" "$hooks_dir/pre-push"
+}
+
+@test "shim gates the pushed repo even when CLAUDE_PROJECT_DIR points elsewhere" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_gate_fixture
+  bd update "$GATE_A1" -s open >/dev/null   # completed phase 1 has open work
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh" "$PWD"
+  [ "$status" -eq 0 ]
+  local hooks_dir repo_with_issue
+  hooks_dir="$(git rev-parse --git-path hooks)"
+  repo_with_issue="$CAIRN_TMP_REPO"
+  rm -f "$hooks_dir/pre-push.old"   # isolate from bd's own chained hooks
+
+  # A clean second repo plays the Claude session's project. cairn-gate
+  # prefers $CLAUDE_PROJECT_DIR over cwd, so without the shim pinning
+  # --planning-dir the push would be gated against the WRONG repo (exit 0).
+  make_tmp_repo
+  local other_project="$CAIRN_TMP_REPO"
+  cd "$repo_with_issue"
+
+  run env CLAUDE_PROJECT_DIR="$other_project" \
+    "$hooks_dir/pre-push" origin ssh://x < /dev/null
+  [ "$status" -eq 6 ]
+  grep -qF "PUSH BLOCKED" <<<"$output"
+}
