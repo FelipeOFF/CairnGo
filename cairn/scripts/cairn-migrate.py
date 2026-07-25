@@ -1345,9 +1345,10 @@ class Applier:
         out, err = run_bd(args, self.project)
         if err:
             raise StepError(f"bd create: {err}")
-        bd_id = out.strip().splitlines()[-1].strip()
-        if not bd_id:
+        out_lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+        if not out_lines:
             raise StepError("bd create returned no id")
+        bd_id = out_lines[-1]
         record = {"id": bd_id, "title": title, "status": "open",
                   "issue_type": itype, "labels": list(labels or []),
                   "metadata": {"gsd": dict(gsd)} if gsd else {},
@@ -1552,11 +1553,26 @@ def merge_beads_frontmatter(path, new_ids):
         if "#" in raw:
             raw, comment = raw.split("#", 1)
             comment = "   # " + comment.strip()
-        existing = parse_inline_list(raw)
+        block_end = beads_line + 1
+        if raw.strip():
+            existing = parse_inline_list(raw)
+        else:
+            # Block form ('beads:' + indented '- id' items — the same shape
+            # cairn-doctor's parse_plan_frontmatter accepts): consume the
+            # item lines so the flow-style rewrite REPLACES them instead of
+            # leaving duplicated ids stranded under the new inline list.
+            existing = []
+            while block_end < end:
+                mi = re.match(r"^\s*-\s*(.+?)\s*$", lines[block_end])
+                if not mi:
+                    break
+                existing.append(mi.group(1).strip("'\""))
+                block_end += 1
         merged = existing + [i for i in new_ids if i not in existing]
         if merged == existing:
             return
-        lines[beads_line] = f"beads: [{', '.join(merged)}]{comment}"
+        lines[beads_line:block_end] = \
+            [f"beads: [{', '.join(merged)}]{comment}"]
     else:
         lines.insert(end, f"beads: [{', '.join(new_ids)}]")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -1632,7 +1648,11 @@ def cmd_apply(args):
             continue
         try:
             new_ids = handler(step["params"])
-        except StepError as e:
+        except (StepError, OSError) as e:
+            # OSError covers filesystem failures in do_write_file /
+            # merge_beads_frontmatter (unwritable path, path component is a
+            # file, ...) — a raw traceback here would break the documented
+            # 0/2/5/8 exit contract and skip the resume guidance.
             failures.append((sid, str(e)))
             print(f"[cairn-migrate] FAIL {sid} ({step['kind']}): {e}",
                   file=sys.stderr)
@@ -1647,7 +1667,7 @@ def cmd_apply(args):
             continue
         try:
             applier.do_orphan(orphan)
-        except StepError as e:
+        except (StepError, OSError) as e:
             failures.append((oid, str(e)))
             print(f"[cairn-migrate] FAIL {oid}: {e}", file=sys.stderr)
             continue

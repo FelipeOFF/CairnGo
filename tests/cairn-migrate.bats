@@ -418,3 +418,51 @@ PYEOF
     '.[0].labels | sort | join(",")' "m-v1.0,phase-1"
   assert_json_eq "$(bd show "$fuzzy" --json)" '.[0].metadata.gsd.req' "AUTH-02"
 }
+
+@test "apply reports a filesystem failure as FAIL + exit 8, not a traceback" {
+  require_bd
+  make_tmp_repo
+
+  # A path component that is a FILE makes do_write_file raise OSError —
+  # apply must keep the documented exit contract (8 = partial failure with
+  # resume guidance), never crash with a raw traceback (exit 1).
+  touch blocker
+  mkdir -p .cairn
+  cat > .cairn/migrate-plan.json <<'PLANEOF'
+{"version": 1, "mode": "A", "milestone": "v1.0",
+ "created_at": "2026-07-25T00:00:00Z",
+ "steps": [{"id": "s001", "kind": "write_file",
+            "params": {"path": "blocker/notes.md", "content": "x\n"},
+            "status": "pending"}]}
+PLANEOF
+
+  run MIGRATE apply --yes
+  [ "$status" -eq 8 ]
+  grep -qF "FAIL s001" <<<"$output"
+  grep -qF "resume by re-running" <<<"$output"
+  refute_contains "Traceback" "$output"
+}
+
+@test "block-style beads: frontmatter merges into one flow list, no leftover items" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$CAIRN_TMP_REPO"
+  local plan_md=".planning/phases/02-api/02-01-PLAN.md"
+  # The block form cairn-doctor accepts: 'beads:' + indented '- id' items.
+  sed -i.bak 's/^status: in_progress$/status: in_progress\nbeads:\n  - mgd-99/' \
+    "$plan_md"
+  rm -f "$plan_md.bak"
+
+  run MIGRATE plan --mode A --milestone v1.0
+  [ "$status" -eq 0 ]
+  run MIGRATE apply --yes
+  [ "$status" -eq 0 ]
+
+  local api_id
+  api_id="$(id_for_req API-01)"
+  [ -n "$api_id" ]
+  # Merged to a single flow list keeping the pre-existing id first...
+  grep -qxF "beads: [mgd-99, $api_id]" "$plan_md"
+  # ...with the old block items consumed, not duplicated below the list.
+  refute_contains "- mgd-99" "$(cat "$plan_md")"
+}
