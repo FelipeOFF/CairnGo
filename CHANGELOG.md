@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-25
+
+### Added
+
+- `/cairn:status` now renders a deterministic kanban board (READY / DOING /
+  BLOCKED lanes) via the new `cairn-status.py` script: dual-mode output
+  (TTY board, clean `--plain` in pipes, one-line `--json`, 3-line
+  `--brief`), width-aware degradation, full color-precedence chain
+  (`--color` > `CAIRN_NO_COLOR` > `NO_COLOR` > `TERM=dumb` > isatty),
+  `--ascii` fallback, CJK-aware truncation, and a synthesized single next
+  action in the footer. 22 bats tests, including adversarial
+  control-byte injection. ([#3](https://github.com/FelipeOFF/CairnGo/issues/3),
+  [#4](https://github.com/FelipeOFF/CairnGo/pull/4))
+- Per-command reference documentation: one page for each of the 22
+  commands under `cairn/docs/commands/` plus a grouped index at
+  `cairn/docs/commands.md`, linked from both READMEs.
+
 ## [1.0.0] - 2026-07-25
 
 First release of the CairnGo fork
