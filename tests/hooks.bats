@@ -243,8 +243,11 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   [ "$status" -eq 0 ]
   grep -qF "BEADS-MAP" <<<"$output"
   grep -qF "/cairn:migrate" <<<"$output"
-  # The integration-active reminder still fires alongside the nudge.
+  # The integration-active reminder still fires alongside the nudge, and it
+  # teaches the pair + stamp convention (not the old single-label one).
   grep -qF "integration is active" <<<"$output"
+  grep -qF "m-<milestone>,phase-<N>" <<<"$output"
+  grep -qF "dedup key" <<<"$output"
 }
 
 @test "session-start: dedup — no migrate nudge once a phase map exists" {

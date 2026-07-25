@@ -60,7 +60,12 @@ if [ -d "$PROJECT_DIR/.planning" ] && [ -d "$PROJECT_DIR/.beads" ]; then
 [cairn] This repo uses BOTH GSD (.planning/) and beads (.beads/).
 The cairn integration is active — use the `cairn` skill conventions:
   • each phase NN maps requirements -> bd ids in .planning/phases/NN-*/NN-BEADS-MAP.md
-  • every bd issue carries label phase-N ; list with: bd list -l phase-N
+    (a GENERATED file — regenerate via cairn-map, never hand-edit between the markers)
+  • every bd issue carries the label PAIR m-<milestone> + phase-<N> (unpadded);
+    list a phase's work with: bd list -l m-<milestone>,phase-<N>
+  • every issue carries the metadata stamp {"gsd": {"req", "phase", "milestone"}};
+    (gsd.req, gsd.milestone) is the dedup key — never create a second issue for
+    the same requirement in the same milestone
   • every PLAN.md carries a `beads:` frontmatter list of the bd ids it advances
   • execute-phase: claim -> in_progress -> close each plan's bd ids
   • on conflict, GSD phase docs (CONTEXT/PLAN/ROADMAP) win over bd issue text
