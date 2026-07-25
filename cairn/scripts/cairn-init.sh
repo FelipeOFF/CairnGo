@@ -71,7 +71,59 @@ else
   echo "  ✓ .cairn state files already gitignored"
 fi
 
-# 5. GSD presence — soft check; it ships as a cairn plugin dependency
+# 5. git pre-push ship gate — a tiny shim that runs cairn-gate.sh and blocks
+#    the push ONLY on exit 6 (open bd issues in completed phases). Exit 5
+#    (bd unavailable) warns but never blocks. Idempotent: re-runs refresh the
+#    shim in place. Chainable beads-style: a pre-existing foreign pre-push
+#    hook is moved to pre-push.old and the shim runs it first.
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOOKS_DIR="$(git rev-parse --git-path hooks 2>/dev/null || echo .git/hooks)"
+mkdir -p "$HOOKS_DIR"
+SHIM="$HOOKS_DIR/pre-push"
+SHIM_MARKER="cairn pre-push gate"
+if [ -f "$SHIM" ] && ! grep -qF "$SHIM_MARKER" "$SHIM"; then
+  mv "$SHIM" "$SHIM.old"
+  echo "  ✓ existing pre-push hook moved to pre-push.old (chained — runs first)"
+fi
+cat > "$SHIM" <<SHIM_EOF
+#!/usr/bin/env bash
+# ${SHIM_MARKER} — installed by cairn-init.sh; re-run cairn-init.sh to refresh.
+# Blocks a push ONLY when cairn-gate exits 6 (completed GSD phases with open
+# bd issues). Exit 5 = bd unavailable -> warn but NEVER block (availability
+# failure is not a gate failure); any other gate error never blocks either.
+# Bypass once with: git push --no-verify
+
+# Chain: a pre-existing pre-push hook was moved aside at install; run it first.
+OLD="\$(dirname "\$0")/pre-push.old"
+if [ -x "\$OLD" ]; then
+  "\$OLD" "\$@" || exit \$?
+fi
+
+GATE="\${CAIRN_GATE:-$SCRIPTS_DIR/cairn-gate.sh}"
+if ! command -v "\$GATE" >/dev/null 2>&1 && [ ! -e "\$GATE" ]; then
+  echo "[cairn] pre-push: cairn-gate not found (\$GATE) — ship gate skipped" >&2
+  exit 0
+fi
+rc=0
+if command -v "\$GATE" >/dev/null 2>&1; then
+  "\$GATE" || rc=\$?
+else
+  bash "\$GATE" || rc=\$?
+fi
+if [ "\$rc" -eq 6 ]; then
+  echo "[cairn] PUSH BLOCKED — completed phases still have open bd issues (listed above)." >&2
+  echo "        Close them (bd close <id> --reason=...) or bypass once: git push --no-verify" >&2
+  exit 6
+fi
+if [ "\$rc" -eq 5 ]; then
+  echo "[cairn] warning: bd unavailable — ship gate skipped, push allowed." >&2
+fi
+exit 0
+SHIM_EOF
+chmod +x "$SHIM"
+echo "  ✓ pre-push ship gate installed (cairn-gate; blocks only on exit 6)"
+
+# 6. GSD presence — soft check; it ships as a cairn plugin dependency
 if command -v claude >/dev/null 2>&1 && claude plugin list 2>/dev/null | grep -qiw gsd; then
   echo "  ✓ GSD plugin installed"
 else

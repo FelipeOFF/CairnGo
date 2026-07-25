@@ -110,8 +110,9 @@ divergent issues are flagged ⚠ and updated, not followed.
   `bd close <id> --reason="<1-2 sentence summary>"`, then refresh the phase
   map (`cairn-map.sh N`) so it reflects the closes.
 - **`/gsd:ship` / session close** — before pushing, confirm every bd issue for
-  completed plans is closed (`bd list -l m-<milestone>,phase-<N> --status open`
-  should be empty for finished phases). Then push.
+  completed plans is closed: `bd list -l m-<milestone>,phase-<N> --all` must
+  show nothing non-closed for finished phases (any status other than `closed`
+  — open, in_progress, blocked — blocks the ship). Then push.
 
 ## Precedence
 
