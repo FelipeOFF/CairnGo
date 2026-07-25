@@ -191,7 +191,10 @@ def cmd_ship_gate(opts, project_dir):
     print("[cairn-loop-gate] ship gate BLOCKED — completed phases still have "
           "non-closed bd issues:")
     for n, open_issues in sorted(blockers.items()):
-        print(f"phase {n} (bd list -l phase-{n}{pair} --status open):")
+        # --all, not --status open: the gate blocks on ANY non-closed
+        # status (open, in_progress, blocked, ...), so the hint must list
+        # every offender the gate saw.
+        print(f"phase {n} (non-closed; bd list -l phase-{n}{pair} --all):")
         for issue in open_issues:
             print(issue_line(issue))
     print("Close them (bd close <id> --reason \"...\") or defer them out of "

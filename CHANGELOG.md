@@ -27,10 +27,11 @@ unification, automatic migration, and the fork rebrand.
   both-present-but-unwired reconcile (mode C), with state detection (also
   step 0 of `/cairn:init`), a dry-run plan before any mutation, journaled
   resume via `.cairn/migrate-state.json`, and idempotent re-runs.
-- **`/cairn:doctor`** + `scripts/cairn-doctor` — eight-check deterministic
-  consistency audit (requirement↔issue coverage, `beads:` frontmatter ids,
-  map freshness, superseded plans, orphans, label pairs, stale claims, and
-  `bd doctor` delegation) with a `--fix-labels` repair.
+- **`/cairn:doctor`** + `scripts/cairn-doctor` — nine-check deterministic
+  consistency audit (bd minimum version, requirement↔issue coverage,
+  `beads:` frontmatter ids, map freshness, superseded plans, orphans,
+  label pairs, stale claims, and `bd doctor` delegation) with a
+  `--fix-labels` repair.
 - **Ship gate + git shim** — `scripts/cairn-gate` fails when a completed
   phase still has non-closed issues; `cairn-init.sh` installs a chainable git
   `pre-push` shim so the gate holds even with no LLM in the loop.

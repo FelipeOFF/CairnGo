@@ -9,6 +9,11 @@ Usage:
     cairn-doctor.py [--project-dir <dir>] [--json] [--fix-labels]
 
 Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
+    0. bd-version       the bd binary meets the minimum version cairn
+                        relies on (--claim, --all, label add/remove,
+                        nested --metadata). Older -> FAIL, unparsable
+                        version output -> WARN. Runs first — nine checks
+                        in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
                         metadata.gsd.req matches, scoped to the phase's

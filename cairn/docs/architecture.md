@@ -173,11 +173,11 @@ See `docs/migration.md` for the user-facing guide.
 
 `cairn-doctor.py` cross-checks the two sources of truth and reports drift.
 Read-only except `--fix-labels`, which delegates to `cairn-relabel.py pair`
-(refused when the active milestone is unresolvable). Eight checks: req↔issue
-coverage, `beads:` frontmatter ids, map freshness, superseded-plan ids still
-open, orphans (unphased non-closed issues — the `migrated-todo`, `backlog`
-and `quick` labels are exempt), label pairs, stale claims, and a `bd doctor`
-passthrough. Exit codes: 0 ok or ok+warnings, 2 usage / `--fix-labels`
+(refused when the active milestone is unresolvable). Nine checks: a bd
+minimum-version probe, req↔issue coverage, `beads:` frontmatter ids, map
+freshness, superseded-plan ids still open, orphans (unphased non-closed
+issues — the `migrated-todo`, `backlog` and `quick` labels are exempt),
+label pairs, stale claims, and a `bd doctor` passthrough. Exit codes: 0 ok or ok+warnings, 2 usage / `--fix-labels`
 refused, 5 bd unavailable, 7 at least one check failed.
 
 ## Testing seam
