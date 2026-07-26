@@ -444,7 +444,7 @@ EOF
 
 **If this table is empty:** N/A — see rows above.
 
-## Open Questions
+## Open Questions (RESOLVED — see 02-CONTEXT.md "Research open questions — resolved by the autonomous run")
 
 1. **Does `cairn`'s "arm" in this benchmark include `context-mode`?**
    - What we know: `cairn/.claude-plugin/plugin.json` declares `context-mode` as a hard dependency (`"dependencies": ["gsd", {"name": "context-mode", "marketplace": "context-mode"}]`), and a real end user running `claude plugin install cairn@cairngo` gets it automatically.
