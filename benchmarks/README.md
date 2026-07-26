@@ -8,15 +8,19 @@ touch); one live schema-validated `claude -p` measurement path
 claude subprocess (disposable HOME, explicit minimal env); pinned plugin
 staging (`stage-plugins.py`); and seeded, reproducible interleaved batch
 execution (`bench-matrix.py`, stamping `seed`/`run_order_index` into every
-row). Explicitly NOT built yet — repetition (N runs per baseline) and
-aggregation/medians are Phase 3 scope; nothing in this directory pretends to
-do them.
+row); repetition (`--reps`, default 5, shuffled across the full
+`baseline × rep` cross-product); and deterministic aggregation
+(`bench-aggregate.py` → success-gated per-cell medians and 4-way token
+decomposition in `aggregated.json`). Repetition and aggregation were built
+and proven entirely at $0 via stub/fixture-driven bats — zero live API calls
+were spent on them.
 
 ## Zero-cost test suite
 
 ```bash
 bats tests/bench-verify.bats tests/bench-run.bats \
-     tests/stage-plugins.bats tests/bench-matrix.bats
+     tests/stage-plugins.bats tests/bench-matrix.bats \
+     tests/bench-aggregate.bats
 ```
 
 Never touches the network. The suite always points `CAIRN_BENCH_CLAUDE_BIN` at
@@ -101,6 +105,59 @@ python3 benchmarks/scripts/bench-matrix.py \
 Both flags are also valid (and optional) on `bench-run.py` directly;
 standalone rows carry neither key, keeping single-run and orchestrated rows
 distinguishable.
+
+### Repetitions (`--reps`)
+
+One run per baseline is an anecdote, not a measurement. `bench-matrix.py
+--reps <N>` (default **5**) launches N runs per baseline, and every row is
+stamped with `--rep-index` so it carries `rep_index` (a JSON integer,
+`0..N-1` within its baseline) alongside `seed`/`run_order_index`. The
+shuffle is NOT per-rep-round: the single seeded RNG shuffles the full
+`baseline × rep` cross-product in one pass, so no baseline's repetitions
+run as a contiguous cache-warm block, and the same seed still reproduces
+the same full execution order.
+
+## Aggregation (`bench-aggregate.py`)
+
+Turns one or more raw JSONL files into a single deterministic
+`aggregated.json` of per-`(task, baseline)` cell statistics:
+
+```bash
+python3 benchmarks/scripts/bench-aggregate.py \
+  --in benchmarks/results/matrix.jsonl \
+  --out benchmarks/results/aggregated.json
+```
+
+- **CLI contract:** `--in <jsonl>` is repeatable (at least one required);
+  `--out <aggregated.json>` is required. Bad args, a missing `--in` file, or
+  a missing `--out` parent directory exit 2 before any work.
+- **Success gate (belt and braces):** a row only counts toward `n_passed`
+  and cost/token statistics when `verify_passed` is `true` AND `is_error` is
+  falsy. `verify_passed` alone is deliberately not enough — the two axes are
+  independent (see "Observed behavior" below: the committed
+  `error_max_turns` row has `verify_passed: true`), and a run that errored
+  must never be reported as a cost saving.
+- **4-way token decomposition** (`input` / `cache_creation` / `cache_read` /
+  `output`): prefers `modelUsage` (summed across models) over the flat
+  `usage` dict, because `modelUsage` is what reconciles with
+  `total_cost_usd` on the real captured rows — the flat `usage` dict
+  under-reports by roughly 30% against the priced token counts. `usage` is
+  the fallback for rows without `modelUsage`.
+- **Spread methodology:** median + min/max over passing rows'
+  `total_cost_usd` is the primary reported spread at small N, with IQR via
+  `statistics.quantiles(method="inclusive")` as a secondary column. A cell
+  with zero passing rows reports `null` cost/token medians (never a
+  fabricated `0`) while keeping `pass_rate`/`n_total`/`n_passed` visible;
+  IQR is additionally `null` when fewer than 2 passing costs exist.
+- **Required-field rejection:** a line that is not valid JSON, or a row
+  missing any of `usage`/`verify_passed`/`baseline_id`/`task_id`, is counted
+  in the artifact's top-level `rejected_rows` and excluded from every cell —
+  never silently dropped, never a crash. The output's top-level shape is
+  `{"cells": {...}, "rejected_rows": N}`, keyed `"<task_id>::<baseline_id>"`.
+- **Determinism:** input paths and cell keys are iterated sorted, JSON is
+  emitted with `sort_keys` + fixed separators, and nothing in the file is
+  time-dependent — identical input always produces a byte-identical
+  `aggregated.json`, regardless of `--in` argument order.
 
 ## Live isolation smoke check: PENDING
 
