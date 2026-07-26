@@ -30,8 +30,15 @@ A competing workflow plugin is benchmarked fairly, on its own documented default
 - New `benchmarks/baselines/competitor-<name>.json` manifest (name carries the plugin, e.g. `competitor-spec-kit`).
 - Stub-first tests as always; CI $0. Live validation conditional on ANTHROPIC_API_KEY exactly like Phase 2's pending check.
 
+### Research verdict — locked by the autonomous run (2026-07-26, see 04-RESEARCH.md)
+- **Competitor = `ralph-specum` from `tzachbon/smart-ralph`, pinned `v4.0.0`** (newest real git tag; marketplace-declared 4.10.1 is untagged — staleness disclosed in the manifest comment). Only candidate with an engineered headless mechanism (PreToolUse hook denying AskUserQuestion in `--quick` mode).
+- spec-kit (no plugin manifest — it's a CLI templater) and BMAD (no root plugin.json + npx-scaffold dependency) structurally disqualified, evidence in RESEARCH.
+- Runner-up `obra/superpowers` documented as fallback; **deferred** — COMP-01 needs one arm.
+- `stage-plugins.py` gains backward-compatible `plugin_dir_subpath` (ralph-specum's plugin.json lives at `plugins/ralph-specum/`).
+- Empirical question (does the model engage the plugin on the smoke task?) resolves at the phase's conditional live smoke — same pending-on-ANTHROPIC_API_KEY discipline as Phase 2.
+
 ### Claude's Discretion
-- Which candidate wins (per criteria above), manifest naming details, how the load-check is implemented (e.g. `claude -p "/help" --plugin-dir ...` expecting the plugin's commands listed — via stub in CI, documented live procedure).
+- Manifest naming details, load-check implementation (stub version in CI + documented live procedure).
 
 </decisions>
 
