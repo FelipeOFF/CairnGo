@@ -50,7 +50,12 @@ Plans:
   2. Vanilla, GSD-only, and cairn are each defined by an explicit baseline manifest (pinned full model id, identical task prompt, `--bare` plus explicit flags like `--max-turns`, `--no-session-persistence`)
   3. The same task run against all three baselines produces three separate JSONL rows whose environment manifests differ only in the intended baseline-specific configuration
   4. Execution order across baselines and repetitions is randomized/interleaved rather than run-all-of-one-then-next, and every run's cost is decomposed into the four components (uncached-input, cache-write, cache-read, output)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Isolate the claude subprocess env + require --baseline; vanilla/gsd-only/cairn manifests (FAIR-01, FAIR-02)
+- [ ] 02-02-PLAN.md — stage-plugins.py: pinned git/local provisioning materialization, real GSD staged (FAIR-02)
+- [ ] 02-03-PLAN.md — bench-matrix.py seeded interleaving + conditional live smoke check (FAIR-03)
 
 ### Phase 3: Repetition, Aggregation & Cost Decomposition
 **Goal**: Comparative numbers are statistically defensible — repeated enough times, gated on success, and aggregated deterministically — instead of single-run point estimates
@@ -104,7 +109,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Verification Core + First Real Run | 0/TBD | Not started | - |
-| 2. Baseline Isolation + Multi-Baseline Harness | 0/TBD | Not started | - |
+| 2. Baseline Isolation + Multi-Baseline Harness | 0/3 | Not started | - |
 | 3. Repetition, Aggregation & Cost Decomposition | 0/TBD | Not started | - |
 | 4. Competitor Baseline | 0/TBD | Not started | - |
 | 5. Corpus Expansion + Bias Controls | 0/TBD | Not started | - |
