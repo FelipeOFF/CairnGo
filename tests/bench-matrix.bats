@@ -127,6 +127,54 @@ EOF
   [ -z "$output" ]
 }
 
+@test "bench-matrix.py --reps 5 interleaves the full baseline x rep cross-product, stamping rep_index and preserving run_order_index contiguity" {
+  make_env_asserting_claude_stub
+  make_fixture_baselines
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    python3 "$BENCH_SCRIPTS_DIR/bench-matrix.py" \
+      --baselines alpha,beta,gamma \
+      --baselines-dir "$FIXTURE_BASELINES_DIR" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --out "$BATS_TEST_TMPDIR/matrix-reps.jsonl" \
+      --seed 7 --reps 5
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$BATS_TEST_TMPDIR/matrix-reps.jsonl")" -eq 15 ]
+  # run_order_index spans the full cross-product contiguously: exactly the
+  # set {0..14}, no gaps, no duplicates.
+  run jq -s -e 'map(.run_order_index) | sort ==
+                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]' \
+    "$BATS_TEST_TMPDIR/matrix-reps.jsonl"
+  [ "$status" -eq 0 ]
+  # Every baseline received exactly reps {0,1,2,3,4}, each stamped once.
+  run jq -s -e 'group_by(.baseline_id)
+                | all(.[]; (map(.rep_index) | sort) == [0, 1, 2, 3, 4])' \
+    "$BATS_TEST_TMPDIR/matrix-reps.jsonl"
+  [ "$status" -eq 0 ]
+  # Genuine interleaving: a baseline whose 5 run positions span exactly 4
+  # would be a fully contiguous block of 5 — must be false for every
+  # baseline at seed 7 (verified positions: alpha [0,5,9,10,13],
+  # beta [3,7,8,12,14], gamma [1,2,4,6,11]).
+  run jq -s -e 'group_by(.baseline_id)
+                | all(.[]; (map(.run_order_index) | (max - min)) != 4)' \
+    "$BATS_TEST_TMPDIR/matrix-reps.jsonl"
+  [ "$status" -eq 0 ]
+}
+
+@test "bench-matrix.py omits --reps and still defaults to 5" {
+  # The default must be live (METR-01's N=5), not merely accepted by argparse.
+  make_env_asserting_claude_stub
+  make_fixture_baselines
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    python3 "$BENCH_SCRIPTS_DIR/bench-matrix.py" \
+      --baselines alpha,beta,gamma \
+      --baselines-dir "$FIXTURE_BASELINES_DIR" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --out "$BATS_TEST_TMPDIR/matrix-default.jsonl" \
+      --seed 7
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$BATS_TEST_TMPDIR/matrix-default.jsonl")" -eq 15 ]
+}
+
 @test "orchestrated runs preserve per-run isolation against the real vanilla/gsd-only manifests" {
   if [ ! -d "$CAIRN_REPO_ROOT/benchmarks/plugins/gsd/v4.3.1" ]; then
     skip "benchmarks/plugins/gsd/v4.3.1 not staged"
