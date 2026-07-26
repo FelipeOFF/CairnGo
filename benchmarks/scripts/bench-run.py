@@ -13,8 +13,10 @@ Behavior:
        of truth for model pinning and flags.
     2. Load and validate the --baseline manifest: required keys name, model
        (full pinned id), claude_flags, provisioning.plugin_dirs; every
-       plugin_dirs[].staged_path must already exist on disk. All validation
-       happens BEFORE any subprocess is launched (fail loud, spend nothing).
+       plugin_dirs[].staged_path (joined with the entry's optional
+       plugin_dir_subpath, when declared) must already exist on disk. All
+       validation happens BEFORE any subprocess is launched (fail loud,
+       spend nothing).
     3. Stage a fresh mktemp workdir from <task-dir>/fixture/ and a fresh,
        empty mktemp HOME for the claude subprocess.
     4. Resolve the claude binary via CAIRN_BENCH_CLAUDE_BIN, falling back to
@@ -22,8 +24,11 @@ Behavior:
     5. Invoke `claude -p <prompt> --output-format json` with every remaining
        flag read from the manifest: --max-turns, --model, --permission-mode,
        plus --no-session-persistence / --bare when set in claude_flags, plus
-       one `--plugin-dir <staged_path>` pair per provisioning.plugin_dirs
-       entry. The subprocess environment is explicitly
+       one `--plugin-dir <target>` pair per provisioning.plugin_dirs entry,
+       where <target> is staged_path joined with the entry's optional
+       plugin_dir_subpath (for plugins whose plugin.json lives in a
+       subdirectory of the staged repo; omitted, the target is the bare
+       staged_path, unchanged). The subprocess environment is explicitly
        env={HOME: <fresh HOME>, PATH, ANTHROPIC_API_KEY-if-present}: the
        operator's environment is replaced, never merged. --bare skips
        claude.ai OAuth, so isolated runs authenticate strictly via
@@ -104,9 +109,10 @@ def load_baseline(path):
         die("baseline manifest missing required 'provisioning.plugin_dirs': "
             f"{baseline_path}", EXIT_USAGE)
     for entry in manifest["provisioning"]["plugin_dirs"]:
-        if not Path(entry["staged_path"]).is_dir():
-            die(f"plugin '{entry['plugin']}' staged_path not found: "
-                f"{entry['staged_path']} (stage and build it before running)",
+        target = Path(entry["staged_path"]) / entry.get("plugin_dir_subpath", "")
+        if not target.is_dir():
+            die(f"plugin '{entry['plugin']}' staged_path (+ plugin_dir_subpath) "
+                f"target not found: {target} (stage and build it before running)",
                 EXIT_USAGE)
     return manifest
 
@@ -220,7 +226,8 @@ def main():
         if flags.get("bare"):
             cmd.append("--bare")
         for entry in manifest["provisioning"]["plugin_dirs"]:
-            cmd += ["--plugin-dir", str(entry["staged_path"])]
+            target = Path(entry["staged_path"]) / entry.get("plugin_dir_subpath", "")
+            cmd += ["--plugin-dir", str(target)]
         start = time.time()
         try:
             proc = subprocess.run(cmd, cwd=workdir, capture_output=True,
