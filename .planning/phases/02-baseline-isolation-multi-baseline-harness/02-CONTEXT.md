@@ -36,6 +36,11 @@ Every benchmark run executes in a fresh, disposable, mechanically-isolated envir
 - ALL mechanics (HOME override, provisioning staging, manifest parsing, order randomization, seed recording) proven via the `CAIRN_BENCH_CLAUDE_BIN` stub in bats. The stub can ASSERT on its inherited env (e.g. print `$HOME` and env leakage markers into its canned output) — that's how isolation is tested at $0.
 - **Live validation of isolated auth is OPTIONAL in this phase**: it requires `ANTHROPIC_API_KEY` in the operator's env. If the key is absent at execution time, deliver the mechanism + stub proofs, document the single pending live check in the SUMMARY (pending key, not a mechanism gap), and do NOT block the phase. If the key IS present, run at most ONE cheap live isolated run (haiku, smoke task) to prove the auth path, and record its cost.
 
+### Research open questions — resolved by the autonomous run (2026-07-25)
+- **The cairn arm INCLUDES context-mode.** Rationale: cairn's plugin.json declares it a hard dependency and `/cairn:init` installs it — the benchmark measures the product as it actually ships. Excluding it would be an artificial arm (and would rightly draw "rigged baseline" criticism). The manifest documents this composition explicitly.
+- **Plugin dependencies are enumerated explicitly** in each manifest's provisioning recipe (one `--plugin-dir` entry per plugin) — never rely on auto-resolution (unverified behavior).
+- **GSD source pinned to the identifier that resolves today** (`buildomator/buildomator`, verified live 2026-07-25; formerly `jnuyens/gsd-plugin`) — record both in the manifest comment.
+
 ### Claude's Discretion
 - Exact manifest schema fields, HOME staging layout, how provisioning recipes are expressed, randomization CLI surface (flag vs manifest), whether bench-run grows `--baseline` flag vs a new orchestrating script (respect ARCHITECTURE.md's component split).
 
