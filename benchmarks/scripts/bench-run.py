@@ -92,13 +92,28 @@ def main():
         die(f"prompt file not found: {prompt_path}", EXIT_USAGE)
     prompt_text = prompt_path.read_text()
 
+    # Validate the output path BEFORE any API spend: a live run whose row
+    # cannot be written is money lost (observed live, 2026-07-25).
+    out_parent = Path(out_path).parent
+    if not out_parent.is_dir():
+        die(f"output directory not found: {out_parent} (create it first)", EXIT_USAGE)
+
     workdir = tempfile.mkdtemp(prefix="cairn-bench-")
     try:
         shutil.copytree(task_dir / "fixture", workdir, dirs_exist_ok=True)
+        # NOTE: --bare is deliberately absent. Verified live (2026-07-25):
+        # --bare skips claude.ai OAuth credentials and reports "Not logged in"
+        # unless an API key is provided via env/--settings. Phase 2's isolated
+        # baselines must pair --bare with ANTHROPIC_API_KEY; this phase's
+        # schema-validation run authenticates via the operator's OAuth session.
+        # Model comes from task.json and MUST be a full pinned id (FAIR-02):
+        # bare aliases like "claude-haiku" are rejected by the API.
+        if "model" not in task:
+            die("task.json missing required 'model' (full pinned model id)", EXIT_USAGE)
         cmd = [resolve_claude_bin(), "-p", prompt_text,
-               "--bare", "--output-format", "json",
+               "--output-format", "json",
                "--max-turns", str(task["max_turns"]),
-               "--model", "claude-haiku",
+               "--model", task["model"],
                "--permission-mode", "acceptEdits",
                "--no-session-persistence"]
         start = time.time()
