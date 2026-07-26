@@ -21,9 +21,9 @@ Requirements do milestone v1.1. Each maps to roadmap phases.
 
 ### Metrics
 
-- [ ] **METR-01**: N≥5 repetições por célula (tarefa × baseline); mediana e spread reportados por tarefa, não só agregado
-- [ ] **METR-02**: Métrica principal = custo/tokens por tarefa **concluída com sucesso** (success-gated); rodada que falha o `verify.sh` nunca conta como economia
-- [ ] **METR-03**: Agregador (`bench-aggregate.py`) determinístico: JSONL bruto → `aggregated.json` com estatísticas (repetível byte a byte sobre os mesmos dados)
+- [x] **METR-01**: N≥5 repetições por célula (tarefa × baseline); mediana e spread reportados por tarefa, não só agregado
+- [x] **METR-02**: Métrica principal = custo/tokens por tarefa **concluída com sucesso** (success-gated); rodada que falha o `verify.sh` nunca conta como economia
+- [x] **METR-03**: Agregador (`bench-aggregate.py`) determinístico: JSONL bruto → `aggregated.json` com estatísticas (repetível byte a byte sobre os mesmos dados)
 
 ### Competitor
 
@@ -74,9 +74,9 @@ Deferred. Tracked but not in current roadmap.
 | FAIR-01 | Phase 2 | Complete |
 | FAIR-02 | Phase 2 | Complete |
 | FAIR-03 | Phase 2 | Complete |
-| METR-01 | Phase 3 | Pending |
-| METR-02 | Phase 3 | Pending |
-| METR-03 | Phase 3 | Pending |
+| METR-01 | Phase 3 | Complete |
+| METR-02 | Phase 3 | Complete |
+| METR-03 | Phase 3 | Complete |
 | COMP-01 | Phase 4 | Pending |
 | CORP-01 | Phase 5 | Pending |
 | CORP-02 | Phase 5 | Pending |
