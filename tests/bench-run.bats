@@ -2,7 +2,9 @@
 # bench-run.bats — exercises bench-run.py / bench-run.sh's CLI contract:
 # fixture staging, claude subprocess invocation via the CAIRN_BENCH_CLAUDE_BIN
 # stub seam, one JSONL row per run wired to the real smoke-convert verify.sh,
-# zero API cost. Never invokes the real claude binary.
+# baseline-manifest loading, env isolation of the claude arm, and manifest-
+# driven --plugin-dir flag construction — all at zero API cost. Never invokes
+# the real claude binary.
 #
 # Assertion style note: a failing `[[ ]]` or `! cmd` mid-test does NOT fail a
 # bats test on this bash, so positive substring checks use grep -qF and
@@ -12,6 +14,7 @@ load 'helpers'
 
 BENCH_SCRIPTS_DIR="$CAIRN_REPO_ROOT/benchmarks/scripts"
 BENCH_TASKS_DIR="$CAIRN_REPO_ROOT/benchmarks/tasks"
+BENCH_BASELINES_DIR="$CAIRN_REPO_ROOT/benchmarks/baselines"
 
 # Canned claude payloads, byte-identical in field names/nesting to the REAL
 # `claude -p --output-format json` responses captured live 2026-07-25 (see
@@ -47,11 +50,14 @@ make_claude_stub() {
   make_claude_stub claude-success "$SUCCESS_JSON" 0
   run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
     bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
-      --task "$BENCH_TASKS_DIR/smoke-convert" --out "$BATS_TEST_TMPDIR/raw1.jsonl"
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BENCH_BASELINES_DIR/vanilla.json" \
+      --out "$BATS_TEST_TMPDIR/raw1.jsonl"
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$BATS_TEST_TMPDIR/raw1.jsonl")" -eq 1 ]
   row="$(cat "$BATS_TEST_TMPDIR/raw1.jsonl")"
   assert_json_eq "$row" '.task_id' 'smoke-convert'
+  assert_json_eq "$row" '.baseline_id' 'vanilla'
   assert_json_eq "$row" '.total_cost_usd' '0.0031'
   # The stub never actually edits convert.py, so the real verify.sh genuinely
   # fails: verify_passed is wired to a REAL check, not hardcoded.
@@ -68,7 +74,9 @@ make_claude_stub() {
   make_claude_stub claude-error "$ERROR_JSON" 1
   run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
     bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
-      --task "$BENCH_TASKS_DIR/smoke-convert" --out "$BATS_TEST_TMPDIR/raw2.jsonl"
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BENCH_BASELINES_DIR/vanilla.json" \
+      --out "$BATS_TEST_TMPDIR/raw2.jsonl"
   [ "$status" -eq 0 ]
   row="$(cat "$BATS_TEST_TMPDIR/raw2.jsonl")"
   assert_json_eq "$row" '.is_error' 'true'
@@ -91,15 +99,138 @@ make_claude_stub() {
   make_claude_stub claude-success "$SUCCESS_JSON" 0
   run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
     bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
-      --task "$BENCH_TASKS_DIR/smoke-convert" --out "$BATS_TEST_TMPDIR/raw_a.jsonl"
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BENCH_BASELINES_DIR/vanilla.json" \
+      --out "$BATS_TEST_TMPDIR/raw_a.jsonl"
   [ "$status" -eq 0 ]
   run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
     bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
-      --task "$BENCH_TASKS_DIR/smoke-convert" --out "$BATS_TEST_TMPDIR/raw_b.jsonl"
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BENCH_BASELINES_DIR/vanilla.json" \
+      --out "$BATS_TEST_TMPDIR/raw_b.jsonl"
   [ "$status" -eq 0 ]
   run diff \
     <(jq -S 'del(.wall_clock_ms)' "$BATS_TEST_TMPDIR/raw_a.jsonl") \
     <(jq -S 'del(.wall_clock_ms)' "$BATS_TEST_TMPDIR/raw_b.jsonl")
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+@test "claude subprocess receives a scoped HOME and never the operator's env" {
+  make_env_asserting_claude_stub
+  export OPERATOR_ONLY_LEAK_MARKER="this-must-not-reach-the-claude-subprocess"
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BENCH_BASELINES_DIR/vanilla.json" \
+      --out "$BATS_TEST_TMPDIR/raw-iso.jsonl"
+  [ "$status" -eq 0 ]
+  row="$(cat "$BATS_TEST_TMPDIR/raw-iso.jsonl")"
+  # The stub's own HOME is a disposable temp dir, not the operator's real one.
+  observed_home="$(jq -r '.stub_observed_home' <<<"$row")"
+  [ -n "$observed_home" ]
+  [ "$observed_home" != "$HOME" ]
+  echo "$observed_home" | grep -qF "cairn-bench-home-"
+  # The planted operator-only var was scrubbed: env is replaced, not merged.
+  assert_json_eq "$row" '.stub_observed_leak_marker' ''
+}
+
+@test "row carries baseline_id taken from the manifest's name field" {
+  make_env_asserting_claude_stub
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BENCH_BASELINES_DIR/vanilla.json" \
+      --out "$BATS_TEST_TMPDIR/raw-bid.jsonl"
+  [ "$status" -eq 0 ]
+  row="$(cat "$BATS_TEST_TMPDIR/raw-bid.jsonl")"
+  assert_json_eq "$row" '.baseline_id' 'vanilla'
+}
+
+@test "unstaged plugin staged_path dies EXIT_USAGE before any row or claude launch" {
+  # Tripwire stub: records the fact it was ever invoked.
+  cat > "$BATS_TEST_TMPDIR/claude-tripwire" <<EOF
+#!/usr/bin/env bash
+touch "$BATS_TEST_TMPDIR/stub-was-invoked"
+echo '{}'
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/claude-tripwire"
+  # cwd where gsd-only.json's relative staged_path cannot possibly resolve,
+  # independent of whether the repo has staged plugins at its root.
+  cd "$BATS_TEST_TMPDIR"
+  run env CAIRN_BENCH_CLAUDE_BIN="$BATS_TEST_TMPDIR/claude-tripwire" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BENCH_BASELINES_DIR/gsd-only.json" \
+      --out "$BATS_TEST_TMPDIR/never.jsonl"
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -qF "staged_path"
+  [ ! -e "$BATS_TEST_TMPDIR/never.jsonl" ]
+  [ ! -e "$BATS_TEST_TMPDIR/stub-was-invoked" ]
+}
+
+@test "manifest plugin_dirs entries become --plugin-dir flags in the claude argv" {
+  make_env_asserting_claude_stub
+  mkdir "$BATS_TEST_TMPDIR/fake-plugin"
+  cat > "$BATS_TEST_TMPDIR/fake-plugin-manifest.json" <<EOF
+{
+  "name": "fake-plugin-arm",
+  "model": "claude-haiku-4-5-20251001",
+  "claude_flags": {
+    "bare": true,
+    "max_turns": 8,
+    "no_session_persistence": true,
+    "permission_mode": "acceptEdits"
+  },
+  "provisioning": {
+    "plugin_dirs": [
+      {
+        "plugin": "fake",
+        "source": { "type": "local_path", "path": "unused" },
+        "staged_path": "$BATS_TEST_TMPDIR/fake-plugin",
+        "build": []
+      }
+    ]
+  }
+}
+EOF
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BATS_TEST_TMPDIR/fake-plugin-manifest.json" \
+      --out "$BATS_TEST_TMPDIR/raw-plugin.jsonl"
+  [ "$status" -eq 0 ]
+  row="$(cat "$BATS_TEST_TMPDIR/raw-plugin.jsonl")"
+  # --plugin-dir and its staged_path are two consecutive argv elements.
+  assert_json_eq "$row" \
+    '.stub_observed_argv | index("--plugin-dir") as $i | .[$i + 1]' \
+    "$BATS_TEST_TMPDIR/fake-plugin"
+  # Manifest-driven flags land in the argv too (claude_flags.bare above).
+  run jq -e '.stub_observed_argv | index("--bare") != null' \
+    "$BATS_TEST_TMPDIR/raw-plugin.jsonl"
+  [ "$status" -eq 0 ]
+}
+
+@test "manifest missing a required key dies EXIT_USAGE naming the key" {
+  make_claude_stub claude-success "$SUCCESS_JSON" 0
+  cat > "$BATS_TEST_TMPDIR/broken-manifest.json" <<'EOF'
+{
+  "name": "broken",
+  "claude_flags": {
+    "bare": true,
+    "max_turns": 8,
+    "no_session_persistence": true,
+    "permission_mode": "acceptEdits"
+  },
+  "provisioning": { "plugin_dirs": [] }
+}
+EOF
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BATS_TEST_TMPDIR/broken-manifest.json" \
+      --out "$BATS_TEST_TMPDIR/raw-broken.jsonl"
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -qF "model"
+  [ ! -e "$BATS_TEST_TMPDIR/raw-broken.jsonl" ]
 }
