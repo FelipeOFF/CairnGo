@@ -8,6 +8,10 @@ __pycache__/
 # cairn 2.0 per-machine state (never commit)
 .cairn/state/
 
+# Staged benchmark plugin checkouts — disposable, reproducible from the
+# pinned refs in benchmarks/baselines/*.json (never commit)
+benchmarks/plugins/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
