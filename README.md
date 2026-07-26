@@ -100,6 +100,19 @@ Tests are bats against real `bd` fixtures — `bats tests/` — and every
 deterministic behavior ships as a script with its own suite. Ground rules,
 layout and style live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Benchmarks
+
+Cairn ships a reproducible benchmark suite measuring the full stack against
+stock Claude Code, GSD alone, and the strongest headless competitor plugin:
+identical model and flags on every arm, only the provisioning differs.
+
+<!-- cairn:generated:benchmarks-teaser:start -->
+_Benchmark results: pending first collection. The full harness, task corpus and methodology are committed; no numbers exist yet._
+<!-- cairn:generated:benchmarks-teaser:end -->
+
+Full methodology, raw data and reproduction steps live in
+[BENCHMARKS.md](BENCHMARKS.md).
+
 ## License & credits
 
 [MIT](LICENSE). CairnGo began as a fork of
