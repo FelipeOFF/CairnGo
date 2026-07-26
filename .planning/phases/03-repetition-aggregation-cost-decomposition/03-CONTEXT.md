@@ -33,8 +33,16 @@ Results become statistically honest: N≥5 repetitions per cell (task × baselin
 - Stub-first: fixture JSONL files (hand-authored, covering pass/fail/is_error/missing-fields) + stub-driven matrix runs. CI $0. Determinism proven by double-run diff in bats.
 - No live calls in this phase at all (the harness mechanics don't need them; real data collection is Phase 5/6 territory).
 
+### Research open questions — resolved by the autonomous run (2026-07-26)
+- **Cell = baseline × rep, single `--task`** this phase. Multi-task cells arrive with the corpus in Phase 5 (per this file's own Deferred Ideas). aggregated.json's schema must still be shaped per task_id so Phase 5 extends without breaking.
+- **The 2 committed real rows (missing `baseline_id`) become the rejection-path fixture** — used unmodified to prove loud rejection; a separate synthetic fixture (with baseline_id, covering pass/fail/is_error) drives the gating/stat tests.
+- **`--reps` defaults to 5**; existing bench-matrix.bats row-count assertions get updated to pass explicit `--reps 1` where they assert single-run behavior (never silently change their meaning).
+- **4-way decomposition prefers `modelUsage.<model>.*` with `usage.*` fallback** — verified by hand arithmetic: `usage.cache_creation_input_tokens` under-reports ~30% on the real success row; only modelUsage reconciles with total_cost_usd. Document the preference in the aggregate schema.
+- **Spread = median + min/max primary** (no quantile-method ambiguity at N=5); IQR via `statistics.quantiles(method='inclusive')` secondary, method documented.
+- **Determinism hard rules:** `sorted()` on every glob and set iteration before output; `json.dumps(sort_keys=True)`.
+
 ### Claude's Discretion
-- aggregated.json exact schema, quantile choice for spread (document it), how bench-matrix passes rep_index to bench-run (flag vs internal), reject-row reporting shape.
+- aggregated.json exact schema, how bench-matrix passes rep_index to bench-run (flag vs internal), reject-row reporting shape.
 
 </decisions>
 
