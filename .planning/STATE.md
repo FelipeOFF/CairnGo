@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Verified Phase 3 (Repetition, Aggregation & Cost Decomposition) — 29/29 bats green, $0
-last_updated: "2026-07-26T04:54:41Z"
-last_activity: "2026-07-26 — Phase 3 verified: bench-matrix --reps interleaving + bench-aggregate.py success-gated 4-way decomposition (METR-01/02/03), 29/29 bats, $0"
+stopped_at: Verified Phase 4 (Competitor Baseline) — 32/32 bats green, $0; 1 minor gap parked (live N>=5 matrix pending ANTHROPIC_API_KEY)
+last_updated: "2026-07-26T06:01:38Z"
+last_activity: "2026-07-26 — Phase 4 verified: competitor-ralph-specum manifest pinned v4.0.0 + FAIR-02 byte-identical claude_flags/model + nested plugin_dir_subpath resolution + fail-loud + $0 load-check (COMP-01), 32/32 bats, $0. 1 minor gap: ROADMAP SC4 (N>=5 live matrix in aggregated.json) not yet run — blocked on ANTHROPIC_API_KEY, deferred to Phase 5/6 per 04-CONTEXT.md"
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
-  percent: 50
+  completed_phases: 4
+  total_plans: 9
+  completed_plans: 9
+  percent: 67
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-25)
 
 **Core value:** Workflow unificado plan→work→ship que custa menos tokens que as alternativas — e agora provado por benchmark reproduzível, não por afirmação.
-**Current focus:** Phase 4 — Competitor Baseline (Phase 3 complete and verified)
+**Current focus:** Phase 5 — Corpus Expansion + Bias Controls (Phase 4 complete and verified, 1 minor gap parked to backlog)
 
 ## Current Position
 
-Phase: 3 of 6 (Repetition, Aggregation & Cost Decomposition) — complete, verified
-Plan: 2 of 2 in phase (complete)
-Status: Phase 3 verified passed (3/3 must-haves); ready to plan Phase 4
-Last activity: 2026-07-26 — Phase 3 verified: bench-matrix --reps interleaving + bench-aggregate.py success-gated 4-way decomposition (METR-01/02/03), 29/29 bats, $0
+Phase: 4 of 6 (Competitor Baseline) — complete, verified (gaps_found: 1 minor, non-blocking)
+Plan: 1 of 1 in phase (complete)
+Status: Phase 4 verified gaps_found (8/9 must-haves; 1 minor gap parked); ready to plan Phase 5
+Last activity: 2026-07-26 — Phase 4 verified: competitor-ralph-specum manifest pinned v4.0.0, FAIR-02 byte-identical claude_flags/model, nested plugin_dir_subpath resolution (backward-compatible), fail-loud before spend, $0 load-check proof + documented live command (COMP-01), 32/32 bats green, $0 spend. Gap: ROADMAP SC4 (N≥5 live matrix results in aggregated.json) not yet executed — no aggregated.json exists for any arm yet, blocked on ANTHROPIC_API_KEY (genuinely absent), explicitly deferred to Phase 5/6 data-collection boundary per 04-CONTEXT.md's own locked decision. Classified minor/non-blocking — parked to backlog, not escalated.
 
 Progress: [██████████] 100%
 
@@ -36,9 +36,9 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 8
-- Average duration: ~19 min (Phase 1 P03: 44min; Phase 2 P01/02/03: 16/8/15min; Phase 3 P01/02: 9/7min)
-- Total execution time: ~1h39m
+- Total plans completed: 9
+- Average duration: ~19 min (Phase 1 P03: 44min; Phase 2 P01/02/03: 16/8/15min; Phase 3 P01/02: 9/7min; Phase 4 P01: 6min)
+- Total execution time: ~1h45m
 
 **By Phase:**
 
@@ -47,10 +47,11 @@ Progress: [██████████] 100%
 | 1 | 3 | - | - |
 | 2 | 3 | 39min | 13min |
 | 3 | 2 | 16min | 8min |
+| 4 | 1 | 6min | 6min |
 
 **Recent Trend:**
 
-- Last 5 plans: 02-02 (8min), 02-03 (15min), 03-01 (9min), 03-02 (7min)
+- Last 5 plans: 02-03 (15min), 03-01 (9min), 03-02 (7min), 04-01 (6min)
 - Trend: shrinking per-plan duration (harness scripts increasingly mirror established patterns)
 
 *Updated after each plan completion*
@@ -60,6 +61,7 @@ Progress: [██████████] 100%
 | Phase 02 P03 | 15min | 2 tasks | 5 files |
 | Phase 03 P01 | 9min | 2 tasks | 3 files |
 | Phase 03 P02 | 7min | 2 tasks | 6 files |
+| Phase 04 P01 | 6min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -88,6 +90,9 @@ Recent decisions affecting current work:
 - [Phase 03]: aggregated.json determinístico via `sorted()` em paths/cells + `json.dumps(sort_keys=True, separators=(",",":"))`, sem timestamps — datação fica para Phase 6 a partir de dados já presentes nas rows
 - [Phase 03]: linhas malformadas ou faltando campo obrigatório (usage/verify_passed/baseline_id/task_id) nunca derrubam o aggregator — contadas em `rejected_rows`, nunca descartadas silenciosamente
 - [Phase 03]: Verificado passed (3/3 must-haves, 29/29 bats) em 2026-07-26 — ver 03-VERIFICATION.md
+- [Phase 04]: Competidor escolhido pela pesquisa autônoma: `ralph-specum` (tzachbon/smart-ralph), pinado `v4.0.0` (tag mais recente real, re-confirmado ao vivo via `git ls-remote --tags` tanto no plan quanto na verificação); spec-kit e BMAD desqualificados estruturalmente (sem plugin.json carregável via --plugin-dir), superpowers deferido (sem escape hatch não-interativo)
+- [Phase 04]: `plugin_dir_subpath` — extensão opcional e retrocompatível do schema de manifesto (`Path(staged_path) / entry.get("plugin_dir_subpath", "")`, no-op quando ausente) para plugins cujo `plugin.json` não fica na raiz do repo clonado; `stage-plugins.py` não precisou de nenhuma mudança
+- [Phase 04]: Verificado gaps_found (8/9 must-haves) em 2026-07-26 — ver 04-VERIFICATION.md. 1 gap minor/não-bloqueante: ROADMAP SC4 (N≥5 rodadas ao vivo do competidor em aggregated.json) não executado — nenhum aggregated.json existe no repo para nenhum dos 4 arms ainda; bloqueado por ANTHROPIC_API_KEY ausente (confirmado independentemente); 04-CONTEXT.md já previa esse adiamento explicitamente para o limite Phase 5/6. Toda a mecânica que a SC depende (pipeline isolado, --plugin-dir resolvido, agregação success-gated) foi provada correta independentemente — falta apenas a coleta de dados ao vivo (decisão de gasto do operador, não defeito de código). Sugerido override formal em 04-VERIFICATION.md para quem aceitar o adiamento.
 
 ### Pending Todos
 
@@ -95,10 +100,9 @@ None yet.
 
 ### Blockers/Concerns
 
-- Competitor plugin headless-mode support ainda não verificado por plugin específico — investigar antes de detalhar Phase 4 (research/SUMMARY.md)
 - gnuplot vs. SVG stdlib hand-rolled é julgamento de valor, não fato documentado — decidir no planejamento da Phase 6
 - Tamanho/diversidade do corpus (Phase 5) não tem regra universal — decisão deliberada no planejamento da Phase 5, informada pela restrição de custo previsível
-- ROADMAP.md e REQUIREMENTS.md ainda mostram Phases 1-3 / METR-01..03 como "Not started"/"Pending" — bookkeeping desatualizado (fora do escopo desta verificação de código); recomenda-se sincronizar antes de planejar Phase 4
+- ROADMAP.md e REQUIREMENTS.md ainda mostram COMP-01 como "Pending"/unchecked — parcialmente correto agora: configuração/wiring está completa e verificada, mas nenhuma rodada ao vivo (N≥5) foi de fato executada ainda (ver 04-VERIFICATION.md gap); recomenda-se rodar o live matrix completo (4 arms x N≥5) assim que ANTHROPIC_API_KEY estiver disponível, idealmente coordenado com o planejamento da Phase 5
 
 ### Quick Tasks Completed
 
@@ -112,10 +116,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Data collection | Live N≥5 matrix (4 arms incl. competitor) in `aggregated.json` — ROADMAP Phase 4 SC4 | Parked (minor gap, non-blocking) | Phase 4 verification (2026-07-26), blocked on ANTHROPIC_API_KEY |
 
 ## Session Continuity
 
-Last session: 2026-07-26T04:54:41Z
-Stopped at: Verified Phase 3 (Repetition, Aggregation & Cost Decomposition) — 29/29 bats green, $0
+Last session: 2026-07-26T06:01:38Z
+Stopped at: Verified Phase 4 (Competitor Baseline) — 32/32 bats green, $0; 1 minor gap parked (live N>=5 matrix pending ANTHROPIC_API_KEY, see 04-VERIFICATION.md)
 Resume file: None
