@@ -36,10 +36,10 @@ Requirements do milestone v1.1. Each maps to roadmap phases.
 
 ### Report
 
-- [ ] **REPT-01**: `BENCHMARKS.md` methodology-first: metodologia completa, tabela de resultados, raw data (JSONL) commitado e linkado
-- [ ] **REPT-02**: Gráficos comparativos SVG estáticos, datados (data + model id), gerados por script e commitados no repo
-- [ ] **REPT-03**: Embed no README via generated markers (`<!-- cairn:generated:start/end -->`, padrão cairn-map)
-- [ ] **REPT-04**: Reprodução em 1 comando documentada (incl. custo estimado da reprodução)
+- [x] **REPT-01**: `BENCHMARKS.md` methodology-first: metodologia completa, tabela de resultados, raw data (JSONL) commitado e linkado
+- [x] **REPT-02**: Gráficos comparativos SVG estáticos, datados (data + model id), gerados por script e commitados no repo
+- [x] **REPT-03**: Embed no README via generated markers (`<!-- cairn:generated:start/end -->`, padrão cairn-map)
+- [x] **REPT-04**: Reprodução em 1 comando documentada (incl. custo estimado da reprodução)
 
 ## v2 Requirements
 
@@ -80,10 +80,10 @@ Deferred. Tracked but not in current roadmap.
 | COMP-01 | Phase 4 | Complete |
 | CORP-01 | Phase 5 | Complete |
 | CORP-02 | Phase 5 | Complete |
-| REPT-01 | Phase 6 | Pending |
-| REPT-02 | Phase 6 | Pending |
-| REPT-03 | Phase 6 | Pending |
-| REPT-04 | Phase 6 | Pending |
+| REPT-01 | Phase 6 | Complete |
+| REPT-02 | Phase 6 | Complete |
+| REPT-03 | Phase 6 | Complete |
+| REPT-04 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 16 total (corrigido de 14 — contagem original estava desatualizada; a lista de IDs acima é a fonte da verdade)
