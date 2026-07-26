@@ -234,3 +234,104 @@ EOF
   echo "$output" | grep -qF "model"
   [ ! -e "$BATS_TEST_TMPDIR/raw-broken.jsonl" ]
 }
+
+@test "plugin_dir_subpath resolves --plugin-dir to the nested target, never the bare staged_path" {
+  make_env_asserting_claude_stub
+  mkdir -p "$BATS_TEST_TMPDIR/fake-repo/plugins/fake-plugin"
+  cat > "$BATS_TEST_TMPDIR/subpath-manifest.json" <<EOF
+{
+  "name": "subpath-arm",
+  "model": "claude-haiku-4-5-20251001",
+  "claude_flags": {
+    "bare": true,
+    "max_turns": 8,
+    "no_session_persistence": true,
+    "permission_mode": "acceptEdits"
+  },
+  "provisioning": {
+    "plugin_dirs": [
+      {
+        "plugin": "fake",
+        "source": { "type": "local_path", "path": "unused" },
+        "staged_path": "$BATS_TEST_TMPDIR/fake-repo",
+        "plugin_dir_subpath": "plugins/fake-plugin",
+        "build": []
+      }
+    ]
+  }
+}
+EOF
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BATS_TEST_TMPDIR/subpath-manifest.json" \
+      --out "$BATS_TEST_TMPDIR/raw-subpath.jsonl"
+  [ "$status" -eq 0 ]
+  row="$(cat "$BATS_TEST_TMPDIR/raw-subpath.jsonl")"
+  # The argv element after --plugin-dir is the JOINED nested target.
+  assert_json_eq "$row" \
+    '.stub_observed_argv | index("--plugin-dir") as $i | .[$i + 1]' \
+    "$BATS_TEST_TMPDIR/fake-repo/plugins/fake-plugin"
+}
+
+@test "missing plugin_dir_subpath target dies EXIT_USAGE before any row or claude launch" {
+  # staged_path itself EXISTS; only the declared nested subpath is absent.
+  mkdir -p "$BATS_TEST_TMPDIR/fake-repo"
+  cat > "$BATS_TEST_TMPDIR/subpath-missing-manifest.json" <<EOF
+{
+  "name": "subpath-missing-arm",
+  "model": "claude-haiku-4-5-20251001",
+  "claude_flags": {
+    "bare": true,
+    "max_turns": 8,
+    "no_session_persistence": true,
+    "permission_mode": "acceptEdits"
+  },
+  "provisioning": {
+    "plugin_dirs": [
+      {
+        "plugin": "fake",
+        "source": { "type": "local_path", "path": "unused" },
+        "staged_path": "$BATS_TEST_TMPDIR/fake-repo",
+        "plugin_dir_subpath": "plugins/fake-plugin",
+        "build": []
+      }
+    ]
+  }
+}
+EOF
+  # Tripwire stub: records the fact it was ever invoked.
+  cat > "$BATS_TEST_TMPDIR/claude-tripwire" <<EOF
+#!/usr/bin/env bash
+touch "$BATS_TEST_TMPDIR/stub-was-invoked"
+echo '{}'
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/claude-tripwire"
+  run env CAIRN_BENCH_CLAUDE_BIN="$BATS_TEST_TMPDIR/claude-tripwire" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BATS_TEST_TMPDIR/subpath-missing-manifest.json" \
+      --out "$BATS_TEST_TMPDIR/never-subpath.jsonl"
+  [ "$status" -eq 2 ]
+  # Pre-existing grep contract: the die message keeps the literal word.
+  echo "$output" | grep -qF "staged_path"
+  # ...and names the specific missing JOINED target.
+  echo "$output" | grep -qF "$BATS_TEST_TMPDIR/fake-repo/plugins/fake-plugin"
+  [ ! -e "$BATS_TEST_TMPDIR/never-subpath.jsonl" ]
+  [ ! -e "$BATS_TEST_TMPDIR/stub-was-invoked" ]
+}
+
+@test "competitor-ralph-specum manifest pins v4.0.0 with claude_flags/model byte-identical to cairn (FAIR-02)" {
+  # Pure structural jq: no staging, no claude invocation, $0.
+  run jq -e '
+    .provisioning.plugin_dirs[0].source.ref == "v4.0.0"
+    and .provisioning.plugin_dirs[0].plugin_dir_subpath == "plugins/ralph-specum"
+    and (.defaults_source | type == "string" and length > 0)
+  ' "$BENCH_BASELINES_DIR/competitor-ralph-specum.json"
+  [ "$status" -eq 0 ]
+  run diff \
+    <(jq -S '{model, claude_flags}' "$BENCH_BASELINES_DIR/competitor-ralph-specum.json") \
+    <(jq -S '{model, claude_flags}' "$BENCH_BASELINES_DIR/cairn.json")
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
