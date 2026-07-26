@@ -44,7 +44,9 @@ Behavior:
        payload fields, verify_passed; plus seed / run_order_index /
        rep_index (as JSON integers) when the optional flags were provided —
        bench-matrix.py passes them so every orchestrated row records its
-       provenance. Absent flags leave the row schema untouched.
+       provenance. Absent flags leave the row schema untouched. The row
+       also carries category when task.json declares one (optional task
+       metadata, same present-only-when-provided philosophy).
     9. rmtree the workdir and the disposable HOME.
 
 Exit codes:
@@ -255,6 +257,11 @@ def main():
         row = {"task_id": task["id"], "baseline_id": manifest["name"],
                "wall_clock_ms": wall_ms, **payload,
                "verify_passed": verify_proc.returncode == 0}
+        # Optional task-level metadata stamp: only present when task.json
+        # declares "category" (CORP-01's bias-control decision), so rows
+        # for tasks without one keep their pre-Phase-5 schema untouched.
+        if "category" in task:
+            row["category"] = task["category"]
         # Row-provenance stamps: only present when provided, so standalone
         # rows keep their existing schema (values already ints via parse_args).
         if opts["seed"] is not None:
