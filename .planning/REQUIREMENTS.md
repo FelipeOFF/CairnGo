@@ -15,8 +15,8 @@ Requirements do milestone v1.1. Each maps to roadmap phases.
 
 ### Fairness
 
-- [ ] **FAIR-01**: Cada rodada executa em ambiente isolado descartável (worktree fresco + `HOME` override) — zero herança de CLAUDE.md global, MCP servers ou hooks do operador
-- [ ] **FAIR-02**: Baselines definidas por manifesto JSON explícito: mesmo modelo (id completo pinado), mesmo prompt de tarefa, `--bare` + flags explícitas (`--max-turns`, `--no-session-persistence`), mesmas condições entre vanilla / GSD puro / cairn / concorrente
+- [x] **FAIR-01**: Cada rodada executa em ambiente isolado descartável (worktree fresco + `HOME` override) — zero herança de CLAUDE.md global, MCP servers ou hooks do operador
+- [x] **FAIR-02**: Baselines definidas por manifesto JSON explícito: mesmo modelo (id completo pinado), mesmo prompt de tarefa, `--bare` + flags explícitas (`--max-turns`, `--no-session-persistence`), mesmas condições entre vanilla / GSD puro / cairn / concorrente
 - [ ] **FAIR-03**: Ordem de execução randomizada/intercalada entre baselines e custo decomposto em 4 componentes (uncached-input, cache-write, cache-read, output) — cache de prompt nunca contamina a comparação
 
 ### Metrics
@@ -71,8 +71,8 @@ Deferred. Tracked but not in current roadmap.
 | HARN-01 | Phase 1 | Complete |
 | HARN-02 | Phase 1 | Complete |
 | HARN-03 | Phase 1 | Complete |
-| FAIR-01 | Phase 2 | Pending |
-| FAIR-02 | Phase 2 | Pending |
+| FAIR-01 | Phase 2 | Complete |
+| FAIR-02 | Phase 2 | Complete |
 | FAIR-03 | Phase 2 | Pending |
 | METR-01 | Phase 3 | Pending |
 | METR-02 | Phase 3 | Pending |
