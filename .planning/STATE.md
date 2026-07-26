@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md (isolamento env + manifests, 8/8 bats)
-last_updated: "2026-07-26T03:19:43.424Z"
-last_activity: "2026-07-26 — Completed 02-01-PLAN.md: isolamento env + baseline manifests (8/8 bats, $0)"
+stopped_at: Verified Phase 3 (Repetition, Aggregation & Cost Decomposition) — 29/29 bats green, $0
+last_updated: "2026-07-26T04:54:41Z"
+last_activity: "2026-07-26 — Phase 3 verified: bench-matrix --reps interleaving + bench-aggregate.py success-gated 4-way decomposition (METR-01/02/03), 29/29 bats, $0"
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
-  percent: 33
+  completed_phases: 3
+  total_plans: 8
+  completed_plans: 8
+  percent: 50
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-25)
 
 **Core value:** Workflow unificado plan→work→ship que custa menos tokens que as alternativas — e agora provado por benchmark reproduzível, não por afirmação.
-**Current focus:** Phase 2 — Baseline Isolation + Multi-Baseline Harness
+**Current focus:** Phase 4 — Competitor Baseline (Phase 3 complete and verified)
 
 ## Current Position
 
-Phase: 2 of 6 (Baseline Isolation + Multi-Baseline Harness)
-Plan: 3 of 3 in current phase (complete)
-Status: In progress — 02-01 complete, 02-02/02-03 pending
-Last activity: 2026-07-26 — Completed 02-01-PLAN.md: isolamento env + baseline manifests (8/8 bats, $0)
+Phase: 3 of 6 (Repetition, Aggregation & Cost Decomposition) — complete, verified
+Plan: 2 of 2 in phase (complete)
+Status: Phase 3 verified passed (3/3 must-haves); ready to plan Phase 4
+Last activity: 2026-07-26 — Phase 3 verified: bench-matrix --reps interleaving + bench-aggregate.py success-gated 4-way decomposition (METR-01/02/03), 29/29 bats, $0
 
 Progress: [██████████] 100%
 
@@ -36,26 +36,30 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 3
-- Average duration: ~29 min (média dos 2 plans com duração registrada: 14min, 44min)
-- Total execution time: ~1 hour
+- Total plans completed: 8
+- Average duration: ~19 min (Phase 1 P03: 44min; Phase 2 P01/02/03: 16/8/15min; Phase 3 P01/02: 9/7min)
+- Total execution time: ~1h39m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1 | 3 | - | - |
+| 2 | 3 | 39min | 13min |
+| 3 | 2 | 16min | 8min |
 
 **Recent Trend:**
 
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 02-02 (8min), 02-03 (15min), 03-01 (9min), 03-02 (7min)
+- Trend: shrinking per-plan duration (harness scripts increasingly mirror established patterns)
 
 *Updated after each plan completion*
 | Phase 1 P03 | 44min | 2 tasks | 6 files |
 | Phase 02 P01 | 16min | 2 tasks | 7 files |
 | Phase 02 P02 | 8min | 2 tasks | 3 files |
 | Phase 02 P03 | 15min | 2 tasks | 5 files |
+| Phase 03 P01 | 9min | 2 tasks | 3 files |
+| Phase 03 P02 | 7min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -76,6 +80,14 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-02: testes de staging usam url.insteadOf via GIT_CONFIG_* env como seam de rede — script identico a producao, zero rede real
 - [Phase 02]: bench-matrix.py: --seed obrigatório (sem default aleatório silencioso); seed+run_order_index stampados em toda row orquestrada (FAIR-03)
 - [Phase 02]: Live isolation smoke check documentado como PENDING no benchmarks/README.md (ANTHROPIC_API_KEY ausente, re-checado 2026-07-26); mecanismo provado a $0 via bats
+- [Phase 02]: Verificado passed (4/4 must-haves) em 2026-07-26 — ver 02-VERIFICATION.md
+- [Phase 03]: bench-matrix.py `--reps` (default 5, METR-01) shuffla o cross-product completo `baseline x rep` com um único `random.Random(seed)` — reps nunca ficam em bloco contíguo por baseline (verificado seed 7 e, independentemente, seed 42/seed 777)
+- [Phase 03]: bench-run.py `--rep-index` espelha `--seed`/`--run-order-index` exatamente: opcional, stampado só quando presente (zero regressão a invocações standalone)
+- [Phase 03]: bench-aggregate.py: gate belt-and-braces `verify_passed is True and not is_error` — linha com `verify_passed=true, is_error=true` nunca conta em `n_passed` nem em custo/token (METR-02), verificado por hand-computation independente
+- [Phase 03]: decomposição de tokens 4-way prefere `modelUsage` sobre `usage` (usage sub-reporta ~30% em dados reais); fallback para `usage` quando `modelUsage` ausente
+- [Phase 03]: aggregated.json determinístico via `sorted()` em paths/cells + `json.dumps(sort_keys=True, separators=(",",":"))`, sem timestamps — datação fica para Phase 6 a partir de dados já presentes nas rows
+- [Phase 03]: linhas malformadas ou faltando campo obrigatório (usage/verify_passed/baseline_id/task_id) nunca derrubam o aggregator — contadas em `rejected_rows`, nunca descartadas silenciosamente
+- [Phase 03]: Verificado passed (3/3 must-haves, 29/29 bats) em 2026-07-26 — ver 03-VERIFICATION.md
 
 ### Pending Todos
 
@@ -86,6 +98,7 @@ None yet.
 - Competitor plugin headless-mode support ainda não verificado por plugin específico — investigar antes de detalhar Phase 4 (research/SUMMARY.md)
 - gnuplot vs. SVG stdlib hand-rolled é julgamento de valor, não fato documentado — decidir no planejamento da Phase 6
 - Tamanho/diversidade do corpus (Phase 5) não tem regra universal — decisão deliberada no planejamento da Phase 5, informada pela restrição de custo previsível
+- ROADMAP.md e REQUIREMENTS.md ainda mostram Phases 1-3 / METR-01..03 como "Not started"/"Pending" — bookkeeping desatualizado (fora do escopo desta verificação de código); recomenda-se sincronizar antes de planejar Phase 4
 
 ### Quick Tasks Completed
 
@@ -103,6 +116,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T03:19:09.391Z
-Stopped at: Completed 02-01-PLAN.md (isolamento env + manifests, 8/8 bats)
+Last session: 2026-07-26T04:54:41Z
+Stopped at: Verified Phase 3 (Repetition, Aggregation & Cost Decomposition) — 29/29 bats green, $0
 Resume file: None
