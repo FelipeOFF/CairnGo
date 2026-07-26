@@ -6,7 +6,7 @@
 
 ## Overview
 
-Six phases build a benchmark harness bottom-up, front-loading the pieces that are hardest to fake or retrofit. Phase 1 proves the two riskiest primitives — an objective, agent-unwritable pass/fail check and a real `claude -p` invocation — before anything is built on top of assumptions. Phase 2 makes environment isolation mechanical (fresh worktree, scoped `HOME`, `--bare` + explicit flags) across vanilla/GSD-only/cairn, because environment leakage is the single highest-risk shortcut in this domain. Phase 3 adds repetition, success-gated cost aggregation, and four-way token decomposition, since these are harness-design-time decisions that cannot be retrofitted onto an already-run suite. Phase 4 isolates the competitor baseline into its own phase with a dedicated re-verification checkpoint, because a misconfigured competitor arm is the single worst reputational outcome available. Phase 5 expands the task corpus deliberately, including at least one category unfavorable to cairn, only once the full pipeline is proven on one task. Phase 6 is pure packaging — methodology doc, committed SVG charts, README embed, one-command reproduction — consuming already-validated data with no new data-collection risk.
+Six phases build a benchmark harness bottom-up, front-loading the pieces that are hardest to fake or retrofit. Phase 1 proves the two riskiest primitives — an objective, agent-unwritable pass/fail check and a real `claude -p` invocation — before anything is built on top of assumptions. Phase 2 makes environment isolation mechanical (fresh worktree, scoped `HOME`, `--bare` + explicit flags) across vanilla/GSD-only/cairn, because environment leakage is the single highest-risk shortcut in this domain. Phase 3 adds repetition, success-gated cost aggregation, and four-way token decomposition, since these are harness-design-time decisions that cannot be retrofitted onto an already-run suite. Phase 4 isolates the competitor baseline into its own phase with a dedicated re-verification checkpoint, because a misconfigured competitor arm published publicly is the single worst reputational outcome available. Phase 5 expands the task corpus deliberately, including at least one category unfavorable to cairn, only once the full pipeline is proven on one task. Phase 6 is pure packaging — methodology doc, committed SVG charts, README embed, one-command reproduction — consuming already-validated data with no new data-collection risk.
 
 ## Phases
 
@@ -81,7 +81,10 @@ Plans:
   2. The competitor runs headless through the same isolated-worktree + `--bare` + fresh-`HOME` pipeline as vanilla/GSD-only/cairn, producing directly comparable JSONL rows
   3. The competitor's configuration is reviewed against its own documentation as an explicit re-verification checkpoint before any comparative results are generated
   4. The same task, run N≥5 times against the competitor baseline, appears in `aggregated.json` alongside the other three arms
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 04-01-PLAN.md — competitor-ralph-specum.json (pinned tzachbon/smart-ralph@v4.0.0, defaults_source) + bench-run.py nested --plugin-dir resolution + load-check (COMP-01)
 
 ### Phase 5: Corpus Expansion + Bias Controls
 **Goal**: The benchmark measures a deliberately diverse, pre-declared task set — including at least one category where cairn's overhead is a real cost, not a win — sized to actually distinguish baselines from noise
@@ -115,6 +118,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Verification Core + First Real Run | 0/TBD | Complete | - |
 | 2. Baseline Isolation + Multi-Baseline Harness | 0/3 | Complete | - |
 | 3. Repetition, Aggregation & Cost Decomposition | 0/2 | Complete | - |
-| 4. Competitor Baseline | 0/TBD | Not started | - |
+| 4. Competitor Baseline | 0/1 | Not started | - |
 | 5. Corpus Expansion + Bias Controls | 0/TBD | Not started | - |
 | 6. Reporting, Charts & Publication | 0/TBD | Not started | - |
