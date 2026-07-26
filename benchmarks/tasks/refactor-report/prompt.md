@@ -1,0 +1,1 @@
+Refactor `report.py` to remove the duplicated summation loop across `total_sales`, `total_refunds`, and `total_tax` by extracting it into a shared helper. Every function's return value must stay exactly the same for the same input — all existing tests in `tests/test_report.py` must keep passing.
