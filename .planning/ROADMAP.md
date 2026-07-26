@@ -95,7 +95,11 @@ Plans:
   2. At least one task category is explicitly unfavorable to cairn (a trivial/single-turn task where planning overhead is pure loss) and runs through the same four-arm pipeline as every other task
   3. The total dollar cost of running the full expanded corpus once is calculated and documented before the full run is executed
   4. Task-selection rationale (why these tasks, why this count) is written down and committed alongside the corpus
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — bugfix-inventory, feature-todo, refactor-report (anti-cheat), microedit-greet (honest-non-win), longhorizon-notify fixtures + two-direction bats proofs (CORP-01)
+- [ ] 05-02-PLAN.md — bench-matrix.py --tasks (task x baseline x rep), category passthrough/surfacing, Task corpus + Cost model + Variance pilot (PENDING) docs, CI-enforced bias-control checks (CORP-01, CORP-02)
 
 ### Phase 6: Reporting, Charts & Publication
 **Goal**: Results are packaged as credible public evidence — full methodology, raw data, dated script-generated charts, and a one-command reproduction path — rather than a bare marketing claim
