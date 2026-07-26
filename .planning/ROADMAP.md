@@ -66,7 +66,11 @@ Plans:
   2. A run that fails `verify.sh` is excluded from the cost/token averages entirely — cost-per-successfully-completed-task is the only headline number produced
   3. Running `bench-aggregate.py` twice against the same raw JSONL produces a byte-identical `aggregated.json`
   4. `aggregated.json` reports all four cost/token components per cell separately (uncached-input, cache-write, cache-read, output), never one blended figure
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — bench-matrix.py --reps (default 5) + bench-run.py --rep-index, full baseline×rep interleave (METR-01)
+- [ ] 03-02-PLAN.md — bench-aggregate.py: success-gated median/spread + 4-way modelUsage-preferred token decomposition, deterministic aggregated.json (METR-01, METR-02, METR-03)
 
 ### Phase 4: Competitor Baseline
 **Goal**: A competing workflow plugin is benchmarked as a legitimate fourth arm — configured strictly from its own official defaults, version-pinned, and run through the identical isolated pipeline — so the comparison cannot be dismissed as sabotaged or unfairly configured
@@ -110,7 +114,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Verification Core + First Real Run | 0/TBD | Not started | - |
 | 2. Baseline Isolation + Multi-Baseline Harness | 0/3 | Not started | - |
-| 3. Repetition, Aggregation & Cost Decomposition | 0/TBD | Not started | - |
+| 3. Repetition, Aggregation & Cost Decomposition | 0/2 | Not started | - |
 | 4. Competitor Baseline | 0/TBD | Not started | - |
 | 5. Corpus Expansion + Bias Controls | 0/TBD | Not started | - |
 | 6. Reporting, Charts & Publication | 0/TBD | Not started | - |
