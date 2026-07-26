@@ -164,3 +164,47 @@ EOF
   run bash "$BENCH_TASKS_DIR/microedit-greet/verify.sh" "$BATS_TEST_TMPDIR/solved"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# longhorizon-notify
+# ---------------------------------------------------------------------------
+
+@test "longhorizon-notify: verify.sh fails against the unsolved fixture" {
+  cp -r "$BENCH_TASKS_DIR/longhorizon-notify/fixture" "$BATS_TEST_TMPDIR/unsolved"
+  run bash "$BENCH_TASKS_DIR/longhorizon-notify/verify.sh" "$BATS_TEST_TMPDIR/unsolved"
+  [ "$status" -ne 0 ]
+}
+
+@test "longhorizon-notify: verify.sh passes against a hand-solved fixture" {
+  cp -r "$BENCH_TASKS_DIR/longhorizon-notify/fixture" "$BATS_TEST_TMPDIR/solved"
+  cat > "$BATS_TEST_TMPDIR/solved/notifications.py" <<'EOF'
+"""Notification logging."""
+
+
+class NotificationLog:
+    def __init__(self):
+        self.entries = []
+
+    def summary(self):
+        return {"count": len(self.entries)}
+
+
+def record_notification(log):
+    def handler(payload):
+        log.entries.append(payload)
+    return handler
+EOF
+  cat > "$BATS_TEST_TMPDIR/solved/app.py" <<'EOF'
+"""Application wiring: connects the event bus to the notification log."""
+
+from notifications import record_notification
+
+
+def setup(bus, log):
+    handler = record_notification(log)
+    bus.subscribe("order_placed", handler)
+    bus.subscribe("order_shipped", handler)
+EOF
+  run bash "$BENCH_TASKS_DIR/longhorizon-notify/verify.sh" "$BATS_TEST_TMPDIR/solved"
+  [ "$status" -eq 0 ]
+}
