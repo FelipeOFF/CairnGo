@@ -3,8 +3,9 @@
 Reproducible measurement of agent workflow cost. What exists here today:
 `verify.sh` objectivity (a deterministic pass/fail oracle the agent can never
 touch); one live schema-validated `claude -p` measurement path
-(`bench-run.py` → one JSONL row per run); three pinned baseline manifests
-(`vanilla` / `gsd-only` / `cairn`); full environment isolation of the measured
+(`bench-run.py` → one JSONL row per run); four pinned baseline manifests
+(`vanilla` / `gsd-only` / `cairn` / `competitor-ralph-specum`); full
+environment isolation of the measured
 claude subprocess (disposable HOME, explicit minimal env); pinned plugin
 staging (`stage-plugins.py`); and seeded, reproducible interleaved batch
 execution (`bench-matrix.py`, stamping `seed`/`run_order_index` into every
@@ -38,7 +39,7 @@ was needed.
 
 ## Baselines
 
-Three pinned manifests in `baselines/`, consumed via `bench-run.py
+Four pinned manifests in `baselines/`, consumed via `bench-run.py
 --baseline`:
 
 | manifest | provisioning | what it measures |
@@ -46,8 +47,9 @@ Three pinned manifests in `baselines/`, consumed via `bench-run.py
 | `vanilla.json` | no plugins | stock Claude Code — the unassisted control arm |
 | `gsd-only.json` | GSD v4.3.1 | GSD's own contribution, before cairn is layered on |
 | `cairn.json` | GSD v4.3.1 + context-mode v1.0.169 + cairn (local path) | the full cairn stack — context-mode is a hard dependency of the cairn plugin; excluding it would rig the arm |
+| `competitor-ralph-specum.json` | `tzachbon/smart-ralph@v4.0.0` (subpath `plugins/ralph-specum`) | the strongest non-GSD competitor: spec-driven autonomous execution whose `--quick` mode runs genuinely headless via a `PreToolUse` hook denying `AskUserQuestion`. Chosen over `github/spec-kit` and `bmad-code-org/BMAD-METHOD` (both structurally disqualified — no `--plugin-dir`-loadable plugin manifest) and `obra/superpowers` (far larger adoption, but no non-interactive escape hatch around its design-approval gate). Configured strictly from its own documented defaults — see the manifest's `defaults_source` field for the exact vendor docs |
 
-`claude_flags` is byte-identical across all three (`bare`, `max_turns: 8`,
+`claude_flags` is byte-identical across all four (`bare`, `max_turns: 8`,
 `no_session_persistence`, `permission_mode: acceptEdits`), and the manifest
 is the sole source of truth for the fully-pinned model id
 (`claude-haiku-4-5-20251001`). ONLY `provisioning.plugin_dirs` differs, so
@@ -73,6 +75,19 @@ atomic rename into `staged_path` with a `.staged-ref` marker making re-runs
 idempotent. Staged checkouts live under `plugins/` and are gitignored;
 `bench-run.py` fails loud (exit 2) before any spend if a manifest's
 `staged_path` is missing.
+
+A `plugin_dirs` entry may additionally declare `plugin_dir_subpath`: the
+path inside the staged repo where the plugin's `.claude-plugin/plugin.json`
+actually lives, for plugins not rooted at the top of their repository
+(`competitor-ralph-specum` is the first — `ralph-specum` sits at
+`plugins/ralph-specum/` inside the `tzachbon/smart-ralph` clone). The key is
+optional and backward-compatible: `bench-run.py` joins it onto `staged_path`
+when present (`Path(staged_path) / ""` is a pathlib no-op, so every manifest
+that omits it resolves exactly as before), and `stage-plugins.py` itself
+needed zero changes — it always stages the full repo at `staged_path`
+regardless of where the eventual `--plugin-dir` target sits inside it. A
+declared subpath whose joined target does not exist on disk dies loud
+(exit 2) before any claude subprocess is launched.
 
 ## Randomized execution order (`bench-matrix.py`)
 
@@ -116,6 +131,52 @@ shuffle is NOT per-rep-round: the single seeded RNG shuffles the full
 `baseline × rep` cross-product in one pass, so no baseline's repetitions
 run as a contiguous cache-warm block, and the same seed still reproduces
 the same full execution order.
+
+## Competitor plugin load-check
+
+The single worst outcome this benchmark could publish is a misconfigured
+competitor arm: a `--plugin-dir` pointing somewhere claude silently ignores
+would measure "vanilla with dead weight" and report it as the competitor's
+result. The wiring is proven at $0 by three `tests/bench-run.bats` tests:
+
+- *"plugin_dir_subpath resolves --plugin-dir to the nested target, never the
+  bare staged_path"* — the stub-observed argv shows claude receives the
+  joined `<staged_path>/plugins/<plugin>` path, exactly where
+  `ralph-specum`'s `plugin.json` lives.
+- *"missing plugin_dir_subpath target dies EXIT_USAGE before any row or
+  claude launch"* — a broken nested target can never be silently measured.
+- *"competitor-ralph-specum manifest pins v4.0.0 with claude_flags/model
+  byte-identical to cairn (FAIR-02)"* — the arm's fairness (pin,
+  `defaults_source`, identical flags/model) is asserted mechanically by
+  `jq -S` diff, not left to inspection.
+
+### Live load-check: PENDING
+
+`ANTHROPIC_API_KEY` was absent from the execution environment when this
+phase completed (re-checked live, 2026-07-26), so the one planned live
+load-check call was NOT made — deliberately: this check records real cost
+and is never silently faked.
+
+When a key becomes available, run exactly:
+
+```bash
+claude -p "/help" \
+  --plugin-dir benchmarks/plugins/ralph-specum/v4.0.0/plugins/ralph-specum \
+  --model claude-haiku-4-5-20251001 --bare --no-session-persistence \
+  --permission-mode acceptEdits --output-format json \
+  | grep -o 'ralph-specum:[a-z-]*' | sort -u
+# Expected (non-exhaustive): ralph-specum:start, ralph-specum:new,
+# ralph-specum:research, ralph-specum:requirements, ralph-specum:design,
+# ralph-specum:tasks, ralph-specum:implement, ralph-specum:status,
+# ralph-specum:help
+```
+
+This is a single short `/help` call — no task fixture, no file edits — cheap
+enough to run for real the moment a key exists (the same precedent the live
+isolation smoke check sets below). Then replace this subsection with the
+actually observed `ralph-specum:*` command list, and verify no Anthropic API
+key material appears in the captured output before committing it (keys share
+a fixed, greppable prefix — scan the output and this file for it).
 
 ## Aggregation (`bench-aggregate.py`)
 
