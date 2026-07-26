@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: milestone
 status: executing
 stopped_at: Completed 02-01-PLAN.md (isolamento env + manifests, 8/8 bats)
-last_updated: "2026-07-26T02:59:21.055Z"
+last_updated: "2026-07-26T03:19:43.424Z"
 last_activity: "2026-07-26 — Completed 02-01-PLAN.md: isolamento env + baseline manifests (8/8 bats, $0)"
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
-  percent: 17
+  completed_plans: 6
+  percent: 33
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-07-25)
 ## Current Position
 
 Phase: 2 of 6 (Baseline Isolation + Multi-Baseline Harness)
-Plan: 2 of 3 in current phase (complete)
+Plan: 3 of 3 in current phase (complete)
 Status: In progress — 02-01 complete, 02-02/02-03 pending
 Last activity: 2026-07-26 — Completed 02-01-PLAN.md: isolamento env + baseline manifests (8/8 bats, $0)
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [████████░░] 83%
 | Phase 1 P03 | 44min | 2 tasks | 6 files |
 | Phase 02 P01 | 16min | 2 tasks | 7 files |
 | Phase 02 P02 | 8min | 2 tasks | 3 files |
+| Phase 02 P03 | 15min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -71,8 +72,10 @@ Recent decisions affecting current work:
 - [Phase 1]: Flag --bare removida do harness: ignora OAuth claude.ai (verificado ao vivo); baselines isoladas da fase 2 exigem ANTHROPIC_API_KEY
 - [Phase 02]: seed/run_order_index reservados no opts dict de bench-run.py sem branches de argv — Instrução do plan-checker: 02-03 adiciona e testa os branches; evita segunda edição do parser mas não antecipa comportamento não testado
 - [Phase 02]: task.json não exige mais 'model': baseline manifest é a única fonte de verdade dos claude flags — FAIR-02: pinning auditável por manifest; task.json mantém id/timeout_s/prompt_file
-- [Phase ?]: 02-02: staging temp dir e sibling real (dir=staged.parent) p/ rename atomico; .staged-ref escrito por ultimo como marker de idempotencia
-- [Phase ?]: 02-02: testes de staging usam url.insteadOf via GIT_CONFIG_* env como seam de rede — script identico a producao, zero rede real
+- [Phase 02]: 02-02: staging temp dir e sibling real (dir=staged.parent) p/ rename atomico; .staged-ref escrito por ultimo como marker de idempotencia
+- [Phase 02]: 02-02: testes de staging usam url.insteadOf via GIT_CONFIG_* env como seam de rede — script identico a producao, zero rede real
+- [Phase 02]: bench-matrix.py: --seed obrigatório (sem default aleatório silencioso); seed+run_order_index stampados em toda row orquestrada (FAIR-03)
+- [Phase 02]: Live isolation smoke check documentado como PENDING no benchmarks/README.md (ANTHROPIC_API_KEY ausente, re-checado 2026-07-26); mecanismo provado a $0 via bats
 
 ### Pending Todos
 
@@ -100,6 +103,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T02:58:30.188Z
+Last session: 2026-07-26T03:19:09.391Z
 Stopped at: Completed 02-01-PLAN.md (isolamento env + manifests, 8/8 bats)
 Resume file: None
