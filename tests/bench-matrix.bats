@@ -201,3 +201,72 @@ EOF
     "$BATS_TEST_TMPDIR/matrix-real.jsonl"
   [ "$status" -eq 0 ]
 }
+
+@test "--tasks with a comma-separated list runs the full task x baseline x rep cross product" {
+  make_env_asserting_claude_stub
+  make_fixture_baselines
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    python3 "$BENCH_SCRIPTS_DIR/bench-matrix.py" \
+      --baselines alpha,beta,gamma \
+      --baselines-dir "$FIXTURE_BASELINES_DIR" \
+      --tasks "$BENCH_TASKS_DIR/smoke-convert,$BENCH_TASKS_DIR/microedit-greet" \
+      --out "$BATS_TEST_TMPDIR/multi-task.jsonl" \
+      --seed 7 --reps 1
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$BATS_TEST_TMPDIR/multi-task.jsonl")" -eq 6 ]
+  run jq -s -e '((map(.task_id) | unique | sort) == ["microedit-greet", "smoke-convert"])
+                and ((map(.baseline_id) | unique | sort) == ["alpha", "beta", "gamma"])
+                and ([.[] | select(.task_id == "smoke-convert")] | length) == 3
+                and ([.[] | select(.task_id == "microedit-greet")] | length) == 3' \
+    "$BATS_TEST_TMPDIR/multi-task.jsonl"
+  [ "$status" -eq 0 ]
+}
+
+@test "--tasks with a glob pattern resolves the full sorted corpus, matching an explicit sorted list" {
+  make_env_asserting_claude_stub
+  make_fixture_baselines
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    python3 "$BENCH_SCRIPTS_DIR/bench-matrix.py" \
+      --baselines alpha \
+      --baselines-dir "$FIXTURE_BASELINES_DIR" \
+      --tasks "$BENCH_TASKS_DIR/*" \
+      --out "$BATS_TEST_TMPDIR/glob-task.jsonl" \
+      --seed 11 --reps 1
+  [ "$status" -eq 0 ]
+  expected="$(ls -d "$BENCH_TASKS_DIR"/*/ | xargs -n1 basename | sort)"
+  actual="$(jq -r '.task_id' "$BATS_TEST_TMPDIR/glob-task.jsonl" | sort)"
+  [ "$actual" = "$expected" ]
+}
+
+@test "--task and --tasks together is a usage error" {
+  run python3 "$BENCH_SCRIPTS_DIR/bench-matrix.py" \
+    --baselines alpha \
+    --task "$BENCH_TASKS_DIR/smoke-convert" \
+    --tasks "$BENCH_TASKS_DIR/smoke-convert" \
+    --out "$BATS_TEST_TMPDIR/both.jsonl" \
+    --seed 1
+  [ "$status" -eq 2 ]
+  [ ! -e "$BATS_TEST_TMPDIR/both.jsonl" ]
+}
+
+@test "neither --task nor --tasks is a usage error" {
+  run python3 "$BENCH_SCRIPTS_DIR/bench-matrix.py" \
+    --baselines alpha \
+    --out "$BATS_TEST_TMPDIR/neither.jsonl" \
+    --seed 1
+  [ "$status" -eq 2 ]
+  [ ! -e "$BATS_TEST_TMPDIR/neither.jsonl" ]
+}
+
+@test "a missing task.json inside --tasks fails before any bench-run.py invocation (validate-before-spend)" {
+  make_fixture_baselines
+  run python3 "$BENCH_SCRIPTS_DIR/bench-matrix.py" \
+    --baselines alpha \
+    --baselines-dir "$FIXTURE_BASELINES_DIR" \
+    --tasks "$BENCH_TASKS_DIR/smoke-convert,$BATS_TEST_TMPDIR/does-not-exist" \
+    --out "$BATS_TEST_TMPDIR/missing-task.jsonl" \
+    --seed 1
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -qF "task.json not found"
+  [ ! -e "$BATS_TEST_TMPDIR/missing-task.jsonl" ]
+}
