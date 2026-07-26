@@ -1,5 +1,6 @@
 {
   "id": "smoke-convert",
+  "category": "smoke",
   "timeout_s": 120,
   "max_turns": 8,
   "prompt_file": "prompt.md",

@@ -20,7 +20,9 @@ Behavior:
        verify_passed is True AND NOT is_error. The two axes are independent
        (a run can hit max-turns with the task already solved), so a row that
        is verify_passed=true but is_error=true never counts toward n_passed
-       and never contributes to any cost/token stat.
+       and never contributes to any cost/token stat. Every cell also
+       surfaces the source task's category (null when no row carried one) —
+       always present, never omitted.
     4. Token decomposition is 4-way (input / cache_creation / cache_read /
        output) and PREFERS modelUsage over the flat usage dict: modelUsage's
        per-model token fields reconcile with total_cost_usd on real captured
@@ -157,6 +159,11 @@ def cell_stats(rows):
         "n_total": n_total, "n_passed": n_passed,
         "pass_rate": (n_passed / n_total) if n_total else 0.0,
     }
+    # Task-level metadata surfaced automatically per CORP-01's bias-
+    # control decision: every cell reports the source task's category
+    # (null when no row in the cell carried one) so a reader/chart can
+    # group or flag "honest-non-win" cells without joining task.json.
+    stats["category"] = rows[0].get("category")
     costs = sorted(r["total_cost_usd"] for r in passed if "total_cost_usd" in r)
     if costs:
         stats["cost_median"] = statistics.median(costs)
