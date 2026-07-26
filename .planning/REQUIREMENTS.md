@@ -9,9 +9,9 @@ Requirements do milestone v1.1. Each maps to roadmap phases.
 
 ### Harness
 
-- [ ] **HARN-01**: Task fixture com critério objetivo de conclusão: `verify.sh` por tarefa (exit code = pass/fail), nunca auto-relato do agente; formato bats-testável sem custo de API
+- [x] **HARN-01**: Task fixture com critério objetivo de conclusão: `verify.sh` por tarefa (exit code = pass/fail), nunca auto-relato do agente; formato bats-testável sem custo de API
 - [x] **HARN-02**: Runner (`bench-run.py`) invoca `claude -p --output-format json` headless e grava por rodada o resultado bruto em JSONL: `total_cost_usd`, `usage` completo (input/output/cache_creation/cache_read), `duration_ms`, `duration_api_ms`, `num_turns`, `is_error`, wall-clock externo
-- [ ] **HARN-03**: Lógica determinística do harness testável em bats via stub do binário `claude` (seam por env-var, padrão do repo) — CI nunca paga API; runs reais são job separado e deliberado
+- [x] **HARN-03**: Lógica determinística do harness testável em bats via stub do binário `claude` (seam por env-var, padrão do repo) — CI nunca paga API; runs reais são job separado e deliberado
 
 ### Fairness
 
@@ -68,9 +68,9 @@ Deferred. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HARN-01 | Phase 1 | Pending |
+| HARN-01 | Phase 1 | Complete |
 | HARN-02 | Phase 1 | Complete |
-| HARN-03 | Phase 1 | Pending |
+| HARN-03 | Phase 1 | Complete |
 | FAIR-01 | Phase 2 | Pending |
 | FAIR-02 | Phase 2 | Pending |
 | FAIR-03 | Phase 2 | Pending |

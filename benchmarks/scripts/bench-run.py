@@ -6,13 +6,14 @@ Usage:
     bench-run.py --task <task-dir> --out <jsonl-path>
 
 Behavior:
-    1. Read <task-dir>/task.json (id, timeout_s, max_turns, prompt_file) and
-       the prompt text from <task-dir>/<prompt_file> (default prompt.md).
+    1. Read <task-dir>/task.json (id, timeout_s, max_turns, prompt_file,
+       model — full pinned id, required) and the prompt text from
+       <task-dir>/<prompt_file> (default prompt.md).
     2. Stage a fresh mktemp workdir from <task-dir>/fixture/.
     3. Resolve the claude binary via CAIRN_BENCH_CLAUDE_BIN, falling back to
        the real `claude` on PATH.
-    4. Invoke `claude -p <prompt> --bare --output-format json --max-turns N
-       --model claude-haiku --permission-mode acceptEdits
+    4. Invoke `claude -p <prompt> --output-format json --max-turns N
+       --model <task.json model> --permission-mode acceptEdits
        --no-session-persistence`, cwd=workdir, capture_output=True,
        timeout=timeout_s.
     5. Parse stdout as JSON regardless of returncode; on parse failure,
