@@ -128,3 +128,18 @@ EOF
   [ "$status" -eq 2 ]
   echo "$output" | grep -qF -- '--out'
 }
+
+@test "aggregated cells surface the source task's category, null when rows carry none" {
+  cat > "$BATS_TEST_TMPDIR/category.jsonl" <<'EOF'
+{"task_id": "microedit-greet", "baseline_id": "alpha", "category": "honest-non-win", "verify_passed": true, "is_error": false, "total_cost_usd": 0.05, "usage": {"input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}}
+{"task_id": "smoke-convert", "baseline_id": "alpha", "verify_passed": true, "is_error": false, "total_cost_usd": 0.12, "usage": {"input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}}
+EOF
+  run bash "$BENCH_SCRIPTS_DIR/bench-aggregate.sh" \
+    --in "$BATS_TEST_TMPDIR/category.jsonl" \
+    --out "$BATS_TEST_TMPDIR/agg-category.json"
+  [ "$status" -eq 0 ]
+  run jq -e '.cells["microedit-greet::alpha"].category == "honest-non-win"
+             and .cells["smoke-convert::alpha"].category == null' \
+    "$BATS_TEST_TMPDIR/agg-category.json"
+  [ "$status" -eq 0 ]
+}

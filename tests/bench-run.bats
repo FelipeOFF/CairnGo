@@ -335,3 +335,40 @@ EOF
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
+
+@test "bench-run.py stamps the task's optional category from task.json into the row" {
+  make_claude_stub claude-success "$SUCCESS_JSON" 0
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BENCH_TASKS_DIR/smoke-convert" \
+      --baseline "$BENCH_BASELINES_DIR/vanilla.json" \
+      --out "$BATS_TEST_TMPDIR/category-present.jsonl"
+  [ "$status" -eq 0 ]
+  row="$(cat "$BATS_TEST_TMPDIR/category-present.jsonl")"
+  assert_json_eq "$row" '.category' 'smoke'
+}
+
+@test "bench-run.py leaves the row schema untouched when task.json has no category" {
+  mkdir -p "$BATS_TEST_TMPDIR/task-no-category/fixture/tests"
+  cp -r "$BENCH_TASKS_DIR/smoke-convert/fixture/." "$BATS_TEST_TMPDIR/task-no-category/fixture/"
+  cp "$BENCH_TASKS_DIR/smoke-convert/prompt.md" "$BATS_TEST_TMPDIR/task-no-category/prompt.md"
+  cat > "$BATS_TEST_TMPDIR/task-no-category/task.json" <<'EOF'
+{"id": "task-no-category", "timeout_s": 30, "prompt_file": "prompt.md"}
+EOF
+  cat > "$BATS_TEST_TMPDIR/task-no-category/verify.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$1"
+exec python3 -m unittest tests.test_convert -v
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/task-no-category/verify.sh"
+  make_claude_stub claude-success "$SUCCESS_JSON" 0
+  run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
+    bash "$BENCH_SCRIPTS_DIR/bench-run.sh" \
+      --task "$BATS_TEST_TMPDIR/task-no-category" \
+      --baseline "$BENCH_BASELINES_DIR/vanilla.json" \
+      --out "$BATS_TEST_TMPDIR/category-absent.jsonl"
+  [ "$status" -eq 0 ]
+  run jq -e '(has("category") | not)' "$BATS_TEST_TMPDIR/category-absent.jsonl"
+  [ "$status" -eq 0 ]
+}
