@@ -89,6 +89,32 @@ regardless of where the eventual `--plugin-dir` target sits inside it. A
 declared subpath whose joined target does not exist on disk dies loud
 (exit 2) before any claude subprocess is launched.
 
+## Task corpus
+
+Six tasks, pre-declared and committed before any comparative results exist
+(Pitfall 3: cherry-picking). Every task follows the identical fixture
+contract (`task.json` + `prompt.md` + `fixture/` + `verify.sh` outside the
+fixture, stdlib `unittest` only, bats-provable solved/unsolved both
+directions at $0) established by `smoke-convert`.
+
+| task id | category | what it tests |
+|---|---|---|
+| `smoke-convert` | `smoke` | trivial single-function fix (the original harness-validation task) |
+| `bugfix-inventory` | `bugfix` | multi-file bug requiring cross-file reasoning (`orders.py` calls `inventory.py`) |
+| `feature-todo` | `feature` | small test-guided addition — new methods implemented against a written spec |
+| `refactor-report` | `refactor` | behavior-preserving restructure; `verify.sh` runs the existing tests AND an anti-cheat structural check (duplication must actually be extracted, not just pass tests) |
+| `microedit-greet` | `honest-non-win` | a one-line docstring typo fix — cairn is EXPECTED to lose or tie here: any planning/issue-bookkeeping overhead on a task this small is pure cost, not value. Included deliberately (Pitfall 3, Pitfall 10) — a benchmark that shows only wins reads as cherry-picked |
+| `longhorizon-notify` | `long-horizon` | multi-step: implement + wire + test across 3 files, the shape plan-first workflows are hypothesized to handle better |
+
+Selection rationale: task *types* were chosen before any baseline was run
+against them (bugfix / feature / refactor / trivial-edit / multi-step,
+spanning the real shapes of day-to-day dev work per Pitfall 2/3), sized at 6
+distinct types (not just repeated variations of one shape) to start
+separating a real effect from run-to-run noise — full statistical sizing is
+the variance pilot's job (below). Any future addition or removal of a task
+requires a dated changelog entry here, never a silent edit after results
+exist.
+
 ## Randomized execution order (`bench-matrix.py`)
 
 Running all of one baseline and then all of the next would systematically
@@ -219,6 +245,78 @@ python3 benchmarks/scripts/bench-aggregate.py \
   emitted with `sort_keys` + fixed separators, and nothing in the file is
   time-dependent — identical input always produces a byte-identical
   `aggregated.json`, regardless of `--in` argument order.
+
+## Cost model
+
+**Formula:** `total_runs = tasks × arms × reps`. With the full corpus (6
+tasks), all 4 arms (`vanilla`/`gsd-only`/`cairn`/`competitor-ralph-specum`),
+and the METR-01 default of 5 reps: `6 × 4 × 5 = 120 runs`.
+
+**Per-run cost estimate, by category.** Derived from the two real captured
+Phase 1 rows (`results/smoke-convert.jsonl`: $0.1223481 and $0.167407, both
+haiku, both `smoke-convert`) as the anchor, scaled by each new fixture's
+relative size (files read, test count, expected turns) — these are
+estimates, not measurements, until the variance pilot or a full run
+captures real data:
+
+| category | task | est. $/run |
+|---|---|---|
+| `honest-non-win` | microedit-greet | $0.06 – $0.10 |
+| `smoke` | smoke-convert | $0.12 – $0.17 (measured) |
+| `bugfix` | bugfix-inventory | $0.15 – $0.25 |
+| `feature` | feature-todo | $0.15 – $0.25 |
+| `refactor` | refactor-report | $0.18 – $0.28 |
+| `long-horizon` | longhorizon-notify | $0.25 – $0.45 |
+
+**Caveats:** (1) larger/more complex tasks cost more — the ranges above are
+the whole reason this is a per-category table, not one flat number; (2)
+plan-first arms (`gsd-only`, `cairn`) are expected to cost MORE per run than
+`vanilla` on the very tasks where planning overhead is real (that overhead
+is precisely what this benchmark measures) — treat every number above as a
+floor, not a ceiling, for those two arms; (3) `total_cost_usd` is
+Anthropic's own client-side estimate, never authoritative billing data (same
+caveat as everywhere else in this file).
+
+**Worked example — one full matrix pass:** summing the upper end of every
+category's range gives $1.50 per (baseline, rep); `$1.50 × 4 arms × 5 reps =
+$30.00`. Adding ~30% headroom for the plan-first-arm-costs-more caveat
+above: **declared ceiling for one full 120-run matrix pass: ~$40.** Nobody
+runs the full matrix for real without explicitly accepting this ceiling
+first (same discipline as the isolation smoke check and the competitor
+load-check elsewhere in this file).
+
+## Variance pilot (CORP-01)
+
+Before committing to N=5 reps for the full matrix, a small pilot measures
+run-to-run spread on a representative task spread to calibrate the final N
+(Pitfall 1: single-run-as-fact; Pitfall 2: sample size too small to separate
+signal from noise).
+
+**Recipe (one command, requires `ANTHROPIC_API_KEY`):**
+
+    python3 benchmarks/scripts/bench-matrix.py \
+      --tasks benchmarks/tasks/microedit-greet,benchmarks/tasks/bugfix-inventory,benchmarks/tasks/longhorizon-notify \
+      --baselines vanilla,cairn \
+      --out benchmarks/results/pilot.jsonl \
+      --seed 20260726 --reps 5
+
+Three tasks spanning the corpus's smallest/medium/largest categories, the
+two arms furthest apart on the planning-overhead spectrum (`vanilla` vs
+`cairn`), 5 reps each: `3 × 2 × 5 = 30 runs`. Using the same per-category
+upper-bound estimates as the Cost model above: `(0.10 + 0.25 + 0.45) × 2
+arms × 5 reps = $8.00` — **declared pilot ceiling: ~$10.**
+
+After the pilot: run `bench-aggregate.py` on `pilot.jsonl` and compare
+`cost_iqr`/token spread across reps per cell; if the spread at N=5 already
+separates `vanilla` from `cairn` cleanly, N=5 stands for the full matrix; if
+not, raise N and re-pilot before spending on the full run.
+
+**Status: PENDING — `ANTHROPIC_API_KEY` is absent as of this writing**
+(re-checked during Phase 5 planning, 2026-07-26). The recipe above is the
+exact, complete command to run the moment a key is available; nothing else
+needs to change. Full live data collection (the pilot AND the subsequent
+full matrix) is explicitly deferred to Phase 6 per `05-CONTEXT.md`'s own
+Deferred Ideas.
 
 ## Live isolation smoke check: PENDING
 
