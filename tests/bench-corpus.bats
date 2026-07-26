@@ -99,3 +99,68 @@ EOF
   run bash "$BENCH_TASKS_DIR/feature-todo/verify.sh" "$BATS_TEST_TMPDIR/solved"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# refactor-report
+# ---------------------------------------------------------------------------
+
+@test "refactor-report: verify.sh fails against the unsolved (unrefactored) fixture" {
+  cp -r "$BENCH_TASKS_DIR/refactor-report/fixture" "$BATS_TEST_TMPDIR/unsolved"
+  run bash "$BENCH_TASKS_DIR/refactor-report/verify.sh" "$BATS_TEST_TMPDIR/unsolved"
+  # Behavior tests pass on the raw fixture (the duplication is functionally
+  # correct); verify.sh must still fail via the anti-cheat structural check.
+  [ "$status" -ne 0 ]
+}
+
+@test "refactor-report: verify.sh passes against a hand-refactored fixture" {
+  cp -r "$BENCH_TASKS_DIR/refactor-report/fixture" "$BATS_TEST_TMPDIR/solved"
+  cat > "$BATS_TEST_TMPDIR/solved/report.py" <<'EOF'
+"""Sales report totals."""
+
+
+def _sum_by_kind(records, kind):
+    total = 0
+    for r in records:
+        if r["kind"] == kind:
+            total += r["amount"]
+    return total
+
+
+def total_sales(records):
+    return _sum_by_kind(records, "sale")
+
+
+def total_refunds(records):
+    return _sum_by_kind(records, "refund")
+
+
+def total_tax(records):
+    return _sum_by_kind(records, "tax")
+EOF
+  run bash "$BENCH_TASKS_DIR/refactor-report/verify.sh" "$BATS_TEST_TMPDIR/solved"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# microedit-greet (honest-non-win)
+# ---------------------------------------------------------------------------
+
+@test "microedit-greet: verify.sh fails against the unsolved fixture" {
+  cp -r "$BENCH_TASKS_DIR/microedit-greet/fixture" "$BATS_TEST_TMPDIR/unsolved"
+  run bash "$BENCH_TASKS_DIR/microedit-greet/verify.sh" "$BATS_TEST_TMPDIR/unsolved"
+  [ "$status" -ne 0 ]
+}
+
+@test "microedit-greet: verify.sh passes against a hand-solved fixture" {
+  cp -r "$BENCH_TASKS_DIR/microedit-greet/fixture" "$BATS_TEST_TMPDIR/solved"
+  cat > "$BATS_TEST_TMPDIR/solved/greet.py" <<'EOF'
+"""Greeting utilities."""
+
+
+def greet(name):
+    """Return a friendly greeting for NAME."""
+    return f"Hello, {name}!"
+EOF
+  run bash "$BENCH_TASKS_DIR/microedit-greet/verify.sh" "$BATS_TEST_TMPDIR/solved"
+  [ "$status" -eq 0 ]
+}

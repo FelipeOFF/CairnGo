@@ -1,0 +1,1 @@
+Fix the typo in the docstring of `greet()` in `greet.py`: it currently reads "Retun a friendly greeting for NAME." and should read "Return a friendly greeting for NAME.". Do not change the function's behavior.
