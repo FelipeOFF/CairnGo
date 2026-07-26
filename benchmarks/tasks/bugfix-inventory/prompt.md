@@ -1,0 +1,1 @@
+Fix the bug in the order fulfillment flow so all tests in `tests/test_orders.py` pass. `fulfill_order()` in `orders.py` should reserve stock via `Inventory.reserve()` in `inventory.py`; if any line item in the order cannot be fulfilled, the whole order must be rejected and inventory must be left completely unchanged.
