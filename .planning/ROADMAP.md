@@ -16,7 +16,7 @@ Six phases build a benchmark harness bottom-up, front-loading the pieces that ar
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Verification Core + First Real Run** - An objective `verify.sh` and a real `claude -p` invocation prove the harness's riskiest assumptions before anything else is built
+- [x] **Phase 1: Verification Core + First Real Run** - An objective `verify.sh` and a real `claude -p` invocation prove the harness's riskiest assumptions before anything else is built
 - [ ] **Phase 2: Baseline Isolation + Multi-Baseline Harness** - Every baseline runs in a fresh, disposable, mechanically-isolated environment with explicit, pinned configuration
 - [ ] **Phase 3: Repetition, Aggregation & Cost Decomposition** - Results are repeated, success-gated, and aggregated deterministically with full cost-component breakdown
 - [ ] **Phase 4: Competitor Baseline** - A competing workflow plugin is benchmarked fairly, on its own documented defaults, through the same isolated pipeline
