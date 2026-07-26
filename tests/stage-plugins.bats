@@ -33,7 +33,9 @@ setup() {
 # node MCP server, and mcp/server.cjs with SERVER_JS as its body (default:
 # valid JS, so `node --check` passes).
 make_fixture_plugin_repo() {
-  local server_body="${1:-module.exports = {};}"
+  # NB: no braces in the default value — a `}` inside ${1:-...} would
+  # terminate the parameter expansion early.
+  local server_body="${1:-module.exports = 0;}"
   local work="$BATS_TEST_TMPDIR/fixture-work"
   mkdir -p "$work/.claude-plugin" "$work/mcp"
   printf '{ "name": "fixture-plugin", "version": "0.0.1", "private": true }\n' \
