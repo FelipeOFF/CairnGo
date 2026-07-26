@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
-status: planning
-stopped_at: ROADMAP.md and STATE.md created; REQUIREMENTS.md traceability updated
-last_updated: "2026-07-26T00:46:10.671Z"
-last_activity: "2026-07-25 — Completed quick task 260725-mbr: status board + docs dos 22 comandos"
+status: executing
+stopped_at: Completed 02-01-PLAN.md (isolamento env + manifests, 8/8 bats)
+last_updated: "2026-07-26T02:37:03.654Z"
+last_activity: "2026-07-26 — Completed 02-01-PLAN.md: isolamento env + baseline manifests (8/8 bats, $0)"
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
   percent: 17
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-25)
 
 **Core value:** Workflow unificado plan→work→ship que custa menos tokens que as alternativas — e agora provado por benchmark reproduzível, não por afirmação.
-**Current focus:** Phase 1 — Verification Core + First Real Run
+**Current focus:** Phase 2 — Baseline Isolation + Multi-Baseline Harness
 
 ## Current Position
 
-Phase: 1 of 6 (Verification Core + First Real Run)
-Plan: 3 of 3 in current phase (all complete)
-Status: Phase 1 execution complete — pending phase close (orchestrator)
-Last activity: 2026-07-26 — Completed 01-03-PLAN.md: live run + schema reconciliation (2 rows reais commitadas)
+Phase: 2 of 6 (Baseline Isolation + Multi-Baseline Harness)
+Plan: 1 of 3 in current phase (complete)
+Status: In progress — 02-01 complete, 02-02/02-03 pending
+Last activity: 2026-07-26 — Completed 02-01-PLAN.md: isolamento env + baseline manifests (8/8 bats, $0)
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [██████████] 100%
 
 *Updated after each plan completion*
 | Phase 1 P03 | 44min | 2 tasks | 6 files |
+| Phase 02 P01 | 16min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,8 @@ Recent decisions affecting current work:
 - [Phase 1]: Model id sempre pinado via task.json (alias claude-haiku rejeitado pela API) — FAIR-02 antecipado por necessidade
 - [Phase 1]: verify_passed e is_error são eixos independentes (row error_max_turns com fixture resolvida) — base para METR-02
 - [Phase 1]: Flag --bare removida do harness: ignora OAuth claude.ai (verificado ao vivo); baselines isoladas da fase 2 exigem ANTHROPIC_API_KEY
+- [Phase 02]: seed/run_order_index reservados no opts dict de bench-run.py sem branches de argv — Instrução do plan-checker: 02-03 adiciona e testa os branches; evita segunda edição do parser mas não antecipa comportamento não testado
+- [Phase 02]: task.json não exige mais 'model': baseline manifest é a única fonte de verdade dos claude flags — FAIR-02: pinning auditável por manifest; task.json mantém id/timeout_s/prompt_file
 
 ### Pending Todos
 
@@ -94,6 +97,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T00:45:27.090Z
-Stopped at: ROADMAP.md and STATE.md created; REQUIREMENTS.md traceability updated
+Last session: 2026-07-26T02:37:03.646Z
+Stopped at: Completed 02-01-PLAN.md (isolamento env + manifests, 8/8 bats)
 Resume file: None
