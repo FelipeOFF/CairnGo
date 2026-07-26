@@ -505,17 +505,19 @@ if __name__ == "__main__":
 
 **If this table is empty:** N/A — see rows above. All other factual claims in this document are tagged `[VERIFIED]`/`[CITED]` inline with their source.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Does the installed `claude` 2.1.220 actually emit exit code 0/non-zero matching A1's assumption?**
+1. **Does the installed `claude` 2.1.220 actually emit exit code 0/non-zero matching A1's assumption?** (RESOLVED)
    - What we know: cli-reference confirms `--max-turns` "exits with an error" at the limit; community/issue sources describe `error_during_execution` correlating with exit 1.
    - What's unclear: no official exit-code table exists (confirmed by direct fetch of `code.claude.com/docs/en/errors` this session, which does not cover this).
    - Recommendation: the one live run in this phase is itself the empirical answer — record the actual `$?` alongside the JSON payload when it happens, and note the observed mapping in the phase SUMMARY for future phases to rely on with HIGH confidence instead of MEDIUM.
+   - RESOLVED: (live runs 2026-07-25, rows committed in `benchmarks/results/smoke-convert.jsonl`) Both live results — `subtype:"error_max_turns"` and `subtype:"success"` — emitted fully-parseable JSON on stdout with `usage`/`total_cost_usd` populated; `bench-run.py` exited 0 on both runs by contract, and the row deliberately does not record the inner claude returncode (nothing branches on it). Empirically observed: the reliable error signals are `is_error` + `terminal_reason` (`"max_turns"`, `"completed"`, `"api_error"`), never exit code or `subtype` alone — an unauthenticated call returns `subtype:"success"` WITH `is_error:true` and `terminal_reason:"api_error"`. A1's mitigation (parse stdout regardless of returncode) is validated live; confidence upgraded MEDIUM → HIGH.
 
-2. **Is a plain function-implementation task (no git, no multi-file) too trivial to catch real edge cases in `bench-run.py` (e.g., `verify.sh` invoked from the wrong cwd)?**
+2. **Is a plain function-implementation task (no git, no multi-file) too trivial to catch real edge cases in `bench-run.py` (e.g., `verify.sh` invoked from the wrong cwd)?** (RESOLVED)
    - What we know: ARCHITECTURE.md's Build Order explicitly wants the smallest task for de-risking, not realism.
    - What's unclear: whether a second, deliberately-git-based fixture should also exist in this phase to exercise a diff-based `verify.sh` variant.
    - Recommendation: keep Phase 1 to exactly one fixture task (matches CONTEXT.md scope: "Claude's Discretion" over "the content of the first fixture task," singular) — defer task diversity to Phase 5 (CORP-01).
+   - RESOLVED: resolved as the Recommendation stands — Phase 1 kept exactly one fixture task (smoke-convert), and the single fixture proved sufficient: both live rows validated the full schema, the verify.sh wiring, and even surfaced real edge findings (out-dir guard, `--bare`×OAuth, model-id pinning, `num_turns` exceeding the cap) without any second fixture. Task diversity is deferred to Phase 5 (CORP-01).
 
 ## Environment Availability
 
