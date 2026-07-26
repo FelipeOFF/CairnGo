@@ -339,7 +339,7 @@ def emit(cells):
 
 **If this table is empty:** N/A — see rows above.
 
-## Open Questions
+## Open Questions (RESOLVED — see 03-CONTEXT.md "Research open questions — resolved by the autonomous run")
 
 1. **Does "task × baseline × rep" mean `bench-matrix.py` gains multi-task support this phase, or does it stay one `--task` per invocation (with reps × baselines as the only new cross-product dimension)?**
    - What we know: CONTEXT.md's decision text uses the three-way product language; the current script signature and the existing bats tests are single-task; CONTEXT.md's own Deferred Ideas assign "Corpus growth" to Phase 5.
