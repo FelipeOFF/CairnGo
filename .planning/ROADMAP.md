@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Baseline Isolation + Multi-Baseline Harness** - Every baseline runs in a fresh, disposable, mechanically-isolated environment with explicit, pinned configuration
 - [x] **Phase 3: Repetition, Aggregation & Cost Decomposition** - Results are repeated, success-gated, and aggregated deterministically with full cost-component breakdown
 - [x] **Phase 4: Competitor Baseline** - A competing workflow plugin is benchmarked fairly, on its own documented defaults, through the same isolated pipeline
-- [ ] **Phase 5: Corpus Expansion + Bias Controls** - The task corpus grows to a diverse, pre-declared set including an honest non-win category for cairn
+- [x] **Phase 5: Corpus Expansion + Bias Controls** - The task corpus grows to a diverse, pre-declared set including an honest non-win category for cairn
 - [ ] **Phase 6: Reporting, Charts & Publication** - Results are packaged as credible public evidence: methodology, raw data, dated charts, one-command reproduction
 
 ## Phase Details
@@ -123,5 +123,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Baseline Isolation + Multi-Baseline Harness | 0/3 | Complete | - |
 | 3. Repetition, Aggregation & Cost Decomposition | 0/2 | Complete | - |
 | 4. Competitor Baseline | 0/1 | Complete | - |
-| 5. Corpus Expansion + Bias Controls | 0/TBD | Not started | - |
+| 5. Corpus Expansion + Bias Controls | 0/TBD | Complete | - |
 | 6. Reporting, Charts & Publication | 0/TBD | Not started | - |

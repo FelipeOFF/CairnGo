@@ -27,12 +27,12 @@ Requirements do milestone v1.1. Each maps to roadmap phases.
 
 ### Competitor
 
-- [ ] **COMP-01**: Baseline de ao menos um plugin de workflow concorrente rodando headless, com configuração documentada e validada (invocação justa — risco público de arm mal configurado é o maior risco reputacional)
+- [x] **COMP-01**: Baseline de ao menos um plugin de workflow concorrente rodando headless, com configuração documentada e validada (invocação justa — risco público de arm mal configurado é o maior risco reputacional)
 
 ### Corpus
 
-- [ ] **CORP-01**: Corpus inicial de tarefas diversas (dimensionado na fase com piloto de variância), incluindo ao menos 1 categoria de tarefa desfavorável ao cairn (honest non-win)
-- [ ] **CORP-02**: Custo total em $ de uma rodada completa da suite documentado e previsível antes de rodar
+- [x] **CORP-01**: Corpus inicial de tarefas diversas (dimensionado na fase com piloto de variância), incluindo ao menos 1 categoria de tarefa desfavorável ao cairn (honest non-win)
+- [x] **CORP-02**: Custo total em $ de uma rodada completa da suite documentado e previsível antes de rodar
 
 ### Report
 
@@ -77,9 +77,9 @@ Deferred. Tracked but not in current roadmap.
 | METR-01 | Phase 3 | Complete |
 | METR-02 | Phase 3 | Complete |
 | METR-03 | Phase 3 | Complete |
-| COMP-01 | Phase 4 | Pending |
-| CORP-01 | Phase 5 | Pending |
-| CORP-02 | Phase 5 | Pending |
+| COMP-01 | Phase 4 | Complete |
+| CORP-01 | Phase 5 | Complete |
+| CORP-02 | Phase 5 | Complete |
 | REPT-01 | Phase 6 | Pending |
 | REPT-02 | Phase 6 | Pending |
 | REPT-03 | Phase 6 | Pending |
