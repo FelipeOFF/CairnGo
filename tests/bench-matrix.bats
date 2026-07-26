@@ -86,7 +86,7 @@ EOF
       --baselines-dir "$FIXTURE_BASELINES_DIR" \
       --task "$BENCH_TASKS_DIR/smoke-convert" \
       --out "$BATS_TEST_TMPDIR/matrix.jsonl" \
-      --seed 7
+      --seed 7 --reps 1
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$BATS_TEST_TMPDIR/matrix.jsonl")" -eq 3 ]
   # run_order_index values are exactly the set {0,1,2}: contiguous, no gaps,
@@ -110,7 +110,7 @@ EOF
       --baselines-dir "$FIXTURE_BASELINES_DIR" \
       --task "$BENCH_TASKS_DIR/smoke-convert" \
       --out "$BATS_TEST_TMPDIR/order_a.jsonl" \
-      --seed 20260726
+      --seed 20260726 --reps 1
   [ "$status" -eq 0 ]
   run env CAIRN_BENCH_CLAUDE_BIN="$STUB" \
     python3 "$BENCH_SCRIPTS_DIR/bench-matrix.py" \
@@ -118,7 +118,7 @@ EOF
       --baselines-dir "$FIXTURE_BASELINES_DIR" \
       --task "$BENCH_TASKS_DIR/smoke-convert" \
       --out "$BATS_TEST_TMPDIR/order_b.jsonl" \
-      --seed 20260726
+      --seed 20260726 --reps 1
   [ "$status" -eq 0 ]
   run diff \
     <(jq -r '.baseline_id' "$BATS_TEST_TMPDIR/order_a.jsonl") \
@@ -189,7 +189,7 @@ EOF
       --baselines-dir "$BENCH_BASELINES_DIR" \
       --task "$BENCH_TASKS_DIR/smoke-convert" \
       --out "$BATS_TEST_TMPDIR/matrix-real.jsonl" \
-      --seed 1
+      --seed 1 --reps 1
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$BATS_TEST_TMPDIR/matrix-real.jsonl")" -eq 2 ]
   # The same isolation contract Plan 02-01 proved for a single run holds for

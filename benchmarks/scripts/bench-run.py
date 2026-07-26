@@ -4,7 +4,7 @@ baseline manifest, write one raw JSONL row per run.
 
 Usage:
     bench-run.py --task <task-dir> --baseline <manifest.json> --out <jsonl-path>
-                 [--seed <int> --run-order-index <int>]
+                 [--seed <int> --run-order-index <int> --rep-index <int>]
 
 Behavior:
     1. Read <task-dir>/task.json (id, timeout_s, prompt_file) and the prompt
@@ -36,10 +36,10 @@ Behavior:
        PATH-discoverable pytest/bats and a normal shell environment);
        verify_passed = (returncode==0).
     8. Append one JSON line to --out: task_id, baseline_id, wall_clock_ms,
-       payload fields, verify_passed; plus seed / run_order_index (as JSON
-       integers) when the optional flags were provided — bench-matrix.py
-       passes them so every orchestrated row records its provenance. Absent
-       flags leave the row schema untouched.
+       payload fields, verify_passed; plus seed / run_order_index /
+       rep_index (as JSON integers) when the optional flags were provided —
+       bench-matrix.py passes them so every orchestrated row records its
+       provenance. Absent flags leave the row schema untouched.
     9. rmtree the workdir and the disposable HOME.
 
 Exit codes:
@@ -60,7 +60,8 @@ EXIT_OK = 0
 EXIT_USAGE = 2
 
 USAGE = ("usage: bench-run.py --task <task-dir> --baseline <manifest.json> "
-         "--out <jsonl-path> [--seed <int> --run-order-index <int>]")
+         "--out <jsonl-path> [--seed <int> --run-order-index <int>] "
+         "[--rep-index <int>]")
 
 
 def die(msg, code):
@@ -111,11 +112,11 @@ def load_baseline(path):
 
 
 def parse_args(argv):
-    # seed / run_order_index are optional row-provenance stamps: set by
-    # bench-matrix.py (or an operator) for interleaved batch runs, None when
-    # bench-run.py is invoked standalone.
+    # seed / run_order_index / rep_index are optional row-provenance stamps:
+    # set by bench-matrix.py (or an operator) for interleaved batch runs,
+    # None when bench-run.py is invoked standalone.
     opts = {"task": None, "out": None, "baseline": None,
-            "seed": None, "run_order_index": None}
+            "seed": None, "run_order_index": None, "rep_index": None}
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -151,6 +152,15 @@ def parse_args(argv):
             except ValueError:
                 die("--run-order-index must be an integer, "
                     f"got '{argv[i + 1]}'", EXIT_USAGE)
+            i += 2
+        elif arg == "--rep-index":
+            if i + 1 >= len(argv):
+                die(f"--rep-index needs a value\n{USAGE}", EXIT_USAGE)
+            try:
+                opts["rep_index"] = int(argv[i + 1])
+            except ValueError:
+                die(f"--rep-index must be an integer, got '{argv[i + 1]}'",
+                    EXIT_USAGE)
             i += 2
         else:
             die(f"unknown option '{arg}'\n{USAGE}", EXIT_USAGE)
@@ -244,6 +254,8 @@ def main():
             row["seed"] = opts["seed"]
         if opts["run_order_index"] is not None:
             row["run_order_index"] = opts["run_order_index"]
+        if opts["rep_index"] is not None:
+            row["rep_index"] = opts["rep_index"]
         with open(out_path, "a") as f:
             f.write(json.dumps(row, sort_keys=True) + "\n")
     finally:
