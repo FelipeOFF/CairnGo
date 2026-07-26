@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Verified Phase 4 (Competitor Baseline) — 32/32 bats green, $0; 1 minor gap parked (live N>=5 matrix pending ANTHROPIC_API_KEY)
-last_updated: "2026-07-26T06:01:38Z"
-last_activity: "2026-07-26 — Phase 4 verified: competitor-ralph-specum manifest pinned v4.0.0 + FAIR-02 byte-identical claude_flags/model + nested plugin_dir_subpath resolution + fail-loud + $0 load-check (COMP-01), 32/32 bats, $0. 1 minor gap: ROADMAP SC4 (N>=5 live matrix in aggregated.json) not yet run — blocked on ANTHROPIC_API_KEY, deferred to Phase 5/6 per 04-CONTEXT.md"
+stopped_at: Verified Phase 5 (Corpus Expansion + Bias Controls) — 15/15 must-haves, 57/57 required bats green, $0
+last_updated: "2026-07-26T07:46:58Z"
+last_activity: "2026-07-26 — Phase 5 verified: 6-task corpus (smoke/bugfix/feature/refactor/honest-non-win/long-horizon) all $0-provable both directions (10/10 bats + 2 fixtures hand-reproduced independently), refactor-report anti-cheat hand-confirmed (raw passes unittest but fails verify.sh; hand-refactored passes both), bench-matrix.py --tasks (list/glob) task x baseline x rep cross-product independently reproduced with own stub (seed-identical order twice, 24/24 rows correct), category passthrough task.json -> row -> aggregated cell independently reproduced (12/12 cells correct), README Task corpus + Cost model (~$40 ceiling) + Variance pilot (PENDING, key absent) all present, neutrality grep clean, py_compile clean, no aggregated.json committed anywhere (pre-declared corpus, no results yet). CORP-01 + CORP-02 satisfied. 0 blocking gaps."
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
-  percent: 67
+  completed_phases: 5
+  total_plans: 11
+  completed_plans: 11
+  percent: 83
 ---
 
 # Project State
@@ -21,24 +21,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-25)
 
 **Core value:** Workflow unificado plan→work→ship que custa menos tokens que as alternativas — e agora provado por benchmark reproduzível, não por afirmação.
-**Current focus:** Phase 5 — Corpus Expansion + Bias Controls (Phase 4 complete and verified, 1 minor gap parked to backlog)
+**Current focus:** Phase 6 — Reporting, Charts & Publication (Phase 5 complete and verified, 0 gaps)
 
 ## Current Position
 
-Phase: 4 of 6 (Competitor Baseline) — complete, verified (gaps_found: 1 minor, non-blocking)
-Plan: 1 of 1 in phase (complete)
-Status: Phase 4 verified gaps_found (8/9 must-haves; 1 minor gap parked); ready to plan Phase 5
-Last activity: 2026-07-26 — Phase 4 verified: competitor-ralph-specum manifest pinned v4.0.0, FAIR-02 byte-identical claude_flags/model, nested plugin_dir_subpath resolution (backward-compatible), fail-loud before spend, $0 load-check proof + documented live command (COMP-01), 32/32 bats green, $0 spend. Gap: ROADMAP SC4 (N≥5 live matrix results in aggregated.json) not yet executed — no aggregated.json exists for any arm yet, blocked on ANTHROPIC_API_KEY (genuinely absent), explicitly deferred to Phase 5/6 data-collection boundary per 04-CONTEXT.md's own locked decision. Classified minor/non-blocking — parked to backlog, not escalated.
+Phase: 5 of 6 (Corpus Expansion + Bias Controls) — complete, verified (passed, 15/15 must-haves)
+Plan: 2 of 2 in phase (complete)
+Status: Phase 5 verified passed; ready to plan Phase 6
+Last activity: 2026-07-26 — Phase 5 verified: 6-task corpus complete and category-complete, honest-non-win category (microedit-greet) wired end-to-end with no special-casing across baseline provisioning, refactor-report's structural anti-cheat oracle proven (behavior tests alone insufficient), bench-matrix.py generalized to --tasks (comma list or sorted glob) with zero regression to --task, category surfaces automatically in aggregated.json cells, benchmarks/README.md documents corpus rationale + a $40 declared ceiling for the full 120-run matrix + a PENDING variance-pilot recipe (ANTHROPIC_API_KEY genuinely absent, re-checked). CORP-01 and CORP-02 both satisfied. Zero blocking gaps; one informational note (REQUIREMENTS.md/beads tracking table lag, same pattern already acknowledged for Phase 4's COMP-01).
 
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 9
-- Average duration: ~19 min (Phase 1 P03: 44min; Phase 2 P01/02/03: 16/8/15min; Phase 3 P01/02: 9/7min; Phase 4 P01: 6min)
-- Total execution time: ~1h45m
+- Total plans completed: 11
+- Average duration: ~19 min (Phase 1 P03: 44min; Phase 2 P01/02/03: 16/8/15min; Phase 3 P01/02: 9/7min; Phase 4 P01: 6min; Phase 5 P01/02: 4/37min)
+- Total execution time: ~2h26m
 
 **By Phase:**
 
@@ -48,11 +48,12 @@ Progress: [██████████] 100%
 | 2 | 3 | 39min | 13min |
 | 3 | 2 | 16min | 8min |
 | 4 | 1 | 6min | 6min |
+| 5 | 2 | 41min | 21min |
 
 **Recent Trend:**
 
-- Last 5 plans: 02-03 (15min), 03-01 (9min), 03-02 (7min), 04-01 (6min)
-- Trend: shrinking per-plan duration (harness scripts increasingly mirror established patterns)
+- Last 5 plans: 03-02 (7min), 04-01 (6min), 05-01 (4min), 05-02 (37min)
+- Trend: per-plan duration variable with scope (05-02's harness generalization + doc/bias-control work took longer than 05-01's pure fixture authoring)
 
 *Updated after each plan completion*
 | Phase 1 P03 | 44min | 2 tasks | 6 files |
@@ -62,6 +63,8 @@ Progress: [██████████] 100%
 | Phase 03 P01 | 9min | 2 tasks | 3 files |
 | Phase 03 P02 | 7min | 2 tasks | 6 files |
 | Phase 04 P01 | 6min | 3 tasks | 4 files |
+| Phase 05 P01 | 4min | 3 tasks | 29 files |
+| Phase 05 P02 | 37min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -93,6 +96,12 @@ Recent decisions affecting current work:
 - [Phase 04]: Competidor escolhido pela pesquisa autônoma: `ralph-specum` (tzachbon/smart-ralph), pinado `v4.0.0` (tag mais recente real, re-confirmado ao vivo via `git ls-remote --tags` tanto no plan quanto na verificação); spec-kit e BMAD desqualificados estruturalmente (sem plugin.json carregável via --plugin-dir), superpowers deferido (sem escape hatch não-interativo)
 - [Phase 04]: `plugin_dir_subpath` — extensão opcional e retrocompatível do schema de manifesto (`Path(staged_path) / entry.get("plugin_dir_subpath", "")`, no-op quando ausente) para plugins cujo `plugin.json` não fica na raiz do repo clonado; `stage-plugins.py` não precisou de nenhuma mudança
 - [Phase 04]: Verificado gaps_found (8/9 must-haves) em 2026-07-26 — ver 04-VERIFICATION.md. 1 gap minor/não-bloqueante: ROADMAP SC4 (N≥5 rodadas ao vivo do competidor em aggregated.json) não executado — nenhum aggregated.json existe no repo para nenhum dos 4 arms ainda; bloqueado por ANTHROPIC_API_KEY ausente (confirmado independentemente); 04-CONTEXT.md já previa esse adiamento explicitamente para o limite Phase 5/6. Toda a mecânica que a SC depende (pipeline isolado, --plugin-dir resolvido, agregação success-gated) foi provada correta independentemente — falta apenas a coleta de dados ao vivo (decisão de gasto do operador, não defeito de código). Sugerido override formal em 04-VERIFICATION.md para quem aceitar o adiamento.
+- [Phase 05]: Corpus de 6 categorias pré-declaradas (smoke/bugfix/feature/refactor/honest-non-win/long-horizon), commitadas antes de qualquer resultado agregado existir (nenhum aggregated.json no repo) — disciplina anti-cherry-picking (Pitfall 3)
+- [Phase 05]: refactor-report usa oráculo de duas camadas: unittest (comportamento) + grep estrutural anti-cheat (`total += r["amount"]` <=1 ocorrência) — o fixture bruto passa no unittest mas falha no verify.sh, provando que "passar nos testes" não basta
+- [Phase 05]: bench-matrix.py `--tasks` (lista separada por vírgula ou glob absoluto via stdlib `glob.glob`, não `pathlib.Path.glob` que rejeita padrões absolutos no py3.12) generaliza o shuffle para `task x baseline x rep`; `--task` singular permanece byte-idêntico
+- [Phase 05]: `category` flui de task.json para a row (omitido quando ausente) e para toda cell agregada (sempre presente, `null` quando ausente) — filosofias deliberadamente diferentes em cada arquivo, cada uma seguindo o precedente já estabelecido no próprio arquivo
+- [Phase 05]: Variance pilot documentado como PENDING (ANTHROPIC_API_KEY ausente, re-checado 2026-07-26) — receita de um comando pronta, mesma disciplina das Phases 2/4; coleta de dados ao vivo explicitamente adiada para Phase 6
+- [Phase 05]: Verificado passed (15/15 must-haves, 57/57 bats nos 7 arquivos requeridos) em 2026-07-26 — ver 05-VERIFICATION.md. Nota informativa não-bloqueante: REQUIREMENTS.md/beads (CairnGo-me5, CairnGo-6qo) ainda mostram CORP-01/CORP-02 como Pending/IN_PROGRESS — lag de sincronização de tracking, mesmo padrão já reconhecido para COMP-01 na Phase 4; toda a capacidade descrita pelos requirements está implementada, testada e reproduzida independentemente.
 
 ### Pending Todos
 
@@ -101,8 +110,7 @@ None yet.
 ### Blockers/Concerns
 
 - gnuplot vs. SVG stdlib hand-rolled é julgamento de valor, não fato documentado — decidir no planejamento da Phase 6
-- Tamanho/diversidade do corpus (Phase 5) não tem regra universal — decisão deliberada no planejamento da Phase 5, informada pela restrição de custo previsível
-- ROADMAP.md e REQUIREMENTS.md ainda mostram COMP-01 como "Pending"/unchecked — parcialmente correto agora: configuração/wiring está completa e verificada, mas nenhuma rodada ao vivo (N≥5) foi de fato executada ainda (ver 04-VERIFICATION.md gap); recomenda-se rodar o live matrix completo (4 arms x N≥5) assim que ANTHROPIC_API_KEY estiver disponível, idealmente coordenado com o planejamento da Phase 5
+- ROADMAP.md e REQUIREMENTS.md ainda mostram COMP-01 e CORP-01/CORP-02 como "Pending"/unchecked — parcialmente correto agora: toda a configuração/wiring/corpus está completa e verificada (Phases 4 e 5), mas nenhuma rodada ao vivo (N≥5, 4 arms) foi de fato executada ainda para nenhuma fase; recomenda-se rodar o variance pilot + o live matrix completo assim que ANTHROPIC_API_KEY estiver disponível, coordenado com o planejamento da Phase 6
 
 ### Quick Tasks Completed
 
@@ -117,9 +125,10 @@ Items acknowledged and carried forward from previous milestone close:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | Data collection | Live N≥5 matrix (4 arms incl. competitor) in `aggregated.json` — ROADMAP Phase 4 SC4 | Parked (minor gap, non-blocking) | Phase 4 verification (2026-07-26), blocked on ANTHROPIC_API_KEY |
+| Data collection | Variance pilot (3 tasks x 2 arms x N=5) + full 120-run matrix — ROADMAP Phase 5, CORP-01 | Documented PENDING recipe, not yet run | Phase 5 planning + verification (2026-07-26), blocked on ANTHROPIC_API_KEY, explicitly deferred to Phase 6 |
 
 ## Session Continuity
 
-Last session: 2026-07-26T06:01:38Z
-Stopped at: Verified Phase 4 (Competitor Baseline) — 32/32 bats green, $0; 1 minor gap parked (live N>=5 matrix pending ANTHROPIC_API_KEY, see 04-VERIFICATION.md)
+Last session: 2026-07-26T07:46:58Z
+Stopped at: Verified Phase 5 (Corpus Expansion + Bias Controls) — 15/15 must-haves, 57/57 required bats green, $0; 0 blocking gaps (see 05-VERIFICATION.md)
 Resume file: None
