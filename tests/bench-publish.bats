@@ -120,3 +120,86 @@ outside_teaser() {
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
+
+@test "a target with prose but no markers gets the block appended, every pre-existing byte preserved" {
+  printf 'Hand-written prose line one.\n\nHand-written prose line two.\n' \
+    > "$BATS_TEST_TMPDIR/plain.md"
+  cp "$BATS_TEST_TMPDIR/plain.md" "$BATS_TEST_TMPDIR/plain-before.md"
+  run python3 "$PUBLISH" --in "$FIXTURES_DIR/publish-aggregate.json" \
+    --benchmarks "$BATS_TEST_TMPDIR/plain.md" --label "fixture run"
+  [ "$status" -eq 0 ]
+  # The original file is a byte-for-byte PREFIX of the new file: nothing
+  # was destroyed, the block landed strictly after the existing content.
+  head -c "$(( $(wc -c < "$BATS_TEST_TMPDIR/plain-before.md") ))" \
+    "$BATS_TEST_TMPDIR/plain.md" > "$BATS_TEST_TMPDIR/plain-prefix.md"
+  run diff "$BATS_TEST_TMPDIR/plain-before.md" \
+    "$BATS_TEST_TMPDIR/plain-prefix.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run tail -n 1 "$BATS_TEST_TMPDIR/plain.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = '<!-- cairn:generated:benchmarks:end -->' ]
+  run grep -qF '| smoke-convert | cairn | smoke | 5/5 (100%) | $0.1618 |' \
+    "$BATS_TEST_TMPDIR/plain.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "README teaser: exactly one generated line between the teaser markers, rest untouched, second run byte-identical" {
+  copy_real_targets
+  outside_teaser "$BATS_TEST_TMPDIR/README.md" \
+    > "$BATS_TEST_TMPDIR/readme-outside-before.txt"
+  run python3 "$PUBLISH" --in "$FIXTURES_DIR/publish-aggregate.json" \
+    --benchmarks "$BATS_TEST_TMPDIR/BENCHMARKS.md" \
+    --readme "$BATS_TEST_TMPDIR/README.md" --label "fixture run"
+  [ "$status" -eq 0 ]
+  sed -n '/<!-- cairn:generated:benchmarks-teaser:start -->/,/<!-- cairn:generated:benchmarks-teaser:end -->/p' \
+    "$BATS_TEST_TMPDIR/README.md" | sed '1d;$d' > "$BATS_TEST_TMPDIR/teaser.txt"
+  [ "$(wc -l < "$BATS_TEST_TMPDIR/teaser.txt")" -eq 1 ]
+  run grep -qF '3 benchmark cell(s)' "$BATS_TEST_TMPDIR/teaser.txt"
+  [ "$status" -eq 0 ]
+  run grep -qF 'fixture run' "$BATS_TEST_TMPDIR/teaser.txt"
+  [ "$status" -eq 0 ]
+  run grep -qF 'BENCHMARKS.md' "$BATS_TEST_TMPDIR/teaser.txt"
+  [ "$status" -eq 0 ]
+  outside_teaser "$BATS_TEST_TMPDIR/README.md" \
+    > "$BATS_TEST_TMPDIR/readme-outside-after.txt"
+  run diff "$BATS_TEST_TMPDIR/readme-outside-before.txt" \
+    "$BATS_TEST_TMPDIR/readme-outside-after.txt"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  cp "$BATS_TEST_TMPDIR/README.md" "$BATS_TEST_TMPDIR/readme-after-run1.md"
+  run python3 "$PUBLISH" --in "$FIXTURES_DIR/publish-aggregate.json" \
+    --benchmarks "$BATS_TEST_TMPDIR/BENCHMARKS.md" \
+    --readme "$BATS_TEST_TMPDIR/README.md" --label "fixture run"
+  [ "$status" -eq 0 ]
+  run diff "$BATS_TEST_TMPDIR/readme-after-run1.md" "$BATS_TEST_TMPDIR/README.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "--check: exit 0 when current; exit 3 + non-empty diff when stale, writing nothing either way" {
+  copy_real_targets
+  run python3 "$PUBLISH" --in "$FIXTURES_DIR/publish-aggregate.json" \
+    --benchmarks "$BATS_TEST_TMPDIR/BENCHMARKS.md" --label "fixture run"
+  [ "$status" -eq 0 ]
+  run python3 "$PUBLISH" --in "$FIXTURES_DIR/publish-aggregate.json" \
+    --benchmarks "$BATS_TEST_TMPDIR/BENCHMARKS.md" --label "fixture run" --check
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'up to date'
+  # Mutate one cost value: the same already-regenerated file must now read
+  # stale, with the new value visible in the diff, and stay unwritten.
+  jq '.cells["smoke-convert::cairn"].cost_median = 0.9999' \
+    "$FIXTURES_DIR/publish-aggregate.json" > "$BATS_TEST_TMPDIR/mutated.json"
+  cp "$BATS_TEST_TMPDIR/BENCHMARKS.md" "$BATS_TEST_TMPDIR/before-check.md"
+  run python3 "$PUBLISH" --in "$BATS_TEST_TMPDIR/mutated.json" \
+    --benchmarks "$BATS_TEST_TMPDIR/BENCHMARKS.md" --label "fixture run" --check
+  [ "$status" -eq 3 ]
+  echo "$output" | grep -qF '$0.9999'
+  run diff "$BATS_TEST_TMPDIR/before-check.md" "$BATS_TEST_TMPDIR/BENCHMARKS.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # Still stale on a follow-up check: --check never wrote anything.
+  run python3 "$PUBLISH" --in "$BATS_TEST_TMPDIR/mutated.json" \
+    --benchmarks "$BATS_TEST_TMPDIR/BENCHMARKS.md" --label "fixture run" --check
+  [ "$status" -eq 3 ]
+}
