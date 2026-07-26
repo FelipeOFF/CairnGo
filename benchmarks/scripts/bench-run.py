@@ -4,6 +4,7 @@ baseline manifest, write one raw JSONL row per run.
 
 Usage:
     bench-run.py --task <task-dir> --baseline <manifest.json> --out <jsonl-path>
+                 [--seed <int> --run-order-index <int>]
 
 Behavior:
     1. Read <task-dir>/task.json (id, timeout_s, prompt_file) and the prompt
@@ -35,7 +36,10 @@ Behavior:
        PATH-discoverable pytest/bats and a normal shell environment);
        verify_passed = (returncode==0).
     8. Append one JSON line to --out: task_id, baseline_id, wall_clock_ms,
-       payload fields, verify_passed.
+       payload fields, verify_passed; plus seed / run_order_index (as JSON
+       integers) when the optional flags were provided — bench-matrix.py
+       passes them so every orchestrated row records its provenance. Absent
+       flags leave the row schema untouched.
     9. rmtree the workdir and the disposable HOME.
 
 Exit codes:
@@ -56,7 +60,7 @@ EXIT_OK = 0
 EXIT_USAGE = 2
 
 USAGE = ("usage: bench-run.py --task <task-dir> --baseline <manifest.json> "
-         "--out <jsonl-path>")
+         "--out <jsonl-path> [--seed <int> --run-order-index <int>]")
 
 
 def die(msg, code):
@@ -107,9 +111,9 @@ def load_baseline(path):
 
 
 def parse_args(argv):
-    # seed / run_order_index are reserved row-provenance keys: present in the
-    # opts dict so downstream code can rely on them, but no argv branch sets
-    # them yet.
+    # seed / run_order_index are optional row-provenance stamps: set by
+    # bench-matrix.py (or an operator) for interleaved batch runs, None when
+    # bench-run.py is invoked standalone.
     opts = {"task": None, "out": None, "baseline": None,
             "seed": None, "run_order_index": None}
     i = 0
@@ -129,6 +133,24 @@ def parse_args(argv):
             if i + 1 >= len(argv):
                 die(f"--out needs a value\n{USAGE}", EXIT_USAGE)
             opts["out"] = argv[i + 1]
+            i += 2
+        elif arg == "--seed":
+            if i + 1 >= len(argv):
+                die(f"--seed needs a value\n{USAGE}", EXIT_USAGE)
+            try:
+                opts["seed"] = int(argv[i + 1])
+            except ValueError:
+                die(f"--seed must be an integer, got '{argv[i + 1]}'",
+                    EXIT_USAGE)
+            i += 2
+        elif arg == "--run-order-index":
+            if i + 1 >= len(argv):
+                die(f"--run-order-index needs a value\n{USAGE}", EXIT_USAGE)
+            try:
+                opts["run_order_index"] = int(argv[i + 1])
+            except ValueError:
+                die("--run-order-index must be an integer, "
+                    f"got '{argv[i + 1]}'", EXIT_USAGE)
             i += 2
         else:
             die(f"unknown option '{arg}'\n{USAGE}", EXIT_USAGE)
@@ -216,6 +238,12 @@ def main():
         row = {"task_id": task["id"], "baseline_id": manifest["name"],
                "wall_clock_ms": wall_ms, **payload,
                "verify_passed": verify_proc.returncode == 0}
+        # Row-provenance stamps: only present when provided, so standalone
+        # rows keep their existing schema (values already ints via parse_args).
+        if opts["seed"] is not None:
+            row["seed"] = opts["seed"]
+        if opts["run_order_index"] is not None:
+            row["run_order_index"] = opts["run_order_index"]
         with open(out_path, "a") as f:
             f.write(json.dumps(row, sort_keys=True) + "\n")
     finally:
