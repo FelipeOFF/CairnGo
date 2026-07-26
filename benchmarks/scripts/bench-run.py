@@ -1,33 +1,47 @@
 #!/usr/bin/env python3
-"""bench-run — invoke claude -p headless against one task fixture, write one
-raw JSONL row per run.
+"""bench-run — invoke claude -p headless against one task fixture under one
+baseline manifest, write one raw JSONL row per run.
 
 Usage:
-    bench-run.py --task <task-dir> --out <jsonl-path>
+    bench-run.py --task <task-dir> --baseline <manifest.json> --out <jsonl-path>
 
 Behavior:
-    1. Read <task-dir>/task.json (id, timeout_s, max_turns, prompt_file,
-       model — full pinned id, required) and the prompt text from
-       <task-dir>/<prompt_file> (default prompt.md).
-    2. Stage a fresh mktemp workdir from <task-dir>/fixture/.
-    3. Resolve the claude binary via CAIRN_BENCH_CLAUDE_BIN, falling back to
+    1. Read <task-dir>/task.json (id, timeout_s, prompt_file) and the prompt
+       text from <task-dir>/<prompt_file> (default prompt.md). Claude flags
+       are NOT read from task.json: the baseline manifest is the sole source
+       of truth for model pinning and flags.
+    2. Load and validate the --baseline manifest: required keys name, model
+       (full pinned id), claude_flags, provisioning.plugin_dirs; every
+       plugin_dirs[].staged_path must already exist on disk. All validation
+       happens BEFORE any subprocess is launched (fail loud, spend nothing).
+    3. Stage a fresh mktemp workdir from <task-dir>/fixture/ and a fresh,
+       empty mktemp HOME for the claude subprocess.
+    4. Resolve the claude binary via CAIRN_BENCH_CLAUDE_BIN, falling back to
        the real `claude` on PATH.
-    4. Invoke `claude -p <prompt> --output-format json --max-turns N
-       --model <task.json model> --permission-mode acceptEdits
-       --no-session-persistence`, cwd=workdir, capture_output=True,
-       timeout=timeout_s.
-    5. Parse stdout as JSON regardless of returncode; on parse failure,
+    5. Invoke `claude -p <prompt> --output-format json` with every remaining
+       flag read from the manifest: --max-turns, --model, --permission-mode,
+       plus --no-session-persistence / --bare when set in claude_flags, plus
+       one `--plugin-dir <staged_path>` pair per provisioning.plugin_dirs
+       entry. The subprocess environment is explicitly
+       env={HOME: <fresh HOME>, PATH, ANTHROPIC_API_KEY-if-present}: the
+       operator's environment is replaced, never merged. --bare skips
+       claude.ai OAuth, so isolated runs authenticate strictly via
+       ANTHROPIC_API_KEY.
+    6. Parse stdout as JSON regardless of returncode; on parse failure,
        timeout, or an unlaunchable claude binary, synthesize
        {"is_error": true, "parse_error": "..."}.
-    6. Invoke <task-dir>/verify.sh <workdir>; verify_passed = (returncode==0).
-    7. Append one JSON line to --out: task_id, wall_clock_ms, payload fields,
-       verify_passed.
-    8. rmtree(workdir).
+    7. Invoke <task-dir>/verify.sh <workdir> with the FULL inherited
+       environment (the oracle is deliberately not isolated: it needs
+       PATH-discoverable pytest/bats and a normal shell environment);
+       verify_passed = (returncode==0).
+    8. Append one JSON line to --out: task_id, baseline_id, wall_clock_ms,
+       payload fields, verify_passed.
+    9. rmtree the workdir and the disposable HOME.
 
 Exit codes:
     0  run completed (regardless of verify_passed or is_error — a run's
        outcome is a data column, not a harness failure)
-    2  usage error
+    2  usage error (bad args, unreadable task/manifest, unstaged plugin dir)
 """
 import json
 import os
@@ -41,7 +55,8 @@ from pathlib import Path
 EXIT_OK = 0
 EXIT_USAGE = 2
 
-USAGE = "usage: bench-run.py --task <task-dir> --out <jsonl-path>"
+USAGE = ("usage: bench-run.py --task <task-dir> --baseline <manifest.json> "
+         "--out <jsonl-path>")
 
 
 def die(msg, code):
@@ -53,8 +68,50 @@ def resolve_claude_bin():
     return os.environ.get("CAIRN_BENCH_CLAUDE_BIN") or shutil.which("claude") or "claude"
 
 
+def isolated_claude_env(fresh_home):
+    """Explicit minimal env for the claude subprocess: replaces, never merges.
+
+    HOME points at a disposable empty dir (no operator CLAUDE.md/MCP/hooks),
+    PATH is preserved for tool discoverability only, and ANTHROPIC_API_KEY is
+    passed through when present (--bare auth is strictly the API key).
+    """
+    env = {"HOME": fresh_home, "PATH": os.environ.get("PATH", "")}
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        env["ANTHROPIC_API_KEY"] = api_key
+    return env
+
+
+def load_baseline(path):
+    """Parse + validate a baseline manifest; die(EXIT_USAGE) before any spend."""
+    baseline_path = Path(path)
+    if not baseline_path.is_file():
+        die(f"baseline manifest not found: {baseline_path}", EXIT_USAGE)
+    try:
+        manifest = json.loads(baseline_path.read_text())
+    except json.JSONDecodeError as e:
+        die(f"baseline manifest failed to parse: {e}", EXIT_USAGE)
+    for key in ("name", "model", "claude_flags", "provisioning"):
+        if key not in manifest:
+            die(f"baseline manifest missing required '{key}': {baseline_path}",
+                EXIT_USAGE)
+    if "plugin_dirs" not in manifest["provisioning"]:
+        die("baseline manifest missing required 'provisioning.plugin_dirs': "
+            f"{baseline_path}", EXIT_USAGE)
+    for entry in manifest["provisioning"]["plugin_dirs"]:
+        if not Path(entry["staged_path"]).is_dir():
+            die(f"plugin '{entry['plugin']}' staged_path not found: "
+                f"{entry['staged_path']} (stage and build it before running)",
+                EXIT_USAGE)
+    return manifest
+
+
 def parse_args(argv):
-    opts = {"task": None, "out": None}
+    # seed / run_order_index are reserved row-provenance keys: present in the
+    # opts dict so downstream code can rely on them, but no argv branch sets
+    # them yet.
+    opts = {"task": None, "out": None, "baseline": None,
+            "seed": None, "run_order_index": None}
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -63,6 +120,11 @@ def parse_args(argv):
                 die(f"--task needs a value\n{USAGE}", EXIT_USAGE)
             opts["task"] = argv[i + 1]
             i += 2
+        elif arg == "--baseline":
+            if i + 1 >= len(argv):
+                die(f"--baseline needs a value\n{USAGE}", EXIT_USAGE)
+            opts["baseline"] = argv[i + 1]
+            i += 2
         elif arg == "--out":
             if i + 1 >= len(argv):
                 die(f"--out needs a value\n{USAGE}", EXIT_USAGE)
@@ -70,8 +132,9 @@ def parse_args(argv):
             i += 2
         else:
             die(f"unknown option '{arg}'\n{USAGE}", EXIT_USAGE)
-    if opts["task"] is None or opts["out"] is None:
-        die(f"--task and --out are both required\n{USAGE}", EXIT_USAGE)
+    if opts["task"] is None or opts["out"] is None or opts["baseline"] is None:
+        die(f"--task, --out, and --baseline are all required\n{USAGE}",
+            EXIT_USAGE)
     return opts
 
 
@@ -93,6 +156,10 @@ def main():
         die(f"prompt file not found: {prompt_path}", EXIT_USAGE)
     prompt_text = prompt_path.read_text()
 
+    # Validate the baseline manifest (including every staged plugin dir)
+    # BEFORE any API spend, same rationale as the output-path check below.
+    manifest = load_baseline(opts["baseline"])
+
     # Validate the output path BEFORE any API spend: a live run whose row
     # cannot be written is money lost (observed live, 2026-07-25).
     out_parent = Path(out_path).parent
@@ -100,27 +167,33 @@ def main():
         die(f"output directory not found: {out_parent} (create it first)", EXIT_USAGE)
 
     workdir = tempfile.mkdtemp(prefix="cairn-bench-")
+    fresh_home = tempfile.mkdtemp(prefix="cairn-bench-home-")
     try:
         shutil.copytree(task_dir / "fixture", workdir, dirs_exist_ok=True)
-        # NOTE: --bare is deliberately absent. Verified live (2026-07-25):
-        # --bare skips claude.ai OAuth credentials and reports "Not logged in"
-        # unless an API key is provided via env/--settings. Phase 2's isolated
-        # baselines must pair --bare with ANTHROPIC_API_KEY; this phase's
-        # schema-validation run authenticates via the operator's OAuth session.
-        # Model comes from task.json and MUST be a full pinned id (FAIR-02):
-        # bare aliases like "claude-haiku" are rejected by the API.
-        if "model" not in task:
-            die("task.json missing required 'model' (full pinned model id)", EXIT_USAGE)
+        # Every claude flag comes from the baseline manifest, the single
+        # source of truth for pinning (bare model aliases like "claude-haiku"
+        # are rejected by the API — the manifest carries the full pinned id).
+        # claude_flags is identical across baselines; only
+        # provisioning.plugin_dirs differs. --bare skips claude.ai OAuth
+        # (verified live 2026-07-25), so isolated runs authenticate strictly
+        # via ANTHROPIC_API_KEY in the scoped env.
+        flags = manifest["claude_flags"]
         cmd = [resolve_claude_bin(), "-p", prompt_text,
                "--output-format", "json",
-               "--max-turns", str(task["max_turns"]),
-               "--model", task["model"],
-               "--permission-mode", "acceptEdits",
-               "--no-session-persistence"]
+               "--max-turns", str(flags["max_turns"]),
+               "--model", manifest["model"],
+               "--permission-mode", flags["permission_mode"]]
+        if flags.get("no_session_persistence"):
+            cmd.append("--no-session-persistence")
+        if flags.get("bare"):
+            cmd.append("--bare")
+        for entry in manifest["provisioning"]["plugin_dirs"]:
+            cmd += ["--plugin-dir", str(entry["staged_path"])]
         start = time.time()
         try:
             proc = subprocess.run(cmd, cwd=workdir, capture_output=True,
-                                  text=True, timeout=task["timeout_s"])
+                                  text=True, timeout=task["timeout_s"],
+                                  env=isolated_claude_env(fresh_home))
         except subprocess.TimeoutExpired:
             wall_ms = int((time.time() - start) * 1000)
             payload = {"is_error": True,
@@ -140,12 +213,14 @@ def main():
                            "raw_stdout": proc.stdout[:2000]}
         verify_proc = subprocess.run(["bash", str(task_dir / "verify.sh"),
                                       workdir])
-        row = {"task_id": task["id"], "wall_clock_ms": wall_ms, **payload,
+        row = {"task_id": task["id"], "baseline_id": manifest["name"],
+               "wall_clock_ms": wall_ms, **payload,
                "verify_passed": verify_proc.returncode == 0}
         with open(out_path, "a") as f:
             f.write(json.dumps(row, sort_keys=True) + "\n")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+        shutil.rmtree(fresh_home, ignore_errors=True)
     sys.exit(EXIT_OK)
 
 
