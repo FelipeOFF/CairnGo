@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Verified Phase 5 (Corpus Expansion + Bias Controls) — 15/15 must-haves, 57/57 required bats green, $0
-last_updated: "2026-07-26T07:46:58Z"
-last_activity: "2026-07-26 — Phase 5 verified: 6-task corpus (smoke/bugfix/feature/refactor/honest-non-win/long-horizon) all $0-provable both directions (10/10 bats + 2 fixtures hand-reproduced independently), refactor-report anti-cheat hand-confirmed (raw passes unittest but fails verify.sh; hand-refactored passes both), bench-matrix.py --tasks (list/glob) task x baseline x rep cross-product independently reproduced with own stub (seed-identical order twice, 24/24 rows correct), category passthrough task.json -> row -> aggregated cell independently reproduced (12/12 cells correct), README Task corpus + Cost model (~$40 ceiling) + Variance pilot (PENDING, key absent) all present, neutrality grep clean, py_compile clean, no aggregated.json committed anywhere (pre-declared corpus, no results yet). CORP-01 + CORP-02 satisfied. 0 blocking gaps."
+stopped_at: Verified Phase 6 (Reporting, Charts & Publication) — 18/19 must-haves, 21/21 phase-6 bats green (+14/14 spot-checked regression), $0; milestone v1.1 execution complete (6 of 6 phases), pending gate/ship
+last_updated: "2026-07-26T10:33:00Z"
+last_activity: "2026-07-26 — Phase 6 verified: bench-chart.py (deterministic SVG cost+pass-rate/token-composition charts, honesty no-data path, XML-escaping), BENCHMARKS.md (methodology-first, 5 sections, schema-validation-labeled raw data, pending-state Results markers) + bench-publish.py (marker-scoped regeneration, idempotent, append-never-destroy), and bench-all.sh (plan-first, dry-run-default, --yes gated on explicit flag + ANTHROPIC_API_KEY, tripwire-proven zero-invocation) all independently re-verified — including one full matrix->aggregate->chart->publish pipeline run reproduced by hand against REAL (non-synthetic) stub data, not just bats. 21/21 phase-6 bats green, 14/14 spot-checked older suites green, py_compile clean on all 13 scripts, zero SVG committed (deliberate honesty rule), zero synthetic numbers in committed BENCHMARKS.md/README.md, ANTHROPIC_API_KEY genuinely absent (re-confirmed). REPT-01/03/04 fully satisfied; REPT-02 machinery fully satisfied with committed-charts population accepted as a non-blocking gap (blocked on ANTHROPIC_API_KEY, deferred to post-milestone operator action via bench-all.sh --yes — same pattern as Phase 4/5). 0 blocking gaps. Milestone v1.1: all 6 phases now executed and verified; ready for gate/ship."
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 11
-  completed_plans: 11
-  percent: 83
+  completed_phases: 6
+  total_plans: 14
+  completed_plans: 14
+  percent: 100
 ---
 
 # Project State
@@ -21,24 +21,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-25)
 
 **Core value:** Workflow unificado plan→work→ship que custa menos tokens que as alternativas — e agora provado por benchmark reproduzível, não por afirmação.
-**Current focus:** Phase 6 — Reporting, Charts & Publication (Phase 5 complete and verified, 0 gaps)
+**Current focus:** Milestone v1.1 execution complete (Phase 6 verified, 0 blocking gaps) — pending gate/ship
 
 ## Current Position
 
-Phase: 5 of 6 (Corpus Expansion + Bias Controls) — complete, verified (passed, 15/15 must-haves)
-Plan: 2 of 2 in phase (complete)
-Status: Phase 5 verified passed; ready to plan Phase 6
-Last activity: 2026-07-26 — Phase 5 verified: 6-task corpus complete and category-complete, honest-non-win category (microedit-greet) wired end-to-end with no special-casing across baseline provisioning, refactor-report's structural anti-cheat oracle proven (behavior tests alone insufficient), bench-matrix.py generalized to --tasks (comma list or sorted glob) with zero regression to --task, category surfaces automatically in aggregated.json cells, benchmarks/README.md documents corpus rationale + a $40 declared ceiling for the full 120-run matrix + a PENDING variance-pilot recipe (ANTHROPIC_API_KEY genuinely absent, re-checked). CORP-01 and CORP-02 both satisfied. Zero blocking gaps; one informational note (REQUIREMENTS.md/beads tracking table lag, same pattern already acknowledged for Phase 4's COMP-01).
+Phase: 6 of 6 (Reporting, Charts & Publication) — complete, verified (gaps_found, 18/19 must-haves, 1 accepted non-blocking gap)
+Plan: 3 of 3 in phase (complete)
+Status: Phase 6 verified; milestone v1.1 execution done (6/6 phases), pending gate/ship
+Last activity: 2026-07-26 — Phase 6 verified: chart-generation machinery (bench-chart.py), publication surface (BENCHMARKS.md + bench-publish.py), and one-command reproduction (bench-all.sh) all independently re-verified beyond bats — including a hand-reproduced end-to-end matrix->aggregate->chart->publish run against real (non-synthetic) stub data, proving determinism, value-correctness, the null-median honesty rule, marker-scoped regeneration with byte-identical outside content, and the dry-run/--yes safety gates via an independently-built tripwire. REPT-01/03/04 fully satisfied. REPT-02's chart-generation machinery is fully satisfied; the "charts committed" portion of ROADMAP SC2 remains an accepted, non-blocking gap — zero SVG is committed by 06-CONTEXT.md's deliberate honesty rule, since no live collection has ever run (ANTHROPIC_API_KEY genuinely absent, re-confirmed independently). This mirrors the exact pattern already accepted for Phase 4 (COMP-01) and Phase 5 (CORP-01): all machinery is proven correct at $0; only the live-data collection step (an operator spend decision, ~$40 ceiling) remains, one command away via `benchmarks/scripts/bench-all.sh --yes`.
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 11
-- Average duration: ~19 min (Phase 1 P03: 44min; Phase 2 P01/02/03: 16/8/15min; Phase 3 P01/02: 9/7min; Phase 4 P01: 6min; Phase 5 P01/02: 4/37min)
-- Total execution time: ~2h26m
+- Total plans completed: 14
+- Average duration: ~21 min (Phase 1 P03: 44min; Phase 2 P01/02/03: 16/8/15min; Phase 3 P01/02: 9/7min; Phase 4 P01: 6min; Phase 5 P01/02: 4/37min; Phase 6 P01/02/03: 45/32/51min)
+- Total execution time: ~4h34m
 
 **By Phase:**
 
@@ -49,11 +49,12 @@ Progress: [████████░░] 83%
 | 3 | 2 | 16min | 8min |
 | 4 | 1 | 6min | 6min |
 | 5 | 2 | 41min | 21min |
+| 6 | 3 | 128min | 43min |
 
 **Recent Trend:**
 
-- Last 5 plans: 03-02 (7min), 04-01 (6min), 05-01 (4min), 05-02 (37min)
-- Trend: per-plan duration variable with scope (05-02's harness generalization + doc/bias-control work took longer than 05-01's pure fixture authoring)
+- Last 5 plans: 05-02 (37min), 06-01 (45min), 06-02 (32min), 06-03 (51min)
+- Trend: Phase 6's plans ran longer than average — each combined implementation + a TDD RED/GREEN bats suite + at least one full-suite regression run (193→199 tests), consistent with the phase's "prove it, don't assert it" discipline
 
 *Updated after each plan completion*
 | Phase 1 P03 | 44min | 2 tasks | 6 files |
@@ -65,6 +66,9 @@ Progress: [████████░░] 83%
 | Phase 04 P01 | 6min | 3 tasks | 4 files |
 | Phase 05 P01 | 4min | 3 tasks | 29 files |
 | Phase 05 P02 | 37min | 3 tasks | 9 files |
+| Phase 06 P01 | 45min | 2 tasks | 3 files |
+| Phase 06 P02 | 32min | 3 tasks | 5 files |
+| Phase 06 P03 | 51min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -102,6 +106,10 @@ Recent decisions affecting current work:
 - [Phase 05]: `category` flui de task.json para a row (omitido quando ausente) e para toda cell agregada (sempre presente, `null` quando ausente) — filosofias deliberadamente diferentes em cada arquivo, cada uma seguindo o precedente já estabelecido no próprio arquivo
 - [Phase 05]: Variance pilot documentado como PENDING (ANTHROPIC_API_KEY ausente, re-checado 2026-07-26) — receita de um comando pronta, mesma disciplina das Phases 2/4; coleta de dados ao vivo explicitamente adiada para Phase 6
 - [Phase 05]: Verificado passed (15/15 must-haves, 57/57 bats nos 7 arquivos requeridos) em 2026-07-26 — ver 05-VERIFICATION.md. Nota informativa não-bloqueante: REQUIREMENTS.md/beads (CairnGo-me5, CairnGo-6qo) ainda mostram CORP-01/CORP-02 como Pending/IN_PROGRESS — lag de sincronização de tracking, mesmo padrão já reconhecido para COMP-01 na Phase 4; toda a capacidade descrita pelos requirements está implementada, testada e reproduzida independentemente.
+- [Phase 06]: bench-chart.py gera SVG determinístico stdlib-only (sem gnuplot, desvio deliberado de STACK.md, decisão travada em 06-CONTEXT.md) — honestidade: célula com cost_median/token median nulo nunca renderiza barra zero fabricada, sempre um marcador "no data" pareado com o pass_rate real
+- [Phase 06]: bench-publish.py porta o mecanismo exato de split_markers/replace-only-inner/append-never-destroy/write-only-when-changed de cairn-map.py, parametrizado por par de marcador — usado tanto para BENCHMARKS.md quanto para o teaser do README
+- [Phase 06]: bench-all.sh nunca assume gasto pelo ambiente: modo default é sempre --dry-run mesmo com ANTHROPIC_API_KEY presente; --yes exige a flag explícita E a chave não-vazia; contrato de invocação zero provado por tripwire mecânico, não só leitura de código
+- [Phase 06]: Verificado gaps_found (18/19 must-haves) em 2026-07-26 — ver 06-VERIFICATION.md. 1 gap minor/não-bloqueante, aceito: ROADMAP SC2 (gráficos SVG commitados) não satisfeito literalmente — zero SVG commitado no repo, por design (regra de honestidade de 06-CONTEXT.md: nenhum número sintético é commitado como se fosse resultado real). Bloqueado por ANTHROPIC_API_KEY ausente (confirmado independentemente); mesma disciplina já aceita nas Phases 4 e 5. Toda a maquinaria (bench-chart.py, bench-publish.py, bench-all.sh) foi reproduzida manualmente de ponta a ponta nesta verificação com dados reais (não sintéticos) do stub — determinismo, honestidade de dados nulos, regeneração byte-idêntica fora dos marcadores, e os gates de segurança dry-run/--yes todos confirmados independentemente. Falta apenas a coleta de dados ao vivo (decisão de gasto do operador, ~$40), um comando de distância (`bench-all.sh --yes`). REPT-01/03/04 plenamente satisfeitos; REPT-02 satisfeito na maquinaria, pendente na população de dados reais. Milestone v1.1: 6/6 fases executadas e verificadas — pronto para gate/ship.
 
 ### Pending Todos
 
@@ -109,8 +117,8 @@ None yet.
 
 ### Blockers/Concerns
 
-- gnuplot vs. SVG stdlib hand-rolled é julgamento de valor, não fato documentado — decidir no planejamento da Phase 6
-- ROADMAP.md e REQUIREMENTS.md ainda mostram COMP-01 e CORP-01/CORP-02 como "Pending"/unchecked — parcialmente correto agora: toda a configuração/wiring/corpus está completa e verificada (Phases 4 e 5), mas nenhuma rodada ao vivo (N≥5, 4 arms) foi de fato executada ainda para nenhuma fase; recomenda-se rodar o variance pilot + o live matrix completo assim que ANTHROPIC_API_KEY estiver disponível, coordenado com o planejamento da Phase 6
+- ROADMAP.md e REQUIREMENTS.md ainda mostram REPT-01..04 como "Pending"/unchecked (mesmo padrão de lag de tracking já reconhecido para COMP-01/CORP-01/CORP-02) — toda a maquinaria de publicação/gráficos/reprodução está completa, testada e reproduzida independentemente (ver 06-VERIFICATION.md); falta apenas a coleta de dados ao vivo
+- Nenhuma rodada ao vivo (N≥5, 4 arms, corpus completo) foi de fato executada em nenhuma fase do milestone v1.1 — bloqueado por ANTHROPIC_API_KEY ausente em todo o ambiente de desenvolvimento; a maquinaria inteira (Phases 1-6) está a um único comando (`bench-all.sh --yes`, ~$40) de produzir resultados reais e publicáveis, assim que um operador autorizar o gasto
 
 ### Quick Tasks Completed
 
@@ -126,9 +134,10 @@ Items acknowledged and carried forward from previous milestone close:
 |----------|------|--------|-------------|
 | Data collection | Live N≥5 matrix (4 arms incl. competitor) in `aggregated.json` — ROADMAP Phase 4 SC4 | Parked (minor gap, non-blocking) | Phase 4 verification (2026-07-26), blocked on ANTHROPIC_API_KEY |
 | Data collection | Variance pilot (3 tasks x 2 arms x N=5) + full 120-run matrix — ROADMAP Phase 5, CORP-01 | Documented PENDING recipe, not yet run | Phase 5 planning + verification (2026-07-26), blocked on ANTHROPIC_API_KEY, explicitly deferred to Phase 6 |
+| Data collection | Real committed SVG charts + filled BENCHMARKS.md/README.md Results — ROADMAP Phase 6 SC1-SC3 (REPT-01/02/03) | Accepted, non-blocking gap; full publication machinery proven correct at $0 | Phase 6 verification (2026-07-26), blocked on ANTHROPIC_API_KEY, deferred to post-milestone operator action (`benchmarks/scripts/bench-all.sh --yes`) |
 
 ## Session Continuity
 
-Last session: 2026-07-26T07:46:58Z
-Stopped at: Verified Phase 5 (Corpus Expansion + Bias Controls) — 15/15 must-haves, 57/57 required bats green, $0; 0 blocking gaps (see 05-VERIFICATION.md)
+Last session: 2026-07-26T10:33:00Z
+Stopped at: Verified Phase 6 (Reporting, Charts & Publication) — 18/19 must-haves, 21/21 phase-6 bats green (+14/14 spot-checked regression), $0; 0 blocking gaps (see 06-VERIFICATION.md). Milestone v1.1 execution complete (6 of 6 phases), pending gate/ship.
 Resume file: None
