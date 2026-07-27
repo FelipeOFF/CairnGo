@@ -3,16 +3,18 @@
 
 Cross-checks the two sources of truth (.planning/ and the bd tracker) and
 reports drift. Read-only except for --fix-labels, which delegates to
-cairn-relabel.py pair.
+cairn-relabel.py pair, and --close-completed, which bulk-closes via
+'bd close'.
 
 Usage:
     cairn-doctor.py [--project-dir <dir>] [--json] [--fix-labels]
+                    [--close-completed]
 
 Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — nine checks
+                        version output -> WARN. Runs first — ten checks
                         in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
@@ -30,21 +32,63 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     4. superseded-released  PLAN.md with 'status: superseded' whose beads:
                         ids are still open/in_progress -> WARN (release or
                         move them).
-    5. orphans          issues labeled phase-<N> where N is not a ROADMAP
+    5. phase-complete-open  non-closed issues whose phase-<N> labels ALL
+                        point at phases ROADMAP.md marks COMPLETE -> WARN
+                        (FAIL only when a --close-completed the operator
+                        asked for was refused, see below), listing the
+                        ids. ALL, not any: a
+                        cross-phase issue stays live while any of its
+                        phases is still open, the same predicate as
+                        cairn-status's in_done_phase — otherwise the
+                        doctor would flag (and --close-completed would
+                        kill) the very issue the status board recommends
+                        as the next action. 'Complete' is read with
+                        the same lenient semantics as cairn-gate:
+                        '- [x] ... Phase N' checkboxes plus milestone
+                        progress-table rows ending '| Complete |'. When
+                        the ROADMAP checkbox and the on-disk artifacts
+                        (every non-superseded PLAN has its SUMMARY)
+                        disagree about a flagged phase, a note item spells
+                        out the divergence and names the concrete gap (no
+                        phase directory / no PLAN in it / a PLAN lacking
+                        its SUMMARY). --close-completed bulk-closes
+                        the flagged issues via 'bd close <id> --reason
+                        "doctor: phase N complete in ROADMAP"' BEFORE the
+                        checks run (idempotent; the report shows post-fix
+                        state). The divergence note is computed and
+                        printed BEFORE those closes — after them the
+                        issues leave check 5's scope, so the operator
+                        would never see the warning in the one run that
+                        needed it — and the note is carried into the
+                        check's items too.
+                        bd refuses to close an epic with an open child and
+                        an issue whose blocker is still open, so the bulk
+                        close runs as a FIXPOINT: repeated passes over the
+                        target set, each closing whatever bd now accepts,
+                        stopping when a whole pass closes nothing. That
+                        drains any topology (epic<-epic<-epic chains,
+                        blocks edges between phases) without modelling the
+                        graph and without --force, which would bulldoze a
+                        genuinely open child that is NOT in a complete
+                        phase. Whatever survives the fixpoint is reported
+                        with bd's own refusal reason and turns this check
+                        FAIL (exit 7) — a close the operator asked for and
+                        did not get is never silent.
+    6. orphans          issues labeled phase-<N> where N is not a ROADMAP
                         phase -> WARN; non-closed issues with NO phase-*
                         label at all (excluding migrated-todo/backlog/
                         quick labels) -> WARN.
-    6. label-pairs      issues with a phase-* label but no m-* label ->
+    7. label-pairs      issues with a phase-* label but no m-* label ->
                         WARN. --fix-labels repairs them via
                         'cairn-relabel.py pair --milestone <active>' BEFORE
                         the checks run (the report shows post-fix state);
                         refused (exit 2) when the active milestone is
                         unresolvable.
-    7. claims-stale     in_progress issues with an assignee whose phase-<N>
+    8. claims-stale     in_progress issues with an assignee whose phase-<N>
                         label differs from STATE.md's active_phase -> WARN
                         (possible stale claim). Skipped when active_phase
                         is unresolvable.
-    8. bd-doctor        run 'bd doctor'; first line captured as the
+    9. bd-doctor        run 'bd doctor'; first line captured as the
                         summary, pass/fail as bd reports it (exit 0 -> ok,
                         else FAIL).
 
@@ -60,7 +104,9 @@ Exit codes:
        side exists the note suggests /cairn:migrate.
     2  usage error, or --fix-labels refused (milestone unresolvable).
     5  bd unavailable (not on PATH, or bd list failed).
-    7  at least one check FAILED.
+    7  at least one check FAILED — including --close-completed leaving a
+       target unclosed (bd refused it and the fixpoint could not drain it),
+       which fails check 5 rather than exiting silently 0.
 """
 import argparse
 import json
@@ -83,7 +129,9 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 PHASE_LABEL = re.compile(r"^phase-(\d+)$")
 PHASE_HEAD = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\b")
 ANY_HEAD = re.compile(r"^#{1,6}\s")
-CHECKBOX_PHASE = re.compile(r"^\s*-\s*\[[ xX]\]\s.*?\bPhase\s+0*(\d+)\b")
+CHECKBOX_PHASE = re.compile(r"^\s*-\s*\[([ xX])\]\s.*?\bPhase\s+0*(\d+)\b")
+TABLE_PHASE = re.compile(r"^\s*\|\s*0*(\d+)[.)\s][^|]*\|.*\|\s*Complete\s*\|",
+                         re.IGNORECASE)
 REQ_LINE = re.compile(r"^\*\*Requirements\*\*\s*:(.*)$")
 REQ_ID = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
@@ -158,12 +206,90 @@ def roadmap_phases_and_reqs(planning_dir):
             current = None
         m = CHECKBOX_PHASE.match(line)
         if m:
-            phases.add(int(m.group(1)))
+            phases.add(int(m.group(2)))
         if current is not None:
             m = REQ_LINE.match(line.strip())
             if m:
                 reqs[current] = REQ_ID.findall(m.group(1))
     return phases, reqs
+
+
+def roadmap_completed_phases(planning_dir):
+    """Phase numbers ROADMAP.md marks COMPLETE, with the same lenient
+    semantics as cairn-gate: checked '- [x] ... Phase N' checkbox lines
+    plus milestone progress-table rows ending '| Complete |'."""
+    done = set()
+    for line in read_lines(planning_dir / "ROADMAP.md"):
+        m = CHECKBOX_PHASE.match(line)
+        if m:
+            if m.group(1) in ("x", "X"):
+                done.add(int(m.group(2)))
+            continue
+        m = TABLE_PHASE.match(line)
+        if m:
+            done.add(int(m.group(1)))
+    return done
+
+
+def disk_complete_phases(planning_dir):
+    """Phase numbers that look complete ON DISK: the phase dir has >=1
+    *-PLAN.md and every non-superseded plan has its sibling *-SUMMARY.md.
+    The artifact-based notion of 'complete', held next to the ROADMAP
+    checkbox one — phase-complete-open notes when the two diverge."""
+    done = set()
+    for n, d in phase_dirs(planning_dir):
+        plans = sorted(d.glob("*-PLAN.md"))
+        if not plans:
+            continue
+        complete = True
+        for f in plans:
+            status, _ = parse_plan_frontmatter(f)
+            if status == "superseded":
+                continue
+            summary = f.with_name(f.name[:-len("-PLAN.md")] + "-SUMMARY.md")
+            if not summary.is_file():
+                complete = False
+                break
+        if complete:
+            done.add(n)
+    return done
+
+
+def disk_incomplete_reasons(planning_dir):
+    """{phase number: why it falls short of disk_complete_phases}, for the
+    phases that HAVE a directory. The divergence note used to claim 'a
+    non-superseded PLAN lacks its SUMMARY' for every gap, including a phase
+    with no directory at all — this names the real case instead. A phase
+    absent from the mapping has no directory on disk (the caller's
+    default); a phase in disk_complete_phases is absent too."""
+    reasons = {}
+    for n, d in phase_dirs(planning_dir):
+        plans = sorted(d.glob("*-PLAN.md"))
+        if not plans:
+            reasons[n] = f"{d.name}/ holds no PLAN"
+            continue
+        missing = []
+        for f in plans:
+            status, _ = parse_plan_frontmatter(f)
+            if status == "superseded":
+                continue
+            summary = f.with_name(f.name[:-len("-PLAN.md")] + "-SUMMARY.md")
+            if not summary.is_file():
+                missing.append(f.name)
+        if missing:
+            extra = (f" (+{len(missing) - 1} more)" if len(missing) > 1
+                     else "")
+            reasons[n] = f"{missing[0]}{extra} lacks its SUMMARY"
+    return reasons
+
+
+def divergence_sentence(n, disk_reasons):
+    """The one sentence both the pre-close warning and check 5's note item
+    print, carrying the concrete on-disk gap for phase n."""
+    why = (disk_reasons or {}).get(n, "no phase directory on disk")
+    return (f"phase {n} is checked off in ROADMAP.md but its on-disk "
+            f"artifacts disagree ({why}) — confirm the phase is really "
+            f"done before closing")
 
 
 def parse_plan_frontmatter(path):
@@ -276,6 +402,17 @@ def phase_nums(issue):
         if m:
             out.append(int(m.group(1)))
     return out
+
+
+def in_done_phase(issue, completed):
+    """True when the issue is phase-labeled and EVERY phase label points at
+    a ROADMAP-complete phase — an issue the roadmap says was already
+    delivered. ALL, not any: a cross-phase issue stays live while any of
+    its phases is still open, and an unlabeled issue is never stale. Same
+    predicate as cairn-status's in_done_phase, so the board and the doctor
+    never disagree about what is deliverable."""
+    ns = set(phase_nums(issue))
+    return bool(ns) and ns <= set(completed)
 
 
 def in_milestone(issue, milestone):
@@ -391,6 +528,66 @@ def check_superseded_released(plans, issues):
               if items else f"{n_superseded} superseded plan(s), "
                             "no live beads")
     return {"id": "superseded-released", "status": "warn" if items else "ok",
+            "detail": detail, "items": items}
+
+
+def check_phase_complete_open(issues, completed, disk_done, milestone,
+                              closed_n, closed_phases=(), disk_reasons=None,
+                              close_failures=()):
+    """Check 5 — non-closed issues whose phase-<N> labels ALL point at
+    phases ROADMAP.md marks complete. WARN by default (the phase's checkbox
+    and its tracker disagree; --close-completed bulk-closes, or re-open the
+    phase), FAIL only when a --close-completed the operator asked for was
+    refused by bd and the fixpoint could not drain it: close_failures
+    carries [(id, bd's reason)] and each one replaces that issue's generic
+    warn item. A cross-phase issue with one phase still open is NOT flagged
+    (in_done_phase — cairn-status's semantics). Appends a note item per
+    flagged phase where the ROADMAP checkbox and the on-disk artifacts
+    diverge; closed_phases carries the phases --close-completed just
+    emptied so their divergence note survives the close that removed the
+    issues from scope."""
+    items = []
+    flagged = set(closed_phases)
+    failures = dict(close_failures)
+    reported = set()
+    scoped = [i for i in issues
+              if i.get("status") != "closed" and in_milestone(i, milestone)]
+    for iss in scoped:
+        if not in_done_phase(iss, completed):
+            continue
+        done = sorted(set(phase_nums(iss)))
+        flagged.update(done)
+        phases = ", ".join(str(n) for n in done)
+        iid = iss.get("id", "?")
+        if iid in failures:
+            reported.add(iid)
+            items.append(f"{iid}: --close-completed could not close it — "
+                         f"{failures[iid]}")
+        else:
+            items.append(f"{iid}: {iss.get('status')} but phase "
+                         f"{phases} is complete in ROADMAP.md — close it "
+                         f"(--close-completed bulk-closes) or re-open the "
+                         f"phase")
+    # A refused close whose issue somehow left scope still gets reported —
+    # the operator asked for it and did not get it.
+    for iid, why in close_failures:
+        if iid not in reported:
+            items.append(f"{iid}: --close-completed could not close it — "
+                         f"{why}")
+    n_flagged = len(items)
+    for n in sorted(flagged):
+        if n not in disk_done:
+            items.append(f"note: {divergence_sentence(n, disk_reasons)}")
+    detail = (f"{n_flagged} non-closed issue(s) in completed phase(s)"
+              if n_flagged
+              else "no non-closed issues in completed phases")
+    if closed_n:
+        detail += f" (closed {closed_n} via --close-completed)"
+    if close_failures:
+        detail += (f" — {len(close_failures)} refused by bd, still open")
+    status = ("fail" if close_failures
+              else "warn" if n_flagged else "ok")
+    return {"id": "phase-complete-open", "status": status,
             "detail": detail, "items": items}
 
 
@@ -531,6 +728,12 @@ def main():
     parser.add_argument("--fix-labels", action="store_true",
                         help="repair phase-* issues lacking an m-* label via "
                              "cairn-relabel pair --milestone <active>")
+    parser.add_argument("--close-completed", action="store_true",
+                        help="bulk-close non-closed issues whose phase-<N> "
+                             "labels ALL point at phases ROADMAP.md marks "
+                             "complete (bd close --reason), before the "
+                             "checks run; a cross-phase issue with an open "
+                             "phase is left alone")
     args = parser.parse_args()
 
     root = Path(args.project_dir
@@ -570,7 +773,81 @@ def main():
     summary["active_phase"] = active_phase
 
     roadmap_phases, reqs_by_phase = roadmap_phases_and_reqs(planning_dir)
+    completed_set = roadmap_completed_phases(planning_dir)
+    disk_done = disk_complete_phases(planning_dir)
+    disk_reasons = disk_incomplete_reasons(planning_dir)
     plans = plan_inventory(planning_dir)
+
+    # The fixer flags run BEFORE the checks so the report shows post-fix
+    # state. --close-completed first: it shrinks the later fixers' inputs.
+    closed_n = 0
+    closed_phases = set()
+    close_failures = []
+    if args.close_completed:
+        # in_done_phase (ALL, not any) is what keeps this from killing a
+        # cross-phase issue that cairn-status still lists as ready.
+        targets = [i for i in issues
+                   if i.get("status") != "closed"
+                   and i.get("id")
+                   and in_milestone(i, milestone)
+                   and in_done_phase(i, completed_set)]
+        closed_phases = {n for i in targets for n in phase_nums(i)}
+        # The checkbox<->artifacts divergence note is printed BEFORE the
+        # bulk close: the closes empty check 5's scope, so the operator
+        # must see "confirm the phase is really done" while it can still
+        # change the decision. --json consumers read the same note off
+        # check 5's items (closed_phases carries it there).
+        if not args.json:
+            for n in sorted(closed_phases - disk_done):
+                print(f"[cairn-doctor] warning: "
+                      f"{divergence_sentence(n, disk_reasons)}")
+        # bd refuses to close an epic that still has an open child, and an
+        # issue whose blocker is still open. targets is in bd list order,
+        # which says nothing about that ordering, so close by FIXPOINT:
+        # sweep the pending set, keep whatever bd refused, repeat while a
+        # pass still closed something. Any topology drains (an
+        # epic<-epic<-epic chain needs one pass per link) with no graph
+        # model and no --force — forcing would bulldoze a genuinely open
+        # child that is NOT itself in a completed phase.
+        pending = list(targets)
+        last_error = {}
+        while pending:
+            stuck, progressed = [], False
+            for iss in pending:
+                n = min(phase_nums(iss))
+                proc = subprocess.run(
+                    ["bd", "-C", str(root), "close", iss["id"], "--reason",
+                     f"doctor: phase {n} complete in ROADMAP"],
+                    capture_output=True, text=True)
+                if proc.returncode != 0:
+                    last_error[iss["id"]] = (
+                        proc.stderr.strip() or proc.stdout.strip()
+                        or f"bd close exited {proc.returncode}")
+                    stuck.append(iss)
+                    continue
+                closed_n += 1
+                progressed = True
+                if not args.json:
+                    print(f"[cairn-doctor] closed {iss['id']} — phase {n} "
+                          f"complete in ROADMAP ({iss.get('title', '')})")
+            pending = stuck
+            if not progressed:
+                break
+        # Survivors are reported (check 5 turns FAIL -> exit 7), never
+        # swallowed: an operator who asked for a close and got none of it
+        # must not read exit 0.
+        close_failures = [(i["id"], last_error.get(i["id"], "unknown error"))
+                          for i in pending]
+        if closed_n:
+            issues = bd_all_issues(root)
+            # These closes go through 'bd close' directly, so no
+            # post-bd-write hook fires and external mirrors keep showing
+            # them open — same reminder cairn-migrate apply prints.
+            if not args.json and (root / ".cairn" / "sync.json").is_file():
+                print(f"[cairn-doctor] reminder: .cairn/sync.json exists — "
+                      f"run /cairn:sync-pull to reconcile external mirrors "
+                      f"({closed_n} issue(s) closed here bypassed the push "
+                      f"hook)")
 
     # --fix-labels runs BEFORE the checks so the report shows post-fix state.
     fixed, fix_error = 0, None
@@ -601,6 +878,9 @@ def main():
         check_frontmatter_ids(plans, issues),
         check_maps_fresh(root, planning_dir, issues),
         check_superseded_released(plans, issues),
+        check_phase_complete_open(issues, completed_set, disk_done,
+                                  milestone, closed_n, closed_phases,
+                                  disk_reasons, close_failures),
         check_orphans(issues, roadmap_phases),
         check_label_pairs(issues, milestone, fixed, fix_error),
         check_claims_stale(issues, milestone, active_phase),
