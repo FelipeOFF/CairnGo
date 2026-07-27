@@ -33,6 +33,14 @@ state letter (line 1) and a description (line 2; `--json` for details):
 | **W** | both present, already wired | suggest [/cairn:doctor](./doctor.md), **stop** |
 | **D** | neither | nothing to migrate; route to [/cairn:init](./init.md), **stop** |
 
+Whatever the state letter: when the detect JSON (`detect --json`) carries
+`external.jira` with `detected: true`, the repo already references Jira cards
+(`prefixes` lists the issue-key prefixes found). The user is told and pointed
+at [/cairn:sync-config](./sync-config.md) for after the migration — it
+pre-fills the Jira backend from this detection and can import the existing
+cards. Migration never configures sync or runs an import itself; it stays
+mirror-silent by design (see "Always").
+
 Every mode follows the same shape: `detect → plan (dry-run) → confirm →
 apply --yes`, and closes with [/cairn:doctor](./doctor.md).
 

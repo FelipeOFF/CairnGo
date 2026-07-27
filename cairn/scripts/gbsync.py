@@ -14,6 +14,16 @@ never sync to each other. Two directions:
         reconciles into bd with last-writer-wins by timestamp. Genuine
         both-sides-changed cases are written to .cairn/conflicts.json.
 
+  IMPORT (tool -> bd)   one-shot adoption of pre-existing external items
+        gbsync.py import (--query <q> | --project <KEY>) [--backend <type>]
+        Pull only reconciles items already in id-map.json (populated by push),
+        so it can never ADOPT work that predates the sync wiring. Import asks
+        one adapter (action "import") for the external items matching a
+        native query (e.g. JQL) or a project key, mints one bd issue per item
+        (title/body/status), and records the bd-id<->ext-id pair in the
+        id-map — after which normal push/pull cover them. Items whose
+        external id is already mapped are skipped (idempotent re-runs).
+
 Both directions accept --dry-run: walk the same decision logic but only print
 the would-be operations (issue ids + operations, one per line, prefixed
 'DRY-RUN:') without invoking any adapter or writing id-map/state/conflicts.
@@ -30,10 +40,17 @@ Adapter contract (../adapters/<adapter>):
     PULL  stdin : {action:"pull", config, items:[{bd_id, external_id}]}
           stdout: JSON array [{bd_id, external_id, title, body, status, updated_at}]
                   status normalized to open|in_progress|closed; updated_at ISO8601
+    IMPORT stdin: {action:"import", config, query, project}
+          stdout: JSON array [{external_id, title, body, status, updated_at}]
+                  (same normalization as PULL; optional action — jira only today)
     exit 0 on success; nonzero => dispatcher logs and continues.
 
 No secrets are read/written by this dispatcher. Adapters read tokens from env
-vars named in their config.
+vars named in their config; a missing credential is the adapter's fail-loud
+error (it names the env vars), surfaced verbatim here.
+
+Test seam: CAIRN_ADAPTERS_DIR overrides the adapters directory (house
+CAIRN_* env-var seam pattern) so bats can substitute recorder/canned stubs.
 """
 import json
 import os
@@ -42,9 +59,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-ADAPTERS_DIR = Path(__file__).resolve().parent.parent / "adapters"
+ADAPTERS_DIR = Path(os.environ.get("CAIRN_ADAPTERS_DIR")
+                    or Path(__file__).resolve().parent.parent / "adapters")
 PUSH_ACTIONS = {"create", "update", "close"}
 VALID_STATUS = {"open", "in_progress", "closed"}
+USAGE = ("usage: gbsync.py <create|update|close> <bd_id> | pull "
+         "[--since <iso>] | import (--query <q> | --project <KEY>) "
+         "[--backend <type>] [--dir <project_dir>] [--dry-run]")
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
@@ -123,6 +144,45 @@ def bd_apply(bd_id, title, body, status):
         return None
     except subprocess.CalledProcessError as e:
         return e.stderr.strip() or f"exit {e.returncode}"
+
+
+def bd_create(title, body, status):
+    """Mint a bd issue from an imported external item.
+
+    The title is EXTERNAL input (a Jira summary), so it goes through
+    'bd create --title <title>' and never the positional argument: a card
+    titled '--help' (or any '-'-leading string) parsed as a flag makes bd
+    exit 0 printing its help, which the old code then stored as the bd id
+    in id-map.json — marking the card imported forever while no issue was
+    ever created. The returned id is validated as a single whitespace-free
+    token for the same reason.
+
+    Returns (bd_id, err). bd_id may be set even when err is — the issue was
+    created but the follow-up status update failed; callers should still map
+    it so a re-run does not duplicate.
+    """
+    try:
+        bd_id = subprocess.run(["bd", "create", "--title", title,
+                                "--body-file", "-", "--silent"],
+                               input=body or "", text=True,
+                               capture_output=True, check=True).stdout.strip()
+    except FileNotFoundError:
+        die("'bd' not found on PATH")
+    except subprocess.CalledProcessError as e:
+        return None, e.stderr.strip() or f"exit {e.returncode}"
+    if not bd_id:
+        return None, "bd create returned no id"
+    if len(bd_id.splitlines()) != 1 or any(c.isspace() for c in bd_id):
+        return None, ("bd create returned an unparseable id: "
+                      f"{bd_id.splitlines()[0][:60]!r}")
+    if status in VALID_STATUS and status != "open":
+        try:
+            subprocess.run(["bd", "update", bd_id, "--status", status],
+                           capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            return bd_id, (f"created {bd_id} but status update failed: "
+                           f"{e.stderr.strip() or e.returncode}")
+    return bd_id, None
 
 
 def resolve_adapter(name):
@@ -297,20 +357,104 @@ def do_pull(base, cfg, since_override, dry_run=False):
     return 2 if any(s == "FAIL" for _, s, _ in results) else 0
 
 
+# --------------------------------------------------------------------------- #
+# IMPORT:  tool -> bd  (adopt pre-existing external items, seed the id-map)
+# --------------------------------------------------------------------------- #
+def do_import(base, cfg, query, project, backend_type, dry_run=False):
+    backends = enabled_backends(cfg)
+    if backend_type:
+        backends = [b for b in backends if b.get("type") == backend_type]
+        if not backends:
+            die(f"backend '{backend_type}' is not enabled in sync.json")
+    if not backends:
+        die("no enabled backends — run /cairn:sync-config first")
+    if len(backends) > 1:
+        die("multiple enabled backends — pick one with --backend <type>")
+    b = backends[0]
+    btype = b.get("type", "?")
+    adapter = resolve_adapter(b.get("adapter", btype))
+    if not adapter:
+        die(f"adapter '{b.get('adapter', btype)}' not found")
+    scope = f'query "{query}"' if query else f"project {project}"
+    if dry_run:
+        # Same contract as push/pull: dry-run never invokes the adapter and
+        # writes nothing, so we cannot know the item list — describe the call.
+        print(f"DRY-RUN: {btype} import {scope} -> bd create + id-map entries")
+        return 0
+    out, err = run_adapter(adapter, {"action": "import",
+                                     "config": b.get("config", {}),
+                                     "query": query, "project": project})
+    if err:
+        die(f"{btype} import failed: {err}", 2)
+    try:
+        items = json.loads(out) if out else []
+    except json.JSONDecodeError as e:
+        die(f"{btype} import: bad adapter JSON: {e}", 2)
+
+    idmap = load_json(base / "id-map.json", {})
+    mapped = {m[btype] for m in idmap.values() if m.get(btype)}
+    created = skipped = failed = 0
+    lines = []
+    for it in items:
+        ext = str(it.get("external_id") or "").strip()
+        if not ext:
+            failed += 1
+            lines.append(("FAIL", "item without external_id — skipped"))
+            continue
+        if ext in mapped:
+            skipped += 1
+            lines.append(("skip", f"{ext} already mapped"))
+            continue
+        title = (it.get("title") or "").strip() or ext
+        bd_id, cerr = bd_create(title, it.get("body", ""),
+                                it.get("status", "open"))
+        if bd_id:
+            idmap.setdefault(bd_id, {})[btype] = ext
+            mapped.add(ext)
+        if cerr:
+            failed += 1
+            lines.append(("FAIL", f"{ext}: {cerr}"))
+        else:
+            created += 1
+            lines.append(("ok", f"{ext} -> {bd_id}"))
+    write_json(base / "id-map.json", idmap)
+    print(f"[gbsync] import {btype} ({scope}): "
+          f"created={created} skipped={skipped} failed={failed}")
+    for state, detail in lines:
+        print(f"  {state:8} {detail}")
+    return 2 if failed else 0
+
+
+def take_flag(args, flag, default=None):
+    """Pop '<flag> <value>' out of args and return the value.
+
+    A value-taking flag given as the LAST argument is a usage error, never
+    an IndexError traceback: 'gbsync.py import --query' must print how to
+    call it, like every other bad invocation here.
+    """
+    if flag not in args:
+        return default
+    i = args.index(flag)
+    if i + 1 >= len(args):
+        die(f"{flag} needs a value\n{USAGE}")
+    value = args[i + 1]
+    del args[i:i + 2]
+    return value
+
+
 def main():
     args = sys.argv[1:]
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
-    if "--dir" in args:
-        i = args.index("--dir"); project_dir = args[i + 1]; del args[i:i + 2]
-    since = None
-    if "--since" in args:
-        i = args.index("--since"); since = args[i + 1]; del args[i:i + 2]
+    project_dir = take_flag(args, "--dir",
+                            os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
+    since = take_flag(args, "--since")
+    query = take_flag(args, "--query")
+    project_key = take_flag(args, "--project")
+    backend = take_flag(args, "--backend")
     dry_run = "--dry-run" in args
     if dry_run:
         args.remove("--dry-run")
     if not args:
-        die("usage: gbsync.py <create|update|close> <bd_id> | pull [--since <iso>] "
-            "[--dir <project_dir>] [--dry-run]")
+        die(USAGE)
 
     base = Path(project_dir) / ".cairn"
     cfg = load_json(base / "sync.json", None)
@@ -320,12 +464,19 @@ def main():
     action = args[0]
     if action == "pull":
         sys.exit(do_pull(base, cfg, since, dry_run))
+    elif action == "import":
+        if len(args) != 1:
+            die("usage: gbsync.py import (--query <q> | --project <KEY>) "
+                "[--backend <type>] [--dry-run]")
+        if bool(query) == bool(project_key):
+            die("import needs exactly one of --query <q> or --project <KEY>")
+        sys.exit(do_import(base, cfg, query, project_key, backend, dry_run))
     elif action in PUSH_ACTIONS:
         if len(args) != 2:
             die(f"usage: gbsync.py {action} <bd_id> [--dry-run]")
         sys.exit(do_push(action, args[1], base, cfg, dry_run))
     else:
-        die(f"unknown action '{action}' (use create|update|close|pull)")
+        die(f"unknown action '{action}' (use create|update|close|pull|import)")
 
 
 if __name__ == "__main__":

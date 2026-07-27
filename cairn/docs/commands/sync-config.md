@@ -21,7 +21,15 @@ tools never sync to each other.
 2. **Seeds or edits the config:** if `.cairn/sync.json` does not exist, it is
    seeded from `${CLAUDE_PLUGIN_ROOT}/templates/sync.json.example`; otherwise
    it is edited in place, preserving existing values.
-3. **Asks which backends to enable** (multi-select) and collects each one's
+3. **Pre-detects Jira usage:** runs
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-migrate.sh" detect --json`.
+   When the JSON carries `external.jira` with `detected: true` (the repo
+   already references Jira issue keys; `prefixes` lists the key prefixes
+   found, most frequent first, and `source` says where), the **Jira** backend
+   is pre-selected in the next step and `project_key` pre-filled with the
+   most frequent prefix — the user confirms or overrides both. Without a
+   detection the question is asked cold.
+4. **Asks which backends to enable** (multi-select) and collects each one's
    `config` fields, setting `"enabled": true`:
    - **github** — `repo` (owner/name). Uses the `gh` CLI's existing auth; no
      token field.
@@ -35,28 +43,43 @@ tools never sync to each other.
    - **azure-boards** — `org_url`, `project`, `work_item_type`, env var name
      `pat_env`, and `states.in_progress` / `states.closed` matching the
      project's process template.
-4. **Applies the secrets rule:** only **env var names** go into `sync.json`,
+5. **Applies the secrets rule:** only **env var names** go into `sync.json`,
    never token values. After saving, the command lists exactly which env vars
    to export and where to mint each credential (GitLab PAT with `api` scope,
    Jira API token, Asana PAT, Azure DevOps PAT with Work Items Read & Write;
    GitHub needs only `gh auth status`).
-5. **Explains the generated files:** `.cairn/id-map.json`, `.cairn/state.json`,
+6. **Offers the initial Jira import** (when Jira was enabled — especially
+   after a step-3 detection). Pull is mapped-items-only, so cards that
+   predate the sync wiring never arrive on their own; the one-shot import
+   adopts them:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/gbsync.sh" import --project <KEY>
+   ```
+   (`--query '<JQL>'` for a narrower slice, `--dry-run` to preview; capped
+   at 200 items per run — slice a bigger backlog by JQL.) One bd issue is
+   minted per card and `.cairn/id-map.json` seeded, after which normal
+   push/pull cover them; re-runs skip already-mapped cards. Requires the env
+   vars from step 5 to be exported first, and only runs on the user's yes.
+7. **Explains the generated files:** `.cairn/id-map.json`, `.cairn/state.json`,
    and `.cairn/conflicts.json` are created automatically at sync time — never
    by hand. `sync.json` is meant to be **committed**; the generated three are
    gitignored by default (`cairn-init.sh` adds the entries). A team that wants
    to commit one of them can remove its `.gitignore` line.
-6. **Tells the user how to drive it:** PUSH happens automatically during the
+8. **Tells the user how to drive it:** PUSH happens automatically during the
    `cairn-sync` lifecycle, or manually with
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/gbsync.sh" update <bd_id>`; PULL is
-   [`/cairn:sync-pull`](sync-pull.md). To validate the config **without
-   calling any API**, run a single `gbsync.sh update <bd_id>` and read the
-   per-backend result lines (add `--dry-run` for a fully read-only check).
+   [`/cairn:sync-pull`](sync-pull.md); IMPORT of pre-existing Jira cards is
+   `gbsync.sh import` (step 6). To validate the config **without calling any
+   API**, run a single `gbsync.sh update <bd_id>` and read the per-backend
+   result lines (add `--dry-run` for a fully read-only check).
 
 ## Flags & arguments
 
 None on the command itself. Backend choice and config fields are collected
 interactively. The underlying dispatcher (`gbsync.sh`) accepts `--dir <path>`
-and `--dry-run` — see the [sync guide](../sync.md#8-commands).
+and `--dry-run`, and its `import` action takes exactly one of
+`--query '<JQL>'` / `--project <KEY>` plus optional `--backend <type>` — see
+the [sync guide](../sync.md#8-commands).
 
 ## Examples
 

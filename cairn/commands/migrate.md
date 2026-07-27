@@ -25,6 +25,13 @@ Line 1 is the state letter, line 2 the description (`--json` for details):
 - **W** — both present, already wired → tell the user, suggest `/cairn:doctor`, **stop**
 - **D** — neither → nothing to migrate; route to `/cairn:init`, **stop**
 
+Whatever the state letter: when the detect JSON (`detect --json`) carries
+`external.jira` with `detected: true`, the repo already references Jira cards
+(`prefixes` lists the issue-key prefixes found). Tell the user and suggest
+`/cairn:sync-config` after the migration — it pre-fills the Jira backend from
+this detection and can import the existing cards. Never configure sync or run
+an import on your own; migration itself stays mirror-silent (see "Always").
+
 Exit codes for `plan`/`apply` below: `0` ok, `2` usage / wrong mode / no plan /
 abort, `5` bd unavailable (install via `/cairn:init` step "Ensure beads",
 then retry), `8` partial apply failure.
