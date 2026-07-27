@@ -3,7 +3,8 @@
 # (cairn-status.py / the cairn-status.sh wrapper): the box-drawing kanban
 # board, graceful width degradation (columns → stacked → raw list), the
 # machine formats (--json, --plain, non-TTY default), --brief, color
-# suppression (NO_COLOR / --color), --ascii, and the documented exit codes
+# suppression (NO_COLOR / --color), the --html board (marker-scoped
+# regeneration, escaping, zero network), and the documented exit codes
 # (0 ok, 2 usage, 5 bd unavailable).
 #
 # Assertion style note: a failing `[[ ]]` or `! cmd` mid-test does NOT fail a
@@ -39,6 +40,25 @@ make_status_fixture() {
   bd update "$ST_DOING" --status in_progress -a felipe >/dev/null
   ST_CLOSED="$(bd create "Login handler" -t task -l phase-1,m-v1.0 --silent)"
   bd close "$ST_CLOSED" >/dev/null
+}
+
+BOARD_START='<!-- cairn:generated:board:start -->'
+BOARD_END='<!-- cairn:generated:board:end -->'
+
+# Print everything OUTSIDE the generated board region of FILE, both markers
+# included. This is the half of the file the user owns; regeneration must
+# leave it byte for byte alone.
+board_outside() {
+  awk '/cairn:generated:board:start/ { print; inside = 1; next }
+       /cairn:generated:board:end/   { inside = 0 }
+       !inside                        { print }' "$1"
+}
+
+# Print only the generated region of FILE (markers excluded).
+board_inside() {
+  awk '/cairn:generated:board:end/   { inside = 0 }
+       inside                         { print }
+       /cairn:generated:board:start/ { inside = 1 }' "$1"
 }
 
 @test "board at --width 100: lanes, glyphs, footer, next action" {
@@ -494,7 +514,7 @@ make_status_fixture() {
   grep -qF "$stale" <<<"$output"
   grep -qF '·done-phase' <<<"$output"
   [ "$(grep -cF '·done-phase' <<<"$output")" -eq 1 ]
-  grep -qF '1 open issue(s) belong to roadmap-complete phases — run /cairn:doctor --close-completed' <<<"$output"
+  grep -qF '1 open issue(s) belong to roadmap-complete phases. run /cairn:doctor --close-completed' <<<"$output"
   # next picks the active-phase issue, never the delivered-phase one.
   grep -qF "▶ next: start $live" <<<"$output"
   refute_in_output "start $stale"
@@ -552,4 +572,396 @@ make_status_fixture() {
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
   [ "$status" -eq 0 ]
   grep -qF "$(printf 'NOTE\t1 open issue(s) belong to roadmap-complete phases')" <<<"$output"
+}
+
+# ------------------------------------------------------------------- --html
+
+@test "--html seeds a standalone page from the template, with the markers" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  grep -qF 'wrote' <<<"$output"
+  [ -f board.html ]
+
+  run cat board.html
+  # A whole document, not a fragment: doctype, both html tags, inline styles.
+  grep -qF '<!DOCTYPE html>' <<<"$output"
+  grep -qF '<html lang="en">' <<<"$output"
+  grep -qF '</html>' <<<"$output"
+  grep -qF '<style>' <<<"$output"
+  grep -qF '</style>' <<<"$output"
+  grep -qF "$BOARD_START" <<<"$output"
+  grep -qF "$BOARD_END" <<<"$output"
+  # The board itself: three lanes, the issues, the one next action.
+  grep -qF '>ready</h2>' <<<"$output"
+  grep -qF '>doing</h2>' <<<"$output"
+  grep -qF '>blocked</h2>' <<<"$output"
+  grep -qF 'Gate regex hardening' <<<"$output"
+  grep -qF "$ST_DOING" <<<"$output"
+  grep -qF 'claimed by felipe' <<<"$output"
+  grep -qF "waiting on $ST_READY1" <<<"$output"
+  # The template placeholder was replaced, not left behind.
+  refute_in_output 'no board rendered yet'
+  # The closed issue is a card nowhere (it only feeds the profile + count).
+  refute_in_output "$ST_CLOSED"
+}
+
+@test "--html profile: terrain from real per-phase counts, cairn on the active phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  run cat board.html
+  grep -qF 'class="terrain-mass"' <<<"$output"
+  grep -qF 'class="cairn-stack"' <<<"$output"
+  grep -qF 'roadmap profile: 2 phases, standing at phase 2' <<<"$output"
+  # Elevation is data: phase 1 carries the one closed issue, phase 2 the four
+  # open ones. Phase 1 is [x] in the ROADMAP, phase 2 is where we stand.
+  grep -qF '<span class="tick is-done"><span class="tick-n">01</span><span class="tick-c">1</span></span>' <<<"$output"
+  grep -qF '<span class="tick is-here"><span class="tick-n">02</span><span class="tick-c">4</span></span>' <<<"$output"
+}
+
+@test "--html regeneration rewrites ONLY the generated region" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  board_outside board.html > "$BATS_TEST_TMPDIR/outside-1"
+  board_inside board.html > "$BATS_TEST_TMPDIR/inside-1"
+
+  # State moves on: a new claimable issue appears.
+  local fresh
+  fresh="$(bd create "Terrain smoothing pass" -t task -p 1 -l phase-2,m-v1.0 --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  board_outside board.html > "$BATS_TEST_TMPDIR/outside-2"
+  board_inside board.html > "$BATS_TEST_TMPDIR/inside-2"
+
+  # Everything outside the markers is untouched — proven by diff, then by a
+  # byte-level compare (diff is line-based and would miss trailing bytes).
+  run diff -u "$BATS_TEST_TMPDIR/outside-1" "$BATS_TEST_TMPDIR/outside-2"
+  [ "$status" -eq 0 ]
+  run cmp "$BATS_TEST_TMPDIR/outside-1" "$BATS_TEST_TMPDIR/outside-2"
+  [ "$status" -eq 0 ]
+
+  # …and the generated region really did move to the new state.
+  run cmp -s "$BATS_TEST_TMPDIR/inside-1" "$BATS_TEST_TMPDIR/inside-2"
+  [ "$status" -ne 0 ]
+  run cat "$BATS_TEST_TMPDIR/inside-2"
+  grep -qF "$fresh" <<<"$output"
+  grep -qF 'Terrain smoothing pass' <<<"$output"
+  run cat "$BATS_TEST_TMPDIR/inside-1"
+  refute_in_output "$fresh"
+}
+
+@test "--html preserves the user's own edits outside the markers" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  # The user retitles the page, restyles a token and leaves a note below the
+  # board — all outside the markers, all theirs.
+  sed -i.bak 's|<title>cairn: status board</title>|<title>trail head</title>|' board.html
+  sed -i.bak 's|--amber:     #D98A3A;|--amber:     #4FB8A0;|' board.html
+  sed -i.bak "s|</main>|</main>\n<p id=\"mine\">my own note, hands off</p>|" board.html
+  rm -f board.html.bak
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  run cat board.html
+  grep -qF '<title>trail head</title>' <<<"$output"
+  # `--` first: the pattern itself starts with dashes.
+  grep -qF -- '--amber:     #4FB8A0;' <<<"$output"
+  grep -qF '<p id="mine">my own note, hands off</p>' <<<"$output"
+  refute_in_output '<title>cairn: status board</title>'
+  # The board itself still regenerated inside the markers.
+  grep -qF 'Gate regex hardening' <<<"$output"
+}
+
+@test "--html escapes issue text: markup in a title cannot execute" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create '<script>alert(1)</script> tea & scones <img src=x onerror=alert(2)>' \
+    -t task -p 0 -l phase-2 --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  run cat board.html
+  # Escaped, so it renders as text…
+  grep -qF '&lt;script&gt;alert(1)&lt;/script&gt; tea &amp; scones' <<<"$output"
+  grep -qF '&lt;img src=x onerror=alert(2)&gt;' <<<"$output"
+  # …and nothing from it survives as markup. The literal string "onerror="
+  # is still in the file and that is FINE: escaping its angle brackets is
+  # exactly what makes it inert text instead of an attribute. What must not
+  # exist is an element — a title can never open a tag, because esc() takes
+  # < > & " ' before anything reaches the page.
+  refute_in_output '<script'
+  refute_in_output '<img'
+  run grep -ciE '<script|<img|<iframe|javascript:' board.html
+  [ "$status" -eq 1 ]
+}
+
+@test "--html page makes zero network requests" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  # No absolute or protocol-relative URL, no @import, no fetch: styles,
+  # texture and the profile are all inline, so the page works offline.
+  run grep -nE 'https?://|//cdn|@import|fetch\(|<link |src=' board.html
+  [ "$status" -eq 1 ]
+}
+
+@test "--html without a roadmap degrades to a flat band, no invented terrain" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local solo
+  solo="$(bd create "Solo issue" -t task --silent)"
+
+  # No .planning at all: must not crash, must not draw phases it cannot know.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  [ -f board.html ]
+
+  run cat board.html
+  grep -qF 'no roadmap phases. counts only.' <<<"$output"
+  grep -qF 'no roadmap position' <<<"$output"
+  grep -qF "$solo" <<<"$output"
+  refute_in_output 'class="cairn-stack"'
+  refute_in_output 'class="ticks"'
+}
+
+@test "--html on a GSD repo without .beads renders the note and empty lanes" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  run cat board.html
+  grep -qF 'no .beads/' <<<"$output"
+  grep -qF 'no work ready. plan a phase.' <<<"$output"
+  grep -qF 'nothing in flight.' <<<"$output"
+  grep -qF 'nothing blocked.' <<<"$output"
+  # The roadmap still draws, at zero elevation everywhere.
+  grep -qF 'class="terrain-mass"' <<<"$output"
+}
+
+@test "--html composes with --json and --planning-dir, and refuses --plain/--brief" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+  local target_repo="$CAIRN_TMP_REPO"
+
+  # --json reports the write instead of the confirmation line.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json --html board.html
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 1 ]
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.html.changed' 'true'
+  # pwd -P: the reported path is fully resolved, and on macOS the tmpdir
+  # reaches it through a /var -> /private/var symlink.
+  [ "$(jq -r '.html.file' <<<"$output")" = "$(pwd -P)/board.html" ]
+
+  # --planning-dir still points the board at another checkout.
+  make_tmp_repo
+  bd init -q --prefix other --non-interactive >/dev/null 2>&1
+  local stray
+  stray="$(bd create "Stray issue from the wrong repo" -t task --silent)"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html elsewhere.html \
+    --planning-dir "$target_repo/.planning"
+  [ "$status" -eq 0 ]
+  run cat elsewhere.html
+  grep -qF 'Gate regex hardening' <<<"$output"
+  refute_in_output "$stray"
+
+  # Stdout render modes are not file render targets.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html --plain
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html --brief
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html /no/such/dir/board.html
+  [ "$status" -eq 2 ]
+}
+
+@test "--html elevation is proportional: relief has no floor, and one strata band means one issue" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  # Phase 1 carries one issue, phase 2 carries four: a 4:1 reading.
+  bd create "Auth one" -t task -l phase-1,m-v1.0 --silent >/dev/null
+  for n in 1 2 3 4; do
+    bd create "Api $n" -t task -l phase-2,m-v1.0 --silent >/dev/null
+  done
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  # One band per issue of the busiest phase, and the bands sit at exactly
+  # BASE_Y - k*(MAX_RELIEF/busiest) = 196 - k*31. A phase carrying one issue
+  # therefore peaks on the FIRST band and the four-issue phase on the last:
+  # that is the 4:1 the data says, and it is what a relief floor destroyed
+  # (it used to render as 2.32:1).
+  run bash -c "grep -o '<line x1=\"[^\"]*\" y1=\"[^\"]*\"' board.html | wc -l | tr -d ' '"
+  [ "$output" = "4" ]
+  grep -qF 'y1="165.0"' board.html
+  grep -qF 'y1="134.0"' board.html
+  grep -qF 'y1="103.0"' board.html
+  grep -qF 'y1="72.0"' board.html
+  # The caption names the band's unit, so counting them is a defined reading.
+  grep -qF 'one band each' board.html
+}
+
+@test "--html a finished roadmap draws no climb ahead; an unfinished one does, and hands off without a shear" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # Phase 2 is open in the fixture: there IS ground still ahead.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html mid.html
+  [ "$status" -eq 0 ]
+  grep -qF '<polyline class="terrain-ahead"' mid.html
+  # …and the walked mass dissolves into it instead of being cut off square.
+  grep -qF 'id="cairn-ground-cut"' mid.html
+
+  # Tick every phase: nothing is left to climb.
+  sed -i.bak 's/- \[ \] \*\*Phase 2/- [x] **Phase 2/' .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html done.html
+  [ "$status" -eq 0 ]
+  # No dotted trail asserting work that does not exist, and with no cut
+  # there is nothing to feather: the ground runs off the page.
+  run bash -c "grep -c '<polyline class=\"terrain-ahead\"' done.html || true"
+  [ "$output" = "0" ]
+  run bash -c "grep -c 'id=\"cairn-ground-cut\"' done.html || true"
+  [ "$output" = "0" ]
+  # The crest itself is still drawn — the terrain did not disappear with it.
+  grep -qF '<polyline class="terrain-crest"' done.html
+}
+
+@test "--html the caption reports work the terrain cannot show" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "Placed" -t task -l phase-2,m-v1.0 --silent >/dev/null
+  bd create "No phase label at all" -t task --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  # Two issues tracked, one of them has no phase: the profile says so rather
+  # than quietly under-reporting the board it sits on.
+  grep -qF '1 of 2 issues carry a phase' board.html
+
+  # With every issue placed, the caption does not carry the clause at all.
+  rm -f board.html
+  bd create "Also placed" -t task -l phase-2,m-v1.0 --silent >/dev/null
+  bd list --status open --json >/dev/null 2>&1
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html full.html
+  [ "$status" -eq 0 ]
+  run bash -c "grep -c 'issues carry a phase' full.html || true"
+  [ "$output" = "1" ]
+}
+
+@test "--html the next line points at its card instead of repeating it" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  # The card the next action names is marked, exactly once.
+  run bash -c "grep -c 'class=\"card is-next\"' board.html"
+  [ "$output" = "1" ]
+  # …and the sentence is printed once on the page, in the card — not also
+  # spelled out in the next line 130px above it. Scoped to the generated
+  # region: the .next-title RULE still lives in the stylesheet, because the
+  # line does carry a title when the next action has no card to point at.
+  board_inside board.html > inside.html
+  run bash -c "grep -c 'next-title' inside.html || true"
+  [ "$output" = "0" ]
+  # The line still names the id, which is what sends you to the card.
+  grep -qF 'class="next-id"' board.html
+}
+
+@test "--html an empty lane keeps its heading but not an equal share of the width" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "The only work there is" -t task -l phase-2,m-v1.0 --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  # ready holds the one issue; doing and blocked are empty and get half its
+  # track. The zero still states itself: "nothing blocked" and "blocked was
+  # never checked" must not look the same.
+  # `--` first: the pattern itself starts with dashes.
+  grep -qF -- '--lane-tracks: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)' \
+    board.html
+  grep -qF 'nothing blocked.' board.html
+  grep -qF 'nothing in flight.' board.html
+  # -o then count: the three lanes are emitted on ONE line, so grep -c would
+  # report 1 however many matched.
+  run bash -c "grep -o 'class=\"lane lane-[a-z]* is-empty\"' board.html \
+    | wc -l | tr -d ' '"
+  [ "$output" = "2" ]
+
+  # With nothing anywhere, the three stay even: then the emptiness IS the
+  # message and lopsided columns would only read as broken.
+  rm -rf .beads && bd init -q --prefix e2 --non-interactive >/dev/null 2>&1
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html bare.html
+  [ "$status" -eq 0 ]
+  grep -qF -- '--lane-tracks: repeat(3, minmax(0, 1fr))' bare.html
+}
+
+@test "--html the header and the profile agree on which phase you stand in" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+  # STATE.md says nothing about the active phase: the terrain resolves it,
+  # and the header must not stay silent while the SVG label announces it.
+  printf -- '---\nmilestone: v1.0\n---\n\n# State\n' > .planning/STATE.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  # Phase 1 is delivered in the fixture, so the first phase not yet complete
+  # is 2 — in the label a screen reader reads AND in the line a sighted
+  # reader reads.
+  grep -qF 'standing at phase 2' board.html
+  grep -qF 'phase <span class="n">2</span> of' board.html
 }

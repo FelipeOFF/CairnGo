@@ -242,6 +242,7 @@ fit: [`docs/architecture.md`](./docs/architecture.md)
 | `scripts/gbsync.py` / `.sh` | the push/pull sync dispatcher |
 | `adapters/*.py` · `_contract.md` | github · gitlab · jira · asana · azure-boards adapters + the interface spec |
 | `templates/*.example` | starter `sync.json` / `context.json` |
+| `templates/status-board.html` | the `/cairn:status --html` page (styles outside the generated markers are yours) |
 | `docs/` | deep dives: migration · sync · context-mode memory · architecture |
 | [`docs/commands.md`](./docs/commands.md) | the command reference index — one doc per `/cairn:` verb under `docs/commands/` |
 

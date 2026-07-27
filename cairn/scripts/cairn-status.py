@@ -9,6 +9,7 @@ alternate screen, no cursor addressing, no animation.
 Usage:
     cairn-status.py [--json] [--plain] [--brief] [--width N] [--max-rows N]
                     [--ascii] [--color=always|never] [--planning-dir <dir>]
+                    [--html <path>]
 
 Behavior:
     1. Locate the planning dir (default: $CLAUDE_PROJECT_DIR or cwd +
@@ -54,9 +55,26 @@ Behavior:
     6. When .cairn/sync.json exists, append a sync-staleness line from the
        last-pull watermarks in .cairn/state.json (missing or older than 24h
        → suggest /cairn:sync-pull).
+    7. --html <path> renders the SAME data as a standalone HTML board (no
+       network of any kind: styles, texture and the profile are inline, no
+       font/script/image is loaded from anywhere). The page is a generated
+       VIEW: everything between <!-- cairn:generated:board:start --> and
+       <!-- cairn:generated:board:end --> is owned by this script, every byte
+       outside them is the user's and survives regeneration byte for byte —
+       the same marker mechanics as cairn-map.py and bench-publish.py. A path
+       that does not exist yet is seeded from templates/status-board.html; a
+       file without the marker pair gets the block appended, never destroyed.
+       Its signature is a topographic profile of the roadmap: one terrain
+       segment per phase, elevation = that phase's issue count (open AND
+       closed), ground filled up to the active phase, a drawn cairn standing
+       on it, and a thin ridge line for the climb ahead. Without roadmap
+       phases the band degrades to a flat horizon carrying the counts — it
+       never invents relief. All bd/GSD text goes through esc() = clean() +
+       HTML escaping, so a title carrying markup renders as text.
 
     --json      one machine line: {ready, doing, blocked, counts, milestone,
-                phase, next, sync, stale_complete, note}
+                phase, next, sync, stale_complete, note} (+ html: {file,
+                changed} when --html also ran)
     --plain     tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA) plus
                 PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color, no
                 truncation
@@ -68,11 +86,20 @@ Behavior:
                 CAIRN_NO_COLOR > NO_COLOR (present and non-empty, even "0")
                 > TERM=dumb > isatty(stdout). `always` also opts a piped
                 run into the board renderer (see 5)
+    --html P    write/refresh the HTML board at P and print one confirmation
+                line. Composes with --planning-dir and --json (which reports
+                the write instead of the line); rejected with --plain /
+                --brief, which are stdout render modes (exit 2). The page has
+                no row cap, so --max-rows / --width / --ascii / --color do
+                not apply to it.
 
 Exit codes:
-    0 ok    2 usage    5 bd unavailable (not on PATH, or a bd query failed)
+    0 ok    2 usage (bad flag, or an unusable --html target/template)
+    5 bd unavailable (not on PATH, or a bd query failed)
 """
+import html
 import json
+import math
 import os
 import re
 import shutil
@@ -89,7 +116,7 @@ EXIT_NO_BD = 5
 
 USAGE = ("usage: cairn-status.py [--json] [--plain] [--brief] [--width N] "
          "[--max-rows N] [--ascii] [--color=always|never] "
-         "[--planning-dir <dir>]")
+         "[--planning-dir <dir>] [--html <path>]")
 
 MIN_INNER = 18          # narrowest readable lane content
 MAX_INNER = 40          # widest useful lane content
@@ -133,7 +160,7 @@ def die(msg, code):
 def parse_args(argv):
     opts = {"json": False, "plain": False, "brief": False, "width": None,
             "max_rows": DEFAULT_MAX_ROWS, "ascii": False, "color": "auto",
-            "planning_dir": None}
+            "planning_dir": None, "html": None}
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -171,15 +198,22 @@ def parse_args(argv):
                 die(f"--color must be always or never, got '{val}'\n{USAGE}",
                     EXIT_USAGE)
             opts["color"] = val
-        elif arg == "--planning-dir":
+        elif arg == "--planning-dir" or arg == "--html":
             if i + 1 >= len(argv):
-                die(f"--planning-dir needs a value\n{USAGE}", EXIT_USAGE)
-            opts["planning_dir"] = argv[i + 1]
+                die(f"{arg} needs a value\n{USAGE}", EXIT_USAGE)
+            opts["planning_dir" if arg == "--planning-dir" else "html"] = \
+                argv[i + 1]
             i += 2
         else:
             die(f"unknown argument '{arg}'\n{USAGE}", EXIT_USAGE)
     if opts["json"] + opts["plain"] + opts["brief"] > 1:
         die(f"choose one of --json / --plain / --brief\n{USAGE}", EXIT_USAGE)
+    if opts["html"] is not None and (opts["plain"] or opts["brief"]):
+        # --html is a file render target, --plain/--brief are stdout render
+        # modes: combining them would silently drop one. --json composes
+        # (it reports the write under an "html" key).
+        die("--html cannot be combined with --plain / --brief "
+            f"(--json composes)\n{USAGE}", EXIT_USAGE)
     return opts
 
 
@@ -261,6 +295,9 @@ def trim_issue(iss):
 
 
 def fetch_lanes(root):
+    """(ready, doing, blocked, closed) issue lists. The closed issues are
+    kept whole, not counted: --html reads their phase-N labels to give each
+    roadmap phase its real elevation. Every other renderer uses len()."""
     ready = run_bd(["ready", "-n", "0"], root)
     doing = run_bd(["list", "--status", "in_progress", "--limit", "0"], root)
     blocked = run_bd(["blocked"], root)
@@ -268,7 +305,7 @@ def fetch_lanes(root):
     # str() on the id: an explicit null must not TypeError the sort.
     key = lambda i: (issue_priority(i), str(i.get("id") or ""))  # noqa: E731
     return (sorted(ready, key=key), sorted(doing, key=key),
-            sorted(blocked, key=key), len(closed))
+            sorted(blocked, key=key), closed)
 
 
 # --------------------------------------------------------------- GSD reading
@@ -457,7 +494,7 @@ def synthesize_next(ready, doing, milestone, active_phase, next_action,
 # ------------------------------------------------------- width and truncation
 
 def char_width(ch):
-    if ch == "\u200d" or "\ufe00" <= ch <= "\ufe0f":
+    if ch == "‍" or "︀" <= ch <= "️":
         return 0                       # ZWJ / variation selectors
     if unicodedata.combining(ch):
         return 0
@@ -774,6 +811,654 @@ def render_brief(data, style):
     return [head, counts, nxt]
 
 
+# ------------------------------------------------------------ html rendering
+#
+# The HTML board is a fourth renderer over the SAME `data` dict the terminal,
+# --plain and --json renderers read: no extra bd query, no second source of
+# truth. Its signature element is a topographic profile of the roadmap, and
+# every number in it comes from real state (issues per phase, lane counts,
+# roadmap position) — the page never invents relief it does not have.
+
+BOARD_START = "<!-- cairn:generated:board:start -->"
+BOARD_END = "<!-- cairn:generated:board:end -->"
+TEMPLATE_PATH = (Path(__file__).resolve().parent.parent / "templates" /
+                 "status-board.html")
+
+# Profile geometry, in viewBox units (the SVG scales with the page, so these
+# are proportions, not pixels).
+VB_W, VB_H = 1000.0, 220.0
+BASE_Y = 196.0                 # elevation datum: relief is measured up from it
+# Relief starts at zero so elevation stays PROPORTIONAL to the count: a
+# non-zero floor here would be a compressed axis, the truncated axis's twin,
+# and the caption makes a quantitative promise the geometry has to honour.
+# Two phases at 1 and 4 issues must differ 4x, not 2.3x. The drawing floor
+# lives in the clamp inside terrain_ridge (BASE_Y - 8), which keeps a flat
+# phase visible without touching the ratio between phases that carry data.
+MIN_RELIEF, MAX_RELIEF = 0.0, 124.0
+PEAK_Y = BASE_Y - MAX_RELIEF   # 72: the highest a ridge can reach
+SKY_Y = PEAK_Y - 6.0           # sampling ceiling, so a spline overshoot on a
+#                                steep face can never crowd the marker
+STRATA_MAX_BANDS = 12          # above this the one-band-per-issue scale would
+#                                crowd into texture, so it is dropped instead
+#                                (see svg_profile)
+RIDGE_ROUGHNESS = 2.6          # drawn texture BETWEEN nodes only (see
+#                                catmull_rom): every peak keeps its exact,
+#                                data-given elevation
+# Unmapped ground carried on each side of the roadmap so the profile can run
+# to the page edges and off them: the trail existed before phase one and
+# keeps going after the last. The band bleeds past the text column in the
+# stylesheet, and .ticks pads itself by exactly TRAIL_BLEED / TRAIL_SPAN so
+# every tick stays dead-centre under its own segment. Change one, change the
+# other (the CSS carries the same two numbers in a comment).
+TRAIL_BLEED = 70.0
+TRAIL_SPAN = VB_W + 2 * TRAIL_BLEED
+SKY_PAD = 6.0                  # air kept above the highest thing in the box
+CUT_FADE = 48.0                # horizontal run over which walked ground
+#                                dissolves into the climb ahead, so the two
+#                                meet in a hand-off rather than a shear
+GROUND_FADE = 0.26             # bottom share of the box the ground dissolves
+#                                over, so the cross-section has no hard edge
+#                                against the page under it
+MAX_TICK_LABELS = 16           # numbers the scale can hold on a phone before
+#                                they collide (see tick_label_indices)
+
+# The marker: five stones, base at (0,0), stacked upward. Faceted irregular
+# silhouettes drawn vertex by vertex — a cairn is struck rock stacked by
+# hand, and circles would read as a chart legend.
+# Each stone is offset against the one below it (left, right, left, right)
+# and the taper is deliberately not monotonic — stone three overhangs stone
+# two. A perfectly centred, evenly tapering stack reads as a pagoda; a
+# cairn is balanced by hand and leans.
+CAIRN_STONES = (
+    ((-15.6, -2.0), (-13.2, -8.2), (-6.0, -10.6), (3.2, -10.8), (10.6, -9.0),
+     (14.4, -5.2), (13.8, -0.6), (8.4, 2.0), (-9.8, 2.2), (-14.6, 0.4)),
+    ((-8.4, -12.4), (-6.0, -17.6), (-0.6, -19.4), (6.0, -18.8), (10.4, -16.2),
+     (11.2, -12.0), (7.2, -10.2), (-4.6, -10.4)),
+    ((-13.0, -21.4), (-10.6, -24.4), (-4.4, -25.4), (3.4, -24.8), (8.0, -22.6),
+     (8.6, -20.4), (3.0, -19.0), (-8.6, -19.4)),
+    ((-5.0, -27.0), (-2.6, -31.0), (1.6, -32.4), (5.8, -31.2), (8.4, -28.2),
+     (7.0, -25.6), (2.6, -25.0), (-3.0, -25.4)),
+    ((-6.6, -34.0), (-4.6, -37.2), (-1.4, -38.6), (1.4, -36.6), (2.6, -33.6),
+     (0.8, -31.8), (-2.8, -31.8), (-5.4, -32.6)),
+)
+# Real extent of the stack around its base, half the 0.9 stroke included. The
+# marker is clamped inside the viewBox with these, so a cairn standing on the
+# first or the last phase of a long roadmap keeps every stone whole.
+STACK_L = -min(x for s in CAIRN_STONES for x, _ in s) + 0.5   # 16.1
+STACK_R = max(x for s in CAIRN_STONES for x, _ in s) + 0.5    # 14.9
+STACK_H = -min(y for s in CAIRN_STONES for _, y in s)         # 38.6
+
+PEBBLE = ('<svg class="mark" viewBox="0 0 12 10" aria-hidden="true">'
+          '<use href="#pebble"></use></svg>')
+
+
+def esc(text):
+    """The single gate every bd/GSD string passes before reaching the page.
+
+    clean() first (control bytes stripped, whitespace collapsed — titles can
+    arrive from a remote tracker via sync-pull), then HTML escaping of
+    & < > " ' so a title like `<script>x&y</script>` renders as text and can
+    neither execute nor break out of an attribute.
+    """
+    return html.escape(clean(text), quote=True)
+
+
+def n2(x):
+    """Compact fixed-point for SVG coordinates."""
+    return f"{x:.1f}"
+
+
+def split_markers(text, start_marker, end_marker):
+    """(prefix incl. start marker, inner, suffix from end marker) or None
+    when either marker is missing/misordered (ported from cairn-map.py)."""
+    s = text.find(start_marker)
+    e = text.find(end_marker)
+    if s < 0 or e < 0 or e < s:
+        return None
+    return (text[:s + len(start_marker)],
+            text[s + len(start_marker):e].strip("\n"),
+            text[e:])
+
+
+def splice_board(text, inner):
+    """(changed, full_text): replace ONLY the content between the board
+    markers, preserving every other byte exactly. A file that carries no
+    marker pair gets the block appended, never destroyed — the contract
+    cairn-map.py and bench-publish.py already use."""
+    parts = split_markers(text, BOARD_START, BOARD_END)
+    if parts is None:
+        sep = "" if text.endswith("\n") else "\n"
+        return True, f"{text}{sep}\n{BOARD_START}\n{inner}\n{BOARD_END}\n"
+    if parts[1] == inner:
+        return False, text
+    return True, f"{parts[0]}\n{inner}\n{parts[2]}"
+
+
+# ------------------------------------------------------- the roadmap terrain
+
+def terrain_model(data):
+    """Per-phase elevation model, or None when the roadmap has no phases.
+
+    Elevation is the issue count of each phase — every issue carrying a
+    phase-N label, open or closed, so a delivered phase keeps the ground it
+    earned. The phase you stand in is STATE.md's active_phase; when that is
+    missing or points off the roadmap, it falls back to the first phase the
+    roadmap has not marked complete (the summit when all of them are).
+    """
+    phases = data["_phases"]["all"]
+    if not phases:
+        return None
+    done = set(data["_phases"]["done"])
+    counts = {n: 0 for n in phases}
+    tracked = placed = 0
+    for iss in (data["_lanes"][0] + data["_lanes"][1] + data["_lanes"][2] +
+                data["_closed"]):
+        tracked += 1
+        on_roadmap = False
+        for n in issue_phase_ns(iss):
+            if n in counts:
+                counts[n] += 1
+                on_roadmap = True
+        placed += 1 if on_roadmap else 0
+    try:
+        active = int(str(data["phase"]["active"]))
+    except (TypeError, ValueError):
+        active = None
+    if active not in counts:
+        ahead = [n for n in phases if n not in done]
+        active = ahead[0] if ahead else phases[-1]
+    # Issues with no phase label are real work the terrain cannot show. The
+    # caption reports the shortfall rather than letting the profile quietly
+    # under-report the board it sits on.
+    return {"phases": phases, "counts": counts, "done": done,
+            "active": active, "placed": placed, "tracked": tracked}
+
+
+def catmull_rom(nodes, per_span):
+    """Points sampled along a Catmull-Rom spline through `nodes`.
+
+    The nodes sit at a constant x pitch (trailhead, peak, saddle, peak, …),
+    and a Catmull-Rom reproduces linear data exactly, so x stays monotonic
+    and the ridge can never fold back on itself.
+
+    Between two nodes the crest also picks up a little rock roughness. It is
+    weighted by sin(pi*t), which is ZERO at both ends of every span, so each
+    node — every peak, every saddle — keeps exactly the elevation the data
+    gave it. The roughness is drawing, never data.
+    """
+    out = []
+    last = len(nodes) - 1
+    for i in range(last):
+        p0 = nodes[max(0, i - 1)]
+        p1, p2 = nodes[i], nodes[i + 1]
+        p3 = nodes[min(last, i + 2)]
+        for s in range(per_span):
+            t = s / per_span
+            t2, t3 = t * t, t * t * t
+            x, y = (0.5 * (2 * a1 + (-a0 + a2) * t +
+                           (2 * a0 - 5 * a1 + 4 * a2 - a3) * t2 +
+                           (-a0 + 3 * a1 - 3 * a2 + a3) * t3)
+                    for a0, a1, a2, a3 in zip(p0, p1, p2, p3))
+            grain = math.sin(x * 0.21) * 0.6 + math.sin(x * 0.53) * 0.4
+            rough = RIDGE_ROUGHNESS * math.sin(math.pi * t) * grain
+            out.append((x, y - rough))
+    out.append(nodes[last])
+    return out
+
+
+def terrain_ridge(model):
+    """(ridge_points, cut_index, peak_xy) for the profile.
+
+    cut_index splits the ridge into ground already walked (filled, stratified)
+    and the climb ahead (a thin line). The split sits exactly on the active
+    phase's peak, so the marker stands where the solid ground ends.
+    """
+    phases, counts = model["phases"], model["counts"]
+    span = VB_W / len(phases)
+    top = max(counts.values()) if counts else 0
+    relief = [MIN_RELIEF if top <= 0 else
+              MIN_RELIEF + (counts[n] / top) * (MAX_RELIEF - MIN_RELIEF)
+              for n in phases]
+
+    # A pass between two phases drops to 42% of the lower neighbour, which is
+    # what keeps distinct summits instead of one rolling wave.
+    # The first and last nodes sit OUTSIDE the roadmap, in the unmapped
+    # ground: the ridge arrives from off the page and leaves the same way.
+    nodes = [(-TRAIL_BLEED, BASE_Y - relief[0] * 0.16),
+             (0.0, BASE_Y - relief[0] * 0.44)]
+    peaks = []
+    for i, h in enumerate(relief):
+        if i:
+            saddle = min(relief[i - 1], h) * 0.42
+            nodes.append((span * i, BASE_Y - saddle))
+        peak = (span * (i + 0.5), BASE_Y - h)
+        nodes.append(peak)
+        peaks.append(peak)
+    nodes.append((VB_W, BASE_Y - relief[-1] * 0.74))
+    nodes.append((VB_W + TRAIL_BLEED, BASE_Y - relief[-1] * 0.34))
+
+    per_span = max(4, min(14, int(180 / max(1, len(nodes) - 1))))
+    pts = [(x, min(BASE_Y - 8.0, max(SKY_Y, y)))
+           for x, y in catmull_rom(nodes, per_span)]
+
+    here = peaks[phases.index(model["active"])]
+    cut = max(i for i, (x, _) in enumerate(pts) if x <= here[0] + 0.01)
+    return pts, cut, here
+
+
+def poly_len(points):
+    """Length of a polyline in viewBox units (drives the walk highlight)."""
+    return sum(math.hypot(b[0] - a[0], b[1] - a[1])
+               for a, b in zip(points, points[1:]))
+
+
+def ground_fade(ident, top, bottom=VB_H, cut_x=None):
+    """Defs that dissolve the ground into the page at both open edges.
+
+    A cross-section that stops on a hard rule reads as a chart pasted onto
+    the page. The last fifth of the ground fades out at the bottom, and the
+    page under it carries the same falloff in CSS, so the two read as one
+    surface rather than two sections meeting at a seam.
+
+    `cut_x` is where the walked ground ends mid-roadmap. Closing the mass
+    there with a vertical edge left a guillotine down the middle of the
+    page - the ground simply stopped, sheared. The same treatment is applied
+    sideways: the last stretch before the cut dissolves, so walked ground
+    hands off to the dotted climb instead of being sliced from it. When the
+    roadmap is finished there is no cut, the ground runs off the page, and
+    this second fade is not drawn at all.
+    """
+    height = bottom - top
+    box = (f'x="{n2(-TRAIL_BLEED)}" y="{n2(top)}" '
+           f'width="{n2(TRAIL_SPAN)}" height="{n2(height)}"')
+    defs = (f'<linearGradient id="{ident}-fade" gradientUnits="userSpaceOnUse"'
+            f' x1="0" y1="{n2(bottom - height * GROUND_FADE)}" x2="0" '
+            f'y2="{n2(bottom)}"><stop offset="0" stop-color="#fff"></stop>'
+            f'<stop offset="1" stop-color="#fff" stop-opacity="0"></stop>'
+            f'</linearGradient>')
+    edge = ""
+    if cut_x is not None:
+        x0 = cut_x - CUT_FADE
+        defs += (f'<linearGradient id="{ident}-cut" '
+                 f'gradientUnits="userSpaceOnUse" x1="{n2(x0)}" y1="0" '
+                 f'x2="{n2(cut_x)}" y2="0">'
+                 f'<stop offset="0" stop-color="#000" stop-opacity="0">'
+                 f'</stop><stop offset="1" stop-color="#000"></stop>'
+                 f'</linearGradient>')
+        edge = (f'<rect x="{n2(x0)}" y="{n2(top)}" width="{n2(CUT_FADE)}" '
+                f'height="{n2(height)}" fill="url(#{ident}-cut)"></rect>')
+    return (defs
+            + f'<mask id="{ident}" maskUnits="userSpaceOnUse" {box}>'
+            + f'<rect {box} fill="url(#{ident}-fade)"></rect>{edge}</mask>')
+
+
+def svg_profile(data, model):
+    """The signature: the roadmap read as a terrain cross-section."""
+    pts, cut, here = terrain_ridge(model)
+    # A roadmap with every phase delivered has nothing left to climb. Drawing
+    # the dotted trail there would assert remaining work that does not exist,
+    # so the solid ground runs to the edge and off it instead: the summit is
+    # the end of the walk, not a waypoint before more of it.
+    finished = not (set(model["phases"]) - model["done"])
+    if finished:
+        walked, ahead = pts, []
+    else:
+        walked, ahead = pts[:cut + 1], pts[cut:]
+    # Where the walked ground stops: the marker's peak, or the page edge once
+    # there is nothing after it.
+    edge = pts[-1][0] if finished else here[0]
+
+    def poly(points):
+        return " ".join(f"{n2(x)},{n2(y)}" for x, y in points)
+
+    # The marker is clamped inside the box: a cairn standing on the first or
+    # the last phase of a long roadmap leans off its peak by a unit or two
+    # (invisible) rather than losing a stone to the viewport edge (not).
+    stack_x = min(max(here[0], -TRAIL_BLEED + STACK_L),
+                  VB_W + TRAIL_BLEED - STACK_R)
+    stack_y = here[1] + 1.2
+    # The box is cropped to what the terrain actually needs, so a roadmap
+    # carrying no issues yet draws a low ridge in a low band instead of
+    # reserving three quarters of a chart for elevation it does not have.
+    top = min(min(y for _, y in pts), stack_y - STACK_H) - SKY_PAD
+    mass = poly([(-TRAIL_BLEED, VB_H)] + walked + [(edge, VB_H)])
+    # Elevation bands, clipped to the walked ground: deeper ground shows more
+    # of them, so the strata count reads as height. They live inside the
+    # profile only - a grid behind the page would just be graph paper.
+    # One band per issue, measured up from the datum, so counting bands is a
+    # real reading of the height. A fixed spacing would have been decoration
+    # wearing a scale's costume: its worth in issues would drift with the
+    # data. Above STRATA_MAX_BANDS the lines would crowd into a texture, and
+    # a scale nobody can count is worse than none, so they are simply left
+    # out rather than regrouped into a silent, different unit.
+    busiest = max(model["counts"].values()) if model["counts"] else 0
+    strata = ""
+    if 0 < busiest <= STRATA_MAX_BANDS:
+        step = (MAX_RELIEF - MIN_RELIEF) / busiest
+        strata = "".join(
+            f'<line x1="{n2(-TRAIL_BLEED)}" y1="{n2(y)}" x2="{n2(edge)}" '
+            f'y2="{n2(y)}"></line>'
+            for y in [BASE_Y - k * step for k in range(1, busiest + 1)]
+            if PEAK_Y - 0.01 <= y < VB_H)
+    # The light crosses at ONE speed whatever the board, so the length of the
+    # beat is itself a reading: a long walked trail takes longer to travel
+    # than a short one. Bounded so phase one is not a flicker and a finished
+    # roadmap is not a wait.
+    walk_len = poly_len(walked)
+    walk_ms = round(min(1500.0, max(450.0, walk_len * 1.15)))
+    stones = "".join(
+        '<path{} d="{}"></path>'.format(
+            ' class="is-crown"' if i == len(CAIRN_STONES) - 1 else "",
+            "M" + " ".join(f"{n2(x)} {n2(y)}" for x, y in stone) + "Z")
+        for i, stone in enumerate(CAIRN_STONES))
+    label = esc(f"roadmap profile: {len(model['phases'])} phases, "
+                f"standing at phase {model['active']}")
+    return (
+        f'<svg class="profile" viewBox="{n2(-TRAIL_BLEED)} {n2(top)} '
+        f'{n2(TRAIL_SPAN)} {n2(VB_H - top)}" '
+        f'role="img" aria-label="{label}">'
+        f'<clipPath id="cairn-walked"><polygon points="{mass}"></polygon>'
+        f'</clipPath>'
+        f'{ground_fade("cairn-ground", top, cut_x=None if finished else edge)}'
+        f'<g mask="url(#cairn-ground)">'
+        f'<polygon class="terrain-mass" points="{mass}"></polygon>'
+        f'<g class="terrain-strata" clip-path="url(#cairn-walked)">'
+        f'{strata}</g></g>'
+        + (f'<polyline class="terrain-ahead" points="{poly(ahead)}">'
+           '</polyline>' if ahead else '') +
+        f'<polyline class="terrain-crest" points="{poly(walked)}"></polyline>'
+        f'<polyline class="terrain-walk" '
+        f'style="--walk-len:{n2(walk_len)}px;--walk-ms:{walk_ms}ms" '
+        f'points="{poly(walked)}"></polyline>'
+        f'<g class="cairn-stack" transform="translate({n2(stack_x)},'
+        f'{n2(stack_y)})"><g class="cairn-scale">{stones}</g></g>'
+        f'</svg>')
+
+
+def tick_label_indices(phases, active):
+    """Which phases keep a number under the profile.
+
+    A scale of equal columns has no floor: 24 phases on a phone leave 14px a
+    column, and two-digit numbers 14.5px wide, so every label collides with
+    its neighbour and the row renders as one smear. Past MAX_TICK_LABELS the
+    scale labels index phases only — every 2nd, 5th, 10th — the way a contour
+    map labels index lines, plus the phase you are standing in, which is
+    never dropped. The rest keep their place as a plain tick.
+
+    Index labels never land in the outermost column (they would sit under the
+    very rim of the page); the active phase does, because losing the one
+    label that matters would be worse.
+    """
+    n = len(phases)
+    step = next((s for s in (1, 2, 5, 10, 25)
+                 if math.ceil(n / s) <= MAX_TICK_LABELS), 50)
+    if step == 1:
+        return set(range(n))
+    keep = {phases.index(active)} if active in phases else set()
+    for i, p in enumerate(phases):
+        if p % step or not 0 < i < n - 1:
+            continue
+        if all(abs(i - j) >= step for j in keep):
+            keep.add(i)
+    return keep
+
+
+def html_band(data):
+    """The profile band: terrain, the phase scale under it, and one caption
+    naming what the elevation encodes. Without a roadmap it degrades to a
+    flat horizon carrying the counts: no invented relief."""
+    model = terrain_model(data)
+    if model is None:
+        c = data["counts"]
+        openn = c["ready"] + c["doing"] + c["blocked"]
+        edge, span = n2(-TRAIL_BLEED), n2(TRAIL_SPAN)
+        far = n2(VB_W + TRAIL_BLEED)
+        return (
+            '<section class="band" aria-label="tracked work">'
+            f'<svg class="horizon" viewBox="{edge} 0 {span} 64" '
+            'role="img" aria-label="no roadmap phases">'
+            f'{ground_fade("cairn-flat", 0.0, 64.0)}'
+            f'<g mask="url(#cairn-flat)">'
+            f'<polygon class="terrain-mass" points="{edge},64 {edge},24 '
+            f'{far},24 {far},64"></polygon>'
+            f'<g class="terrain-strata"><line x1="{edge}" y1="43" x2="{far}" '
+            f'y2="43"></line><line x1="{edge}" y1="60" x2="{far}" y2="60">'
+            '</line></g></g>'
+            # Same crest treatment as the profile, held dead level: the
+            # ground is real, the relief is simply unmapped.
+            f'<polyline class="terrain-crest" points="{edge},24 {far},24">'
+            '</polyline></svg>'
+            f'<p class="band-counts"><span><span class="n">{openn}</span> '
+            f'open</span><span><span class="n">{c["closed"]}</span> done'
+            '</span></p>'
+            '<p class="caption">no roadmap phases. counts only.</p>'
+            '</section>')
+
+    labelled = tick_label_indices(model["phases"], model["active"])
+    ticks = []
+    for i, n in enumerate(model["phases"]):
+        cls = "tick"
+        if n in model["done"]:
+            cls += " is-done"
+        if n == model["active"]:
+            cls += " is-here"
+        count = model["counts"][n]
+        body = (f'<span class="tick-n">{n:02d}</span>'
+                f'<span class="tick-c">{count}</span>' if i in labelled
+                else '<span class="tick-mark"></span>')
+        ticks.append(f'<span class="{cls}">{body}</span>')
+    top = max(model["counts"].values()) if model["counts"] else 0
+    legend = ['elevation: issues per phase']
+    if 0 < top <= STRATA_MAX_BANDS:
+        legend.append('one band each')
+    legend.append('solid ground: already walked')
+    # An honest caption names its own blind spot: work with no phase label
+    # exists on the board but cannot exist in the terrain.
+    if model["placed"] < model["tracked"]:
+        legend.append(f'{model["placed"]} of {model["tracked"]} issues '
+                      'carry a phase')
+    return ('<section class="band" aria-label="roadmap profile">'
+            + svg_profile(data, model)
+            # The scale's inset IS the unmapped ground the profile carries on
+            # each side, so it is emitted from the same constant the geometry
+            # uses. Duplicating the number in the stylesheet is what let the
+            # ticks drift 74px away from their own peaks once already.
+            + f'<div class="ticks" style="--trail-pad: '
+              f'{TRAIL_BLEED / TRAIL_SPAN:.6%}">' + "".join(ticks) + '</div>'
+            f'<p class="caption">{" &middot; ".join(legend)}</p></section>')
+
+
+# ------------------------------------------------------------- page sections
+
+def html_head(data):
+    phase = data["phase"]
+    bits = []
+    if data["milestone"]:
+        # A milestone is a name, so it is set in the page's own voice. Mono
+        # is kept for the things that are actually data: the phase numbers.
+        bits.append(f'<span class="m">{esc(data["milestone"])}</span>')
+    if phase["active"] is not None and phase["total"]:
+        bits.append(f'phase <span class="n">{esc(phase["active"])}</span> of '
+                    f'<span class="n">{phase["total"]}</span>')
+    pos = " &middot; ".join(bits) or "no roadmap position"
+    return ('<header class="head"><h1 class="wordmark">cairn</h1>'
+            f'<p class="pos">{pos}</p></header>')
+
+
+def html_next(data):
+    """The one thing to pick up, and the only other place amber is spent:
+    on the id you are meant to act on."""
+    nxt = data["next"]
+    by_id = {str(i.get("id")): i for i in
+             data["_lanes"][0] + data["_lanes"][1] + data["_lanes"][2]}
+    verb = title = mark = ""
+    if nxt["kind"] in ("continue", "ready") and nxt["id"] is not None:
+        verb = "continue" if nxt["kind"] == "continue" else "start"
+        mark = esc(nxt["id"])
+        title = esc(by_id.get(str(nxt["id"]), {}).get("title", ""))
+    elif nxt["kind"] == "workflow":
+        mark = esc(nxt["state_next"] or "")
+        if data["phase"]["active"] is not None:
+            title = f'in phase {esc(data["phase"]["active"])}'
+    else:
+        title = "nothing tracked. plan a phase, or run a health check."
+    # The lead-in rides the statement's own baseline ("next: continue cg-12")
+    # instead of standing as a small label above a big line.
+    body = ['<span class="next-lead">next:</span>']
+    if verb:
+        body.append(f'<span class="next-verb">{verb}</span>')
+    if mark:
+        body.append(f'<span class="next-id">{mark}</span>')
+    # The title is repeated from the card only when there is no card to look
+    # at. Printing the same sentence twice, 130px apart, costs a re-read and
+    # buys nothing: the lane already carries it, and the card is marked.
+    if title and str(nxt["id"]) not in by_id:
+        body.append(f'<span class="next-title">{title}</span>')
+    out = f'<p class="next-body">{"".join(body)}</p>'
+    # Ready work needs claiming before anything else happens, and that is a
+    # literal command, so the board prints it instead of stopping one step
+    # short of the act. Work already in flight has no such single next verb,
+    # so nothing is invented for it.
+    if nxt["kind"] == "ready" and nxt["id"] is not None:
+        out += (f'<p class="next-cmd">bd update {esc(nxt["id"])} --claim</p>')
+    return f'<section class="next" aria-label="next action">{out}</section>'
+
+
+def html_card(lane, iss, next_id=None):
+    cls = "card"
+    if next_id is not None and str(iss.get("id")) == str(next_id):
+        # The card the next-action line points at. Marking it here is what
+        # lets that line drop the duplicated title: the eye is sent to a
+        # specific card instead of being handed the sentence twice.
+        cls += " is-next"
+    meta = [f'<span class="card-id">{esc(iss.get("id", "?"))}</span>']
+    if issue_priority(iss) <= 1:
+        meta.append(f'<span class="card-pri">p{issue_priority(iss)}</span>')
+    if lane == "doing" and iss.get("assignee"):
+        meta.append(f'<span>claimed by {esc(iss["assignee"])}</span>')
+    deps = as_str_list(iss.get("blocked_by"))
+    if lane == "blocked" and deps:
+        meta.append(f'<span class="card-wait">{PEBBLE} waiting on '
+                    f'{esc(deps[0])}</span>')
+    if iss.get("_stale"):
+        meta.append(f'<span class="card-stale">{PEBBLE} delivered phase'
+                    '</span>')
+    return (f'<li class="{cls}"><p class="card-title">'
+            f'{esc(iss.get("title", ""))}</p>'
+            f'<p class="card-meta">{"".join(meta)}</p></li>')
+
+
+# (lane key, heading, empty-state copy) — the three lanes, in the order the
+# terminal board renders them.
+HTML_LANES = (("ready", "no work ready. plan a phase."),
+              ("doing", "nothing in flight."),
+              ("blocked", "nothing blocked."))
+
+
+def html_lanes(data):
+    """The three lanes, sized by whether they carry anything.
+
+    Every lane keeps its section and its heading whatever the counts: a lane
+    that vanished when it emptied would make "nothing blocked" indistinguish-
+    able from "blocked was never checked". What an empty lane does NOT keep
+    is an equal share of the width. Holding a third of the row for a zero,
+    while the one populated lane wraps its titles inside a narrow column, is
+    the ragged-comparison-grid failure with the roles reversed.
+    """
+    next_id = (data["next"] or {}).get("id")
+    filled = [bool(items) for items in data["_lanes"]]
+    sole = ' is-sole' if sum(filled) == 1 else ''
+    out = []
+    for (name, empty), items in zip(HTML_LANES, data["_lanes"]):
+        zero = ' is-zero' if not items else ''
+        body = (f'<ul class="cards">'
+                f'{"".join(html_card(name, i, next_id) for i in items)}</ul>'
+                if items else f'<p class="lane-empty">{empty}</p>')
+        out.append(
+            f'<section class="lane lane-{name}'
+            f'{" is-empty" if not items else sole}" '
+            f'aria-labelledby="lane-{name}-name"><header class="lane-head">'
+            f'<p class="lane-n{zero}">{len(items)}</p>'
+            f'<h2 class="lane-name" id="lane-{name}-name">{name}</h2>'
+            f'</header>{body}</section>')
+    # Populated lanes take twice the share of an empty one; with nothing on
+    # the board at all the three stay even, because then the emptiness IS
+    # the message and lopsided columns would just look broken.
+    tracks = (" ".join("minmax(0, 2fr)" if f else "minmax(0, 1fr)"
+                       for f in filled)
+              if any(filled) else "repeat(3, minmax(0, 1fr))")
+    return (f'<div class="lanes" style="--lane-tracks: {tracks}">'
+            f'{"".join(out)}</div>')
+
+
+def html_foot(data):
+    phase = data["phase"]
+    lines = []
+    tally = [f'<span class="n done-n">{data["counts"]["closed"]}</span> done']
+    if phase["total"]:
+        tally.append(f'<span class="n">{phase["total"]}</span> phases on the '
+                     'roadmap')
+    lines.append(f'<p class="foot-line">{" &middot; ".join(tally)}</p>')
+    if data["note"]:
+        lines.append(f'<p class="foot-line has-mark foot-note">{PEBBLE}'
+                     f'<span class="foot-text">{esc(data["note"])}</span></p>')
+    sync = data["sync"]
+    if sync["configured"] and sync["stale"]:
+        lines.append(f'<p class="foot-line has-mark">{PEBBLE}'
+                     '<span class="foot-text">sync '
+                     f'{esc(sync["detail"] or "stale")}. run '
+                     '<span class="n">/cairn:sync-pull</span></span></p>')
+    stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %z")
+    lines.append(f'<p class="foot-line">generated <span class="n">{esc(stamp)}'
+                 '</span> by <span class="n">cairn-status --html</span></p>')
+    return f'<footer class="foot">{"".join(lines)}</footer>'
+
+
+def render_html_inner(data):
+    """Everything between the board markers, one block per line so a diff of
+    two generations reads section by section."""
+    # The terrain resolves the active phase when STATE.md leaves it out or
+    # points off the roadmap. The header used to read the raw value and print
+    # nothing, so the page could say where you stand in its SVG label and
+    # stay silent in the line meant to tell you. One resolution, both places.
+    model = terrain_model(data)
+    if model:
+        data = dict(data, phase=dict(data["phase"], active=model["active"]))
+    return "\n".join([html_head(data), html_band(data), html_next(data),
+                      html_lanes(data), html_foot(data)])
+
+
+def write_html_board(path, data):
+    """{file, changed}: regenerate the board region of an HTML page.
+
+    A path that does not exist yet is seeded from the shipped template and
+    then spliced; an existing path keeps every byte outside the markers, so
+    a user's own CSS, notes or wrapper markup survive regeneration. The
+    generated region carries a timestamp, so consecutive runs do differ.
+    """
+    if path.is_dir():
+        die(f"--html target is a directory: {path}", EXIT_USAGE)
+    parent = path.parent
+    if not parent.is_dir():
+        die(f"--html directory does not exist: {parent} (create it first)",
+            EXIT_USAGE)
+    fresh = not path.is_file()
+    source = TEMPLATE_PATH if fresh else path
+    if fresh and not TEMPLATE_PATH.is_file():
+        die(f"board template missing: {TEMPLATE_PATH}", EXIT_USAGE)
+    try:
+        old_text = source.read_text(encoding="utf-8")
+    except OSError as e:
+        die(f"cannot read {source}: {e}", EXIT_USAGE)
+    changed, new_text = splice_board(old_text, render_html_inner(data))
+    if changed or fresh:
+        try:
+            path.write_text(new_text, encoding="utf-8")
+        except OSError as e:
+            die(f"cannot write {path}: {e}", EXIT_USAGE)
+    return {"file": str(path.resolve()), "changed": changed or fresh}
+
+
 # ----------------------------------------------------------------------- main
 
 def terminal_cols():
@@ -802,14 +1487,15 @@ def main():
 
     note = None
     if (root / ".beads").is_dir():
-        ready, doing, blocked, n_closed = fetch_lanes(root)
+        ready, doing, blocked, closed = fetch_lanes(root)
+        n_closed = len(closed)
     else:
         # bd resolves its database by walking UP from the root, so querying
         # it here could silently render an ANCESTOR repo's board. Mirror
         # cairn-gate's applicability decision instead: skip bd and degrade
         # to a GSD-only board, saying so.
-        ready, doing, blocked, n_closed = [], [], [], 0
-        note = f"no .beads/ at {root} — GSD-only board (bd lanes skipped)"
+        ready, doing, blocked, closed, n_closed = [], [], [], [], 0
+        note = f"no .beads/ at {root}: GSD-only board (bd lanes skipped)"
     all_phases, done_phases = roadmap_phases(planning_dir)
     # Cross-check (docstring step 4b): open issues whose phase labels are
     # all roadmap-complete keep their lane but get flagged. _stale drives
@@ -824,7 +1510,7 @@ def main():
         # Mutually exclusive with the no-.beads note above: no .beads means
         # empty lanes, so stale_ids can only be non-empty when note is None.
         note = (f"{len(stale_ids)} open issue(s) belong to roadmap-complete "
-                "phases — run /cairn:doctor --close-completed")
+                "phases. run /cairn:doctor --close-completed")
     fm = state_frontmatter(planning_dir)
     milestone = fm["milestone"] or roadmap_milestone(planning_dir)
     milestone = clean(milestone) if milestone else None
@@ -848,12 +1534,33 @@ def main():
                                       "last_pull")},
         "stale_complete": stale_ids,
         "note": note,
+        # Underscore keys are renderer-private: the --json summary filters
+        # them out, so the machine contract stays exactly as documented.
         "_lanes": [ready, doing, blocked],
+        "_closed": closed,
+        "_phases": {"all": all_phases, "done": done_phases},
     }
+
+    html_info = None
+    if opts["html"] is not None:
+        html_info = write_html_board(Path(opts["html"]), data)
 
     if opts["json"]:
         out = {k: v for k, v in data.items() if not k.startswith("_")}
+        if html_info is not None:
+            out["html"] = html_info
         print(json.dumps(out))
+        sys.exit(EXIT_OK)
+
+    if html_info is not None:
+        c = data["counts"]
+        # "unchanged" is reachable: two runs inside the same minute with no
+        # state change regenerate an identical region (the stamp is minute
+        # resolution), and an identical region is never rewritten.
+        state = "wrote" if html_info["changed"] else "unchanged"
+        print(f"[cairn-status] {state} {html_info['file']} — "
+              f"{c['ready']} ready, {c['doing']} doing, "
+              f"{c['blocked']} blocked")
         sys.exit(EXIT_OK)
 
     style = Style(opts)

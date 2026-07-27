@@ -1,6 +1,6 @@
 ---
 description: Render the status board — READY / DOING / BLOCKED lanes from bd, GSD position, one next action
-argument-hint: "[--brief] [--json] [--plain] [--width N] [--max-rows N] [--ascii] [--color=always|never] [--planning-dir <dir>]"
+argument-hint: "[--brief] [--json] [--plain] [--html <path>] [--width N] [--max-rows N] [--ascii] [--color=always|never] [--planning-dir <dir>]"
 ---
 
 Show the status board. A deterministic script renders it — `bd ready` drives
@@ -61,5 +61,38 @@ carries both (`next` and `next.state_next`) if you need to compare.
 - Scripting / parsing → `--json` (one machine line) or `--plain`
   (tab-separated rows; also the automatic non-TTY default — pipes never
   receive box-drawing or ANSI escapes).
+- User wants to *look* at it — a second monitor, a shared page, a browser tab
+  they leave open → `--html <path>` (see step 5).
 - Full contract (degradation thresholds, `--max-rows`, `--ascii`, `--color`,
   `NO_COLOR`): see the docstring in `scripts/cairn-status.py`.
+
+## 5. The HTML board
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" --html status.html
+```
+
+Writes a standalone page — the same lanes, position and next action, plus a
+topographic profile of the roadmap (one terrain segment per phase, its height
+the number of issues that phase carries, ground filled up to where you stand,
+a cairn marking it). The page loads nothing from the network, so it works
+offline and from a file:// URL.
+
+Report the path, not the markup — never paste the HTML into the conversation.
+Say what changed in one line and stop.
+
+Two things to tell the user once, when they first ask for it:
+
+- **The file is theirs outside the markers.** Everything between
+  `<!-- cairn:generated:board:start -->` and `<!-- cairn:generated:board:end -->`
+  is regenerated; every byte outside it — their CSS edits, their notes, their
+  wrapper markup — survives untouched. So re-running the command on the same
+  path is safe, and restyling the page is expected. Same contract as
+  `NN-BEADS-MAP.md`.
+- **Re-run it to refresh.** Nothing watches the repo; the page is a snapshot
+  and carries the timestamp it was generated at.
+
+`--html` composes with `--planning-dir` and with `--json` (which reports the
+write under an `html` key instead of the confirmation line). It is refused
+with `--plain` / `--brief` (exit 2) — those render to stdout, `--html` renders
+to a file, and combining them would silently drop one.
