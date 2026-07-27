@@ -1,0 +1,1 @@
+Add `pending()` and `summary()` methods to `TodoList` in `todo.py` so the tests in `tests/test_todo.py` pass. `pending()` returns the list of items not yet marked done, sorted by `priority` descending. `summary()` returns a dict with `total`, `pending`, and `done` counts.

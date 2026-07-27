@@ -22,7 +22,7 @@ jobs:
         run: sudo npm install -g bats
 
       - name: Lint Python scripts
-        run: python3 -m py_compile cairn/scripts/*.py cairn/adapters/*.py cairn/capability/scripts/*.py
+        run: python3 -m py_compile cairn/scripts/*.py cairn/adapters/*.py cairn/capability/scripts/*.py benchmarks/scripts/*.py
 
       - name: Run tests
         run: |

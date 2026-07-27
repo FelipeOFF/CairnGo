@@ -1,0 +1,93 @@
+{
+  "cells": {
+    "microedit-greet::alpha": {
+      "task_id": "microedit-greet",
+      "baseline_id": "alpha",
+      "category": "honest-non-win",
+      "n_total": 5,
+      "n_passed": 4,
+      "pass_rate": 0.8,
+      "cost_median": 0.1234,
+      "cost_min": 0.1,
+      "cost_max": 0.16,
+      "cost_iqr": 0.03,
+      "tokens": {
+        "input_sum": 52,
+        "input_median": 13,
+        "cache_creation_sum": 460,
+        "cache_creation_median": 115,
+        "cache_read_sum": 860,
+        "cache_read_median": 215,
+        "output_sum": 230,
+        "output_median": 57.5
+      }
+    },
+    "microedit-greet::beta": {
+      "task_id": "microedit-greet",
+      "baseline_id": "beta",
+      "category": "honest-non-win",
+      "n_total": 3,
+      "n_passed": 0,
+      "pass_rate": 0.0,
+      "cost_median": null,
+      "cost_min": null,
+      "cost_max": null,
+      "cost_iqr": null,
+      "tokens": {
+        "input_sum": 0,
+        "input_median": null,
+        "cache_creation_sum": 0,
+        "cache_creation_median": null,
+        "cache_read_sum": 0,
+        "cache_read_median": null,
+        "output_sum": 0,
+        "output_median": null
+      }
+    },
+    "smoke&convert<x>::alpha": {
+      "task_id": "smoke&convert<x>",
+      "baseline_id": "alpha",
+      "category": null,
+      "n_total": 5,
+      "n_passed": 5,
+      "pass_rate": 1.0,
+      "cost_median": 0.2,
+      "cost_min": 0.18,
+      "cost_max": 0.22,
+      "cost_iqr": 0.02,
+      "tokens": {
+        "input_sum": 100,
+        "input_median": 20,
+        "cache_creation_sum": 750,
+        "cache_creation_median": 150,
+        "cache_read_sum": 1500,
+        "cache_read_median": 300,
+        "output_sum": 225,
+        "output_median": 45
+      }
+    },
+    "smoke&convert<x>::beta": {
+      "task_id": "smoke&convert<x>",
+      "baseline_id": "beta",
+      "category": null,
+      "n_total": 3,
+      "n_passed": 2,
+      "pass_rate": 0.6666666666666666,
+      "cost_median": 0.35,
+      "cost_min": 0.3,
+      "cost_max": 0.4,
+      "cost_iqr": 0.05,
+      "tokens": {
+        "input_sum": 50,
+        "input_median": 25,
+        "cache_creation_sum": 400,
+        "cache_creation_median": 200,
+        "cache_read_sum": 800,
+        "cache_read_median": 400,
+        "output_sum": 120,
+        "output_median": 60
+      }
+    }
+  },
+  "rejected_rows": 0
+}
