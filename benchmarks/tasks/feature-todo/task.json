@@ -1,0 +1,8 @@
+{
+  "id": "feature-todo",
+  "category": "feature",
+  "timeout_s": 180,
+  "max_turns": 10,
+  "prompt_file": "prompt.md",
+  "model": "claude-haiku-4-5-20251001"
+}

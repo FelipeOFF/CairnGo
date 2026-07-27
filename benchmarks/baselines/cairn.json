@@ -1,0 +1,33 @@
+{
+  "name": "cairn",
+  "description": "GSD + context-mode + cairn's own commands/skills/hooks: the product as it actually ships. context-mode is included because cairn/.claude-plugin/plugin.json declares it a hard dependency and a real /cairn:init install pulls it in automatically; excluding it from the benchmark would be an artificial, rigged arm. Every plugin is its own explicit plugin_dirs entry: --plugin-dir dependency auto-resolution across marketplaces is unverified behavior and is never relied on. context-mode pinned to mksglu/context-mode@v1.0.169 (tag verified live during planning: 19.3k stars, Elastic-2.0 license, actively maintained). context-mode is built with npm install, not npm ci, because this vendoring path carries no committed npm lockfile (upstream uses pnpm).",
+  "model": "claude-haiku-4-5-20251001",
+  "claude_flags": {
+    "bare": true,
+    "max_turns": 8,
+    "no_session_persistence": true,
+    "permission_mode": "acceptEdits"
+  },
+  "provisioning": {
+    "plugin_dirs": [
+      {
+        "plugin": "gsd",
+        "source": { "type": "git", "repo": "buildomator/buildomator", "ref": "v4.3.1" },
+        "staged_path": "benchmarks/plugins/gsd/v4.3.1",
+        "build": ["npm ci"]
+      },
+      {
+        "plugin": "context-mode",
+        "source": { "type": "git", "repo": "mksglu/context-mode", "ref": "v1.0.169" },
+        "staged_path": "benchmarks/plugins/context-mode/v1.0.169",
+        "build": ["npm install"]
+      },
+      {
+        "plugin": "cairn",
+        "source": { "type": "local_path", "path": "cairn" },
+        "staged_path": "cairn",
+        "build": []
+      }
+    ]
+  }
+}

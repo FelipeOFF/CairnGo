@@ -1,0 +1,14 @@
+{
+  "name": "vanilla",
+  "description": "Stock Claude Code: no plugins, no ambient config. The unassisted control arm every other baseline is measured against.",
+  "model": "claude-haiku-4-5-20251001",
+  "claude_flags": {
+    "bare": true,
+    "max_turns": 8,
+    "no_session_persistence": true,
+    "permission_mode": "acceptEdits"
+  },
+  "provisioning": {
+    "plugin_dirs": []
+  }
+}

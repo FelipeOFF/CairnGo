@@ -11,6 +11,9 @@
 #   make_bd_fixture DIR [PREFIX]
 #                           bd init + epic, two children (one closed),
 #                           one standalone with a blocks dep and a label
+#   make_env_asserting_claude_stub
+#                           claude stub that echoes its own observed HOME/env/
+#                           argv into the canned JSON payload it emits
 #   extract_frontmatter F   print the YAML frontmatter block of F
 #   assert_frontmatter_key F KEY
 #   assert_json_eq JSON FILTER EXPECTED
@@ -318,6 +321,36 @@ make_bd_fixture() {
   bd close "$BD_CHILD_CLOSED" >/dev/null
   BD_STANDALONE="$(bd create "API rate limiting" -t feature -l cairn-sync --deps "blocks:$BD_CHILD_OPEN" --silent)"
   popd >/dev/null || return 1
+}
+
+# Write an executable claude stub to $BATS_TEST_TMPDIR/claude-env-stub (path
+# exported in STUB) that emits a minimal valid-result payload plus what it
+# OBSERVED of its own launch: stub_observed_home, stub_observed_leak_marker,
+# stub_observed_api_key_present, stub_observed_argv. bench-run.py passes
+# unknown payload fields through untouched, so these observations land in the
+# output JSONL row where bats can assert on the environment and argv the
+# harness actually constructed. Only boolean API-key PRESENCE is echoed; the
+# literal key value never reaches any file.
+make_env_asserting_claude_stub() {
+  STUB="$BATS_TEST_TMPDIR/claude-env-stub"
+  cat > "$STUB" <<'EOF'
+#!/usr/bin/env bash
+python3 -c "
+import json, os, sys
+print(json.dumps({
+    'type': 'result', 'subtype': 'success', 'is_error': False, 'num_turns': 1,
+    'total_cost_usd': 0.0,
+    'usage': {'input_tokens': 0, 'output_tokens': 0,
+              'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0},
+    'session_id': 'stub-env-check',
+    'stub_observed_home': os.environ.get('HOME', ''),
+    'stub_observed_leak_marker': os.environ.get('OPERATOR_ONLY_LEAK_MARKER', ''),
+    'stub_observed_api_key_present': bool(os.environ.get('ANTHROPIC_API_KEY')),
+    'stub_observed_argv': sys.argv[1:],
+}))
+" "$@"
+EOF
+  chmod +x "$STUB"
 }
 
 # Print the YAML frontmatter block of FILE (content between the first two

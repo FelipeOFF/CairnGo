@@ -1,0 +1,21 @@
+{
+  "name": "gsd-only",
+  "description": "Vanilla + the GSD plugin only: isolates GSD's own contribution before cairn is layered on. Source pinned to buildomator/buildomator@v4.3.1 (tag verified live 2026-07-25 via git ls-remote; formerly published as jnuyens/gsd-plugin), matching the operator's installed plugin cache version. Build uses npm ci: GSD ships a package-lock.json with only two pure-JS devDependencies (ajv, ajv-formats), so the install is deterministic.",
+  "model": "claude-haiku-4-5-20251001",
+  "claude_flags": {
+    "bare": true,
+    "max_turns": 8,
+    "no_session_persistence": true,
+    "permission_mode": "acceptEdits"
+  },
+  "provisioning": {
+    "plugin_dirs": [
+      {
+        "plugin": "gsd",
+        "source": { "type": "git", "repo": "buildomator/buildomator", "ref": "v4.3.1" },
+        "staged_path": "benchmarks/plugins/gsd/v4.3.1",
+        "build": ["npm ci"]
+      }
+    ]
+  }
+}
