@@ -172,12 +172,19 @@ gen_charts() {
   [ "$status" -eq 0 ]
 }
 
-@test "repo hygiene: every committed chart is backed by committed real data (honesty rule)" {
+@test "repo hygiene: a committed chart is accompanied by committed real data (co-presence, not provenance)" {
   # The rule this guards is "no chart made of synthetic numbers", not "no
   # chart". Before the first collection the directory was empty and that was
-  # the whole check. Now that real runs exist, the rule is checked directly:
-  # a committed SVG requires a committed aggregation, which in turn requires
-  # the raw JSONL it was derived from.
+  # the whole check. Now that real runs exist, a committed SVG requires a
+  # committed aggregation, which in turn requires the raw JSONL it was
+  # derived from.
+  #
+  # What this does NOT prove is provenance: it cannot tell that the chart was
+  # rendered from the aggregation sitting beside it rather than from some
+  # other one. Proving that needs the chart to carry a stamp of the
+  # aggregation it came from, which is a change to the chart writer, and a
+  # second dataset to tell two of them apart. Both belong with the next
+  # collection run. Until then this checks co-presence and says so.
   run bash -c "git -C \"$CAIRN_REPO_ROOT\" ls-files -- benchmarks/charts | grep -c '\\.svg\$' || true"
   charts="$output"
 
