@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
-status: executing
-stopped_at: Verified Phase 6 (Reporting, Charts & Publication) — 18/19 must-haves, 21/21 phase-6 bats green (+14/14 spot-checked regression), $0; milestone v1.1 execution complete (6 of 6 phases), pending gate/ship
-last_updated: "2026-07-26T10:33:00Z"
-last_activity: "2026-07-26 — Phase 6 verified: bench-chart.py (deterministic SVG cost+pass-rate/token-composition charts, honesty no-data path, XML-escaping), BENCHMARKS.md (methodology-first, 5 sections, schema-validation-labeled raw data, pending-state Results markers) + bench-publish.py (marker-scoped regeneration, idempotent, append-never-destroy), and bench-all.sh (plan-first, dry-run-default, --yes gated on explicit flag + ANTHROPIC_API_KEY, tripwire-proven zero-invocation) all independently re-verified — including one full matrix->aggregate->chart->publish pipeline run reproduced by hand against REAL (non-synthetic) stub data, not just bats. 21/21 phase-6 bats green, 14/14 spot-checked older suites green, py_compile clean on all 13 scripts, zero SVG committed (deliberate honesty rule), zero synthetic numbers in committed BENCHMARKS.md/README.md, ANTHROPIC_API_KEY genuinely absent (re-confirmed). REPT-01/03/04 fully satisfied; REPT-02 machinery fully satisfied with committed-charts population accepted as a non-blocking gap (blocked on ANTHROPIC_API_KEY, deferred to post-milestone operator action via bench-all.sh --yes — same pattern as Phase 4/5). 0 blocking gaps. Milestone v1.1: all 6 phases now executed and verified; ready for gate/ship."
+status: Awaiting next milestone
+stopped_at: Verified Phase 6 (Reporting, Charts & Publication) — 18/19 must-haves, 21/21 phase-6 bats green (+14/14 spot-checked regression), $0; 0 blocking gaps (see 06-VERIFICATION.md). Milestone v1.1 execution complete (6 of 6 phases), pending gate/ship.
+last_updated: "2026-07-27T11:53:15.942Z"
+last_activity: 2026-07-27 — Milestone v1.1 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -25,12 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-25)
 
 ## Current Position
 
-Phase: 6 of 6 (Reporting, Charts & Publication) — complete, verified (gaps_found, 18/19 must-haves, 1 accepted non-blocking gap)
-Plan: 3 of 3 in phase (complete)
-Status: Phase 6 verified; milestone v1.1 execution done (6/6 phases), pending gate/ship
-Last activity: 2026-07-26 — Phase 6 verified: chart-generation machinery (bench-chart.py), publication surface (BENCHMARKS.md + bench-publish.py), and one-command reproduction (bench-all.sh) all independently re-verified beyond bats — including a hand-reproduced end-to-end matrix->aggregate->chart->publish run against real (non-synthetic) stub data, proving determinism, value-correctness, the null-median honesty rule, marker-scoped regeneration with byte-identical outside content, and the dry-run/--yes safety gates via an independently-built tripwire. REPT-01/03/04 fully satisfied. REPT-02's chart-generation machinery is fully satisfied; the "charts committed" portion of ROADMAP SC2 remains an accepted, non-blocking gap — zero SVG is committed by 06-CONTEXT.md's deliberate honesty rule, since no live collection has ever run (ANTHROPIC_API_KEY genuinely absent, re-confirmed independently). This mirrors the exact pattern already accepted for Phase 4 (COMP-01) and Phase 5 (CORP-01): all machinery is proven correct at $0; only the live-data collection step (an operator spend decision, ~$40 ceiling) remains, one command away via `benchmarks/scripts/bench-all.sh --yes`.
-
-Progress: [██████████] 100%
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-27 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -141,3 +139,7 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-07-26T10:33:00Z
 Stopped at: Verified Phase 6 (Reporting, Charts & Publication) — 18/19 must-haves, 21/21 phase-6 bats green (+14/14 spot-checked regression), $0; 0 blocking gaps (see 06-VERIFICATION.md). Milestone v1.1 execution complete (6 of 6 phases), pending gate/ship.
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
