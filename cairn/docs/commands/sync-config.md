@@ -25,7 +25,7 @@ tools never sync to each other.
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-migrate.sh" detect --json`.
    When the JSON carries `external.jira` with `detected: true` (the repo
    already references Jira issue keys; `prefixes` lists the key prefixes
-   found, most frequent first, and `source` says where), the **Jira** backend
+   found, most frequent first, and `signals` says where), the **Jira** backend
    is pre-selected in the next step and `project_key` pre-filled with the
    most frequent prefix — the user confirms or overrides both. Without a
    detection the question is asked cold.

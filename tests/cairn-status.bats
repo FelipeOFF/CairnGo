@@ -730,10 +730,30 @@ board_inside() {
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
   [ "$status" -eq 0 ]
 
-  # No absolute or protocol-relative URL, no @import, no fetch: styles,
-  # texture and the profile are all inline, so the page works offline.
+  # No absolute or protocol-relative URL, no @import, no fetch, no src: the
+  # styles, the texture and the profile are all inline, so the page opens
+  # offline and inside a locked-down viewer.
   run grep -nE 'https?://|//cdn|@import|fetch\(|<link |src=' board.html
   [ "$status" -eq 1 ]
+
+  # The page DOES carry references: `url(#…)` for the mask and clip, and
+  # `<use href="#pebble">` for the mark on a blocked or delivered-phase card.
+  # Banning those attributes outright would fail on a board that has any
+  # blocked work, so the rule is the one that actually matters: every
+  # reference must point INSIDE this document. Listing forbidden shapes only
+  # catches the ones we thought of; requiring a fragment catches the rest.
+  run bash -c "grep -o 'url([^)]*)' board.html | sort -u | grep -cv 'url(#' \
+    || true"
+  [ "$output" = "0" ]
+  run bash -c "grep -o 'href=\"[^\"]*\"' board.html | sort -u \
+    | grep -cv 'href=\"#' || true"
+  [ "$output" = "0" ]
+
+  # …and the references are really there, so the two checks above cannot pass
+  # by matching nothing. This board has a blocked card, so it has both kinds.
+  run bash -c "grep -c 'url(#' board.html"
+  [ "$output" != "0" ]
+  grep -qF '<use href="#pebble">' board.html
 }
 
 @test "--html without a roadmap degrades to a flat band, no invented terrain" {

@@ -22,7 +22,7 @@ truth; tools sync to bd (hub-and-spoke). Do the following:
    ```
    When the JSON carries `external.jira` with `detected: true`, the repo
    already references Jira cards (`prefixes` lists the issue-key prefixes
-   found, most frequent first; `source` says where). Use it to seed the next
+   found, most frequent first; `signals` says where). Use it to seed the next
    step: pre-select **Jira** in the backend question and pre-fill
    `project_key` with the most frequent prefix — the user still confirms or
    overrides both. If `external.jira` is absent or `detected` is false, skip

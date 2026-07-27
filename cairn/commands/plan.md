@@ -13,7 +13,7 @@ drives `cairn-map` and labels; the flags go **only** to `/gsd:plan-phase`.
 1. Regenerate the phase's beads map, then read it. The map is generated from
    bd state — do not hand-edit between its markers:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N"
    ```
    Exit 5 means bd is unavailable — fall back to reading the existing file
    as-is (resolve the phase directory by its numeric prefix under

@@ -786,3 +786,33 @@ PLANEOF
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.external.jira.signals | contains(["env"])' "true"
 }
+
+@test "detect orders Jira prefixes by frequency, not alphabetically" {
+  make_tmp_repo
+  make_gsd_fixture "$CAIRN_TMP_REPO"
+
+  # ZED is the most used prefix and the last alphabetically. /cairn:sync-config
+  # pre-fills project_key from prefixes[0] and documents "most frequent
+  # first", so sorting these by name handed it ABC and seeded the wrong
+  # project on any repo whose busiest prefix sorts late.
+  git commit -q --allow-empty -m "ZED-1: one"
+  git commit -q --allow-empty -m "ZED-2: two"
+  git commit -q --allow-empty -m "ZED-3: three"
+  git commit -q --allow-empty -m "ZED-4: four"
+  git commit -q --allow-empty -m "ZED-5: five"
+  git commit -q --allow-empty -m "ABC-1: one"
+  git commit -q --allow-empty -m "ABC-2: two"
+  git commit -q --allow-empty -m "ABC-3: three"
+
+  run MIGRATE detect --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.external.jira.prefixes[0]' "ZED"
+  assert_json_eq "$output" '.external.jira.prefixes | join(",")' "ZED,ABC"
+
+  # A tie still breaks alphabetically, so the output stays deterministic.
+  git commit -q --allow-empty -m "ABC-4: four"
+  git commit -q --allow-empty -m "ABC-5: five"
+  run MIGRATE detect --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.external.jira.prefixes | join(",")' "ABC,ZED"
+}

@@ -26,7 +26,7 @@ bare phase number `<N>` drives claims, labels, and `cairn-map`; the flags go
    strip any leading zero from `<N>` before building the label.
 5. Refresh the phase's generated map so it reflects the closes:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N"
    ```
 
 Next: `/cairn:verify <N>` or `/cairn:ship`.

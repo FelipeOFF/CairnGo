@@ -1222,7 +1222,13 @@ def tick_label_indices(phases, active):
         return set(range(n))
     keep = {phases.index(active)} if active in phases else set()
     for i, p in enumerate(phases):
-        if p % step or not 0 < i < n - 1:
+        # Selected by POSITION on the scale, not by the phase's number.
+        # `step` is an index budget derived from how many phases there are,
+        # so testing the number against it only worked while the numbering
+        # happened to be contiguous from 1. A roadmap numbered 1, 3, 5, ...
+        # has no phase divisible by 2, and the scale rendered exactly one
+        # label: the active phase, alone on an empty ruler.
+        if i % step or not 0 < i < n - 1:
             continue
         if all(abs(i - j) >= step for j in keep):
             keep.add(i)

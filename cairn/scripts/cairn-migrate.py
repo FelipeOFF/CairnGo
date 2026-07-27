@@ -510,7 +510,14 @@ def detect_jira(project_dir, planning_dir):
                 continue
             counts[prefix] += 1
             per_source.setdefault(prefix, set()).add(source)
-    prefixes = sorted(p for p, c in counts.items() if c >= 3)
+    # Most frequent first, as /cairn:sync-config documents and relies on: it
+    # pre-fills project_key from prefixes[0]. Sorting alphabetically instead
+    # handed it whichever key happened to sort first, so a repo with 200
+    # ACME- keys and 3 stray ZZ- ones still seeded ACME only by luck of the
+    # alphabet. Ties break alphabetically so the output stays deterministic.
+    prefixes = [p for p, _ in sorted(
+        ((p, c) for p, c in counts.items() if c >= 3),
+        key=lambda pc: (-pc[1], pc[0]))]
     signals = [source for source, _ in corpora
                if any(source in per_source.get(p, ()) for p in prefixes)]
     if any(k.startswith("JIRA_") for k in os.environ):
