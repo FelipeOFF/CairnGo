@@ -94,6 +94,31 @@ def isolated_claude_env(fresh_home):
     return env
 
 
+def seed_credentials(fresh_home):
+    """Seed the disposable HOME with a credentials file, when one is offered.
+
+    CAIRN_BENCH_CREDENTIALS_FILE lets an operator authenticate isolated runs
+    with an existing Claude subscription instead of an API key. Only the
+    credential travels: no CLAUDE.md, settings, MCP servers or hooks — the
+    isolation that the measurement depends on is unchanged.
+
+    Returns "credentials" when seeded, "api-key" when ANTHROPIC_API_KEY is set,
+    else "none". The mode is stamped on every row: it changes which flags are
+    legal (--bare rejects file credentials), so it belongs in the raw data.
+    """
+    src = os.environ.get("CAIRN_BENCH_CREDENTIALS_FILE")
+    if src and Path(src).is_file():
+        dest_dir = Path(fresh_home) / ".claude"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / ".credentials.json"
+        shutil.copyfile(src, dest)
+        dest.chmod(0o600)
+        return "credentials"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "api-key"
+    return "none"
+
+
 def load_baseline(path):
     """Parse + validate a baseline manifest; die(EXIT_USAGE) before any spend."""
     baseline_path = Path(path)
@@ -217,6 +242,7 @@ def main():
         # provisioning.plugin_dirs differs. --bare skips claude.ai OAuth
         # (verified live 2026-07-25), so isolated runs authenticate strictly
         # via ANTHROPIC_API_KEY in the scoped env.
+        auth_mode = seed_credentials(fresh_home)
         flags = manifest["claude_flags"]
         cmd = [resolve_claude_bin(), "-p", prompt_text,
                "--output-format", "json",
@@ -225,15 +251,25 @@ def main():
                "--permission-mode", flags["permission_mode"]]
         if flags.get("no_session_persistence"):
             cmd.append("--no-session-persistence")
-        if flags.get("bare"):
+        # --bare rejects file credentials outright ("Not logged in", verified
+        # live 2026-07-27), so credentials mode drops it — uniformly across
+        # every arm, keeping FAIR-02's identical-flags contract intact. The
+        # isolation that the measurement depends on comes from the empty HOME,
+        # not from --bare: a seeded HOME holds one credential file and nothing
+        # else (no CLAUDE.md, settings, MCP servers or hooks).
+        if flags.get("bare") and auth_mode != "credentials":
             cmd.append("--bare")
         for entry in manifest["provisioning"]["plugin_dirs"]:
             target = Path(entry["staged_path"]) / entry.get("plugin_dir_subpath", "")
             cmd += ["--plugin-dir", str(target)]
         start = time.time()
         try:
+            # stdin=DEVNULL: without it the CLI waits 3s per run for piped
+            # input that never arrives (observed live) — 6 wasted minutes
+            # across a 120-run matrix.
             proc = subprocess.run(cmd, cwd=workdir, capture_output=True,
                                   text=True, timeout=task["timeout_s"],
+                                  stdin=subprocess.DEVNULL,
                                   env=isolated_claude_env(fresh_home))
         except subprocess.TimeoutExpired:
             wall_ms = int((time.time() - start) * 1000)
@@ -255,7 +291,7 @@ def main():
         verify_proc = subprocess.run(["bash", str(task_dir / "verify.sh"),
                                       workdir])
         row = {"task_id": task["id"], "baseline_id": manifest["name"],
-               "wall_clock_ms": wall_ms, **payload,
+               "auth_mode": auth_mode, "wall_clock_ms": wall_ms, **payload,
                "verify_passed": verify_proc.returncode == 0}
         # Optional task-level metadata stamp: only present when task.json
         # declares "category" (CORP-01's bias-control decision), so rows

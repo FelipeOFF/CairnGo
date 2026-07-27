@@ -1,0 +1,351 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3916 432" width="3916" height="432" role="img" font-family="ui-sans-serif, system-ui, sans-serif">
+  <rect x="0" y="0" width="3916" height="432" fill="#fbfaf7"/>
+  <text class="chart-caption" x="36" y="30" font-size="15" font-weight="600" fill="#2b2723">20260727-haiku-4-5</text>
+  <text class="chart-title" x="36" y="52" font-size="12" fill="#6e675c">token composition per cell (median tokens per successful run)</text>
+  <line class="axis" x1="56" y1="336" x2="3860" y2="336" stroke="#d8d2c6" stroke-width="1.5" stroke-linecap="round"/>
+  <rect class="token-seg-input" x="56.0" y="335.252" width="64" height="0.74826" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="56.0" y="322.347" width="64" height="12.9049" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="56.0" y="98.8255" width="64" height="223.521" fill="#6f8672"/>
+  <rect class="token-seg-output" x="56.0" y="96" width="64" height="2.8255" fill="#9db092"/>
+  <rect class="seg-swatch" x="128.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="141.0" y="108" font-size="11" fill="#2b2723">661</text>
+  <rect class="seg-swatch" x="128.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="141.0" y="124" font-size="11" fill="#2b2723">11400</text>
+  <rect class="seg-swatch" x="128.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="141.0" y="140" font-size="11" fill="#2b2723">197455</text>
+  <rect class="seg-swatch" x="128.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="141.0" y="156" font-size="11" fill="#2b2723">2496</text>
+  <text class="bar-task" x="88" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">bugfix-inventory</text>
+  <text class="bar-baseline" x="88" y="372" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="token-seg-input" x="216.0" y="335.279" width="64" height="0.721091" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="216.0" y="323.366" width="64" height="11.9133" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="216.0" y="187.173" width="64" height="136.192" fill="#6f8672"/>
+  <rect class="token-seg-output" x="216.0" y="184.71" width="64" height="2.46326" fill="#9db092"/>
+  <rect class="seg-swatch" x="288.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="301.0" y="108" font-size="11" fill="#2b2723">637</text>
+  <rect class="seg-swatch" x="288.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="301.0" y="124" font-size="11" fill="#2b2723">10524</text>
+  <rect class="seg-swatch" x="288.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="301.0" y="140" font-size="11" fill="#2b2723">120310</text>
+  <rect class="seg-swatch" x="288.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="301.0" y="156" font-size="11" fill="#2b2723">2176</text>
+  <text class="bar-task" x="248" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">bugfix-inventory</text>
+  <text class="bar-baseline" x="248" y="372" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="token-seg-input" x="376.0" y="335.261" width="64" height="0.739203" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="376.0" y="322.59" width="64" height="12.6706" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="376.0" y="124.399" width="64" height="198.191" fill="#6f8672"/>
+  <rect class="token-seg-output" x="376.0" y="121.98" width="64" height="2.41911" fill="#9db092"/>
+  <rect class="seg-swatch" x="448.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="461.0" y="108" font-size="11" fill="#2b2723">653</text>
+  <rect class="seg-swatch" x="448.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="461.0" y="124" font-size="11" fill="#2b2723">11193</text>
+  <rect class="seg-swatch" x="448.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="461.0" y="140" font-size="11" fill="#2b2723">175079</text>
+  <rect class="seg-swatch" x="448.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="461.0" y="156" font-size="11" fill="#2b2723">2137</text>
+  <text class="bar-task" x="408" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">bugfix-inventory</text>
+  <text class="bar-baseline" x="408" y="372" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="token-seg-input" x="536.0" y="335.279" width="64" height="0.721091" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="536.0" y="323.106" width="64" height="12.1725" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="536.0" y="186.732" width="64" height="136.375" fill="#6f8672"/>
+  <rect class="token-seg-output" x="536.0" y="184.458" width="64" height="2.27421" fill="#9db092"/>
+  <rect class="seg-swatch" x="608.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="621.0" y="108" font-size="11" fill="#2b2723">637</text>
+  <rect class="seg-swatch" x="608.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="621.0" y="124" font-size="11" fill="#2b2723">10753</text>
+  <rect class="seg-swatch" x="608.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="621.0" y="140" font-size="11" fill="#2b2723">120471</text>
+  <rect class="seg-swatch" x="608.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="621.0" y="156" font-size="11" fill="#2b2723">2009</text>
+  <text class="bar-task" x="568" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">bugfix-inventory</text>
+  <text class="bar-baseline" x="568" y="372" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <rect class="token-seg-input" x="696.0" y="335.289" width="64" height="0.710903" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="696.0" y="324.542" width="64" height="10.7473" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="696.0" y="218.832" width="64" height="105.709" fill="#6f8672"/>
+  <rect class="token-seg-output" x="696.0" y="217.427" width="64" height="1.40483" fill="#9db092"/>
+  <rect class="seg-swatch" x="768.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="781.0" y="108" font-size="11" fill="#2b2723">628</text>
+  <rect class="seg-swatch" x="768.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="781.0" y="124" font-size="11" fill="#2b2723">9494</text>
+  <rect class="seg-swatch" x="768.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="781.0" y="140" font-size="11" fill="#2b2723">93382</text>
+  <rect class="seg-swatch" x="768.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="781.0" y="156" font-size="11" fill="#2b2723">1241</text>
+  <text class="bar-task" x="728" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">feature-todo</text>
+  <text class="bar-baseline" x="728" y="372" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="token-seg-input" x="856.0" y="335.289" width="64" height="0.710903" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="856.0" y="324.573" width="64" height="10.7156" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="856.0" y="218.859" width="64" height="105.714" fill="#6f8672"/>
+  <rect class="token-seg-output" x="856.0" y="217.454" width="64" height="1.40596" fill="#9db092"/>
+  <rect class="seg-swatch" x="928.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="941.0" y="108" font-size="11" fill="#2b2723">628</text>
+  <rect class="seg-swatch" x="928.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="941.0" y="124" font-size="11" fill="#2b2723">9466</text>
+  <rect class="seg-swatch" x="928.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="941.0" y="140" font-size="11" fill="#2b2723">93386</text>
+  <rect class="seg-swatch" x="928.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="941.0" y="156" font-size="11" fill="#2b2723">1242</text>
+  <text class="bar-task" x="888" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">feature-todo</text>
+  <text class="bar-baseline" x="888" y="372" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="token-seg-input" x="1016.0" y="335.289" width="64" height="0.710903" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="1016.0" y="324.44" width="64" height="10.8492" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="1016.0" y="218.579" width="64" height="105.861" fill="#6f8672"/>
+  <rect class="token-seg-output" x="1016.0" y="217.071" width="64" height="1.50784" fill="#9db092"/>
+  <rect class="seg-swatch" x="1088.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="1101.0" y="108" font-size="11" fill="#2b2723">628</text>
+  <rect class="seg-swatch" x="1088.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="1101.0" y="124" font-size="11" fill="#2b2723">9584</text>
+  <rect class="seg-swatch" x="1088.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="1101.0" y="140" font-size="11" fill="#2b2723">93516</text>
+  <rect class="seg-swatch" x="1088.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="1101.0" y="156" font-size="11" fill="#2b2723">1332</text>
+  <text class="bar-task" x="1048" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">feature-todo</text>
+  <text class="bar-baseline" x="1048" y="372" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="token-seg-input" x="1176.0" y="335.289" width="64" height="0.710903" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="1176.0" y="324.586" width="64" height="10.7032" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="1176.0" y="218.915" width="64" height="105.671" fill="#6f8672"/>
+  <rect class="token-seg-output" x="1176.0" y="217.578" width="64" height="1.33691" fill="#9db092"/>
+  <rect class="seg-swatch" x="1248.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="1261.0" y="108" font-size="11" fill="#2b2723">628</text>
+  <rect class="seg-swatch" x="1248.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="1261.0" y="124" font-size="11" fill="#2b2723">9455</text>
+  <rect class="seg-swatch" x="1248.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="1261.0" y="140" font-size="11" fill="#2b2723">93348</text>
+  <rect class="seg-swatch" x="1248.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="1261.0" y="156" font-size="11" fill="#2b2723">1181</text>
+  <text class="bar-task" x="1208" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">feature-todo</text>
+  <text class="bar-baseline" x="1208" y="372" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <rect class="token-seg-input" x="1336.0" y="335.106" width="64" height="0.894289" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="1336.0" y="322.381" width="64" height="12.7249" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="1336.0" y="123.862" width="64" height="198.519" fill="#6f8672"/>
+  <rect class="token-seg-output" x="1336.0" y="121.311" width="64" height="2.55155" fill="#9db092"/>
+  <rect class="seg-swatch" x="1408.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="1421.0" y="108" font-size="11" fill="#2b2723">790</text>
+  <rect class="seg-swatch" x="1408.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="1421.0" y="124" font-size="11" fill="#2b2723">11241</text>
+  <rect class="seg-swatch" x="1408.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="1421.0" y="140" font-size="11" fill="#2b2723">175368</text>
+  <rect class="seg-swatch" x="1408.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="1421.0" y="156" font-size="11" fill="#2b2723">2254</text>
+  <text class="bar-task" x="1368" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">longhorizon-notify</text>
+  <text class="bar-baseline" x="1368" y="372" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="token-seg-input" x="1496.0" y="335.106" width="64" height="0.894289" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="1496.0" y="322.488" width="64" height="12.6174" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="1496.0" y="124.337" width="64" height="198.152" fill="#6f8672"/>
+  <rect class="token-seg-output" x="1496.0" y="121.835" width="64" height="2.50175" fill="#9db092"/>
+  <rect class="seg-swatch" x="1568.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="1581.0" y="108" font-size="11" fill="#2b2723">790</text>
+  <rect class="seg-swatch" x="1568.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="1581.0" y="124" font-size="11" fill="#2b2723">11146</text>
+  <rect class="seg-swatch" x="1568.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="1581.0" y="140" font-size="11" fill="#2b2723">175044</text>
+  <rect class="seg-swatch" x="1568.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="1581.0" y="156" font-size="11" fill="#2b2723">2210</text>
+  <text class="bar-task" x="1528" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">longhorizon-notify</text>
+  <text class="bar-baseline" x="1528" y="372" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="token-seg-input" x="1656.0" y="335.106" width="64" height="0.894289" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="1656.0" y="322.423" width="64" height="12.6831" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="1656.0" y="121.739" width="64" height="200.684" fill="#6f8672"/>
+  <rect class="token-seg-output" x="1656.0" y="119.142" width="64" height="2.59683" fill="#9db092"/>
+  <rect class="seg-swatch" x="1728.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="1741.0" y="108" font-size="11" fill="#2b2723">790</text>
+  <rect class="seg-swatch" x="1728.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="1741.0" y="124" font-size="11" fill="#2b2723">11204</text>
+  <rect class="seg-swatch" x="1728.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="1741.0" y="140" font-size="11" fill="#2b2723">177281</text>
+  <rect class="seg-swatch" x="1728.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="1741.0" y="156" font-size="11" fill="#2b2723">2294</text>
+  <text class="bar-task" x="1688" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">longhorizon-notify</text>
+  <text class="bar-baseline" x="1688" y="372" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="token-seg-input" x="1816.0" y="335.106" width="64" height="0.894289" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="1816.0" y="322.566" width="64" height="12.5393" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="1816.0" y="124.599" width="64" height="197.967" fill="#6f8672"/>
+  <rect class="token-seg-output" x="1816.0" y="122.343" width="64" height="2.2561" fill="#9db092"/>
+  <rect class="seg-swatch" x="1888.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="1901.0" y="108" font-size="11" fill="#2b2723">790</text>
+  <rect class="seg-swatch" x="1888.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="1901.0" y="124" font-size="11" fill="#2b2723">11077</text>
+  <rect class="seg-swatch" x="1888.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="1901.0" y="140" font-size="11" fill="#2b2723">174881</text>
+  <rect class="seg-swatch" x="1888.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="1901.0" y="156" font-size="11" fill="#2b2723">1993</text>
+  <text class="bar-task" x="1848" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">longhorizon-notify</text>
+  <text class="bar-baseline" x="1848" y="372" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <rect class="token-seg-input" x="1976.0" y="335.326" width="64" height="0.673547" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="1976.0" y="326.505" width="64" height="8.82176" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="1976.0" y="251.773" width="64" height="74.732" fill="#6f8672"/>
+  <rect class="token-seg-output" x="1976.0" y="251.25" width="64" height="0.522989" fill="#9db092"/>
+  <rect class="seg-swatch" x="2048.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="2061.0" y="108" font-size="11" fill="#2b2723">595</text>
+  <rect class="seg-swatch" x="2048.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="2061.0" y="124" font-size="11" fill="#2b2723">7793</text>
+  <rect class="seg-swatch" x="2048.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="2061.0" y="140" font-size="11" fill="#2b2723">66017</text>
+  <rect class="seg-swatch" x="2048.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="2061.0" y="156" font-size="11" fill="#2b2723">462</text>
+  <text class="bar-task" x="2008" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">microedit-greet</text>
+  <text class="bar-baseline" x="2008" y="372" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="token-seg-input" x="2136.0" y="335.326" width="64" height="0.673547" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="2136.0" y="326.501" width="64" height="8.82516" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="2136.0" y="251.766" width="64" height="74.7354" fill="#6f8672"/>
+  <rect class="token-seg-output" x="2136.0" y="251.245" width="64" height="0.520725" fill="#9db092"/>
+  <rect class="seg-swatch" x="2208.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="2221.0" y="108" font-size="11" fill="#2b2723">595</text>
+  <rect class="seg-swatch" x="2208.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="2221.0" y="124" font-size="11" fill="#2b2723">7796</text>
+  <rect class="seg-swatch" x="2208.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="2221.0" y="140" font-size="11" fill="#2b2723">66020</text>
+  <rect class="seg-swatch" x="2208.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="2221.0" y="156" font-size="11" fill="#2b2723">460</text>
+  <text class="bar-task" x="2168" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">microedit-greet</text>
+  <text class="bar-baseline" x="2168" y="372" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="token-seg-input" x="2296.0" y="335.326" width="64" height="0.673547" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="2296.0" y="326.491" width="64" height="8.83535" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="2296.0" y="251.736" width="64" height="74.7546" fill="#6f8672"/>
+  <rect class="token-seg-output" x="2296.0" y="251.193" width="64" height="0.543365" fill="#9db092"/>
+  <rect class="seg-swatch" x="2368.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="2381.0" y="108" font-size="11" fill="#2b2723">595</text>
+  <rect class="seg-swatch" x="2368.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="2381.0" y="124" font-size="11" fill="#2b2723">7805</text>
+  <rect class="seg-swatch" x="2368.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="2381.0" y="140" font-size="11" fill="#2b2723">66037</text>
+  <rect class="seg-swatch" x="2368.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="2381.0" y="156" font-size="11" fill="#2b2723">480</text>
+  <text class="bar-task" x="2328" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">microedit-greet</text>
+  <text class="bar-baseline" x="2328" y="372" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="token-seg-input" x="2456.0" y="335.326" width="64" height="0.673547" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="2456.0" y="326.445" width="64" height="8.88176" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="2456.0" y="251.654" width="64" height="74.7909" fill="#6f8672"/>
+  <rect class="token-seg-output" x="2456.0" y="251.087" width="64" height="0.567138" fill="#9db092"/>
+  <rect class="seg-swatch" x="2528.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="2541.0" y="108" font-size="11" fill="#2b2723">595</text>
+  <rect class="seg-swatch" x="2528.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="2541.0" y="124" font-size="11" fill="#2b2723">7846</text>
+  <rect class="seg-swatch" x="2528.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="2541.0" y="140" font-size="11" fill="#2b2723">66069</text>
+  <rect class="seg-swatch" x="2528.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="2541.0" y="156" font-size="11" fill="#2b2723">501</text>
+  <text class="bar-task" x="2488" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">microedit-greet</text>
+  <text class="bar-baseline" x="2488" y="372" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <rect class="token-seg-input" x="2616.0" y="335.276" width="64" height="0.724487" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="2616.0" y="324.103" width="64" height="11.173" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="2616.0" y="160.379" width="64" height="163.724" fill="#6f8672"/>
+  <rect class="token-seg-output" x="2616.0" y="158.661" width="64" height="1.71726" fill="#9db092"/>
+  <rect class="seg-swatch" x="2688.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="2701.0" y="108" font-size="11" fill="#2b2723">640</text>
+  <rect class="seg-swatch" x="2688.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="2701.0" y="124" font-size="11" fill="#2b2723">9870</text>
+  <rect class="seg-swatch" x="2688.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="2701.0" y="140" font-size="11" fill="#2b2723">144631</text>
+  <rect class="seg-swatch" x="2688.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="2701.0" y="156" font-size="11" fill="#2b2723">1517</text>
+  <text class="bar-task" x="2648" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">refactor-report</text>
+  <text class="bar-baseline" x="2648" y="372" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="token-seg-input" x="2776.0" y="335.294" width="64" height="0.706375" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="2776.0" y="324.452" width="64" height="10.8413" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="2776.0" y="218.727" width="64" height="105.725" fill="#6f8672"/>
+  <rect class="token-seg-output" x="2776.0" y="217.089" width="64" height="1.63802" fill="#9db092"/>
+  <rect class="seg-swatch" x="2848.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="2861.0" y="108" font-size="11" fill="#2b2723">624</text>
+  <rect class="seg-swatch" x="2848.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="2861.0" y="124" font-size="11" fill="#2b2723">9577</text>
+  <rect class="seg-swatch" x="2848.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="2861.0" y="140" font-size="11" fill="#2b2723">93396</text>
+  <rect class="seg-swatch" x="2848.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="2861.0" y="156" font-size="11" fill="#2b2723">1447</text>
+  <text class="bar-task" x="2808" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">refactor-report</text>
+  <text class="bar-baseline" x="2808" y="372" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="token-seg-input" x="2936.0" y="335.266" width="64" height="0.733543" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="2936.0" y="323.952" width="64" height="11.3145" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="2936.0" y="130.99" width="64" height="192.962" fill="#6f8672"/>
+  <rect class="token-seg-output" x="2936.0" y="129.069" width="64" height="1.92102" fill="#9db092"/>
+  <rect class="seg-swatch" x="3008.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="3021.0" y="108" font-size="11" fill="#2b2723">648</text>
+  <rect class="seg-swatch" x="3008.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="3021.0" y="124" font-size="11" fill="#2b2723">9995</text>
+  <rect class="seg-swatch" x="3008.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="3021.0" y="140" font-size="11" fill="#2b2723">170459</text>
+  <rect class="seg-swatch" x="3008.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="3021.0" y="156" font-size="11" fill="#2b2723">1697</text>
+  <text class="bar-task" x="2968" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">refactor-report</text>
+  <text class="bar-baseline" x="2968" y="372" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="token-seg-input" x="3096.0" y="335.285" width="64" height="0.715431" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="3096.0" y="323.684" width="64" height="11.6009" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="3096.0" y="187.862" width="64" height="135.822" fill="#6f8672"/>
+  <rect class="token-seg-output" x="3096.0" y="185.951" width="64" height="1.91084" fill="#9db092"/>
+  <rect class="seg-swatch" x="3168.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="3181.0" y="108" font-size="11" fill="#2b2723">632</text>
+  <rect class="seg-swatch" x="3168.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="3181.0" y="124" font-size="11" fill="#2b2723">10248</text>
+  <rect class="seg-swatch" x="3168.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="3181.0" y="140" font-size="11" fill="#2b2723">119983</text>
+  <rect class="seg-swatch" x="3168.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="3181.0" y="156" font-size="11" fill="#2b2723">1688</text>
+  <text class="bar-task" x="3128" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">refactor-report</text>
+  <text class="bar-baseline" x="3128" y="372" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <rect class="token-seg-input" x="3256.0" y="335.342" width="64" height="0.657699" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="3256.0" y="325.226" width="64" height="10.1168" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="3256.0" y="191.744" width="64" height="133.481" fill="#6f8672"/>
+  <rect class="token-seg-output" x="3256.0" y="190.534" width="64" height="1.21012" fill="#9db092"/>
+  <rect class="seg-swatch" x="3328.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="3341.0" y="108" font-size="11" fill="#2b2723">581</text>
+  <rect class="seg-swatch" x="3328.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="3341.0" y="124" font-size="11" fill="#2b2723">8937</text>
+  <rect class="seg-swatch" x="3328.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="3341.0" y="140" font-size="11" fill="#2b2723">117915</text>
+  <rect class="seg-swatch" x="3328.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="3341.0" y="156" font-size="11" fill="#2b2723">1069</text>
+  <text class="bar-task" x="3288" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">smoke-convert</text>
+  <text class="bar-baseline" x="3288" y="372" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="token-seg-input" x="3416.0" y="335.342" width="64" height="0.657699" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="3416.0" y="325.288" width="64" height="10.0545" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="3416.0" y="192.322" width="64" height="132.966" fill="#6f8672"/>
+  <rect class="token-seg-output" x="3416.0" y="191.139" width="64" height="1.18295" fill="#9db092"/>
+  <rect class="seg-swatch" x="3488.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="3501.0" y="108" font-size="11" fill="#2b2723">581</text>
+  <rect class="seg-swatch" x="3488.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="3501.0" y="124" font-size="11" fill="#2b2723">8882</text>
+  <rect class="seg-swatch" x="3488.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="3501.0" y="140" font-size="11" fill="#2b2723">117460</text>
+  <rect class="seg-swatch" x="3488.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="3501.0" y="156" font-size="11" fill="#2b2723">1045</text>
+  <text class="bar-task" x="3448" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">smoke-convert</text>
+  <text class="bar-baseline" x="3448" y="372" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="token-seg-input" x="3576.0" y="335.333" width="64" height="0.666755" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="3576.0" y="325.014" width="64" height="10.3194" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="3576.0" y="163.432" width="64" height="161.582" fill="#6f8672"/>
+  <rect class="token-seg-output" x="3576.0" y="162.097" width="64" height="1.33464" fill="#9db092"/>
+  <rect class="seg-swatch" x="3648.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="3661.0" y="108" font-size="11" fill="#2b2723">589</text>
+  <rect class="seg-swatch" x="3648.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="3661.0" y="124" font-size="11" fill="#2b2723">9116</text>
+  <rect class="seg-swatch" x="3648.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="3661.0" y="140" font-size="11" fill="#2b2723">142739</text>
+  <rect class="seg-swatch" x="3648.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="3661.0" y="156" font-size="11" fill="#2b2723">1179</text>
+  <text class="bar-task" x="3608" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">smoke-convert</text>
+  <text class="bar-baseline" x="3608" y="372" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="token-seg-input" x="3736.0" y="335.333" width="64" height="0.666755" fill="#2f4237"/>
+  <rect class="token-seg-cache_creation" x="3736.0" y="325.086" width="64" height="10.247" fill="#4a6152"/>
+  <rect class="token-seg-cache_read" x="3736.0" y="162.793" width="64" height="162.293" fill="#6f8672"/>
+  <rect class="token-seg-output" x="3736.0" y="161.54" width="64" height="1.25314" fill="#9db092"/>
+  <rect class="seg-swatch" x="3808.0" y="100" width="8" height="8" fill="#2f4237"/>
+  <text class="token-seg-input" x="3821.0" y="108" font-size="11" fill="#2b2723">589</text>
+  <rect class="seg-swatch" x="3808.0" y="116" width="8" height="8" fill="#4a6152"/>
+  <text class="token-seg-cache_creation" x="3821.0" y="124" font-size="11" fill="#2b2723">9052</text>
+  <rect class="seg-swatch" x="3808.0" y="132" width="8" height="8" fill="#6f8672"/>
+  <text class="token-seg-cache_read" x="3821.0" y="140" font-size="11" fill="#2b2723">143367</text>
+  <rect class="seg-swatch" x="3808.0" y="148" width="8" height="8" fill="#9db092"/>
+  <text class="token-seg-output" x="3821.0" y="156" font-size="11" fill="#2b2723">1107</text>
+  <text class="bar-task" x="3768" y="356" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">smoke-convert</text>
+  <text class="bar-baseline" x="3768" y="372" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <rect class="legend-swatch" x="56" y="406" width="8" height="8" fill="#2f4237"/>
+  <text class="legend-label" x="69" y="414" font-size="11" fill="#6e675c">input</text>
+  <rect class="legend-swatch" x="126" y="406" width="8" height="8" fill="#4a6152"/>
+  <text class="legend-label" x="139" y="414" font-size="11" fill="#6e675c">cache_creation</text>
+  <rect class="legend-swatch" x="259" y="406" width="8" height="8" fill="#6f8672"/>
+  <text class="legend-label" x="272" y="414" font-size="11" fill="#6e675c">cache_read</text>
+  <rect class="legend-swatch" x="364" y="406" width="8" height="8" fill="#9db092"/>
+  <text class="legend-label" x="377" y="414" font-size="11" fill="#6e675c">output</text>
+</svg>

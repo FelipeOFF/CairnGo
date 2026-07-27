@@ -5,19 +5,27 @@
   "defaults_source": "https://github.com/tzachbon/smart-ralph/blob/v4.0.0/README.md#quick-start (documents /ralph-specum:start ... and the --quick mode as the two first-party default entry points) and https://github.com/tzachbon/smart-ralph/blob/v4.0.0/plugins/ralph-specum/references/quick-mode.md (full non-interactive execution contract, including the explicit 'non-interactive -- do not block or prompt user' directive)",
   "claude_flags": {
     "bare": true,
-    "max_turns": 8,
+    "max_turns": 30,
     "no_session_persistence": true,
-    "permission_mode": "acceptEdits"
+    "permission_mode": "bypassPermissions"
   },
   "provisioning": {
     "plugin_dirs": [
       {
         "plugin": "ralph-specum",
-        "source": { "type": "git", "repo": "tzachbon/smart-ralph", "ref": "v4.0.0" },
+        "source": {
+          "type": "git",
+          "repo": "tzachbon/smart-ralph",
+          "ref": "v4.0.0"
+        },
         "staged_path": "benchmarks/plugins/ralph-specum/v4.0.0",
         "plugin_dir_subpath": "plugins/ralph-specum",
         "build": []
       }
     ]
+  },
+  "_notes": {
+    "permission_mode": "bypassPermissions (not acceptEdits): acceptEdits denies Bash, so the agent cannot run the fixture's tests — that measures one-shot coding, not a development workflow, and penalises exactly the arms whose value is plan->code->test->fix. Verified live 2026-07-27: acceptEdits produced 3 permission_denials for test-running commands. Risk is bounded: every run executes in a disposable temp workdir with a disposable empty HOME. Identical across all arms, so FAIR-02 holds.",
+    "max_turns": "30, not 8: a live smoke run consumed 8/8 turns on the trivial task with the leanest arm — a ceiling that low measures which workflow fits in the budget, not which one solves the task. The ceiling is identical across arms; error_max_turns rows are gated out of headline metrics either way."
   }
 }

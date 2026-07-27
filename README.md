@@ -107,7 +107,7 @@ stock Claude Code, GSD alone, and the strongest headless competitor plugin:
 identical model and flags on every arm, only the provisioning differs.
 
 <!-- cairn:generated:benchmarks-teaser:start -->
-_Benchmark results: pending first collection. The full harness, task corpus and methodology are committed; no numbers exist yet._
+**24 benchmark cell(s)** measured (20260727-haiku-4-5); full methodology, raw data and reproduction in [BENCHMARKS.md](BENCHMARKS.md).
 <!-- cairn:generated:benchmarks-teaser:end -->
 
 Full methodology, raw data and reproduction steps live in
