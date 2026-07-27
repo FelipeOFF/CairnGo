@@ -5,10 +5,12 @@
 ## Usage
 
 ```text
-/cairn:work <phase-number>
+/cairn:work <phase-number> [--wave N] [--gaps-only] [--tdd]
 ```
 
-The phase number is required. Labels use the **unpadded** phase number
+The phase number is required; anything after it is passed through to
+`/gsd:execute-phase` (see Flags). Only the bare phase number reaches claims,
+labels, and `cairn-map`. Labels use the **unpadded** phase number
 (`phase-3`, never `phase-03`) — any leading zero is stripped from the
 argument before building the label.
 
@@ -19,7 +21,8 @@ argument before building the label.
    `bd update <id> --claim`. `--claim` atomically assigns the issue to you
    **and** sets its status to `in_progress` in one call (no separate
    `--status` needed; idempotent if the issue is already yours).
-2. **Run `/gsd:execute-phase <N>`** — the normal GSD execution flow.
+2. **Run `/gsd:execute-phase <N>` plus any passthrough flags** — the normal
+   GSD execution flow.
 3. **Close on verified success.** On a plan's successful completion **and**
    verification, its ids are closed:
    `bd close <id> --reason="<1–2 sentence summary>"`. Never at the end of raw
@@ -52,9 +55,13 @@ Next: [/cairn:verify N](./verify.md) or [/cairn:ship](./ship.md).
 
 ## Flags & arguments
 
-| Argument | Meaning |
+| Argument / flag | Meaning |
 |---|---|
-| `<phase-number>` | required positional — the phase to execute |
+| `<phase-number>` | required positional — the phase to execute; the only part claims, labels, and `cairn-map.sh` see |
+| `--wave N` | passed through to `/gsd:execute-phase` |
+| `--gaps-only` | passed through to `/gsd:execute-phase` |
+| `--interactive` | passed through to `/gsd:execute-phase` |
+| `--tdd` | passed through to `/gsd:execute-phase` |
 
 ## Examples
 

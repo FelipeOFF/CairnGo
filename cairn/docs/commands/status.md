@@ -5,10 +5,11 @@
 ## Usage
 
 ```
-/cairn:status
+/cairn:status [--brief] [--json] [--plain]
 ```
 
-No arguments. The command runs the deterministic renderer and presents its
+Flags typed by the user are passed through to the renderer (full set in the
+table below). The command runs the deterministic renderer and presents its
 output verbatim:
 
 ```bash

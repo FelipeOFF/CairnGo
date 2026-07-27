@@ -1,5 +1,6 @@
 ---
 description: Render the status board — READY / DOING / BLOCKED lanes from bd, GSD position, one next action
+argument-hint: "[--brief] [--json] [--plain] [--width N] [--max-rows N] [--ascii] [--color=always|never] [--planning-dir <dir>]"
 ---
 
 Show the status board. A deterministic script renders it — `bd ready` drives
@@ -8,11 +9,13 @@ the lanes, GSD files supply the position, and the output is the answer.
 ## 1. Render the board
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" --width 100
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" --width 100 $ARGUMENTS
 ```
 
 (`--width 100` forces the board renderer at a fixed width — without it a
-non-TTY run degrades to the machine-readable `--plain` format.) Present the
+non-TTY run degrades to the machine-readable `--plain` format. Flags the user
+typed are in $ARGUMENTS and pass straight through to `cairn-status.sh`,
+overriding the default render.) Present the
 board **verbatim** in a fenced code block. Do not paraphrase it, reflow it,
 or re-list the issues in prose — the render IS the view. After the fence, add
 at most one or two sentences of commentary when something needs explaining

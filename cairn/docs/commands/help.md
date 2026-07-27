@@ -15,7 +15,8 @@ No arguments.
 1. Prints the full command map — `/cairn:` is the single interface over the
    whole GSD↔beads↔context-mode workflow — grouped exactly as below:
    - **SETUP** — `init`, `new`
-   - **LOOP** — `plan <N>`, `work <N>`, `quick <desc>`, `verify <N>`,
+   - **LOOP** — `plan <N>`, `work <N>`,
+     `quick <desc> [--full/--discuss/--research/--validate]`, `verify <N>`,
      `ship`, `milestone <op>`
    - **VIEW** — `status`, `progress`, `issues [N]`
    - **MIGRATE & HEALTH** — `migrate`, `doctor`

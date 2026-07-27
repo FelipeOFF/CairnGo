@@ -5,10 +5,12 @@
 ## Usage
 
 ```text
-/cairn:plan <phase-number>
+/cairn:plan <phase-number> [--auto] [--research] [--skip-research] [--tdd]
 ```
 
-The phase number is required. `cairn-map` resolves the phase directory itself:
+The phase number is required; anything after it is passed through to
+`/gsd:plan-phase` (see Flags). Only the bare phase number reaches `cairn-map`
+and the labels. `cairn-map` resolves the phase directory itself:
 `3` matches `3-auth`, `03-auth`, and a project-code-prefixed
 `myproj-03-auth`.
 
@@ -24,7 +26,8 @@ The phase number is required. `cairn-map` resolves the phase directory itself:
    including any manual notes outside the markers. Exit 5 means bd is
    unavailable — fallback: read the existing file as-is (resolve the phase
    directory by its numeric prefix under `.planning/phases/`).
-2. **Run `/gsd:plan-phase <N>`** — the normal GSD planning flow. (With the
+2. **Run `/gsd:plan-phase <N>` plus any passthrough flags** — the normal GSD
+   planning flow. (With the
    capability installed, its `plan:post` hook also writes `beads:`
    frontmatter and refreshes the map when plain `/gsd:plan-phase` is used.)
 3. **Reconcile divergence.** Where a bd issue conflicts with the phase
@@ -53,7 +56,15 @@ Next: [/cairn:work N](./work.md).
 
 | Argument / flag | Meaning |
 |---|---|
-| `<phase-number>` | required positional — the phase to plan |
+| `<phase-number>` | required positional — the phase to plan; the only part `cairn-map.sh` and the labels see |
+| `--auto` | passed through to `/gsd:plan-phase` |
+| `--research` / `--skip-research` | passed through to `/gsd:plan-phase` |
+| `--gaps` | passed through to `/gsd:plan-phase` |
+| `--skip-verify` | passed through to `/gsd:plan-phase` |
+| `--prd <file>` | passed through to `/gsd:plan-phase` |
+| `--reviews` | passed through to `/gsd:plan-phase` |
+| `--text` | passed through to `/gsd:plan-phase` |
+| `--tdd` | passed through to `/gsd:plan-phase` |
 | `--check` (of `cairn-map.sh`) | verify map freshness instead of regenerating; exit 3 + diff when stale |
 
 ## Exit codes

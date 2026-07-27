@@ -1,5 +1,6 @@
 ---
 description: Reconcile external work-management tools back into bd (pull-on-demand, last-writer-wins)
+argument-hint: "[--since <iso8601>]"
 ---
 
 Pull edits made in the external tools (GitHub/GitLab/Jira/Asana/Azure Boards) back into
@@ -10,10 +11,12 @@ bd, the hub. Do the following:
 
 2. Run the reconcile:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/gbsync.sh" pull
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/gbsync.sh" pull $ARGUMENTS
    ```
-   (Add `--since <iso8601>` to force a wider window; by default it uses the
-   per-backend watermark in `.cairn/state.json`.)
+   (Flags the user typed are in $ARGUMENTS and pass through: `--since
+   <iso8601>` forces a wider window than the per-backend watermark in
+   `.cairn/state.json`; the dispatcher also accepts `--dir <path>` and
+   `--dry-run`.)
 
 3. Reconciliation is **last-writer-wins by `updated_at`**:
    - external newer than bd → applied to bd via `bd update`
