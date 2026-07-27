@@ -474,3 +474,82 @@ make_status_fixture() {
   [ "$status" -eq 0 ]
   [ "${#lines[@]}" -eq 3 ]
 }
+
+@test "open issues in roadmap-complete phases: lane marker + footer warning" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  # Phase 1 is [x] in the fixture ROADMAP — this p0 straggler is stale.
+  local stale live
+  stale="$(bd create "Leftover auth polish" -t task -p 0 -l phase-1 --silent)"
+  live="$(bd create "Rate limit middleware" -t task -p 2 -l phase-2 --silent)"
+
+  # NO_COLOR-safe: marker and warning survive as plain text, zero escapes.
+  run env NO_COLOR=1 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$(printf '\x1b')"
+  # The stale issue keeps its lane (data is data) but carries the marker;
+  # the live issue does not (exactly one marked card on the board).
+  grep -qF "$stale" <<<"$output"
+  grep -qF '·done-phase' <<<"$output"
+  [ "$(grep -cF '·done-phase' <<<"$output")" -eq 1 ]
+  grep -qF '1 open issue(s) belong to roadmap-complete phases — run /cairn:doctor --close-completed' <<<"$output"
+  # next picks the active-phase issue, never the delivered-phase one.
+  grep -qF "▶ next: start $live" <<<"$output"
+  refute_in_output "start $stale"
+
+  # --ascii swaps the marker glyph along with everything else.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
+  [ "$status" -eq 0 ]
+  grep -qF '*done-phase' <<<"$output"
+  refute_in_output '·'
+}
+
+@test "--json exposes stale_complete and the ready fallback skips delivered phases" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  # No STATE.md: no active phase and no workflow step, so the OVERALL
+  # ready fallback is the pick under test — it used to hand back the
+  # highest-priority issue even when its phase was already delivered.
+  rm .planning/STATE.md
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local stale live
+  stale="$(bd create "Leftover auth polish" -t task -p 0 -l phase-1 --silent)"
+  live="$(bd create "Rate limit middleware" -t task -p 2 -l phase-2 --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 1 ]
+  assert_json_eq "$output" '.stale_complete | length' '1'
+  assert_json_eq "$output" '.stale_complete[0]' "$stale"
+  assert_json_eq "$output" '.next.kind' 'ready'
+  assert_json_eq "$output" '.next.id' "$live"
+  # The stale issue still ships in the ready lane payload.
+  assert_json_eq "$output" ".ready | map(.id) | contains([\"$stale\"])" 'true'
+}
+
+@test "active_phase pointing at a roadmap-complete phase falls back to the workflow step" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  # STATE.md lagging the roadmap (active_phase 1, but ROADMAP marks phase 1
+  # complete): the phase-labeled pick must not resurrect a delivered phase.
+  sed -i.bak 's/^active_phase: "2"/active_phase: "1"/' .planning/STATE.md
+  rm .planning/STATE.md.bak
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local stale
+  stale="$(bd create "Leftover auth polish" -t task -p 0 -l phase-1 --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.next.kind' 'workflow'
+  assert_json_eq "$output" '.next.text' 'execute-phase (phase 1)'
+  assert_json_eq "$output" '.stale_complete[0]' "$stale"
+
+  # --plain carries the warning as a NOTE meta row.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'NOTE\t1 open issue(s) belong to roadmap-complete phases')" <<<"$output"
+}

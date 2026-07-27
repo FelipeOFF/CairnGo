@@ -33,7 +33,14 @@ Behavior:
        m-<milestone>,phase-<active>; else STATE.md's next_action; else the
        highest-priority ready issue overall. Rule of thumb (kept from the
        prose command): bd wins for work items, STATE.md wins for workflow
-       steps.
+       steps. Ready issues whose phase-N labels ALL point at phases the
+       ROADMAP marks complete are excluded from both ready picks — next
+       never suggests a delivered phase.
+    4b. Cross-check lanes against the roadmap: open issues (any lane) whose
+       phase labels are all roadmap-complete stay on the board — data is
+       data — but carry a dim ·done-phase marker on their card, a footer
+       warning pointing at /cairn:doctor --close-completed, and their ids
+       under the JSON key stale_complete.
     5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
        gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
        list (< 40 cols). Non-TTY without an output flag: --plain
@@ -49,7 +56,7 @@ Behavior:
        → suggest /cairn:sync-pull).
 
     --json      one machine line: {ready, doing, blocked, counts, milestone,
-                phase, next, sync, note}
+                phase, next, sync, stale_complete, note}
     --plain     tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA) plus
                 PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color, no
                 truncation
@@ -220,6 +227,29 @@ def as_str_list(val):
     return out
 
 
+PHASE_LABEL = re.compile(r"^phase-0*(\d+)$")
+
+
+def issue_phase_ns(iss):
+    """Phase numbers from an issue's phase-N labels (leading zeros
+    tolerated — the same leniency cairn-gate applies to its regexes)."""
+    out = set()
+    for lab in as_str_list(iss.get("labels")):
+        m = PHASE_LABEL.match(lab.strip())
+        if m:
+            out.add(int(m.group(1)))
+    return out
+
+
+def in_done_phase(iss, done_set):
+    """True when the issue is phase-labeled and EVERY phase label points at
+    a roadmap-complete phase — an open issue the roadmap says was already
+    delivered. A cross-phase issue stays live while any of its phases is
+    still open, and an unlabeled issue is never stale."""
+    ns = issue_phase_ns(iss)
+    return bool(ns) and ns <= done_set
+
+
 def trim_issue(iss):
     """Stable, minimal issue dict for the JSON summary."""
     return {"id": str(iss.get("id") or "?"),
@@ -370,15 +400,21 @@ def normalize_phase(value):
     return str(int(s)) if s.isdigit() else s
 
 
-def synthesize_next(ready, doing, milestone, active_phase, next_action):
+def synthesize_next(ready, doing, milestone, active_phase, next_action,
+                    done_phases=()):
     """ONE suggested next action.
 
     Rule kept from the prose command: bd wins for work items, STATE.md wins
     for workflow steps — an in-flight or phase-labeled ready issue is the
     work to do, but when no phase issue is ready the workflow step
     (STATE.md's next_action) outranks unrelated ready issues.
+    Ready issues whose phase labels are all in done_phases (roadmap-complete)
+    are never suggested — a stale open issue is /cairn:doctor's job, not the
+    next action (an in_progress issue still wins: started work continues).
     Returns {kind, id, text, state_next}.
     """
+    done_set = set(done_phases)
+    ready = [i for i in ready if not in_done_phase(i, done_set)]
     # Every text below goes through clean(): a title with \n or \t would
     # otherwise forge extra rows in --plain / --brief / the board footer.
     out = {"kind": "none", "id": None, "text": "", "state_next": next_action}
@@ -479,12 +515,14 @@ class Style:
             self.h, self.v = "-", "|"
             self.ell, self.sep = "...", " | "
             self.g_next, self.g_dep, self.g_who = ">", "<-", "@"
+            self.g_stale = "*"
         else:
             self.tl, self.tm, self.tr = "┌", "┬", "┐"
             self.bl, self.bm, self.br = "└", "┴", "┘"
             self.h, self.v = "─", "│"
             self.ell, self.sep = "…", " · "
             self.g_next, self.g_dep, self.g_who = "▶", "⧗", "◆"
+            self.g_stale = "·"
 
     def asciify(self, text):
         """Downgrade the punctuation this script itself injects. Issue titles
@@ -539,6 +577,10 @@ def make_cell(lane, iss, inner, style):
     elif lane == "BLOCKED" and as_str_list(iss.get("blocked_by")):
         dep = clean(as_str_list(iss.get("blocked_by"))[0])
         suffix = [("  ", None), (style.g_dep, SGR_RED), (" " + dep, None)]
+    if iss.get("_stale"):
+        # Discreet roadmap-complete marker (see docstring step 4b) — dim,
+        # ASCII-safe under --ascii, dropped like any suffix when too narrow.
+        suffix += [("  ", None), (style.g_stale + "done-phase", SGR_DIM)]
 
     used = display_width(iid) + 2
     suffix_w = sum(display_width(t) for t, _ in suffix)
@@ -714,8 +756,11 @@ def render_brief(data, style):
         head += render_spans([(style.sep, SGR_DIM), ("sync stale", SGR_RED)],
                              style)
     if data["note"]:
-        # Brief stays exactly three lines — the note collapses to a marker.
-        head += render_spans([(style.sep, SGR_DIM), ("no .beads", SGR_RED)],
+        # Brief stays exactly three lines — the note collapses to a marker
+        # matching its cause (missing .beads vs roadmap-complete stragglers).
+        marker = ("no .beads" if "no .beads" in data["note"]
+                  else "stale phases")
+        head += render_spans([(style.sep, SGR_DIM), (marker, SGR_RED)],
                              style)
     counts = render_spans(
         [("ready ", None), (str(c["ready"]), None), (style.sep, SGR_DIM),
@@ -766,12 +811,26 @@ def main():
         ready, doing, blocked, n_closed = [], [], [], 0
         note = f"no .beads/ at {root} — GSD-only board (bd lanes skipped)"
     all_phases, done_phases = roadmap_phases(planning_dir)
+    # Cross-check (docstring step 4b): open issues whose phase labels are
+    # all roadmap-complete keep their lane but get flagged. _stale drives
+    # the card marker only — trim_issue never copies it into the JSON.
+    done_set = set(done_phases)
+    stale_ids = []
+    for iss in ready + doing + blocked:
+        if in_done_phase(iss, done_set):
+            iss["_stale"] = True
+            stale_ids.append(str(iss.get("id") or "?"))
+    if stale_ids:
+        # Mutually exclusive with the no-.beads note above: no .beads means
+        # empty lanes, so stale_ids can only be non-empty when note is None.
+        note = (f"{len(stale_ids)} open issue(s) belong to roadmap-complete "
+                "phases — run /cairn:doctor --close-completed")
     fm = state_frontmatter(planning_dir)
     milestone = fm["milestone"] or roadmap_milestone(planning_dir)
     milestone = clean(milestone) if milestone else None
     active_phase = normalize_phase(fm["active_phase"])
     nxt = synthesize_next(ready, doing, milestone, active_phase,
-                          fm["next_action"])
+                          fm["next_action"], done_phases)
     sync = sync_status(root)
 
     data = {
@@ -787,6 +846,7 @@ def main():
         "next": nxt,
         "sync": {k: sync[k] for k in ("configured", "stale", "detail",
                                       "last_pull")},
+        "stale_complete": stale_ids,
         "note": note,
         "_lanes": [ready, doing, blocked],
     }
