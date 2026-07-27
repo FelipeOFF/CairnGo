@@ -12,6 +12,11 @@ Workflow unificado plan→work→ship que custa menos tokens que as alternativas
 
 ### Validated
 
+- ✓ Benchmark harness completo e reproduzível (bench-run/matrix/aggregate/chart/publish/all, 199 testes bats a $0 de API) — v1.1
+- ✓ Isolamento mecânico de ambiente (HOME fresco, env replace, manifests pinados 4 arms incl. concorrente ralph-specum) — v1.1
+- ✓ Métricas honestas: success-gating belt-and-braces, decomposição 4-way modelUsage-preferred, N=5 interleaved — v1.1
+- ✓ Corpus pré-declarado de 6 tasks incl. honest-non-win + cost model ~$40 CI-enforced — v1.1
+- ✓ Publicação methodology-first (BENCHMARKS.md, charts determinísticos, embed por markers, reprodução 1 comando) — v1.1
 - ✓ Unificação GSD↔beads (issues por requirement, label pair `m-<milestone>`+`phase-<N>`, stamp `metadata.gsd`) — v1.0
 - ✓ Scripts determinísticos: cairn-map, cairn-relabel, cairn-gate, cairn-doctor, cairn-migrate (detect/plan/apply com journal) — v1.0
 - ✓ Migração de repos existentes (modos A/B/C/W/D) — v1.0
@@ -21,19 +26,19 @@ Workflow unificado plan→work→ship que custa menos tokens que as alternativas
 
 ### Active
 
-(milestone v1.1 — Metrics & Benchmarks; requirements formais serão definidos após a pesquisa)
+(próximo milestone a definir — candidatos: coleta live + publicação dos números (requer ANTHROPIC_API_KEY, ~$40), v2 backlog: re-run cadence, dashboard web, segundo arm concorrente)
 
-- [ ] Benchmark suite reproduzível: conjunto fixo de tarefas de desenvolvimento executadas por harness, N repetições, resultados determinísticos o suficiente pra comparação honesta
-- [ ] Métrica: consumo de tokens por tarefa (input/output/cache, custo estimado)
-- [ ] Métrica: tempo de ação e execução por tarefa (wall-clock, nº de tool calls/turnos)
-- [ ] Baselines comparados: Claude Code vanilla, GSD puro (sem cairn), e ao menos um plugin de workflow concorrente
-- [ ] Demonstração visual: gráficos comparativos gerados por script e commitados no repo (README)
+- [ ] Coleta real da matriz completa (120 runs) e publicação dos resultados/charts
 
 ### Out of Scope
 
 - Dashboard/página web de resultados — futuro; gráficos commitados primeiro (decisão do Felipe, 2026-07-25)
 - Telemetria contínua de sessões reais — não escolhida; reproduzibilidade e credibilidade vêm da suite fixa
 - GIF/asciinema como demonstração principal — Felipe escolheu gráficos de benchmark como o visual
+
+## Current State
+
+**v1.1 shipped 2026-07-27.** Benchmark harness completo em `benchmarks/` (~22k linhas adicionadas no milestone, 199 testes bats, $2.88 de API gastos — só validação de schema). O que existe: 6 tasks de corpus provadas bidirecionalmente, 4 arms pinados e isolados, agregação determinística success-gated, publicação methodology-first com resultados honestamente pendentes. Ação de operador pendente: `bench-all.sh --yes` com key (~$40) coleta e publica os números reais.
 
 ## Context
 
@@ -51,9 +56,12 @@ Workflow unificado plan→work→ship que custa menos tokens que as alternativas
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Visual = gráficos de benchmark commitados (não GIF, não web) | Embed direto no README, gerável por script, zero infra | — Pending |
-| 3 baselines: vanilla, GSD puro, plugin concorrente | Vanilla = leitura universal; GSD puro = isola ganho do cairn; concorrente = diferencial competitivo | — Pending |
-| Coleta via suite reproduzível (não telemetria) | Credibilidade: qualquer um reproduz; telemetria não é comparável | — Pending |
+| Visual = gráficos de benchmark commitados (não GIF, não web) | Embed direto no README, gerável por script, zero infra | ✓ Good (maquinaria pronta; SVGs entram com dados reais) |
+| 3 baselines: vanilla, GSD puro, plugin concorrente | Vanilla = leitura universal; GSD puro = isola ganho do cairn; concorrente = diferencial competitivo | ✓ Good (4 arms shipped; concorrente = ralph-specum v4.0.0) |
+| Coleta via suite reproduzível (não telemetria) | Credibilidade: qualquer um reproduz; telemetria não é comparável | ✓ Good (bench-all.sh 1 comando) |
+| --bare exige ANTHROPIC_API_KEY (OAuth não funciona headless isolado) | Verificado ao vivo na fase 1 | ✓ Good |
+| Decomposição prefere modelUsage sobre usage | usage under-reporta cache_creation ~30% (verificado por aritmética vs pricing) | ✓ Good |
+| Zero número sintético publicado; SVGs só com dados reais | Credibilidade methodology-first (inverso do anti-padrão claim-sem-dado) | ✓ Good |
 
 ## Evolution
 
@@ -73,4 +81,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-25 after initialization (milestone v1.1 — Metrics & Benchmarks)*
+*Last updated: 2026-07-27 after v1.1 milestone (Metrics & Benchmarks — shipped)*
