@@ -5,11 +5,11 @@
 ## Usage
 
 ```text
-/cairn:sync-pull
+/cairn:sync-pull [--since <iso8601>]
 ```
 
-No arguments. A wider time window can be forced by passing `--since` through
-to the dispatcher (see Flags).
+Flags typed by the user are passed through to the dispatcher — `--since`
+forces a wider time window than the stored watermark (see Flags).
 
 ## What it does
 
@@ -44,6 +44,14 @@ conflict — check `conflicts.json` before assuming data loss.
 Run this after a [`/cairn:migrate`](migrate.md) when sync is configured:
 mirror pushes are deliberately suppressed during migration, so one pull at the
 end reconciles everything.
+
+**Pull is mapped-items-only.** Items enter `.cairn/id-map.json` via push (bd →
+tool) or via the one-shot **import** — external cards that predate the sync
+wiring are otherwise invisible to pull. To adopt an existing Jira backlog
+first, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/gbsync.sh" import --project
+<KEY>` (or `--query '<JQL>'`; capped at 200 items per run) — it mints one bd
+issue per card and seeds the id-map, after which pull covers them. See
+[`/cairn:sync-config`](sync-config.md), step 6.
 
 ## Flags & arguments
 

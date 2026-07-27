@@ -1,7 +1,7 @@
 {
   "id": "microedit-greet",
   "category": "honest-non-win",
-  "timeout_s": 90,
+  "timeout_s": 180,
   "max_turns": 6,
   "prompt_file": "prompt.md",
   "model": "claude-haiku-4-5-20251001"

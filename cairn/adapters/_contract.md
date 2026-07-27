@@ -14,6 +14,12 @@ The dispatcher passes one JSON object on **stdin** and reads the result from
 **stdout**. Exit `0` on success; any nonzero exit is logged by the dispatcher,
 which then continues with the other backends.
 
+Every network call MUST carry an explicit timeout (jira: 30s) and MUST turn
+every transport failure — HTTP status, DNS/refused, timeout, unparseable body
+— into a nonzero exit with a one-line reason on stderr. A traceback is a
+contract violation, and a request with no timeout hangs the whole dispatcher
+(and the prose command that called it) on one dead socket.
+
 Both directions accept `--dry-run` at the dispatcher level: the would-be
 operations are printed as `DRY-RUN:` lines and the adapter is **never
 invoked** (nothing is written to id-map/state/conflicts either).
@@ -65,6 +71,45 @@ stdout: a **JSON array** of the current external state of those items:
   last-writer-wins reconciliation against bd's `updated_at`.
 - Omit items you cannot fetch (e.g. deleted remotely); do not fail the whole
   pull for one missing id.
+
+### IMPORT — `import`  (tool → bd, one-shot adoption) — *optional*
+
+Adopts items that already existed in the tool before sync was wired (PULL only
+covers ids already in `id-map.json`, which PUSH populates — so pre-existing
+cards are otherwise unreachable). Currently implemented by `jira.py` only;
+adapters that don't support it simply fail the action (nonzero exit), which
+the dispatcher reports.
+
+stdin:
+```json
+{
+  "action": "import",
+  "config": { /* backend config */ },
+  "query": "native query string (e.g. JQL) or null",
+  "project": "project key or null"
+}
+```
+`query` wins when set; otherwise the adapter derives its default query from
+`project` (falling back to the config's project key). `project` is
+interpolated into a native query, so an adapter MUST validate it against the
+tool's own key shape (jira: `^[A-Z][A-Z0-9_]{1,30}$`) and fail loud on
+anything else — arbitrary query syntax belongs in `query`, where it is the
+declared input.
+
+stdout: a **JSON array** of the matched items, normalized exactly like PULL
+but **without** `bd_id` (none exists yet):
+```json
+[
+  { "external_id": "CHN-101", "title": "…", "body": "…",
+    "status": "open|in_progress|closed",
+    "updated_at": "2026-06-18T05:31:34Z" }
+]
+```
+The dispatcher mints one bd issue per item (`bd create` + status), records
+the pair in `.cairn/id-map.json`, and skips already-mapped external ids, so
+re-running an import is idempotent. Adapters MUST paginate and MUST cap the
+result at a documented ceiling (jira: 200 per run) — a larger backlog is
+imported in slices by refining the query.
 
 ## Secrets
 

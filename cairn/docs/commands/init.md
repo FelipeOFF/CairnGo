@@ -25,6 +25,13 @@ before installing bd, and the only interview happens at the hand-off.
   - **W** — both present and already wired: only the wiring steps (1–5) run,
     and step 6 is skipped — there is nothing to interview.
   - **D** — greenfield: all steps run.
+
+  Whatever the state letter: when the detect JSON (`detect --json`) carries
+  `external.jira` with `detected: true`, the repo already references Jira
+  cards (`prefixes` lists the issue-key prefixes found). The user is told and
+  pointed at [/cairn:sync-config](./sync-config.md), which pre-fills the Jira
+  backend from this detection and can import the existing cards — init never
+  configures sync or runs an import by itself.
 - **Step 1 — verify GSD.** GSD ships as a declared dependency of cairn, so it
   is normally already installed. If missing:
   `claude plugin install gsd@cairngo`, then `/reload-plugins`.

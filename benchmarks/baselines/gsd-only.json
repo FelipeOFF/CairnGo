@@ -4,18 +4,28 @@
   "model": "claude-haiku-4-5-20251001",
   "claude_flags": {
     "bare": true,
-    "max_turns": 8,
+    "max_turns": 30,
     "no_session_persistence": true,
-    "permission_mode": "acceptEdits"
+    "permission_mode": "bypassPermissions"
   },
   "provisioning": {
     "plugin_dirs": [
       {
         "plugin": "gsd",
-        "source": { "type": "git", "repo": "buildomator/buildomator", "ref": "v4.3.1" },
+        "source": {
+          "type": "git",
+          "repo": "buildomator/buildomator",
+          "ref": "v4.3.1"
+        },
         "staged_path": "benchmarks/plugins/gsd/v4.3.1",
-        "build": ["npm ci"]
+        "build": [
+          "npm ci"
+        ]
       }
     ]
+  },
+  "_notes": {
+    "permission_mode": "bypassPermissions (not acceptEdits): acceptEdits denies Bash, so the agent cannot run the fixture's tests — that measures one-shot coding, not a development workflow, and penalises exactly the arms whose value is plan->code->test->fix. Verified live 2026-07-27: acceptEdits produced 3 permission_denials for test-running commands. Risk is bounded: every run executes in a disposable temp workdir with a disposable empty HOME. Identical across all arms, so FAIR-02 holds.",
+    "max_turns": "30, not 8: a live smoke run consumed 8/8 turns on the trivial task with the leanest arm — a ceiling that low measures which workflow fits in the budget, not which one solves the task. The ceiling is identical across arms; error_max_turns rows are gated out of headline metrics either way."
   }
 }

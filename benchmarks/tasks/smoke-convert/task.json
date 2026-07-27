@@ -1,7 +1,7 @@
 {
   "id": "smoke-convert",
   "category": "smoke",
-  "timeout_s": 120,
+  "timeout_s": 240,
   "max_turns": 8,
   "prompt_file": "prompt.md",
   "model": "claude-haiku-4-5-20251001"

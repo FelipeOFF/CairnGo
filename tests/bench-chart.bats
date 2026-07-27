@@ -172,12 +172,35 @@ gen_charts() {
   [ "$status" -eq 0 ]
 }
 
-@test "repo hygiene: zero *.svg exists or is committed under benchmarks/charts/ (phase honesty rule, mechanically checked)" {
-  # Working-tree check: the directory is absent or holds no SVG.
-  run bash -c "find \"$CAIRN_REPO_ROOT/benchmarks/charts\" -name '*.svg' 2>/dev/null | wc -l | tr -d ' '"
-  [ "$output" = "0" ]
-  # Committed-state check: git tracks no SVG under benchmarks/charts/.
+@test "repo hygiene: a committed chart is accompanied by committed real data (co-presence, not provenance)" {
+  # The rule this guards is "no chart made of synthetic numbers", not "no
+  # chart". Before the first collection the directory was empty and that was
+  # the whole check. Now that real runs exist, a committed SVG requires a
+  # committed aggregation, which in turn requires the raw JSONL it was
+  # derived from.
+  #
+  # What this does NOT prove is provenance: it cannot tell that the chart was
+  # rendered from the aggregation sitting beside it rather than from some
+  # other one. Proving that needs the chart to carry a stamp of the
+  # aggregation it came from, which is a change to the chart writer, and a
+  # second dataset to tell two of them apart. Both belong with the next
+  # collection run. Until then this checks co-presence and says so.
   run bash -c "git -C \"$CAIRN_REPO_ROOT\" ls-files -- benchmarks/charts | grep -c '\\.svg\$' || true"
-  [ "$status" -eq 0 ]
-  [ "$output" = "0" ]
+  charts="$output"
+
+  if [ "$charts" = "0" ]; then
+    skip "no committed charts yet; the rule has nothing to check"
+  fi
+
+  # An aggregation must be committed alongside them.
+  run bash -c "git -C \"$CAIRN_REPO_ROOT\" ls-files -- benchmarks/results | grep -c 'aggregated\\.json\$' || true"
+  [ "$output" != "0" ]
+
+  # And raw rows must back that aggregation: at least one committed matrix
+  # JSONL carrying a real cost field, never a hand-written stub.
+  run bash -c "git -C \"$CAIRN_REPO_ROOT\" ls-files -- benchmarks/results | grep -c 'matrix.*\\.jsonl\$' || true"
+  [ "$output" != "0" ]
+
+  run bash -c "grep -l 'total_cost_usd' \"$CAIRN_REPO_ROOT\"/benchmarks/results/matrix*.jsonl | wc -l | tr -d ' '"
+  [ "$output" != "0" ]
 }

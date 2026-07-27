@@ -1,7 +1,7 @@
 {
   "id": "refactor-report",
   "category": "refactor",
-  "timeout_s": 180,
+  "timeout_s": 360,
   "max_turns": 10,
   "prompt_file": "prompt.md",
   "model": "claude-haiku-4-5-20251001"

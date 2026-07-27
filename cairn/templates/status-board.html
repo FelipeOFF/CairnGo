@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>cairn: status board</title>
+<style>
+/* cairn status board.
+   Everything OUTSIDE the cairn:generated:board markers is yours: edit this
+   stylesheet, add notes, wrap the page - regeneration rewrites only the
+   region between the markers and preserves every other byte.
+   Zero network: no font, image, stylesheet or script is fetched from
+   anywhere, so the file works offline and inside a locked-down viewer. */
+
+:root {
+  --stone-900: #17150F;   /* ground: warm graphite, never a blue slate */
+  --stone-800: #211E17;   /* surface: one tonal step up from the ground */
+  --stone-600: #3A362C;   /* strata and hairlines */
+  --bone:      #E8E3D6;   /* text */
+  /* Secondary text, the palette's own token. Measured on the surfaces it is
+     actually read on, in the rendered page: 4.59:1 on a card (--stone-800 is
+     opaque, so the body gradient never composites into it), 4.60:1 at the
+     very top of the page where the ground falloff is brightest, 4.80:1 at
+     the bottom. All clear AA at 12px, and the falloff peak below is bounded
+     by that 4.60 - raising it further is what would break this. */
+  --bone-dim:  #8C8677;
+  --amber:     #D98A3A;   /* light: the crown stone and the id to act on */
+  --oxide:     #A3543D;   /* blocked. 3.38:1 - large text or marks only */
+  --lichen:    #7A8C5A;   /* delivered */
+
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+
+  --t-xs: 0.75rem;
+  --t-s: 0.8125rem;
+  --t-m: 0.9375rem;
+  --t-l: 1.25rem;
+
+  --pad: clamp(20px, 4vw, 48px);  /* the page gutter */
+  --measure: 1024px;              /* the column every line of text sits in */
+
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+/* One surface, top to bottom. The light that rakes the ridge falls off down
+   the page instead of stopping at the profile, so the ground under the board
+   belongs to the same landscape. Amplitude is a few per cent of a single
+   token; the grain on top of it is what keeps the falloff from banding. */
+body {
+  margin: 0;
+  min-height: 100vh;
+  position: relative;
+  background-color: var(--stone-900);
+  background-image: linear-gradient(180deg,
+    color-mix(in oklab, var(--stone-600) 18%, transparent) 0,
+    color-mix(in oklab, var(--stone-600) 15%, transparent) 22vh,
+    color-mix(in oklab, var(--stone-600) 9%, transparent) 48vh,
+    color-mix(in oklab, var(--stone-600) 4%, transparent) 72vh,
+    color-mix(in oklab, var(--stone-600) 0%, transparent) 100vh);
+  background-repeat: no-repeat;
+  color: var(--bone);
+  font-family: var(--sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--amber); color: var(--stone-900); }
+
+:focus-visible { outline: 2px solid var(--bone); outline-offset: 3px; }
+
+/* Fine grain on the substrate - behind every piece of content, never over
+   it, so type and marks stay crisp. Absolute, not fixed: the grain has to
+   span the whole DOCUMENT, or it stops dead at the fold and a full-page
+   capture shows the seam. */
+.grain {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* The sheet runs the full width; the text column inside it is --measure.
+   That gap is what lets the profile break out to the page edges while every
+   line of type stays on one left margin. */
+.sheet {
+  position: relative;
+  z-index: 1;
+  padding: clamp(28px, 5vw, 56px) var(--pad) clamp(40px, 6vw, 72px);
+  display: grid;
+  gap: clamp(26px, 3.4vw, 40px);
+}
+
+.sheet > * {
+  width: 100%;
+  max-width: var(--measure);
+  margin-inline: auto;
+}
+
+/* ---------------------------------------------------------------- heading */
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 18px;
+}
+
+/* Scale, weight and tracking carry the identity - the face is the plain
+   system sans on purpose. Set big and tight, in the lower case the whole
+   page speaks in. */
+.wordmark {
+  margin: 0;
+  font-size: clamp(2.1rem, 5.4vw, 2.9rem);
+  font-weight: 500;
+  /* Tracking is size-specific, not one em value stretched across a 33.6 ->
+     46.4px range: a face needs proportionally MORE negative tracking as it
+     grows, so a single value under-tracks the top end and over-tracks the
+     bottom. The clamp above is fluid only between 622px and 859px, so two
+     values cover the whole range. */
+  letter-spacing: -0.024em;
+  line-height: 1;
+  color: var(--bone);
+}
+
+@media (min-width: 860px) {
+  .wordmark { letter-spacing: -0.038em; }
+}
+
+.pos {
+  margin: 0;
+  font-size: var(--t-s);
+  color: var(--bone-dim);
+}
+
+/* The milestone is a name, not a reading: it stays in the page's own voice.
+   Only the phase numbers are data, and only they are set in mono. */
+.pos .m { color: var(--bone); }
+
+.pos .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--bone);
+}
+
+/* ------------------------------------------------ the roadmap profile band */
+
+.band { display: grid; gap: 10px; }
+
+/* The one element allowed past the text column: the terrain runs to both
+   page edges and off them. The trail came from somewhere before phase one
+   and keeps going after the last, which is why the SVG carries unmapped
+   ground on each side (--trail-bleed below). */
+.sheet > .band {
+  width: auto;
+  max-width: none;
+  margin-inline: calc(-1 * var(--pad));
+}
+
+.profile, .horizon { display: block; width: 100%; height: auto; }
+
+/* The ground already walked. A half-strength stone-600 lands between the
+   page and the card surface: solid enough to read as earth from across the
+   room, quiet enough that the cards stay legible against it. */
+.terrain-mass { fill: var(--stone-600); fill-opacity: 0.5; }
+
+/* Elevation strata, clipped to the walked ground: the deeper the ground,
+   the more bands show. They exist only inside the profile, never behind
+   the page. */
+/* Widths are held in CSS pixels rather than viewBox units, because the SVG
+   scales with the page: on a phone the same 1-unit stroke resolved to 0.31
+   device pixels and the construction dissolved - the stones' seams vanished
+   and the marker rendered as one white blob. vector-effect is NOT inherited,
+   so it goes on the drawn elements themselves, never on the group. */
+.terrain-strata line,
+.terrain-crest,
+.terrain-ahead,
+.cairn-stack path { vector-effect: non-scaling-stroke; }
+
+.terrain-strata {
+  fill: none;
+  stroke: var(--stone-600);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.terrain-crest {
+  fill: none;
+  stroke: var(--bone-dim);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.78;
+}
+
+/* The climb still ahead. It reads as unwalked because of the TREATMENT -
+   a round-capped dotted trail against the solid ridge - not because it was
+   faded until you cannot see it. */
+.terrain-ahead {
+  fill: none;
+  stroke: var(--bone-dim);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 6.5;
+  opacity: 0.9;
+}
+
+/* The single authored move on the page: a light walks the ground already
+   covered, once, from the trailhead up to the cairn, and settles there.
+   It rides ON TOP of a crest that is fully drawn before, during and after -
+   nothing here is revealed by motion, so a page that never animates (or a
+   capture taken mid-run) is still the whole board. */
+.terrain-walk {
+  fill: none;
+  stroke: var(--bone);
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 46 100000;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .terrain-walk {
+    /* The pace of a traverse: no lurch off the mark, an even step across the
+       relief, easing into the arrival. The previous curve varied its rate
+       14x through the middle and covered half the terrain in a third of the
+       time, which passed the ridge as a blur. Duration is emitted per board
+       (--walk-ms): the light travels at one speed, so a longer walked trail
+       takes longer to cross and the beat becomes a second reading of how
+       much ground is behind you. */
+    animation: cairn-walk var(--walk-ms, 1400ms)
+               cubic-bezier(0.25, 0.15, 0.75, 0.95);
+  }
+}
+
+/* No fade. The dash is a fixed 46-unit segment running along a path of
+   --walk-len: once its tail crosses the end of the walked ground there is
+   nothing left to draw, and the light contracts INTO the cairn. The geometry
+   ends the move at its destination. Fading on a timer started before that
+   and dimmed the arrival instead of landing it. */
+@keyframes cairn-walk {
+  from { stroke-dashoffset: 46px; opacity: 0.85; }
+  to { stroke-dashoffset: calc(-1 * var(--walk-len, 1200px)); opacity: 0.85; }
+}
+
+/* The stones touch, so the seam between them is drawn in the page's own
+   colour: it reads as the shadowed gap between two rocks, not as an
+   outline. The opacity steps are facets catching the light differently. */
+.cairn-stack path {
+  fill: var(--bone);
+  stroke: var(--stone-900);
+  stroke-width: 0.9;
+  stroke-linejoin: round;
+}
+
+.cairn-stack path:nth-child(2) { opacity: 0.84; }
+.cairn-stack path:nth-child(3) { opacity: 0.95; }
+.cairn-stack path:nth-child(4) { opacity: 0.78; }
+.cairn-stack .is-crown { fill: var(--amber); opacity: 1; }
+
+/* Phase scale under the profile. The padding is the unmapped ground the SVG
+   carries outside the roadmap (--trail-bleed / --trail-span in
+   cairn-status.py: 70 of 1140), so every tick still sits dead-centre under
+   its own terrain segment - and no number is ever pushed against the page
+   edge. Keep the two in step if you change the geometry. */
+.ticks {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  /* Emitted by html_band from TRAIL_BLEED / TRAIL_SPAN, so the scale's inset
+     and the profile's unmapped ground can never drift apart. The fallback is
+     only for a hand-edited page that lost the inline value. */
+  padding-inline: var(--trail-pad, 6.140351%);
+}
+
+.tick {
+  display: grid;
+  gap: 1px;
+  justify-items: center;
+  align-content: start;
+  min-width: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ranked by size, not by fading real data out. The step is the type scale's
+   own (13 -> 12), because the weight that used to carry this rank does not
+   exist in the system mono and silently snapped back to regular. */
+.tick-n { font-size: var(--t-s); color: var(--bone-dim); }
+.tick-c { font-size: var(--t-xs); color: var(--bone-dim); }
+
+/* A long roadmap labels index phases only (see tick_label_indices): the
+   phases in between keep their place on the scale as a plain mark. */
+.tick-mark {
+  width: 1px;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 1px;
+  /* On a roadmap past MAX_TICK_LABELS this mark is the ONLY thing standing
+     for a phase, so it has to clear the 3:1 floor for a meaningful graphic.
+     --stone-600 came to 1.52:1 against the page: present in the markup,
+     absent to the eye. */
+  background: var(--bone-dim);
+  opacity: 0.7;
+}
+
+/* Delivered is carried by a rule under the number as well as by the lichen,
+   so the distinction survives a colour-blind reading, where this green and
+   the secondary bone collapse toward each other. */
+.tick.is-done .tick-n {
+  color: var(--lichen);
+  border-bottom: 1px solid currentColor;
+  padding-bottom: 1px;
+}
+.tick.is-done .tick-mark { background: var(--lichen); opacity: 0.85; }
+/* Ordered after .is-done on purpose: when every phase is delivered you are
+   standing on the summit, and "here" outranks "done". */
+.tick.is-here .tick-n { color: var(--bone); font-weight: 600; }
+.tick.is-here .tick-mark { background: var(--bone); }
+
+/* Prose inside the band comes back to the text column, so the caption sits
+   on the same left margin as every other line on the page. */
+.band > .caption, .band > .band-counts {
+  width: 100%;
+  max-width: calc(var(--measure) + 2 * var(--pad));
+  margin-inline: auto;
+  padding-inline: var(--pad);
+}
+
+.caption {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--bone-dim);
+}
+
+.band-counts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  font-size: var(--t-s);
+  color: var(--bone-dim);
+}
+
+.band-counts .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--bone);
+}
+
+/* ------------------------------------------------------------ next action */
+
+/* The single line the page exists to deliver, so it outranks the lane
+   counts. It used to be the third-heaviest thing here, losing to three
+   numerals two of which typically read zero: the answer cannot weigh less
+   than the tally of what is absent. */
+.next-body {
+  margin: 0;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.25;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 10px;
+  overflow-wrap: anywhere;
+}
+
+/* The literal command to run. Only printed where there is exactly one next
+   act (claiming ready work); select-all makes it one double-click to copy
+   rather than a hand-drag across a hyphenated id. */
+.next-cmd {
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: var(--t-s);
+  color: var(--bone-dim);
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+/* The lead-in sits on the statement's own baseline: "next: continue cg-12".
+   One sentence, not a label stacked over a heading. */
+.next-lead, .next-verb { color: var(--bone-dim); }
+
+.next-id {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  color: var(--amber);
+}
+
+.next-title { color: var(--bone); }
+
+/* ----------------------------------------------------------------- lanes */
+
+/* Track widths come from html_lanes: a lane holding work gets twice the
+   share of an empty one. Every lane keeps its section either way, because a
+   lane that disappeared when it emptied would make "nothing blocked" look
+   the same as "blocked was never checked". */
+.lanes {
+  display: grid;
+  grid-template-columns: var(--lane-tracks, repeat(3, minmax(0, 1fr)));
+  gap: clamp(18px, 2.4vw, 30px);
+  align-items: start;
+}
+
+/* When one lane is the whole board, its cards spread across the room they
+   were given instead of queueing in a single narrow column. */
+@media (min-width: 900px) {
+  .lane.is-sole .cards {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
+/* No gap declared: the count's reserved 2ch slot already leaves the air
+   before the name, and adding a gap on top of it made a single-digit count
+   sit 33px from its own label while claiming to be 10. */
+.lane-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  margin-bottom: 14px;
+}
+
+/* The count reserves its slot, so the three lane names land on one vertical
+   line whether a lane holds 3 issues or 30. */
+.lane-n {
+  margin: 0;
+  min-width: 2ch;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(1.3rem, 2.2vw, 1.6rem);
+  line-height: 1;
+  color: var(--bone);
+}
+
+.lane-name {
+  margin: 0;
+  font-size: var(--t-s);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--bone-dim);
+}
+
+.lane-blocked .lane-n { color: var(--oxide); }
+/* Ordered last: a zero is not an alarm. */
+.lane-n.is-zero { color: var(--bone-dim); }
+
+/* Padded to the card's own inset so the first line of an empty lane shares a
+   baseline with the first line of a populated one. Without it the empty
+   lanes floated 11.5px above their neighbour and the row read as ragged. */
+.lane-empty {
+  margin: 0;
+  padding: 12px 14px 0;
+  font-size: var(--t-s);
+  color: var(--bone-dim);
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+/* One struck corner - the only cut shape on the page. The 14px padding
+   clears the 9px chamfer, so no glyph is ever shaved by it. */
+.card {
+  background: var(--stone-800);
+  padding: 12px 14px;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+
+/* The card the next-action line points at. This mark is what lets that line
+   stop repeating the card's own title: it names an id, and the eye finds the
+   card. Marked by striking the SECOND corner - the page's own cut, used
+   twice - rather than by running an accent bar down one edge, which is a
+   component-kit reflex that would belong to any card anywhere. The 14px
+   padding clears both 9px cuts, so no glyph is shaved. */
+.card.is-next {
+  clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px,
+                     100% 100%, 0 100%, 0 9px);
+}
+.card.is-next .card-id { color: var(--amber); }
+
+.card-title {
+  margin: 0;
+  font-size: var(--t-m);
+  line-height: 1.4;
+  color: var(--bone);
+  overflow-wrap: anywhere;
+}
+
+/* Mono is for the data only - the id, the priority. The connective prose
+   beside them ("claimed by felipe") is prose, and stays in the page's
+   voice. */
+.card-meta {
+  margin: 6px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 12px;
+  font-size: var(--t-xs);
+  color: var(--bone-dim);
+  overflow-wrap: anywhere;
+}
+
+.card-id, .card-pri {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-pri { color: var(--bone); }
+
+.card-wait, .card-stale {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.card-wait .mark, .card-stale .mark, .foot-note .mark { color: var(--oxide); }
+
+/* 9x7.5 matches the glyph's own 12x10 viewBox. At 9x8 the default
+   xMidYMid meet drew it 9x7.5 anyway and parked a quarter-pixel of dead
+   space above and below, which is what pushed the pebble off the baseline
+   of the text it labels. */
+.mark { width: 9px; height: 7.5px; flex: none; align-self: center; }
+
+/* A card is a report line, not a control: nothing here is clickable, so
+   nothing here lights up as if it were. What the pointer does is help you
+   read - the metadata under the row it is on comes up to full contrast. */
+@media (hover: hover) {
+  .card:hover .card-meta { color: var(--bone); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card-meta { transition: color 120ms ease; }
+}
+
+/* ---------------------------------------------------------------- footer */
+
+.foot {
+  display: grid;
+  gap: 5px;
+  font-size: var(--t-xs);
+  color: var(--bone-dim);
+}
+
+.foot-line {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 6px;
+}
+
+/* A flex line breaks on an item's max-content size, so a long diagnostic (an
+   absolute path inside a note) would shove itself onto a line of its own and
+   orphan the mark. Holding the marked lines on one flex line and letting the
+   text shrink keeps the mark beside the first word, wrapping underneath it. */
+.foot-line.has-mark { flex-wrap: nowrap; }
+
+.foot-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.foot .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--bone);
+}
+
+.foot .done-n { color: var(--lichen); }
+
+/* Warnings stay at full text contrast; the oxide is carried by the mark. */
+.foot-note { color: var(--bone); }
+
+.placeholder { margin: 0; font-size: var(--t-s); color: var(--bone-dim); }
+
+/* ------------------------------------------------------------ responsive */
+
+@media (max-width: 860px) {
+  /* One column. An empty lane still states its zero - that is the difference
+     between "nothing is blocked" and "blocked was never looked at" - but it
+     does it in one line instead of a stacked block, so two zeros no longer
+     cost 131px of the scroll between the reader and the work. Reordering
+     them out of the way was the other option and was rejected: it would put
+     the visual order out of step with the reading order, which is a real
+     cost for screen readers and buys the same pixels. */
+  .lanes { grid-template-columns: 1fr; }
+  .lane.is-empty .lane-head { margin-bottom: 0; }
+  .lane.is-empty .lane-n { font-size: var(--t-l); }
+  .lane.is-empty .lane-empty {
+    padding: 0;
+    display: inline;
+  }
+  .lane.is-empty {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+  }
+}
+
+/* The profile gets small on a phone, and a signature you cannot read is not
+   a signature: the marker keeps a legible size while the terrain shrinks
+   (the way a map symbol does not scale with the map), and the ridge strokes
+   thicken to match. The stack grows past the top of the box, which is why
+   the SVG stops clipping here. */
+@media (max-width: 700px) {
+  .profile { overflow: visible; }
+  .cairn-scale { transform: scale(1.6); transform-origin: 0 0; }
+  /* Only the walk keeps a unit-space width: its dash length is authored in
+     viewBox units by poly_len, so it has to scale with the geometry. The
+     other strokes hold their size through vector-effect and need no bump. */
+  .terrain-walk { stroke-width: 3.4; }
+}
+
+/* Browsers drop background graphics when printing by default, so a page
+   built on a dark ground would come out as bone-coloured text on white:
+   1.28:1, invisible. The tokens flip to an ink-on-paper reading of the same
+   palette rather than the board simply failing on paper. */
+@media print {
+  :root {
+    --stone-900: #ffffff;
+    --stone-800: #f2efe8;
+    --stone-600: #b8b2a3;
+    --bone:      #1a1a1a;
+    --bone-dim:  #4a4a4a;
+    --amber:     #8a4f14;
+    --oxide:     #7a3423;
+    --lichen:    #4a5a2e;
+  }
+  body { background: #fff; color: var(--bone); }
+  .grain { display: none; }
+  .card { border: 1px solid var(--stone-600); }
+}
+
+/* The counts stay. Shrinking them is a legitimate answer to a narrow screen;
+   deleting them is not, because the caption promises issues per phase and
+   this is the width where the elevation is least readable - removing the one
+   channel that still works leaves the page making a claim it cannot keep. */
+@media (max-width: 560px) {
+  .tick-c { font-size: 0.6875rem; }
+}
+</style>
+</head>
+<body>
+<svg class="grain" aria-hidden="true" focusable="false">
+  <filter id="cairn-grain">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch"></feTurbulence>
+    <feColorMatrix type="saturate" values="0"></feColorMatrix>
+  </filter>
+  <rect width="100%" height="100%" filter="url(#cairn-grain)"></rect>
+</svg>
+<svg class="defs" aria-hidden="true" focusable="false">
+  <symbol id="pebble" viewBox="0 0 12 10">
+    <path d="M1.2 6.1C0.5 4.1 2.5 1.4 5.3 1.1 8.4 0.8 11.2 2.6 11.0 5.1 10.8 7.7 8.1 9.3 5.1 9.0 3.2 8.8 1.7 7.7 1.2 6.1Z" fill="currentColor"></path>
+  </symbol>
+</svg>
+<main class="sheet">
+<!-- cairn:generated:board:start -->
+<p class="placeholder">no board rendered yet. run cairn-status.py --html on this file.</p>
+<!-- cairn:generated:board:end -->
+</main>
+</body>
+</html>

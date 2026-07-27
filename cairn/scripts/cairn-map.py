@@ -245,12 +245,27 @@ def build_inner(issues, roadmap_reqs):
 
 
 def split_markers(text):
-    """(prefix incl. start marker, inner, suffix from end marker) or None
-    when either marker is missing/misordered."""
-    s = text.find(START_MARKER)
-    e = text.find(END_MARKER)
-    if s < 0 or e < 0 or e < s:
-        return None
+    """Locate the generated region.
+
+    Returns (prefix incl. start marker, inner, suffix from end marker) for a
+    well-formed pair, "absent" when the file carries NEITHER marker, or
+    "damaged" for anything else: a lone marker, a duplicated one, or the end
+    before the start.
+
+    "One marker present" must not be treated as "no region here". Appending
+    a fresh block in that case supplies the partner the file was missing, so
+    the NEXT run splices between the orphan and the newcomer and deletes
+    every byte in between. Refusing a file we cannot read confidently is the
+    only safe answer; the same three-way contract is in cairn-status.py.
+    """
+    starts, ends = text.count(START_MARKER), text.count(END_MARKER)
+    if starts == 0 and ends == 0:
+        return "absent"
+    if starts != 1 or ends != 1:
+        return "damaged"
+    s, e = text.find(START_MARKER), text.find(END_MARKER)
+    if e < s + len(START_MARKER):
+        return "damaged"
     return (text[:s + len(START_MARKER)],
             text[s + len(START_MARKER):e].strip("\n"),
             text[e:])
@@ -283,7 +298,13 @@ def main():
     old_text = (map_path.read_text(encoding="utf-8")
                 if map_path.is_file() else None)
     parts = split_markers(old_text) if old_text is not None else None
-    old_inner = parts[1] if parts else None
+    if parts == "damaged":
+        die(f"{map_path} carries broken generated markers (a lone marker, a "
+            f"duplicate, or the end before the start). Nothing was written. "
+            f"Repair the pair, or delete the file to regenerate it.",
+            EXIT_USAGE)
+    have_region = isinstance(parts, tuple)
+    old_inner = parts[1] if have_region else None
     changed = old_inner is None or old_inner != inner
 
     summary = {
@@ -314,8 +335,10 @@ def main():
         block = f"{START_MARKER}\n{inner}\n{END_MARKER}"
         if old_text is None:
             new_text = f"# Phase {nn} — beads map\n\n{block}\n"
-        elif parts is None:
-            # File exists but has no markers: append, never destroy.
+        elif not have_region:
+            # File exists and carries NEITHER marker: append, never destroy.
+            # A file with only one of them never reaches here; it is refused
+            # above, because appending would forge the missing partner.
             sep = "" if old_text.endswith("\n") else "\n"
             new_text = f"{old_text}{sep}\n{block}\n"
         else:

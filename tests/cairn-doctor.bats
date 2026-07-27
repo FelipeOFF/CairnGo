@@ -5,7 +5,7 @@
 #   applicable, 2 usage / refused --fix-labels, 5 bd unavailable, 7 any
 #   check failed.
 #
-# Each test starts from the HEALTHY wired fixture (all nine checks ✓) and
+# Each test starts from the HEALTHY wired fixture (all ten checks ✓) and
 # breaks exactly one check, asserting on that check's reported status.
 #
 # Assertion style note: a failing `[[ ]]` or `! cmd` mid-test does NOT fail
@@ -80,7 +80,7 @@ make_doctor_fixture() {
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '9'
+  assert_json_eq "$output" '.checks | length' '10'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
@@ -190,6 +190,286 @@ EOF
   # Superseded plans are excluded from check 2 — its ids are not "dangling".
   assert_json_eq "$output" '.checks[] | select(.id=="frontmatter-ids") | .status' 'ok'
   grep -qF "still open" <<<"$output"
+}
+
+@test "check 5 phase-complete-open: open issue in a completed phase warns; --close-completed closes; re-run clean" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 checked off in ROADMAP.md
+  make_doctor_fixture
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null   # keep check 3 ok
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]   # WARN, never fail
+  assert_json_eq "$output" '.ok' 'true'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .status' 'warn'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .items | length' '1'
+  grep -qF "$straggler" <<<"$output"
+  # Phase 1's disk artifacts agree (PLAN has its SUMMARY) — no divergence note.
+  refute_in_output "artifacts disagree"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
+  [ "$status" -eq 0 ]
+  grep -qF "closed $straggler" <<<"$output"
+  refute_in_output "⚠ phase-complete-open"
+
+  # Actually closed in bd.
+  run bd show "$straggler" --json
+  assert_json_eq "$output" '.[0].status' 'closed'
+
+  # Idempotent: a second run has nothing left to close.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
+  [ "$status" -eq 0 ]
+  refute_in_output "closed $straggler"
+
+  # Refresh the phase-1 map (the close changed a row) -> fully clean re-run.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  refute_in_output "⚠"
+  refute_in_output "✗"
+}
+
+@test "check 5 phase-complete-open: absent when completed phases hold nothing open" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture   # phase-1 issues closed, open issue only in phase 2
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .items | length' '0'
+}
+
+@test "check 5 phase-complete-open: a cross-phase issue with one live phase is never flagged or closed" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 complete, phase 2 active
+  make_doctor_fixture
+  # phase-1 (complete) AND phase-2 (live): ALL, not any. cairn-status keeps
+  # this issue out of stale_complete and offers it as the next action, and
+  # its footer sends the user to --close-completed — which must not then
+  # kill the very issue the board just recommended.
+  local cross
+  cross="$(bd create "API-02: Spans two phases" -t task -l phase-1,phase-2,m-v1.0 \
+    --metadata '{"gsd":{"req":"API-02","phase":2,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .items | length' '0'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
+  [ "$status" -eq 0 ]
+  refute_in_output "closed $cross"
+  run bd show "$cross" --json
+  assert_json_eq "$output" '.[0].status' 'open'
+
+  # cairn-status agrees: not stale, and still the pick.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.stale_complete | length' '0'
+
+  # A single-label phase-1 straggler in the same board IS still swept, so
+  # the ALL predicate narrows the target set without disabling the flag.
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
+  [ "$status" -eq 0 ]
+  grep -qF "closed $straggler" <<<"$output"
+  refute_in_output "closed $cross"
+  run bd show "$cross" --json
+  assert_json_eq "$output" '.[0].status' 'open'
+}
+
+@test "check 5 phase-complete-open: --close-completed prints the divergence note BEFORE closing" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  rm .planning/phases/01-auth/01-01-SUMMARY.md   # disk now disagrees
+
+  # The warning must reach the operator in the SAME run that closes: after
+  # the close the issues leave check 5's scope and the note is unreachable.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
+  [ "$status" -eq 0 ]
+  grep -qF "artifacts disagree" <<<"$output"
+  grep -qF "confirm the phase is really done before closing" <<<"$output"
+  grep -qF "closed $straggler" <<<"$output"
+  # ...and it is ordered before the close line, not after it.
+  local warn_line close_line
+  warn_line="$(grep -nF "artifacts disagree" <<<"$output" | head -1 | cut -d: -f1)"
+  close_line="$(grep -nF "closed $straggler" <<<"$output" | head -1 | cut -d: -f1)"
+  [ "$warn_line" -lt "$close_line" ]
+
+  # --json stays ONE machine line (the note never leaks onto stdout/stderr)
+  # and still carries the divergence note inside the report.
+  local straggler2
+  straggler2="$(bd create "AUTH-05: Another follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-05","phase":1,"milestone":"v1.0"}}' --silent)"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json --close-completed
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.applicable' 'true'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-complete-open") | .items[] | select(test("artifacts disagree"))] | length' '1'
+}
+
+@test "check 5 phase-complete-open: notes when ROADMAP checkbox and disk artifacts diverge" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  rm .planning/phases/01-auth/01-01-SUMMARY.md   # disk now disagrees
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .status' 'warn'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .items | length' '2'
+  grep -qF "$straggler" <<<"$output"
+  grep -qF "artifacts disagree" <<<"$output"
+}
+
+@test "check 5 phase-complete-open: the divergence note names the real on-disk gap" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' \
+    --silent >/dev/null
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  # Gap 1: the PLAN is there, its SUMMARY is not.
+  rm .planning/phases/01-auth/01-01-SUMMARY.md
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  grep -qF "01-01-PLAN.md lacks its SUMMARY" <<<"$output"
+
+  # Gap 2: no phase directory at all — the note used to blame a missing
+  # SUMMARY for a phase that has no PLAN to lack one.
+  rm -rf .planning/phases/01-auth
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  grep -qF "no phase directory on disk" <<<"$output"
+  refute_in_output "lacks its SUMMARY"
+}
+
+@test "check 5 phase-complete-open: --close-completed drains an epic<-epic<-epic chain in ONE run" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # Both phases complete, on the ROADMAP checkbox AND on disk, so the whole
+  # chain below is in scope and no divergence note fires.
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".planning/ROADMAP.md")
+p.write_text(p.read_text().replace("- [ ] **Phase 2: API**",
+                                   "- [x] **Phase 2: API**"))
+PY
+  cp .planning/phases/01-auth/01-01-SUMMARY.md \
+     .planning/phases/02-api/02-01-SUMMARY.md
+  bd close "$DOC_P2" >/dev/null   # keep the sweep's scope to the chain
+
+  # The shape that broke the bulk close in the field: epics chained by
+  # blocks edges, each holding an open task child. bd refuses to close an
+  # epic with an open child AND an issue with an open blocker, so NO single
+  # ordered pass closes all six — only a fixpoint drains it.
+  local e1 t1 e2 t2 e3 t3
+  e1="$(bd create "Phase 1 epic" -t epic -l phase-1,m-v1.0 --silent)"
+  t1="$(bd create "REQ-A: child of the phase 1 epic" -t task \
+    -l phase-1,m-v1.0 --parent "$e1" --silent)"
+  e2="$(bd create "Phase 2 epic" -t epic -l phase-2,m-v1.0 --silent)"
+  t2="$(bd create "REQ-B: child of the phase 2 epic" -t task \
+    -l phase-2,m-v1.0 --parent "$e2" --silent)"
+  e3="$(bd create "Phase 2 follow-up epic" -t epic -l phase-2,m-v1.0 --silent)"
+  t3="$(bd create "REQ-C: child of the follow-up epic" -t task \
+    -l phase-2,m-v1.0 --parent "$e3" --silent)"
+  bd dep add "$e2" "$e1" >/dev/null   # e2 blocked by e1
+  bd dep add "$e3" "$e2" >/dev/null   # e3 blocked by e2
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
+  [ "$status" -eq 0 ]
+  local id
+  for id in "$e1" "$t1" "$e2" "$t2" "$e3" "$t3"; do
+    if ! grep -qF "closed $id —" <<<"$output"; then
+      echo "id $id was never closed. output:" >&2
+      echo "$output" >&2
+      return 1
+    fi
+  done
+  grep -qF "closed 6 via --close-completed" <<<"$output"
+
+  # bd agrees: one invocation left nothing open anywhere.
+  run bd list --all --json
+  assert_json_eq "$output" '[.[] | select(.status != "closed")] | length' '0'
+
+  # Re-run is clean and idempotent.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
+  [ "$status" -eq 0 ]
+  refute_in_output "[cairn-doctor] closed"
+  refute_in_output "⚠"
+  refute_in_output "✗"
+}
+
+@test "check 5 phase-complete-open: a close bd refuses fails the check, exit 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 complete, phase 2 still open
+  make_doctor_fixture
+  # An epic in the COMPLETE phase 1 whose only child lives in the still-open
+  # phase 2. The child is not a target (its phase is live) and --force is
+  # not on the table, so bd refuses the epic on every pass: the fixpoint
+  # cannot drain it and the run must say so instead of exiting 0.
+  local epic child
+  epic="$(bd create "AUTH-06: Phase 1 epic" -t epic -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-06","phase":1,"milestone":"v1.0"}}' --silent)"
+  child="$(bd create "API-02: live child in phase 2" -t task \
+    -l phase-2,m-v1.0 --parent "$epic" \
+    --metadata '{"gsd":{"req":"API-02","phase":2,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json --close-completed
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.ok' 'false'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-complete-open") | .status' 'fail'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-complete-open") | .items[] | select(test("could not close"))] | length' '1'
+  grep -qF "$epic" <<<"$output"
+  grep -qF "open child" <<<"$output"   # bd's own refusal reason is relayed
+
+  # Nothing was forced: the epic and its live child are both still open.
+  run bd show "$epic" --json
+  assert_json_eq "$output" '.[0].status' 'open'
+  run bd show "$child" --json
+  assert_json_eq "$output" '.[0].status' 'open'
+
+  # Same verdict in the human report.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
+  [ "$status" -eq 7 ]
+  grep -qF "✗ phase-complete-open" <<<"$output"
+  grep -qF "[cairn-doctor] FAIL" <<<"$output"
 }
 
 @test "check 5 orphans: unknown phase label and phase-less issue warn; migrated-todo exempt" {

@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-27
+
+### Fixed
+
+- `/cairn:migrate` closes phases the roadmap marks complete even when
+  `SUMMARY.md` and `VERIFICATION.md` are absent from disk. A repository that
+  delivered its phases before adopting cairn previously came out of migration
+  with every one of those phases open, and the dependency edges between them
+  blocked the phases that followed. Failed steps are now retried once,
+  journaled, and replayed on the next run; `apply` exits 8 when anything
+  failed instead of reporting success.
+- `/cairn:status` warns when open issues belong to phases the roadmap calls
+  complete, and its suggested next action skips them.
+
+### Added
+
+- `/cairn:doctor` gained a `phase-complete-open` check and a
+  `--close-completed` repair for databases already migrated by an older
+  version. Closes run in repeated passes so a whole dependency chain drains in
+  one invocation, and anything bd refuses is reported with its reason and
+  exits 7.
+- `gbsync import` brings existing Jira issues into bd by JQL or project key.
+  `detect` reports whether a repository looks like it tracks work in Jira, and
+  `/cairn:init` and `/cairn:migrate` surface that without configuring anything.
+- Published benchmark results: 120 runs across four arms, with the finding
+  that no arm is measurably cheaper on the current corpus. See BENCHMARKS.md.
+
+### Changed
+
+- Every command's argument hint, body and reference page now lists the flags
+  it actually accepts. `/cairn:quick --full` was accepted but undocumented.
+
 ## [1.2.0] - 2026-07-25
 
 ### Added

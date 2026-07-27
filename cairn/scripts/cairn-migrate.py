@@ -14,12 +14,26 @@ Subcommands:
            frontmatter in any *-PLAN.md)           (wire-up/reconcile)
         W  both present and already wired          (nothing to migrate)
         D  neither present                          (greenfield)
+      With --json the payload also carries external.jira: Jira sniffed from
+      the last 300 commit subjects+bodies and branch names. Jira keys share
+      the REQ-id shape ([A-Z]+-N), so a prefix only counts when the SAME
+      prefix occurs >= 3 times AND is not a requirement-id prefix in the
+      local REQUIREMENTS.md; env JIRA_* and an atlassian.net remote are
+      independent signals. Consumed by the init/migrate prose commands.
       Exit 0 always.
 
   plan [--mode A|B|C] [--milestone M] [--force] [--project-dir D]
       Read-only inventory pass. Writes .cairn/migrate-plan.json and prints a
       human dry-run summary of every create/close/label/file-write it would
       do, grouped by kind. Mode defaults to the detected state.
+      Completion semantics: a phase counts as complete when its artifacts
+      prove it (SUMMARIES + a passed VERIFICATION) OR when ROADMAP.md checks
+      it off — the ROADMAP checkbox is GSD's source of truth, so a checked
+      phase without artifacts still closes (its close reason and a plan note
+      say 'closed via roadmap checkbox, artifacts missing'). dep_add steps
+      whose blocker phase is complete are skipped, and close_issue steps are
+      ordered before the remaining dep_adds, so a migrated board never
+      starts with dead chains blocking live work.
       Exit 0 plan written, 2 usage or wrong mode for the repo state,
       5 bd unavailable (only when the mode needs bd at plan time: B and C
       always; A only when .beads/ already exists, for the dedup query).
@@ -30,7 +44,11 @@ Subcommands:
       created_at, then one line per completed step). Re-runs skip completed
       steps — RESUME semantics — and every write handler is additionally
       idempotent against live bd state, so a half-truncated journal never
-      produces duplicates. Steps with status pending_confirmation are
+      produces duplicates. A failing step gets ONE immediate retry; a step
+      that still fails is journaled with status "failed" (a failed record is
+      never counted as completed on resume, so a re-run replays exactly the
+      failures — directed replay) and the closing summary lists every failed
+      step id + kind. Steps with status pending_confirmation are
       SKIPPED unless their params carry "confirmed": true (the prose command
       flips them after asking the user).
       Exit 0 done, 2 no/invalid plan (or user abort), 5 bd unavailable,
@@ -83,9 +101,16 @@ EXIT_PARTIAL = 8
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 REQ_ID = re.compile(r"\b[A-Za-z][A-Za-z0-9]*-\d+\b")
+JIRA_KEY = re.compile(r"\b([A-Z][A-Z0-9]+)-\d+\b")
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
+# Checkbox phases come in two shapes. The bold form is the GSD template;
+# the lenient form mirrors cairn-gate's CHECKED_PHASE (any checked line
+# naming Phase N) — migrate must never read FEWER completed phases than the
+# ship gate does, or the two disagree about what is done.
 CHECKBOX_PHASE = re.compile(
     r"^\s*-\s*\[([ xX])\]\s*\*\*Phase\s+0*(\d+)\s*:\s*([^*]+?)\*\*")
+CHECKBOX_PHASE_LENIENT = re.compile(
+    r"^\s*-\s*\[([ xX])\]\s.*?\bPhase\s+0*(\d+)\b\s*:?\s*(.*?)\s*$")
 TABLE_PHASE = re.compile(
     r"^\s*\|\s*0*(\d+)[.)\s][^|]*\|.*\|\s*Complete\s*\|", re.IGNORECASE)
 HEAD_PHASE = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\s*:\s*(.*?)\s*$")
@@ -94,6 +119,10 @@ REQ_ITEM = re.compile(
     r"^\s*-\s*(?:\[[ xX]\]\s*)?\*\*([A-Za-z][A-Za-z0-9]*-\d+)\*\*\s*:?\s*(.*)$")
 PHASE_DIR = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
 ATTACH_ACTION = re.compile(r"^attach-to-phase-(\d+)$")
+# Zero-padding tolerated (phase-01 == phase-1), the same leniency
+# cairn-status and cairn-doctor apply — a padded label must not slip past
+# the sweep, stay open, and make the epic close fail.
+PHASE_LABEL = re.compile(r"^phase-0*(\d+)$")
 
 STATE_DESCRIPTIONS = {
     "A": ".planning present, .beads absent -> GSD-only backfill (plan --mode A)",
@@ -245,11 +274,12 @@ def parse_roadmap(planning_dir):
 
     current = None
     for line in read_lines(planning_dir / "ROADMAP.md"):
-        m = CHECKBOX_PHASE.match(line)
+        m = CHECKBOX_PHASE.match(line) or CHECKBOX_PHASE_LENIENT.match(line)
         if m:
             ph = ensure(int(m.group(2)))
-            if ph["name"] is None:
-                ph["name"] = m.group(3).strip()
+            name = re.sub(r"[*_`]", "", m.group(3)).strip().strip(":-").strip()
+            if ph["name"] is None and name:
+                ph["name"] = name
             if m.group(1).lower() == "x":
                 ph["completed"] = True
             continue
@@ -387,23 +417,34 @@ def phase_is_complete(phase_dir):
                for v in phase_dir.glob("*-VERIFICATION.md"))
 
 
-def note_gate_incomplete_phases(roadmap, dirs, notes):
-    """Plan-time heads-up for the migrate/gate completion mismatch: migrate
-    only closes issues for phases with SUMMARIES + a passed VERIFICATION,
-    while the ship gates (cairn-gate / the pre-push shim / the capability
-    ship-gate) treat every ROADMAP '[x]' phase as completed. A checked phase
-    without that evidence migrates to OPEN issues that will block pushes."""
+def note_roadmap_closed_phases(roadmap, dirs, notes):
+    """Plan-time note for checked ROADMAP phases lacking artifact evidence
+    (SUMMARIES + a passed VERIFICATION). The ROADMAP checkbox is GSD's
+    source of truth for completion — the same rule the ship gates
+    (cairn-gate / the pre-push shim / the capability ship-gate) apply — so
+    migrate closes those phases' issues anyway; the note surfaces WHICH
+    phases were closed on checkbox evidence alone so the prose command can
+    tell the user, and the close steps carry the matching reason."""
     stranded = [n for n in sorted(roadmap)
                 if roadmap[n]["completed"]
                 and not phase_is_complete(dirs.get(n))]
     if stranded:
         nums = ", ".join(f"{n}" for n in stranded)
         notes.append(
-            f"ROADMAP marks phase(s) {nums} complete, but migrate closes "
-            "issues only for phases with SUMMARIES + a passed VERIFICATION "
-            "— their issues stay OPEN and the pre-push ship gate will block "
-            "pushes; close them manually (bd close <id> --reason ...) or "
-            "uncheck the phase in ROADMAP.md")
+            f"ROADMAP marks phase(s) {nums} complete without SUMMARIES + a "
+            "passed VERIFICATION — their issues are closed via roadmap "
+            "checkbox (artifacts missing); the ROADMAP is the GSD source "
+            "of truth for completion, and closing keeps the board and the "
+            "pre-push ship gate consistent")
+
+
+def roadmap_close_reason(n, evidence):
+    """The close reason for a completed phase: artifact-backed phases cite
+    their SUMMARIES; checkbox-only phases say so explicitly."""
+    if evidence:
+        return f"migrated: completed in phase {n:02d} (see SUMMARIES)"
+    return (f"migrated: completed in phase {n:02d} "
+            "(closed via roadmap checkbox, artifacts missing)")
 
 
 def pending_todos(planning_dir):
@@ -431,6 +472,62 @@ def pending_todos(planning_dir):
 # --------------------------------------------------------------------------- #
 # detect
 # --------------------------------------------------------------------------- #
+def run_git(args, project_dir):
+    """stdout of `git -C <dir> ...`; '' on any failure (no git binary, not a
+    repo, empty repo) — detection degrades to 'not found', never dies."""
+    try:
+        proc = subprocess.run(["git", "-C", str(project_dir)] + args,
+                              capture_output=True, text=True)
+    except (FileNotFoundError, OSError):
+        return ""
+    return proc.stdout if proc.returncode == 0 else ""
+
+
+def detect_jira(project_dir, planning_dir):
+    """External-tracker sniff for detect --json (info["external"]["jira"]):
+    {"detected": bool, "prefixes": [str], "signals": [str]}. Jira keys share
+    the GSD REQ-id shape (\\b[A-Z][A-Z0-9]+-\\d+\\b), so two guards keep
+    local requirement ids from masquerading as Jira: a prefix counts only
+    when the SAME prefix occurs >= 3 times across the last 300 commits
+    (subject+body) and branch names, and prefixes that appear as requirement
+    ids in the local REQUIREMENTS.md are excluded outright. Env JIRA_* vars
+    and an atlassian.net git remote are independent signals. Read-only."""
+    excluded = {req.split("-", 1)[0].upper()
+                for req in parse_requirements_md(
+                    planning_dir / "REQUIREMENTS.md")}
+    counts = Counter()
+    per_source = {}
+    corpora = (
+        ("git-log", run_git(["log", "-n", "300", "--format=%s%n%b"],
+                            project_dir)),
+        ("branches", run_git(["branch", "-a",
+                              "--format=%(refname:short)"], project_dir)),
+    )
+    for source, text in corpora:
+        for m in JIRA_KEY.finditer(text):
+            prefix = m.group(1)
+            if prefix in excluded:
+                continue
+            counts[prefix] += 1
+            per_source.setdefault(prefix, set()).add(source)
+    # Most frequent first, as /cairn:sync-config documents and relies on: it
+    # pre-fills project_key from prefixes[0]. Sorting alphabetically instead
+    # handed it whichever key happened to sort first, so a repo with 200
+    # ACME- keys and 3 stray ZZ- ones still seeded ACME only by luck of the
+    # alphabet. Ties break alphabetically so the output stays deterministic.
+    prefixes = [p for p, _ in sorted(
+        ((p, c) for p, c in counts.items() if c >= 3),
+        key=lambda pc: (-pc[1], pc[0]))]
+    signals = [source for source, _ in corpora
+               if any(source in per_source.get(p, ()) for p in prefixes)]
+    if any(k.startswith("JIRA_") for k in os.environ):
+        signals.append("env")
+    if "atlassian.net" in run_git(["remote", "-v"], project_dir):
+        signals.append("remote")
+    return {"detected": bool(prefixes or signals),
+            "prefixes": prefixes, "signals": signals}
+
+
 def wired_signals(planning_dir):
     maps = [p for p in planning_dir.rglob("*-BEADS-MAP.md")]
     plans_with_beads = [p for p in planning_dir.rglob("*-PLAN.md")
@@ -456,6 +553,7 @@ def classify(project_dir):
         info["plans_with_beads"] = len(wired_plans)
         info["wired"] = bool(maps or wired_plans)
         info["state"] = "W" if info["wired"] else "C"
+    info["external"] = {"jira": detect_jira(project_dir, planning)}
     return info
 
 
@@ -505,6 +603,16 @@ class IssueIndex:
 
     def epic(self, phase):
         return self.epic_by_phase.get((phase, self.milestone))
+
+
+def issue_phase_ns(issue):
+    """Phase numbers from an issue's phase-<N> labels, padding tolerated."""
+    out = set()
+    for lb in issue.get("labels") or []:
+        m = PHASE_LABEL.match(str(lb).strip())
+        if m:
+            out.add(int(m.group(1)))
+    return out
 
 
 def pair_labels(phase, milestone):
@@ -586,24 +694,7 @@ def build_plan_a(project, planning, milestone, index, notes):
                        "labels": pair_labels(n, milestone), "gsd": gsd,
                        "priority": 1})
 
-    # (2) phase deps: phase N depends on phase M -> bd dep add epicN epicM
-    for n in phase_nums:
-        for m in roadmap[n]["depends_on"]:
-            if m not in epic_ref:
-                notes.append(f"phase {n} depends on unknown phase {m} — "
-                             "dependency skipped")
-                continue
-            a, b = epic_ref[n], epic_ref[m]
-            if "id" in a and "id" in b and index:
-                iss = index.by_id.get(a["id"])
-                if iss is not None and dep_exists(iss, b["id"]):
-                    continue
-            params = {}
-            params["from_id" if "id" in a else "from_key"] = a.get("id") or a.get("key")
-            params["to_id" if "id" in b else "to_key"] = b.get("id") or b.get("key")
-            steps.add("dep_add", params)
-
-    # (3) one child issue per requirement
+    # (2) one child issue per requirement
     req_phase = {}
     req_ref = {}
     seen_reqs = set()
@@ -643,12 +734,26 @@ def build_plan_a(project, planning, milestone, index, notes):
         notes.append("requirements present in REQUIREMENTS.md but mapped to "
                      f"no ROADMAP phase (skipped): {', '.join(unassigned)}")
 
-    # (4) completed phases: close children, then the epic
-    note_gate_incomplete_phases(roadmap, dirs, notes)
+    # (3) completed phases: close children, then the epic. A phase counts
+    #     as complete when its artifacts prove it (SUMMARIES + a passed
+    #     VERIFICATION) OR when ROADMAP checks it off — the checkbox is
+    #     GSD's source of truth, so a checked phase without artifacts still
+    #     closes (the reason says so). Children NOT in the ROADMAP
+    #     requirements list are swept by their phase-N pair label (all of
+    #     whose phases must be complete) and by epic parentage: leaving
+    #     them open makes the epic close fail and the board lie. Closes are
+    #     emitted BEFORE dep_add steps so completed chains never
+    #     materialize as live blockers.
+    note_roadmap_closed_phases(roadmap, dirs, notes)
+    evidence = {n: phase_is_complete(dirs.get(n)) for n in phase_nums}
+    phase_complete = {n: evidence[n] or roadmap[n]["completed"]
+                      for n in phase_nums}
+    closing_ids = set()
+    complete_ns = {n for n in phase_nums if phase_complete[n]}
     for n in phase_nums:
-        if not phase_is_complete(dirs.get(n)):
+        if not phase_complete[n]:
             continue
-        reason = f"migrated: completed in phase {n:02d} (see SUMMARIES)"
+        reason = roadmap_close_reason(n, evidence[n])
         for req in roadmap[n]["requirements"]:
             ref = req_ref.get(req)
             if ref is None:
@@ -657,13 +762,66 @@ def build_plan_a(project, planning, milestone, index, notes):
                 iss = index.by_id.get(ref["id"])
                 if iss is not None and iss.get("status") == "closed":
                     continue
+            if "id" in ref:
+                closing_ids.add(ref["id"])
             steps.add("close_issue", dict(ref, reason=reason))
         eref = epic_ref[n]
-        if "id" in eref and index:
-            iss = index.by_id.get(eref["id"])
+        epic_id = eref.get("id")
+        if index:
+            for iss in index.by_id.values():
+                iid = iss.get("id", "")
+                if (iss.get("status") == "closed"
+                        or iss.get("issue_type") == "epic"
+                        or iid in closing_ids):
+                    continue
+                labels = iss.get("labels") or []
+                # ALL, not any: a cross-phase issue (phase-1 complete,
+                # phase-2 still live) stays open — the same predicate
+                # cairn-status's in_done_phase and cairn-doctor's
+                # --close-completed use, so mode A never sweeps away work
+                # the board still lists as deliverable. Compared by parsed
+                # number, so phase-01 counts exactly like phase-1.
+                label_ns = issue_phase_ns(iss)
+                in_phase = (n in label_ns and label_ns <= complete_ns)
+                is_child = epic_id is not None and (
+                    iss.get("parent") == epic_id
+                    or iid.startswith(epic_id + "."))
+                if not (in_phase or is_child):
+                    continue
+                # a phase-N label stamped for ANOTHER milestone is not ours
+                m_labels = [lb for lb in labels if lb.startswith("m-")]
+                if (in_phase and not is_child and m_labels
+                        and f"m-{milestone}" not in m_labels):
+                    continue
+                closing_ids.add(iid)
+                steps.add("close_issue", {"id": iid, "reason": reason})
+        if epic_id is not None and index:
+            iss = index.by_id.get(epic_id)
             if iss is not None and iss.get("status") == "closed":
                 continue
         steps.add("close_issue", dict(eref, reason=reason))
+
+    # (4) phase deps: phase N depends on phase M -> bd dep add epicN epicM.
+    #     A dependency on a COMPLETE blocker phase is already satisfied —
+    #     wiring it anyway is how one stale chain blocks a whole board, so
+    #     those are skipped.
+    for n in phase_nums:
+        for m in roadmap[n]["depends_on"]:
+            if m not in epic_ref:
+                notes.append(f"phase {n} depends on unknown phase {m} — "
+                             "dependency skipped")
+                continue
+            if phase_complete.get(m):
+                continue
+            a, b = epic_ref[n], epic_ref[m]
+            if "id" in a and "id" in b and index:
+                iss = index.by_id.get(a["id"])
+                if iss is not None and dep_exists(iss, b["id"]):
+                    continue
+            params = {}
+            params["from_id" if "id" in a else "from_key"] = a.get("id") or a.get("key")
+            params["to_id" if "id" in b else "to_key"] = b.get("id") or b.get("key")
+            steps.add("dep_add", params)
 
     # (5) beads: frontmatter appends per non-superseded plan
     add_frontmatter_steps(steps, planning, project, index, milestone, notes)
@@ -1102,11 +1260,15 @@ def build_plan_c(project, planning, milestone, index, notes, plan_extra):
     plan_extra["orphans"] = orphans
 
     # divergence: complete phases with open matched issues -> offer close
-    # (pending_confirmation: pre-existing issues may be externally mirrored)
-    note_gate_incomplete_phases(roadmap, dirs, notes)
+    # (pending_confirmation: pre-existing issues may be externally
+    # mirrored). Completion here follows the same rule as mode A: artifact
+    # evidence OR the ROADMAP checkbox — but since these issues pre-date
+    # the migration, every close stays behind confirmation.
+    note_roadmap_closed_phases(roadmap, dirs, notes)
     warnings = []
     for n in sorted(roadmap):
-        complete = phase_is_complete(dirs.get(n))
+        evidence = phase_is_complete(dirs.get(n))
+        complete = evidence or roadmap[n]["completed"]
         for req in roadmap[n]["requirements"]:
             iss = matched_issue_by_req.get(req)
             if iss is None:
@@ -1114,14 +1276,14 @@ def build_plan_c(project, planning, milestone, index, notes, plan_extra):
             if complete and iss.get("status") != "closed":
                 steps.add("close_issue",
                           {"id": iss["id"],
-                           "reason": f"migrated: completed in phase {n:02d} "
-                                     "(see SUMMARIES)",
+                           "reason": roadmap_close_reason(n, evidence),
                            "confirmed": False},
                           status="pending_confirmation")
             if not complete and iss.get("status") == "closed":
                 warnings.append(
-                    f"{iss['id']} is closed but phase {n:02d} has no passed "
-                    f"VERIFICATION — review ({req})")
+                    f"{iss['id']} is closed but phase {n:02d} is not "
+                    "complete (unchecked in ROADMAP, no passed "
+                    f"VERIFICATION) — review ({req})")
     plan_extra["warnings"] = warnings
 
     add_frontmatter_steps(steps, planning, project, index, milestone, notes)
@@ -1282,6 +1444,13 @@ class Applier:
                     break
                 sid = rec.get("step")
                 if sid:
+                    if rec.get("status") == "failed":
+                        # a failed record is an audit trail entry, not
+                        # completed work — leaving it out of `completed`
+                        # is what makes a re-run replay exactly the
+                        # failures (directed replay)
+                        self.completed.discard(sid)
+                        continue
                     self.completed.add(sid)
                     self.ids.update(rec.get("ids") or {})
             if header_ok:
@@ -1297,6 +1466,15 @@ class Applier:
         self.completed.add(step_id)
         with self.journal_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps({"step": step_id, "ids": new_ids or {},
+                                 "ts": now_utc()}) + "\n")
+
+    def journal_failure(self, step_id, kind, error):
+        """Record a step that failed (after its retry) with status
+        "failed": load_journal never counts these as completed, so the
+        next apply re-runs exactly the failures."""
+        with self.journal_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"step": step_id, "kind": kind,
+                                 "status": "failed", "error": error,
                                  "ts": now_utc()}) + "\n")
 
     # ---- shared ------------------------------------------------------------
@@ -1599,6 +1777,37 @@ def merge_beads_frontmatter(path, new_ids):
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def run_with_retry(fn, arg, label, before_retry=None):
+    """One immediate retry per failed step: transient bd/filesystem hiccups
+    are common enough that a second attempt saves a whole re-apply. The
+    second failure propagates to the caller (which journals it as failed).
+
+    before_retry runs BETWEEN the two attempts. create_* steps pass
+    Applier.refresh_index: a 'bd create' that failed AFTER the issue
+    actually landed (nonzero exit post-creation, unparseable output) leaves
+    the in-memory index stale, and a blind retry would mint a duplicate —
+    the one place the 'never produces duplicates' guarantee could break.
+    Re-reading live bd lets the handler's own dedup (gsd req/phase key,
+    migrated-todo title) find what the first attempt created and skip it.
+    A refresh that itself fails is not fatal: it only means the retry runs
+    with the stale index it would have had anyway."""
+    try:
+        return fn(arg)
+    except (StepError, OSError) as e:
+        print(f"[cairn-migrate] retry {label} after: {e}", file=sys.stderr)
+        if before_retry is not None:
+            try:
+                before_retry()
+            except (StepError, OSError, ValueError, SystemExit) as re_err:
+                # SystemExit included on purpose: list_issues die()s on a
+                # bd failure, and a best-effort refresh must not convert a
+                # journaled partial failure (exit 8) into an abrupt exit 5.
+                print(f"[cairn-migrate] retry {label}: index refresh "
+                      f"failed ({re_err}) — retrying on the stale index",
+                      file=sys.stderr)
+        return fn(arg)
+
+
 def cmd_apply(args):
     project = Path(args.project_dir or
                    os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())).resolve()
@@ -1663,18 +1872,28 @@ def cmd_apply(args):
             continue
         handler = getattr(applier, f"do_{step['kind']}", None)
         if handler is None:
-            failures.append((sid, f"unknown step kind {step['kind']!r}"))
-            print(f"[cairn-migrate] FAIL {sid}: unknown step kind "
-                  f"{step['kind']!r}", file=sys.stderr)
+            msg = f"unknown step kind {step['kind']!r}"
+            failures.append((sid, step["kind"], msg))
+            applier.journal_failure(sid, step["kind"], msg)
+            print(f"[cairn-migrate] FAIL {sid}: {msg}", file=sys.stderr)
             continue
+        # Only create_* steps need the pre-retry index refresh (see
+        # run_with_retry): close/dep/write/frontmatter are idempotent by
+        # nature, and re-reading bd for them would cost a list per retry.
+        before_retry = (applier.refresh_index
+                        if step["kind"].startswith("create_")
+                        and (project / ".beads").is_dir() else None)
         try:
-            new_ids = handler(step["params"])
+            new_ids = run_with_retry(handler, step["params"],
+                                     f"{sid} ({step['kind']})",
+                                     before_retry=before_retry)
         except (StepError, OSError) as e:
             # OSError covers filesystem failures in do_write_file /
             # merge_beads_frontmatter (unwritable path, path component is a
             # file, ...) — a raw traceback here would break the documented
             # 0/2/5/8 exit contract and skip the resume guidance.
-            failures.append((sid, str(e)))
+            failures.append((sid, step["kind"], str(e)))
+            applier.journal_failure(sid, step["kind"], str(e))
             print(f"[cairn-migrate] FAIL {sid} ({step['kind']}): {e}",
                   file=sys.stderr)
             continue
@@ -1687,9 +1906,10 @@ def cmd_apply(args):
         if oid in applier.completed or orphan.get("action", "report") == "report":
             continue
         try:
-            applier.do_orphan(orphan)
+            run_with_retry(applier.do_orphan, orphan, oid)
         except (StepError, OSError) as e:
-            failures.append((oid, str(e)))
+            failures.append((oid, "orphan", str(e)))
+            applier.journal_failure(oid, "orphan", str(e))
             print(f"[cairn-migrate] FAIL {oid}: {e}", file=sys.stderr)
             continue
         applier.journal(oid)
@@ -1699,6 +1919,9 @@ def cmd_apply(args):
     print(f"[cairn-migrate] apply: {executed} executed, {skipped_done} "
           f"already done (journal), {skipped_unconfirmed} awaiting "
           f"confirmation, {len(failures)} failed")
+    for sid, kind, msg in failures:
+        print(f"[cairn-migrate]   failed: {sid} ({kind}) — {msg}",
+              file=sys.stderr)
     if (project / ".cairn" / "sync.json").is_file():
         print("[cairn-migrate] reminder: .cairn/sync.json exists — run "
               "/cairn:sync-pull to reconcile external mirrors")

@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2090 408" width="2090" height="408" role="img" font-family="ui-sans-serif, system-ui, sans-serif">
+  <rect x="0" y="0" width="2090" height="408" fill="#fbfaf7"/>
+  <text class="chart-caption" x="36" y="30" font-size="15" font-weight="600" fill="#2b2723">20260727-haiku-4-5</text>
+  <text class="chart-title" x="36" y="52" font-size="12" fill="#6e675c">cost per successful run (median USD) with pass rate</text>
+  <line class="axis" x1="36" y1="316" x2="2054" y2="316" stroke="#d8d2c6" stroke-width="1.5" stroke-linecap="round"/>
+  <rect class="bar-cost" x="36.0" y="100.602" width="64" height="215.398" fill="#48604f"/>
+  <text class="bar-value" x="68" y="92.6018" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0526</text>
+  <text class="bar-passrate" x="68" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="68" y="354" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="bar-cost" x="114.0" y="133.38" width="64" height="182.62" fill="#48604f"/>
+  <text class="bar-value" x="146" y="125.38" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0446</text>
+  <text class="bar-passrate" x="146" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="146" y="354" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="bar-cost" x="192.0" y="96" width="64" height="220" fill="#48604f"/>
+  <text class="bar-value" x="224" y="88" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0538</text>
+  <text class="bar-passrate" x="224" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="224" y="354" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="bar-cost" x="270.0" y="125.729" width="64" height="190.271" fill="#48604f"/>
+  <text class="bar-value" x="302" y="117.729" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0465</text>
+  <text class="bar-passrate" x="302" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="302" y="354" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <text class="group-task" x="185" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#2b2723">bugfix-inventory</text>
+  <text class="group-category" x="185" y="394" text-anchor="middle" font-size="10" font-style="italic" fill="#6e675c">bugfix</text>
+  <rect class="bar-cost" x="380.0" y="172.213" width="64" height="143.787" fill="#48604f"/>
+  <text class="bar-value" x="412" y="164.213" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0351</text>
+  <text class="bar-passrate" x="412" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="412" y="354" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="bar-cost" x="458.0" y="171.765" width="64" height="144.235" fill="#48604f"/>
+  <text class="bar-value" x="490" y="163.765" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0352</text>
+  <text class="bar-passrate" x="490" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="490" y="354" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="bar-cost" x="536.0" y="169.163" width="64" height="146.837" fill="#48604f"/>
+  <text class="bar-value" x="568" y="161.163" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0359</text>
+  <text class="bar-passrate" x="568" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="568" y="354" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="bar-cost" x="614.0" y="173.68" width="64" height="142.32" fill="#48604f"/>
+  <text class="bar-value" x="646" y="165.68" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0348</text>
+  <text class="bar-passrate" x="646" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="646" y="354" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <text class="group-task" x="529" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#2b2723">feature-todo</text>
+  <text class="group-category" x="529" y="394" text-anchor="middle" font-size="10" font-style="italic" fill="#6e675c">feature</text>
+  <rect class="bar-cost" x="724.0" y="103.008" width="64" height="212.992" fill="#48604f"/>
+  <text class="bar-value" x="756" y="95.0084" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0520</text>
+  <text class="bar-passrate" x="756" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="756" y="354" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="bar-cost" x="802.0" y="110.118" width="64" height="205.882" fill="#48604f"/>
+  <text class="bar-value" x="834" y="102.118" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0503</text>
+  <text class="bar-passrate" x="834" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="834" y="354" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="bar-cost" x="880.0" y="100.327" width="64" height="215.673" fill="#48604f"/>
+  <text class="bar-value" x="912" y="92.3268" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0527</text>
+  <text class="bar-passrate" x="912" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="912" y="354" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="bar-cost" x="958.0" y="111.787" width="64" height="204.213" fill="#48604f"/>
+  <text class="bar-value" x="990" y="103.787" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0499</text>
+  <text class="bar-passrate" x="990" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="990" y="354" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <text class="group-task" x="873" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#2b2723">longhorizon-notify</text>
+  <text class="group-category" x="873" y="394" text-anchor="middle" font-size="10" font-style="italic" fill="#6e675c">long-horizon</text>
+  <rect class="bar-cost" x="1068.0" y="213.33" width="64" height="102.67" fill="#48604f"/>
+  <text class="bar-value" x="1100" y="205.33" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0251</text>
+  <text class="bar-passrate" x="1100" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1100" y="354" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="bar-cost" x="1146.0" y="213.415" width="64" height="102.585" fill="#48604f"/>
+  <text class="bar-value" x="1178" y="205.415" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0251</text>
+  <text class="bar-passrate" x="1178" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1178" y="354" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="bar-cost" x="1224.0" y="212.839" width="64" height="103.161" fill="#48604f"/>
+  <text class="bar-value" x="1256" y="204.839" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0252</text>
+  <text class="bar-passrate" x="1256" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1256" y="354" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="bar-cost" x="1302.0" y="212.725" width="64" height="103.275" fill="#48604f"/>
+  <text class="bar-value" x="1334" y="204.725" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0252</text>
+  <text class="bar-passrate" x="1334" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1334" y="354" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <text class="group-task" x="1217" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#2b2723">microedit-greet</text>
+  <text class="group-category" x="1217" y="394" text-anchor="middle" font-size="10" font-style="italic" fill="#6e675c">honest-non-win</text>
+  <rect class="bar-cost" x="1412.0" y="142.843" width="64" height="173.157" fill="#48604f"/>
+  <text class="bar-value" x="1444" y="134.843" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0423</text>
+  <text class="bar-passrate" x="1444" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1444" y="354" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="bar-cost" x="1490.0" y="167.235" width="64" height="148.765" fill="#48604f"/>
+  <text class="bar-value" x="1522" y="159.235" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0364</text>
+  <text class="bar-passrate" x="1522" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1522" y="354" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="bar-cost" x="1568.0" y="127.064" width="64" height="188.936" fill="#48604f"/>
+  <text class="bar-value" x="1600" y="119.064" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0462</text>
+  <text class="bar-passrate" x="1600" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1600" y="354" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="bar-cost" x="1646.0" y="137.387" width="64" height="178.613" fill="#48604f"/>
+  <text class="bar-value" x="1678" y="129.387" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0436</text>
+  <text class="bar-passrate" x="1678" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1678" y="354" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <text class="group-task" x="1561" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#2b2723">refactor-report</text>
+  <text class="group-category" x="1561" y="394" text-anchor="middle" font-size="10" font-style="italic" fill="#6e675c">refactor</text>
+  <rect class="bar-cost" x="1756.0" y="170.215" width="64" height="145.785" fill="#48604f"/>
+  <text class="bar-value" x="1788" y="162.215" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0356</text>
+  <text class="bar-passrate" x="1788" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1788" y="354" text-anchor="middle" font-size="10" fill="#6e675c">cairn</text>
+  <rect class="bar-cost" x="1834.0" y="170.884" width="64" height="145.116" fill="#48604f"/>
+  <text class="bar-value" x="1866" y="162.884" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0355</text>
+  <text class="bar-passrate" x="1866" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1866" y="354" text-anchor="middle" font-size="10" fill="#6e675c">competitor-ralph-specum</text>
+  <rect class="bar-cost" x="1912.0" y="161.243" width="64" height="154.757" fill="#48604f"/>
+  <text class="bar-value" x="1944" y="153.243" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0378</text>
+  <text class="bar-passrate" x="1944" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="1944" y="354" text-anchor="middle" font-size="10" fill="#6e675c">gsd-only</text>
+  <rect class="bar-cost" x="1990.0" y="158.296" width="64" height="157.704" fill="#48604f"/>
+  <text class="bar-value" x="2022" y="150.296" text-anchor="middle" font-size="11" font-weight="600" fill="#2b2723">$0.0385</text>
+  <text class="bar-passrate" x="2022" y="336" text-anchor="middle" font-size="11" fill="#2b2723">5/5 (100%)</text>
+  <text class="bar-baseline" x="2022" y="354" text-anchor="middle" font-size="10" fill="#6e675c">vanilla</text>
+  <text class="group-task" x="1905" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#2b2723">smoke-convert</text>
+  <text class="group-category" x="1905" y="394" text-anchor="middle" font-size="10" font-style="italic" fill="#6e675c">smoke</text>
+</svg>

@@ -1,9 +1,16 @@
 ---
 description: Tracked side-quest — stamped quick issue with discovered-from provenance, then GSD quick
-argument-hint: <task description>
+argument-hint: <task description> [--full] [--discuss] [--research] [--validate] | list | status <slug> | resume <slug>
 ---
 
 Side work stays tracked — never do a "quick thing" off the books.
+
+First, split $ARGUMENTS: strip `--full`, `--discuss`, `--research`,
+`--validate` — the clean description titles the bd issue; the flags are
+forwarded to `/gsd:quick` (`--discuss --research --validate` ≡ `--full`).
+When $ARGUMENTS is a `/gsd:quick` subcommand (`list`, `status <slug>`,
+`resume <slug>`), route it straight to `/gsd:quick` — create and claim
+nothing.
 
 1. Find the active issue: `bd list --status in_progress --assignee <actor>`
    (actor resolves the way bd does: `$BEADS_ACTOR`, then git `user.name`, then
@@ -13,14 +20,14 @@ Side work stays tracked — never do a "quick thing" off the books.
    from ROADMAP.md's current header, or STATE.md), **no `phase-*` label**:
    quick work is unphased. `bd q` can't stamp metadata, so use `bd create`:
    ```bash
-   bd create "$ARGUMENTS" -t task -l m-<milestone>,quick \
+   bd create "<clean description>" -t task -l m-<milestone>,quick \
      --metadata '{"gsd": {"milestone": "vX.Y"}}' \
      --deps discovered-from:<active-id>   # only when step 1 found one
    ```
    (`--deps discovered-from:` records provenance without blocking; after the
    fact the same edge is `bd dep add <quick-id> <active-id> -t discovered-from`.)
 3. Claim it (`bd update <quick-id> --claim`), then run `/gsd:quick` with the
-   description.
+   description plus any stripped flags.
 4. On completion: `bd close <quick-id> --reason="<1–2 sentence summary>"`.
    Abandoned or deferred → release it (`bd update <quick-id> --assignee ""
    --status open`) and leave it open: it stays visible in `/cairn:status`'s

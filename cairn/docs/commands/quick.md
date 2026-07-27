@@ -5,10 +5,15 @@
 ## Usage
 
 ```
-/cairn:quick <task description>
+/cairn:quick <task description> [--full] [--discuss] [--research] [--validate]
 ```
 
 The description becomes both the bd issue title and the `/gsd:quick` task.
+Flags are stripped from the description first — the clean title goes to
+`bd create`, the flags are forwarded to `/gsd:quick`
+(`--discuss --research --validate` ≡ `--full`). The `/gsd:quick` subcommands
+`list`, `status <slug>`, and `resume <slug>` route straight through — no
+issue is created or claimed for them.
 
 ## What it does
 
@@ -23,7 +28,7 @@ Side work stays tracked — never a "quick thing" off the books.
    (milestone from ROADMAP.md's current header, or STATE.md), with **no
    `phase-*` label**: quick work is unphased.
    ```bash
-   bd create "$ARGUMENTS" -t task -l m-<milestone>,quick \
+   bd create "<clean description>" -t task -l m-<milestone>,quick \
      --metadata '{"gsd": {"milestone": "vX.Y"}}' \
      --deps discovered-from:<active-id>   # only when step 1 found one
    ```
@@ -31,8 +36,8 @@ Side work stays tracked — never a "quick thing" off the books.
    the fact, the same edge is
    `bd dep add <quick-id> <active-id> -t discovered-from`.
 3. **Claims it** (`bd update <quick-id> --claim`), then runs `/gsd:quick`
-   with the description — GSD guarantees (atomic commits, state tracking)
-   with optional agents skipped.
+   with the description plus any stripped flags — GSD guarantees (atomic
+   commits, state tracking) with optional agents skipped.
 4. **On completion:** `bd close <quick-id> --reason="<1–2 sentence summary>"`.
    Abandoned or deferred → **release** it
    (`bd update <quick-id> --assignee "" --status open`) and leave it open: it
@@ -40,9 +45,14 @@ Side work stays tracked — never a "quick thing" off the books.
 
 ## Flags & arguments
 
-| Argument | Effect |
+| Argument / flag | Effect |
 | --- | --- |
-| `<task description>` | Positional, required — issue title and GSD quick description |
+| `<task description>` | Positional, required — issue title (flags stripped) and GSD quick description |
+| `--full` | Forwarded to `/gsd:quick` — equivalent to `--discuss --research --validate` |
+| `--discuss` | Forwarded to `/gsd:quick` (composable) |
+| `--research` | Forwarded to `/gsd:quick` (composable) |
+| `--validate` | Forwarded to `/gsd:quick` (composable) |
+| `list` / `status <slug>` / `resume <slug>` | `/gsd:quick` subcommands — routed straight through, no bd issue created or claimed |
 
 ## Examples
 

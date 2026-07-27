@@ -25,6 +25,13 @@ Route on the state letter (line 1 of the output):
   interview.
 - **D** — greenfield: continue with all steps below.
 
+Regardless of the state letter: if the detect JSON (`detect --json`) carries
+`external.jira` with `detected: true`, the repo already references Jira cards
+(`prefixes` lists the issue-key prefixes found). Mention it to the user and
+suggest `/cairn:sync-config` — it pre-fills the Jira backend from this
+detection and can import the existing cards. Never configure sync or run an
+import yourself; only point at it.
+
 ## 1. Verify GSD is present
 
 GSD ships as a declared dependency of cairn, so it is normally already installed.
