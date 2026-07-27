@@ -106,6 +106,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -909,24 +910,49 @@ def n2(x):
 
 
 def split_markers(text, start_marker, end_marker):
-    """(prefix incl. start marker, inner, suffix from end marker) or None
-    when either marker is missing/misordered (ported from cairn-map.py)."""
-    s = text.find(start_marker)
-    e = text.find(end_marker)
-    if s < 0 or e < 0 or e < s:
-        return None
+    """Locate the generated region.
+
+    Returns (prefix incl. start marker, inner, suffix from end marker) for a
+    well-formed pair, the string "absent" when the file carries NEITHER
+    marker, or the string "damaged" for anything else: one marker without
+    its partner, the pair out of order, or a marker appearing more than once.
+
+    The three-way answer is the point. Treating "one marker present" as
+    "no region here" and appending a fresh block is what turns a damaged
+    page into a destroyed one: the appended block supplies the partner the
+    file was missing, and the NEXT run splices between the orphan and the
+    newcomer, eating every byte in between. A page carrying only the start
+    marker lost its closing tags on the second run that way, and one
+    carrying only the end marker grew an extra board every run, forever.
+    A file we cannot read confidently is one we must not rewrite.
+    """
+    starts, ends = text.count(start_marker), text.count(end_marker)
+    if starts == 0 and ends == 0:
+        return "absent"
+    if starts != 1 or ends != 1:
+        return "damaged"
+    s, e = text.find(start_marker), text.find(end_marker)
+    if e < s + len(start_marker):
+        return "damaged"
     return (text[:s + len(start_marker)],
             text[s + len(start_marker):e].strip("\n"),
             text[e:])
 
 
 def splice_board(text, inner):
-    """(changed, full_text): replace ONLY the content between the board
-    markers, preserving every other byte exactly. A file that carries no
-    marker pair gets the block appended, never destroyed — the contract
-    cairn-map.py and bench-publish.py already use."""
+    """(changed, full_text) or the string "damaged".
+
+    Replaces ONLY the content between the board markers, preserving every
+    other byte exactly. A file carrying neither marker gets the block
+    appended, never destroyed. A file whose markers are broken is refused
+    outright and left untouched, which the caller reports as a usage error:
+    the alternative is guessing where a region starts in a page somebody
+    hand-edited, and a wrong guess deletes their work.
+    """
     parts = split_markers(text, BOARD_START, BOARD_END)
-    if parts is None:
+    if parts == "damaged":
+        return "damaged"
+    if parts == "absent":
         sep = "" if text.endswith("\n") else "\n"
         return True, f"{text}{sep}\n{BOARD_START}\n{inner}\n{BOARD_END}\n"
     if parts[1] == inner:
@@ -1450,11 +1476,38 @@ def write_html_board(path, data):
         old_text = source.read_text(encoding="utf-8")
     except OSError as e:
         die(f"cannot read {source}: {e}", EXIT_USAGE)
-    changed, new_text = splice_board(old_text, render_html_inner(data))
+    except ValueError as e:
+        # UnicodeDecodeError is a ValueError, not an OSError: an existing
+        # target that is not UTF-8 text used to escape as a traceback and
+        # exit 1, against the documented contract for an unusable target.
+        die(f"cannot read {source} as UTF-8 text: {e}", EXIT_USAGE)
+    spliced = splice_board(old_text, render_html_inner(data))
+    if spliced == "damaged":
+        die(f"{path} carries broken board markers (a lone marker, a "
+            f"duplicate, or the end before the start). Nothing was written. "
+            f"Repair the pair, or delete the file to regenerate it.",
+            EXIT_USAGE)
+    changed, new_text = spliced
     if changed or fresh:
+        # Write to a sibling temp file and rename over the target, so an
+        # interrupted run leaves the previous page intact instead of a
+        # truncated one. os.replace is atomic within a filesystem, and the
+        # temp file is a sibling precisely to stay on the same one.
+        tmp = None
         try:
-            path.write_text(new_text, encoding="utf-8")
+            with tempfile.NamedTemporaryFile(
+                    "w", encoding="utf-8", dir=str(parent),
+                    prefix=f".{path.name}.", suffix=".tmp",
+                    delete=False) as fh:
+                tmp = Path(fh.name)
+                fh.write(new_text)
+            os.replace(str(tmp), str(path))
         except OSError as e:
+            if tmp is not None and tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
             die(f"cannot write {path}: {e}", EXIT_USAGE)
     return {"file": str(path.resolve()), "changed": changed or fresh}
 

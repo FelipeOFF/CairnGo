@@ -965,3 +965,73 @@ board_inside() {
   grep -qF 'standing at phase 2' board.html
   grep -qF 'phase <span class="n">2</span> of' board.html
 }
+
+@test "--html refuses a page with broken markers and leaves every byte of it alone" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # A page carrying only the START marker. Appending a block here would
+  # forge the missing partner, and the NEXT run would splice between the
+  # orphan and the newcomer, taking the user's closing tags with it.
+  printf '<html><body>\n<p id="mine">hands off</p>\n%s\n</body></html>\n' \
+    "$BOARD_START" > lone-start.html
+  cp lone-start.html lone-start.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html lone-start.html
+  [ "$status" -eq 2 ]
+  grep -qF 'broken board markers' <<<"$output"
+  run diff lone-start.html lone-start.expected
+  [ "$status" -eq 0 ]
+
+  # The mirror case used to grow an extra board on every single run.
+  printf '<html><body>\n%s\n</body></html>\n' "$BOARD_END" > lone-end.html
+  cp lone-end.html lone-end.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html lone-end.html
+  [ "$status" -eq 2 ]
+  run diff lone-end.html lone-end.expected
+  [ "$status" -eq 0 ]
+
+  # A duplicated pair is ambiguous, so it is refused rather than guessed at.
+  printf '%s\n%s\n%s\n%s\n' "$BOARD_START" "$BOARD_END" "$BOARD_START" \
+    "$BOARD_END" > doubled.html
+  cp doubled.html doubled.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html doubled.html
+  [ "$status" -eq 2 ]
+  run diff doubled.html doubled.expected
+  [ "$status" -eq 0 ]
+
+  # End before start: same refusal.
+  printf '%s\n<p>x</p>\n%s\n' "$BOARD_END" "$BOARD_START" > inverted.html
+  cp inverted.html inverted.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html inverted.html
+  [ "$status" -eq 2 ]
+  run diff inverted.html inverted.expected
+  [ "$status" -eq 0 ]
+
+  # A page with NEITHER marker is still appended to, never destroyed.
+  printf '<html><body>\n<p id="mine">keep me</p>\n</body></html>\n' > plain.html
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html plain.html
+  [ "$status" -eq 0 ]
+  grep -qF '<p id="mine">keep me</p>' plain.html
+  grep -qF "$BOARD_START" plain.html
+  grep -qF "$BOARD_END" plain.html
+}
+
+@test "--html on a target that is not UTF-8 text exits 2 instead of a traceback" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  printf '\xff\xfe\x00\x01not text at all' > binary.html
+  cp binary.html binary.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html binary.html
+  # UnicodeDecodeError is a ValueError, so `except OSError` used to miss it
+  # and the run died with a traceback and exit 1.
+  [ "$status" -eq 2 ]
+  grep -qF 'as UTF-8 text' <<<"$output"
+  refute_in_output 'Traceback'
+  run diff binary.html binary.expected
+  [ "$status" -eq 0 ]
+}
