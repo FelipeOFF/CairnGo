@@ -1081,6 +1081,11 @@ board_inside() {
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
   [ "$status" -eq 0 ]
   run bash -c "stat -f '%Lp' board.html 2>/dev/null || stat -c '%a' board.html"
+  # Report both sides on failure. A bare "expected X got Y" with neither value
+  # printed is what made this take three CI cycles to diagnose.
+  if [ "$output" != "$expected" ]; then
+    echo "board=$output reference=$expected umask=$(umask)" >&2
+  fi
   [ "$output" = "$expected" ]
 
   # And a mode the reader set themselves survives regeneration.
