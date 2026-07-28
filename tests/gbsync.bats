@@ -398,3 +398,70 @@ PYEOF
   [ ! -e .cairn/state.json ]
   [ ! -e .cairn/conflicts.json ]
 }
+
+# Three items, and a bd shim that hard-kills the importer (SIGKILL, so no
+# handler and no finally block runs) once two of them exist. This is the
+# interrupted import: a laptop closing, a CI job cancelled, a crash.
+make_kill_midway_stub() {
+  STUB_ADAPTERS_DIR="$BATS_TEST_TMPDIR/adapters-kill"
+  mkdir -p "$STUB_ADAPTERS_DIR"
+  cat > "$STUB_ADAPTERS_DIR/jira.py" <<'EOF'
+#!/usr/bin/env python3
+import json, sys
+json.load(sys.stdin)
+print(json.dumps([
+    {"external_id": "CHN-1", "title": "One", "body": "b", "status": "open",
+     "updated_at": "2026-01-01T00:00:00Z"},
+    {"external_id": "CHN-2", "title": "Two", "body": "b", "status": "open",
+     "updated_at": "2026-01-01T00:00:00Z"},
+    {"external_id": "CHN-3", "title": "Three", "body": "b", "status": "open",
+     "updated_at": "2026-01-01T00:00:00Z"},
+]))
+EOF
+  export CAIRN_ADAPTERS_DIR="$STUB_ADAPTERS_DIR"
+
+  SHIM_DIR="$BATS_TEST_TMPDIR/shim"
+  mkdir -p "$SHIM_DIR"
+  REAL_BD="$(command -v bd)"
+  cat > "$SHIM_DIR/bd" <<EOF
+#!/usr/bin/env bash
+# Count only 'create' calls; on the third, kill the importer outright.
+if [ "\$1" = "create" ]; then
+  n=\$(cat "$BATS_TEST_TMPDIR/creates" 2>/dev/null || echo 0)
+  n=\$((n + 1)); echo "\$n" > "$BATS_TEST_TMPDIR/creates"
+  if [ "\$n" -ge 3 ]; then kill -9 \$PPID; sleep 5; exit 137; fi
+fi
+exec "$REAL_BD" "\$@"
+EOF
+  chmod +x "$SHIM_DIR/bd"
+  export PATH="$SHIM_DIR:$PATH"
+}
+
+@test "gbsync import survives being killed midway: what it created stays mapped" {
+  require_bd
+  make_tmp_repo
+  make_bd_fixture "$PWD" tst
+  make_jira_sync_config
+  make_kill_midway_stub
+
+  # The importer is SIGKILLed during the third create. Its exit status is not
+  # the point; what it left behind is.
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" import --project CHN --dir "$PWD"
+
+  # The two issues that were created before the kill are in the map. Writing
+  # the map once at the end left this file absent or empty, so the "safe to
+  # re-run" contract created every one of them a second time.
+  [ -f .cairn/id-map.json ]
+  [ "$(jq 'length' .cairn/id-map.json)" -eq 2 ]
+  jq -e 'to_entries | map(.value.jira) | index("CHN-1")' .cairn/id-map.json >/dev/null
+  jq -e 'to_entries | map(.value.jira) | index("CHN-2")' .cairn/id-map.json >/dev/null
+
+  # Re-running with the shim disarmed finishes the job instead of duplicating
+  # it: the two known ones are skipped, only the third is created.
+  rm -f "$BATS_TEST_TMPDIR/creates"
+  export PATH="${PATH#"$BATS_TEST_TMPDIR/shim":}"
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" import --project CHN --dir "$PWD"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"created=1 skipped=2 failed=0"* ]]
+  [ "$(jq 'length' .cairn/id-map.json)" -eq 3 ]
+}

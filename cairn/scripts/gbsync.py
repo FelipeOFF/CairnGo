@@ -395,29 +395,39 @@ def do_import(base, cfg, query, project, backend_type, dry_run=False):
     mapped = {m[btype] for m in idmap.values() if m.get(btype)}
     created = skipped = failed = 0
     lines = []
-    for it in items:
-        ext = str(it.get("external_id") or "").strip()
-        if not ext:
-            failed += 1
-            lines.append(("FAIL", "item without external_id — skipped"))
-            continue
-        if ext in mapped:
-            skipped += 1
-            lines.append(("skip", f"{ext} already mapped"))
-            continue
-        title = (it.get("title") or "").strip() or ext
-        bd_id, cerr = bd_create(title, it.get("body", ""),
-                                it.get("status", "open"))
-        if bd_id:
-            idmap.setdefault(bd_id, {})[btype] = ext
-            mapped.add(ext)
-        if cerr:
-            failed += 1
-            lines.append(("FAIL", f"{ext}: {cerr}"))
-        else:
-            created += 1
-            lines.append(("ok", f"{ext} -> {bd_id}"))
-    write_json(base / "id-map.json", idmap)
+    try:
+        for it in items:
+            ext = str(it.get("external_id") or "").strip()
+            if not ext:
+                failed += 1
+                lines.append(("FAIL", "item without external_id — skipped"))
+                continue
+            if ext in mapped:
+                skipped += 1
+                lines.append(("skip", f"{ext} already mapped"))
+                continue
+            title = (it.get("title") or "").strip() or ext
+            bd_id, cerr = bd_create(title, it.get("body", ""),
+                                    it.get("status", "open"))
+            if bd_id:
+                idmap.setdefault(bd_id, {})[btype] = ext
+                mapped.add(ext)
+                # Persisted per item, not once at the end. An import that
+                # died halfway used to leave every issue it had just created
+                # unmapped, so the re-run the user was told was safe created
+                # all of them a second time. The map is small and the write
+                # is cheap next to a bd create; correctness wins here.
+                write_json(base / "id-map.json", idmap)
+            if cerr:
+                failed += 1
+                lines.append(("FAIL", f"{ext}: {cerr}"))
+            else:
+                created += 1
+                lines.append(("ok", f"{ext} -> {bd_id}"))
+    finally:
+        # Also on the way out of an interrupt or an unexpected error: what
+        # was created stays mapped, so nothing is orphaned.
+        write_json(base / "id-map.json", idmap)
     print(f"[gbsync] import {btype} ({scope}): "
           f"created={created} skipped={skipped} failed={failed}")
     for state, detail in lines:

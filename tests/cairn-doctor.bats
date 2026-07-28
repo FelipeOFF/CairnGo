@@ -84,7 +84,7 @@ make_doctor_fixture() {
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
-@test "check 1 req-issue: requirement without a gsd.req issue fails, exit 7" {
+@test "req-issue: requirement without a gsd.req issue fails, exit 7" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -107,7 +107,7 @@ make_doctor_fixture() {
   grep -qF "[cairn-doctor] FAIL" <<<"$output"
 }
 
-@test "check 2 frontmatter-ids: dangling id in PLAN beads fails, exit 7" {
+@test "frontmatter-ids: dangling id in PLAN beads fails, exit 7" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -125,7 +125,7 @@ PY
   grep -qF "doc-zzz not found in bd" <<<"$output"
 }
 
-@test "check 2 frontmatter-ids: bead without the plan's phase label fails" {
+@test "frontmatter-ids: bead without the plan's phase label fails" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -143,7 +143,7 @@ PY
   grep -qF "lacks label phase-2" <<<"$output"
 }
 
-@test "check 3 maps-fresh: close without regenerating the map warns, exit 0" {
+@test "maps-fresh: close without regenerating the map warns, exit 0" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -167,7 +167,7 @@ PY
   refute_in_output "⚠"
 }
 
-@test "check 4 superseded-released: superseded plan holding a live bead warns" {
+@test "superseded-released: superseded plan holding a live bead warns" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -192,7 +192,7 @@ EOF
   grep -qF "still open" <<<"$output"
 }
 
-@test "check 5 phase-complete-open: open issue in a completed phase warns; --close-completed closes; re-run clean" {
+@test "phase-complete-open: open issue in a completed phase warns; --close-completed closes; re-run clean" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"   # phase 1 checked off in ROADMAP.md
@@ -233,7 +233,7 @@ EOF
   refute_in_output "✗"
 }
 
-@test "check 5 phase-complete-open: absent when completed phases hold nothing open" {
+@test "phase-complete-open: absent when completed phases hold nothing open" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -245,7 +245,7 @@ EOF
   assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .items | length' '0'
 }
 
-@test "check 5 phase-complete-open: a cross-phase issue with one live phase is never flagged or closed" {
+@test "phase-complete-open: a cross-phase issue with one live phase is never flagged or closed" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"   # phase 1 complete, phase 2 active
@@ -289,7 +289,7 @@ EOF
   assert_json_eq "$output" '.[0].status' 'open'
 }
 
-@test "check 5 phase-complete-open: --close-completed prints the divergence note BEFORE closing" {
+@test "phase-complete-open: --close-completed prints the divergence note BEFORE closing" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -325,7 +325,7 @@ EOF
     '[.checks[] | select(.id=="phase-complete-open") | .items[] | select(test("artifacts disagree"))] | length' '1'
 }
 
-@test "check 5 phase-complete-open: notes when ROADMAP checkbox and disk artifacts diverge" {
+@test "phase-complete-open: notes when ROADMAP checkbox and disk artifacts diverge" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -344,7 +344,7 @@ EOF
   grep -qF "artifacts disagree" <<<"$output"
 }
 
-@test "check 5 phase-complete-open: the divergence note names the real on-disk gap" {
+@test "phase-complete-open: the divergence note names the real on-disk gap" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -369,7 +369,7 @@ EOF
   refute_in_output "lacks its SUMMARY"
 }
 
-@test "check 5 phase-complete-open: --close-completed drains an epic<-epic<-epic chain in ONE run" {
+@test "phase-complete-open: --close-completed drains an epic<-epic<-epic chain in ONE run" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -431,7 +431,7 @@ PY
   refute_in_output "✗"
 }
 
-@test "check 5 phase-complete-open: a close bd refuses fails the check, exit 7" {
+@test "phase-complete-open: a close bd refuses fails the check, exit 7" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"   # phase 1 complete, phase 2 still open
@@ -472,7 +472,7 @@ PY
   grep -qF "[cairn-doctor] FAIL" <<<"$output"
 }
 
-@test "check 5 orphans: unknown phase label and phase-less issue warn; migrated-todo exempt" {
+@test "orphans: unknown phase label and phase-less issue warn; migrated-todo exempt" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -491,7 +491,7 @@ PY
   refute_in_output "$todo"
 }
 
-@test "check 6 label-pairs: phase-only label warns, --fix-labels repairs, re-run clean" {
+@test "label-pairs: phase-only label warns, --fix-labels repairs, re-run clean" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -524,7 +524,7 @@ PY
   refute_in_output "✗"
 }
 
-@test "check 6 --fix-labels refuses when the milestone is unresolvable, exit 2" {
+@test "--fix-labels refuses when the milestone is unresolvable, exit 2" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"   # no milestone in STATE.md or ROADMAP.md
@@ -536,7 +536,7 @@ PY
   grep -qF "milestone unresolvable" <<<"$output"
 }
 
-@test "check 7 claims-stale: assigned in_progress issue outside the active phase warns" {
+@test "claims-stale: assigned in_progress issue outside the active phase warns" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"   # STATE.md active_phase: 2
@@ -556,7 +556,7 @@ PY
   grep -qF "stale claim" <<<"$output"
 }
 
-@test "check 8 bd-doctor: summary line captured in the report" {
+@test "bd-doctor: summary line captured in the report" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
