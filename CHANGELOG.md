@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-07-28
 
 ### Added
 
@@ -63,10 +63,19 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every pull request. A missing validator in CI now fails the run instead of
   skipping it.
 
-### Deprecated
+### Removed
 
-- The `gsd` marketplace entry (the 4.x line). It remains for one release cycle
-  so existing installs keep resolving, and is **removed in v1.4**.
+- **The `gsd` marketplace entry (the 4.x line).** Nothing in this marketplace
+  publishes it any more. An install made before v1.4 keeps working from Claude
+  Code's own plugin cache, but `claude plugin install gsd@cairngo` no longer
+  resolves and neither does a marketplace refresh that tries to re-fetch it.
+  Migrate with [the guide](cairn/docs/gsd-core-migration.md) — it leaves
+  `.planning/` and `.beads/` untouched — and check with `/cairn:doctor`.
+
+  This is a shorter path than GSD-04 planned for. That requirement asked for the
+  old entry to survive one release cycle; the decision to drop it in the same
+  release that introduces the migration was taken deliberately, with the cost
+  understood. The documented migration path is unchanged and still works.
 
 ## [1.3.0] - 2026-07-27
 
