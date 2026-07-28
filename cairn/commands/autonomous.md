@@ -20,13 +20,30 @@ cairn GSD capability is installed — its hooks are idempotent with these steps.
 2. bd must be available (doctor exit 5 means it isn't) — without bd there is
    no "autonomous through beads": **stop** and offer plain `/gsd:autonomous`
    instead.
-3. Resolve the pending phases from ROADMAP.md (phases not marked complete),
-   starting at `$ARGUMENTS` when given, else the first pending one. Resolve
-   the active milestone (STATE.md frontmatter `milestone:`, else ROADMAP.md's
-   🚧 header).
-4. Announce the run — the ordered phase list and the stop rules below — then
-   go. No further questions: gray areas during planning resolve to sensible
-   defaults recorded as Claude's Discretion in each phase's CONTEXT.md.
+3. Resolve the pending phases and the order, **from the status model rather
+   than by reading ROADMAP.md yourself**:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" --json
+   ```
+   `phases[]` gives each pending phase its title, state on disk and
+   `blocked_by`; `next_commands[]` gives the order and the reason for it;
+   `parallelism` gives what could run at the same time. Start at
+   `$ARGUMENTS` when given, else at the first entry of `next_commands`.
+   Resolve the active milestone from `milestone`.
+4. **Announce the run, including the order you chose and why.** Not just the
+   phase list: state the order, the reason each phase sits where it does
+   (straight from `next_commands[].reason`), and what `parallelism.note` says
+   could run concurrently — plus the fact that this run executes them in
+   sequence anyway, so the operator can stop you and split the work across
+   agents or worktrees if that is worth doing. An order chosen silently is an
+   order nobody can disagree with before it costs an hour.
+
+   When `parallelism.declared` is false, say so: no dependencies are recorded
+   anywhere in the roadmap, so the order is phase number and nothing more.
+
+   Then go. No further questions: gray areas during planning resolve to
+   sensible defaults recorded as Claude's Discretion in each phase's
+   CONTEXT.md.
 
 ## Per phase N (in order)
 

@@ -40,7 +40,12 @@
   --t-l: 1.25rem;
 
   --pad: clamp(20px, 4vw, 48px);  /* the page gutter */
-  --measure: 1024px;              /* the column every line of text sits in */
+  /* The column every line of text sits in. It grows on a desktop, because
+     that is where this board is opened and a fixed 1024px left the right
+     third of a 1728px screen empty. It is bounded, because a text column that
+     tracks the viewport becomes unreadable — the blocks that are prose keep
+     their own max-width in ch on top of this. */
+  --measure: clamp(1024px, 88vw, 1440px);
 
   color-scheme: dark;
 }
@@ -152,6 +157,21 @@ body {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   color: var(--bone);
+}
+
+/* What the phase you are standing in actually IS. The line above gives the
+   count; this one gives the name, so the header stops being a coordinate. */
+.pos-title {
+  margin: 2px 0 0;
+  font-size: var(--t-s);
+  color: var(--bone);
+  max-width: 60ch;
+}
+
+.pos-title .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--bone-dim);
 }
 
 /* ------------------------------------------------ the roadmap profile band */
@@ -408,6 +428,147 @@ body {
    share of an empty one. Every lane keeps its section either way, because a
    lane that disappeared when it emptied would make "nothing blocked" look
    the same as "blocked was never checked". */
+/* ------------------------------------------------------- the phase panel */
+
+/* What is still pending and what it is, beside which commands come next and
+   why in that order. Two columns on a desktop because that is where this page
+   is opened; one below, where side-by-side would halve the measure. */
+.panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: clamp(18px, 2.4vw, 40px);
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .panel { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Same head shape as a lane: these are sections of the same page, and giving
+   them a second label costume would read as two designs stapled together. */
+.panel-h {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6ch;
+  margin: 0 0 14px;
+  font-size: var(--t-s);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--bone-dim);
+}
+
+.panel-n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: var(--bone);
+}
+
+.phase-list, .cmd-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+/* The number keeps a fixed slot so every title starts on one vertical line,
+   whatever the phase count reaches. */
+.phase {
+  display: grid;
+  grid-template-columns: 2.5ch minmax(0, 1fr);
+  gap: 0 12px;
+  align-items: baseline;
+  background: var(--stone-800);
+  padding: 11px 14px;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+
+.phase-n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-s);
+  color: var(--bone-dim);
+}
+
+.phase-body { display: grid; gap: 3px; min-width: 0; }
+
+.phase-title {
+  font-size: var(--t-s);
+  color: var(--bone);
+}
+
+.phase-req {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--bone-dim);
+}
+
+.phase-meta {
+  font-size: var(--t-xs);
+  color: var(--bone-dim);
+}
+
+.phase-meta .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A phase that cannot start yet reads one tonal step back, so the ones that
+   can are what the eye lands on. Tone, not a colour or a badge. */
+.phase.is-waiting .phase-title { color: var(--bone-dim); }
+
+.cmd {
+  display: grid;
+  gap: 2px;
+  padding: 9px 0;
+  border-top: 1px solid var(--stone-600);
+}
+
+.cmd:first-child { border-top: 0; padding-top: 0; }
+
+.cmd-name {
+  font-family: var(--mono);
+  font-size: var(--t-s);
+  color: var(--bone);
+}
+
+/* The runnable one is the only command spent on light. A blocked command is
+   still shown, because knowing what comes after is the point of the list. */
+.cmd:not(.is-waiting) .cmd-name { color: var(--amber); }
+
+.cmd-why {
+  font-size: var(--t-xs);
+  color: var(--bone-dim);
+}
+
+/* What can proceed at the same time. Set at reading size rather than as a
+   footnote: on a board whose job is deciding what to run next, "these two are
+   independent" is the sentence that changes the plan. */
+.panel-par {
+  margin: 16px 0 0;
+  font-size: var(--t-s);
+  line-height: 1.55;
+  color: var(--bone);
+  max-width: 46ch;
+}
+
+/* Only when there is an actual choice to make does the note take the accent
+   edge. One phase moving is information; two moving at once is a decision. */
+.panel-par.is-split {
+  padding-left: 12px;
+  border-left: 2px solid var(--amber);
+}
+
+.panel-foot {
+  margin: 14px 0 0;
+  font-size: var(--t-xs);
+  line-height: 1.5;
+  color: var(--bone-dim);
+  max-width: 46ch;
+}
+
 .lanes {
   display: grid;
   grid-template-columns: var(--lane-tracks, repeat(3, minmax(0, 1fr)));

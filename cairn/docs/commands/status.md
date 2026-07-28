@@ -33,9 +33,33 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" [flags]
      last-pull watermark in `.cairn/state.json`.
 2. Renders a three-lane kanban board on one shared box-drawing grid (never a
    box per card), with lane headers like `READY (3)`.
-3. Prints a footer **outside** the grid: `phase X/Y · <milestone> · done: N`,
-   then `▶ next: <one action>`, then a sync-staleness line when relevant
-   (stale or missing watermark → suggests `/cairn:sync-pull`).
+3. Prints a footer **outside** the grid: `phase X/Y <title> · <milestone> ·
+   done: N`, then `▶ next: <one action>`, then a sync-staleness line when
+   relevant (stale or missing watermark → suggests `/cairn:sync-pull`).
+3b. Prints the **phase panel** below the footer — the part that answers which
+   phase to run rather than what work exists:
+   - **PENDING PHASES** — one described entry per unfinished phase: number,
+     title, requirement ids, where it stands (`not planned` / `planned` /
+     `executed` / `verified`), plan progress, and what it waits on. Not a row
+     of ids: the point is choosing the next phase without opening ROADMAP.md.
+   - **NEXT COMMANDS** — the `/cairn:*` commands to run next, each with the
+     reason it sits where it does. The command comes from that phase's own
+     state on disk (`no PLAN → /cairn:plan`, `PLAN → /cairn:work`,
+     `SUMMARY → /cairn:verify`), so it cannot claim a phase needs planning
+     after someone planned it. The **order comes from the dependency graph**,
+     not the phase number — free work first, so a blocked earlier phase is
+     never listed above a later one that can actually run. A milestone with
+     nothing pending gets `/cairn:ship`, then `/cairn:milestone complete`.
+   - **The parallelism note** — what could proceed at the same time, and the
+     concrete split. When no dependency is declared anywhere in the roadmap it
+     says so, rather than reporting every phase as independent and letting
+     that read as a verified ordering.
+
+   Dependencies are read from bd's own issue edges first (they exist from the
+   moment the milestone creates the issues) and from `PLAN.md`'s `depends_on:`
+   frontmatter second. A dependency counts as satisfied when the phase is
+   complete **or** verified on disk — the work being done is what matters, not
+   the roadmap checkbox catching up.
 4. **Synthesizes ONE next action**, in order: an in_progress issue exists →
    continue it; else the highest-priority ready issue of the active phase
    (filtered by the `m-<milestone>,phase-<active>` label pair); else the next
@@ -142,8 +166,22 @@ $ bash cairn/scripts/cairn-status.sh --width 100
 │ app-12  Add auth …   │ app-9  Status boa…   │ app-14  Deploy pi…   │
 │ app-13  Fix flaky…   │        ◆ felipe      │         ⧗ app-12     │
 └──────────────────────┴──────────────────────┴──────────────────────┘
-phase 3/5 · v1.0 · done: 7
+phase 3/5 Rate limiting · v1.0 · done: 7
 ▶ next: continue app-9 (Status board renderer)
+
+PENDING PHASES  3
+  3  Rate limiting                    planned · 1/2 plans
+  4  Deploy pipeline                  not planned
+  5  Public launch                    not planned · waits on 4
+
+NEXT COMMANDS
+  /cairn:work 3  nothing blocks it, and phase 5 waits on it
+  /cairn:plan 4  nothing blocks it
+  /cairn:plan 5  waits on phase 4
+
+  Phases 3 and 4 are independent — nothing open blocks either of them, so they
+  can run at the same time rather than in sequence (/cairn:work 3, then
+  /cairn:plan 4). One agent per phase, or one worktree each.
 ```
 
 Three-line summary:
@@ -157,6 +195,32 @@ Machine consumption (also what pipes get, minus the JSON shape):
 ```
 $ bash cairn/scripts/cairn-status.sh --json | jq .ready
 ```
+
+The phase panel is machine-readable too, which is what lets other commands
+stop re-deriving it:
+
+```
+# every pending phase, described
+$ bash cairn/scripts/cairn-status.sh --json \
+    | jq '.phases[] | select(.complete | not)
+          | {number, title, disk_state, blocked_by, next_command}'
+
+# the order, and the reason for it
+$ bash cairn/scripts/cairn-status.sh --json | jq -r '.next_commands[]
+    | "\(.command)\t\(.reason)"'
+
+# what could run at the same time
+$ bash cairn/scripts/cairn-status.sh --json | jq -r .parallelism.note
+```
+
+| Key | Shape |
+|---|---|
+| `phases[]` | `{number, title, milestone, complete, completed_on, plans_done, plans_total, requirements[], dir, disk_state, depends_on[], blocked_by[], next_command}` |
+| `next_commands[]` | `{command, phase, title, reason, blocked}`, ordered — unblocked first |
+| `parallelism` | `{runnable[], blocked[], declared, note}`; `declared` is false when no dependency is recorded anywhere, and the note says so |
+
+`/cairn:autonomous` reads exactly these keys to resolve and **announce** the
+order it runs phases in, instead of deciding silently.
 
 ## Files touched
 

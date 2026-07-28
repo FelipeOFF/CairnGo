@@ -4,7 +4,7 @@
 
 - ✅ **v1.1 Metrics & Benchmarks** — Phases 1-6 (shipped 2026-07-27)
 - ✅ **v1.2 GSD Core** — Phases 7-9 (official source, working fusion) — completed 2026-07-28
-- 🚧 **v1.3 Status Panel** — Phases 10-12 (a surface you can act on)
+- ✅ **v1.3 Status Panel** — Phases 10-12 (a surface you can act on) — completed 2026-07-28
 
 ## Phases
 
@@ -28,11 +28,11 @@ Full details: [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
 - [x] Phase 8: Upgrade path and lineage reporting (GSD-03, GSD-04) — completed 2026-07-28
 - [x] Phase 9: Adopt what gsd-core brings (GSD-05) — completed 2026-07-28
 
-### 🚧 v1.3 Status Panel — a surface you can act on (Phases 10-12)
+### ✅ v1.3 Status Panel — a surface you can act on (Phases 10-12)
 
-- [ ] Phase 10: Phase model — read what a phase actually is (PANEL-01)
-- [ ] Phase 11: Described pending list + next commands with their order (PANEL-02, PANEL-03)
-- [ ] Phase 12: Parallelism surfaced + the board fills the screen (PANEL-04, PANEL-05)
+- [x] Phase 10: Phase model — read what a phase actually is (PANEL-01) — completed 2026-07-28
+- [x] Phase 11: Described pending list + next commands with their order (PANEL-02, PANEL-03) — completed 2026-07-28
+- [x] Phase 12: Parallelism surfaced + the board fills the screen (PANEL-04, PANEL-05) — completed 2026-07-28
 
 ## Progress
 
@@ -47,9 +47,9 @@ Full details: [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
 | 7. Official source + proven capability install | v1.2 | 1/1 | Complete | 2026-07-28 |
 | 8. Upgrade path and lineage reporting | v1.2 | 1/1 | Complete | 2026-07-28 |
 | 9. Adopt what gsd-core brings | v1.2 | 1/1 | Complete | 2026-07-28 |
-| 10. Phase model | v1.3 | 0/? | Not started | — |
-| 11. Described pending list + next commands | v1.3 | 0/? | Not started | — |
-| 12. Parallelism surfaced + board fills the screen | v1.3 | 0/? | Not started | — |
+| 10. Phase model | v1.3 | 1/1 | Complete | 2026-07-28 |
+| 11. Described pending list + next commands | v1.3 | 1/1 | Complete | 2026-07-28 |
+| 12. Parallelism surfaced + board fills the screen | v1.3 | 1/1 | Complete | 2026-07-28 |
 
 ## Post-milestone operator action (v1.1)
 
