@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **cairn detects a machine that already had GSD.** Installing cairn pulls
+  `gsd-core` in as a dependency, and on a machine already running the 4.x `gsd`
+  plugin it lands *beside* it rather than replacing it. Nothing errors, both
+  provide the same workflow surface, and only one of them can host the
+  capability — so `/gsd:*` can be answered by the plugin that cannot, while the
+  capability is registered against the one that can and every check reports
+  green. That is the same silent-success shape this line of work exists to
+  remove.
+
+  `/cairn:init` and `/cairn:doctor` now fail on it and name the plugin to
+  uninstall. Absent or unparseable plugin state is never read as a collision:
+  a machine whose state cairn cannot parse must not be told it has two GSDs.
+
 ## [1.4.1] - 2026-07-28
 
 ### Fixed

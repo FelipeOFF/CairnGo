@@ -84,6 +84,13 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
        `scripts/cairn-capability.sh repair-manifest`, then `/reload-plugins`.
        A gsd-core update restores the original file, which is why this is
        re-checked rather than fixed once.
+     - *two GSD lineages installed at once* — a 4.x `gsd` plugin sitting beside
+       `gsd-core`, which is what happens on a machine that already had GSD when
+       cairn was installed: the dependency lands beside the old plugin rather
+       than replacing it. Both provide the same workflow surface and only one
+       can host the capability, so `/gsd:*` may be answered by the one that
+       cannot while every other check reports green → uninstall the 4.x plugin
+       named in the detail line, then `/reload-plugins`.
      - *GSD 4.x lineage* (`jnuyens/gsd-plugin`) — that line has no `capability`
        subcommand at all and cannot host the fusion →
        `claude plugin install gsd-core@cairngo`, then `/reload-plugins`.
