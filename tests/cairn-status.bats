@@ -42,15 +42,6 @@ make_status_fixture() {
   bd close "$ST_CLOSED" >/dev/null
 }
 
-# Permission bits of FILE, as octal digits, identically on macOS and Linux.
-# `stat` is the trap here: -f is "format" on BSD and "file system" on GNU, so
-# `stat -f '%Lp' x 2>/dev/null || stat -c '%a' x` does not fall through on
-# Linux the way it appears to — the first call can succeed and print something
-# that is not a mode at all. Python reads the same struct on both.
-file_mode() {
-  python3 -c 'import os,sys; print(format(os.stat(sys.argv[1]).st_mode & 0o777, "o"))' "$1"
-}
-
 BOARD_START='<!-- cairn:generated:board:start -->'
 BOARD_END='<!-- cairn:generated:board:end -->'
 
@@ -1084,14 +1075,14 @@ board_inside() {
   # the model does not follow.
   : > reference.tmp
   local expected
-  expected="$(file_mode reference.tmp)"
+  expected="$(stat -f '%Lp' reference.tmp 2>/dev/null || stat -c '%a' reference.tmp)"
   rm -f reference.tmp
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
   [ "$status" -eq 0 ]
-  run file_mode board.html
-  # Both sides on failure: three CI cycles produced "expected != got" without
-  # printing either value, which is why this took so long to pin down.
+  run bash -c "stat -f '%Lp' board.html 2>/dev/null || stat -c '%a' board.html"
+  # Report both sides on failure. A bare "expected X got Y" with neither value
+  # printed is what made this take three CI cycles to diagnose.
   if [ "$output" != "$expected" ]; then
     echo "board=$output reference=$expected umask=$(umask)" >&2
   fi
@@ -1101,6 +1092,6 @@ board_inside() {
   chmod 640 board.html
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
   [ "$status" -eq 0 ]
-  run file_mode board.html
+  run bash -c "stat -f '%Lp' board.html 2>/dev/null || stat -c '%a' board.html"
   [ "$output" = "640" ]
 }
