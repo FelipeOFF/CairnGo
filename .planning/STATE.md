@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-active_phase: 9
+milestone: v1.3
+active_phase: 10
 milestone_name: milestone
-status: v1.2 in progress — phases 7-8 complete
-stopped_at: Phases 7-8 complete (GSD-01..04). cairn now depends on open-gsd/gsd-core pinned at v1.8.0; the capability install verifies itself; cairn-doctor reports the lineage. The fusion is registered and active on this machine for the first time (cairn v1.0.0, project scope). Next: phase 9 (GSD-05).
+status: v1.2 complete — starting v1.3 (Status Panel)
+stopped_at: Milestone v1.2 complete (phases 7-9, GSD-01..05). cairn depends on open-gsd/gsd-core pinned at v1.8.0; the capability install verifies itself; cairn-doctor reports the lineage; every gsd-core command has a recorded decision. The fusion is registered and active on this machine (cairn v1.0.0, project scope). Next: phase 10 (PANEL-01, the phase model).
 last_updated: "2026-07-28T17:30:00.000Z"
-last_activity: 2026-07-28 — v1.2 phases 7-8 complete (gsd-core migration + lineage reporting)
+last_activity: 2026-07-28 — milestone v1.2 complete (gsd-core migration, lineage reporting, command triage)
 progress:
   total_phases: 12
-  completed_phases: 8
-  total_plans: 16
-  completed_plans: 16
-  percent: 67
+  completed_phases: 9
+  total_plans: 17
+  completed_plans: 17
+  percent: 75
 ---
 
 # Project State

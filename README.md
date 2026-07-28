@@ -83,6 +83,8 @@ Always dry-run first, idempotent on re-runs, resumable if interrupted — and it
 | [Command reference](cairn/docs/commands.md) | all 22 `/cairn:` commands — grouped index, one doc per verb |
 | [Architecture](cairn/docs/architecture.md) | ownership model, linking contract, enforcement layers |
 | [Migration guide](cairn/docs/migration.md) | adopting existing repos, safety model, troubleshooting |
+| [GSD Core migration](cairn/docs/gsd-core-migration.md) | moving an existing install to the official GSD; the v1.4 deprecation |
+| [gsd-core commands](cairn/docs/gsd-core-commands.md) | a recorded decision for all 54 GSD commands cairn does not wrap |
 | [Sync guide](cairn/docs/sync.md) | mirroring bd to external trackers |
 | [Memory guide](cairn/docs/context.md) | intent-scoped context-mode integration |
 | [CHANGELOG](CHANGELOG.md) | release history |
