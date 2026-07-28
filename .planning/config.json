@@ -65,6 +65,5 @@
   "features": {},
   "mode": "yolo",
   "granularity": "coarse",
-  "branching_strategy": "none",
   "resolve_model_ids": "omit"
 }

@@ -34,12 +34,18 @@ import yourself; only point at it.
 
 ## 1. Verify GSD is present
 
-GSD ships as a declared dependency of cairn, so it is normally already installed.
-Confirm `/gsd:*` commands are available (check `claude plugin list` for `gsd`).
-If GSD is missing, install it and tell the user to `/reload-plugins`:
+GSD Core ships as a declared dependency of cairn, so it is normally already
+installed. Confirm `/gsd:*` commands are available (check `claude plugin list`
+for `gsd-core`). If it is missing, install it and tell the user to
+`/reload-plugins`:
 ```bash
-claude plugin install gsd@cairngo
+claude plugin install gsd-core@cairngo
 ```
+
+The capability system cairn depends on exists only on the official
+`open-gsd/gsd-core` line. An install of the older `gsd` 4.x plugin
+(`jnuyens/gsd-plugin`) has no `capability` subcommand at all — step 2 detects
+that and says so.
 
 ## 2. Install the cairn GSD capability (plain `/gsd:*` does beads)
 
@@ -50,22 +56,36 @@ then link, claim, close, and gate bd issues without the `/cairn:*` wrappers.
 Idempotent: a re-run refreshes the bundle via `capability update`.
 
 ```bash
-GSD_BIN="$(command -v gsd_run || command -v gsd || true)"
-if [ -n "$GSD_BIN" ]; then
-  "$GSD_BIN" capability install "${CLAUDE_PLUGIN_ROOT}/capability" --scope project --yes \
-    || "$GSD_BIN" capability update cairn --scope project --yes \
-    || echo "capability install skipped — /cairn:* commands and the cairn skill still work"
-  mkdir -p .cairn && printf '%s\n' "${CLAUDE_PLUGIN_ROOT}" > .cairn/plugin-root
-else
-  echo "gsd_run not on PATH — skipping capability install (the cairn skill still applies)"
-fi
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-capability.sh" install
+rc=$?
+mkdir -p .cairn && printf '%s\n' "${CLAUDE_PLUGIN_ROOT}" > .cairn/plugin-root
+exit $rc
 ```
+
+The script installs the bundle and then **verifies it registered** — GSD's own
+`capability list` must report cairn as active, and the staged bundle must carry
+the scripts its gates reference. Report the result honestly by exit code:
+
+- **0** — the fusion is active. Say so in one line and continue to step 3.
+- **7** — the capability is NOT installed. This is a failure, not a footnote:
+  print the script's stderr verbatim (it names the cause and the fix) and tell
+  the user plainly that `/cairn:*` commands and the cairn skill still work, but
+  plain `/gsd:*` will not touch bd issues until it is resolved. Continue with
+  the rest of init; do not pretend the fusion is on.
+- **5** — no GSD binary found at all. Same handling as 7, with the install
+  command from step 1.
+
+Never swallow a non-zero exit here. This step used to end in
+`|| echo "capability install skipped"`, which turned every failure into
+success — installs went out for months with the wrappers working and the
+fusion absent, and nothing ever said a word.
 
 `--scope project` stages the bundle at `.gsd/capabilities/cairn/`;
 `.cairn/plugin-root` lets the bundled scripts reuse the plugin's own map
-generator instead of shipping a copy. If the install is blocked (e.g. a
-`capabilities.strict_known_registries` lockdown), continue — the cairn skill
-covers the same conventions conversationally.
+generator instead of shipping a copy. A blocked install (e.g. a
+`capabilities.strict_known_registries` lockdown) still exits 7 — report it and
+continue, because the cairn skill covers the same conventions conversationally,
+but the user must know the fusion is off.
 
 ## 3. Ensure beads (`bd`) — prompt, then install
 

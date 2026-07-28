@@ -67,5 +67,9 @@ files each command touches.
 
 - [Architecture](./architecture.md) — how the pieces fit together
 - [Migration guide](./migration.md) — adopting existing repos
+- [GSD Core migration](./gsd-core-migration.md) — moving an existing install to
+  the official GSD; the v1.4 deprecation window
+- [gsd-core commands](./gsd-core-commands.md) — a recorded decision for all 54
+  GSD commands cairn does not wrap
 - [Sync guide](./sync.md) — mirroring bd to external trackers
 - [Memory guide](./context.md) — the context-mode integration

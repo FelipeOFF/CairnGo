@@ -177,10 +177,21 @@ find_gsd_validator() {
   [ -x "$MAP_SHIM" ]
 }
 
-@test "gsd-core validateCapability accepts the manifest (skips when gsd-core is absent)" {
-  command -v node >/dev/null 2>&1 || skip "node is not on PATH"
+# The skip below is for local runs without a gsd-core checkout. CI must never
+# take it: a validator that quietly skips is how a manifest breaks unnoticed.
+# CI sets CAIRN_REQUIRE_GSD_VALIDATOR=1, which turns every skip into a failure.
+require_or_skip() {
+  if [ -n "${CAIRN_REQUIRE_GSD_VALIDATOR:-}" ]; then
+    echo "CAIRN_REQUIRE_GSD_VALIDATOR is set but $1" >&2
+    return 1
+  fi
+  skip "$1"
+}
+
+@test "gsd-core validateCapability accepts the manifest (required in CI, skipped locally without a checkout)" {
+  command -v node >/dev/null 2>&1 || require_or_skip "node is not on PATH"
   VALIDATOR="$(find_gsd_validator)" || \
-    skip "gsd-core validator not found — set GSD_CORE_DIR to a gsd checkout to enable"
+    require_or_skip "gsd-core validator not found — set GSD_CORE_DIR to a gsd checkout to enable"
   run node -e '
     const v = require(process.argv[1]);
     const cap = require(process.argv[2]);

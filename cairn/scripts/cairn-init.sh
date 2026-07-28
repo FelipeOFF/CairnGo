@@ -142,11 +142,15 @@ chmod +x "$SHIM"
 echo "  ✓ pre-push ship gate installed (cairn-gate; blocks only on exit 6)"
 
 # 6. GSD presence — soft check; it ships as a cairn plugin dependency
-if command -v claude >/dev/null 2>&1 && claude plugin list 2>/dev/null | grep -qiw gsd; then
-  echo "  ✓ GSD plugin installed"
+if command -v claude >/dev/null 2>&1 && claude plugin list 2>/dev/null | grep -qiw gsd-core; then
+  echo "  ✓ GSD Core plugin installed"
+elif command -v claude >/dev/null 2>&1 && claude plugin list 2>/dev/null | grep -qiw gsd; then
+  echo "  ! GSD 4.x detected, not GSD Core — the cairn capability cannot be"
+  echo "    installed on that line, so plain /gsd:* will NOT touch bd issues."
+  echo "    Run: claude plugin install gsd-core@cairngo"
 else
   echo "  ! GSD not detected — it should auto-install as a cairn dependency."
-  echo "    If /gsd:* is unavailable, run: claude plugin install gsd@cairngo"
+  echo "    If /gsd:* is unavailable, run: claude plugin install gsd-core@cairngo"
 fi
 
 cat <<'NEXT'

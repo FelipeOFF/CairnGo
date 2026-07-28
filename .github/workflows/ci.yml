@@ -5,11 +5,31 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # The gsd-core release cairn's capability manifest is validated against.
+  # Bumping it is a one-line, reviewable change — which is the point of pinning
+  # rather than tracking the repo's default branch (which is 'next').
+  GSD_CORE_REF: v1.8.0
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fetch gsd-core (pinned) for the capability validator
+        # A shallow clone of the tag is all this needs: gsd-core git-tracks the
+        # generated capability-validator.cjs and its only dependency
+        # (loop-host-contract.cjs), so no npm install and no tsc build are
+        # involved. The rest of the runtime library is built on demand and is
+        # not required to validate a manifest.
+        run: |
+          git clone --depth 1 --branch "$GSD_CORE_REF" \
+            https://github.com/open-gsd/gsd-core.git "$RUNNER_TEMP/gsd-core"
+          echo "GSD_CORE_DIR=$RUNNER_TEMP/gsd-core" >> "$GITHUB_ENV"
+          # Turn the local-dev "validator absent -> skip" into a hard failure.
+          # A validation that silently skips in CI is not a validation.
+          echo "CAIRN_REQUIRE_GSD_VALIDATOR=1" >> "$GITHUB_ENV"
 
       - name: Install bd (beads)
         run: |

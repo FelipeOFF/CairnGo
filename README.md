@@ -10,7 +10,7 @@
 </p>
 
 **One lifecycle for planning, tracking and shipping — inside Claude Code.**
-CairnGo fuses [GSD](https://github.com/open-gsd/get-shit-done-redux) (structured
+CairnGo fuses [GSD](https://github.com/open-gsd/gsd-core) (structured
 planning), [beads](https://github.com/gastownhall/beads) (a git-native issue
 tracker built for AI agents) and
 [context-mode](https://github.com/mksglu/context-mode) (compressed memory) into
@@ -72,7 +72,8 @@ Always dry-run first, idempotent on re-runs, resumable if interrupted — and it
 | Plugin | Description |
 |---|---|
 | [**cairn**](./cairn) | The fusion layer itself — capability, hooks, migration, doctor, sync adapters (GitHub/GitLab/Jira/Asana/Azure Boards) and intent-scoped memory. See the [full plugin README](./cairn#readme). |
-| **gsd** | Get Shit Done — planning/execution/verification (`/gsd:*`). Published here as a cairn dependency, sourced from upstream; compatibility pinned by the capability's `engines.gsd`. Standalone: `/plugin install gsd@cairngo`. |
+| **gsd-core** | Get Shit Done — planning/execution/verification (`/gsd:*`) and the capability system cairn plugs into. Published here as a cairn dependency, sourced from [open-gsd/gsd-core](https://github.com/open-gsd/gsd-core) and pinned to a release tag; compatibility declared by the capability's `engines.gsd`. Standalone: `/plugin install gsd-core@cairngo`. |
+| **gsd** *(deprecated)* | The old 4.x line, kept only so installs predating the migration keep resolving. It has no capability system, so the beads fusion cannot run on it. **Removed in v1.4** — see [Migrating to GSD Core](./cairn/docs/gsd-core-migration.md). |
 
 ## Documentation
 
@@ -82,6 +83,8 @@ Always dry-run first, idempotent on re-runs, resumable if interrupted — and it
 | [Command reference](cairn/docs/commands.md) | all 22 `/cairn:` commands — grouped index, one doc per verb |
 | [Architecture](cairn/docs/architecture.md) | ownership model, linking contract, enforcement layers |
 | [Migration guide](cairn/docs/migration.md) | adopting existing repos, safety model, troubleshooting |
+| [GSD Core migration](cairn/docs/gsd-core-migration.md) | moving an existing install to the official GSD; the v1.4 deprecation |
+| [gsd-core commands](cairn/docs/gsd-core-commands.md) | a recorded decision for all 54 GSD commands cairn does not wrap |
 | [Sync guide](cairn/docs/sync.md) | mirroring bd to external trackers |
 | [Memory guide](cairn/docs/context.md) | intent-scoped context-mode integration |
 | [CHANGELOG](CHANGELOG.md) | release history |

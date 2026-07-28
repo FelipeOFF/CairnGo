@@ -73,8 +73,24 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
      in STATE.md.
    - **bd-doctor** (✗) — beads' own diagnostics failed → run `bd doctor`
      directly and follow its advice.
+   - **gsd-capability** (✗) — the cairn capability is not registered with the
+     installed GSD, so plain `/gsd:*` does **not** create, claim, close or gate
+     bd issues. Two causes, both named in the detail line:
+     - *GSD 4.x lineage* (`jnuyens/gsd-plugin`) — that line has no `capability`
+       subcommand at all and cannot host the fusion →
+       `claude plugin install gsd-core@cairngo`, then `/reload-plugins`.
+     - *gsd-core installed but the capability did not register, or its bundle
+       is staged without the scripts its gates run* → re-run `/cairn:init`.
+       The bundle check is not cosmetic: the ship-gate predicate no-ops when
+       its script is missing, so a partly-staged bundle leaves a gate that
+       passes without checking anything.
 
-   (A tenth check probes the minimum supported `bd` version; it needs no
+     This is a ✗ and not a ⚠ on purpose. The capability install used to fail
+     silently, and a soft signal is exactly how that went unnoticed. A ⚠ is
+     used only when no GSD binary can be found at all, since that is not
+     evidence either way.
+
+   (An eleventh check probes the minimum supported `bd` version; it needs no
    routing beyond upgrading bd.)
 6. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
@@ -108,7 +124,17 @@ cairn doctor — root: ~/Projects/app · milestone: v1.0 · active phase: 3
 ✓ req-issue          ✓ frontmatter-ids     ⚠ maps-fresh (phase 2 stale)
 ✓ superseded-released ✓ phase-complete-open ✓ orphans
 ✓ label-pairs        ✓ claims-stale        ✓ bd-doctor
+✓ gsd-capability
 ok (1 warning)
+```
+
+A repo whose GSD cannot host the fusion reports it plainly:
+
+```
+✗ gsd-capability     GSD 4.x lineage — it has no 'capability' subcommand, so
+                     plain /gsd:* does NOT touch bd issues. Install the
+                     official core: claude plugin install gsd-core@cairngo
+FAIL — 10 ok, 0 warning(s), 1 failure(s)
 ```
 
 Repair label pairs, then re-check:

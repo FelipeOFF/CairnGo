@@ -36,20 +36,39 @@
       ]
     },
     {
+      "name": "gsd-core",
+      "source": {
+        "source": "github",
+        "repo": "open-gsd/gsd-core",
+        "ref": "v1.8.0"
+      },
+      "description": "GSD Core — the official Get Shit Done: a structured planning/execution/verification workflow for Claude Code (/gsd:*), MCP-backed project state, and the capability system cairn plugs into. Published in this marketplace as a dependency of cairn so it installs automatically, sourced from upstream open-gsd/gsd-core and pinned to a release tag rather than tracking the default branch (which is the development branch 'next'). Compatibility is declared by the cairn capability's engines.gsd range (>=1.8.0). Installable on its own too.",
+      "category": "workflow",
+      "tags": [
+        "gsd",
+        "gsd-core",
+        "get-shit-done",
+        "workflow",
+        "planning",
+        "execution",
+        "verification",
+        "capability"
+      ]
+    },
+    {
       "name": "gsd",
       "source": {
         "source": "github",
         "repo": "jnuyens/gsd-plugin"
       },
-      "description": "Get Shit Done — a structured planning/execution/verification workflow for Claude Code (/gsd:*), MCP-backed project state. Published in this marketplace as a dependency of cairn so it installs automatically, sourced directly from upstream jnuyens/gsd-plugin; version compatibility is pinned by the cairn capability's engines.gsd range, not by a fork. Installable on its own too.",
+      "description": "DEPRECATED — kept only so installs that predate the gsd-core migration keep resolving. This is the 4.x line (jnuyens/gsd-plugin); it has no capability system, so the cairn beads fusion CANNOT run on it: /cairn:* commands work, but plain /gsd:* will not create, claim, close or gate bd issues. Migrate with `claude plugin install gsd-core@cairngo` then `/reload-plugins`, and verify with /cairn:doctor. This entry is removed in cairn v1.4 — see docs/gsd-core-migration.md.",
       "category": "workflow",
       "tags": [
         "gsd",
+        "deprecated",
         "get-shit-done",
         "workflow",
-        "planning",
-        "execution",
-        "verification"
+        "planning"
       ]
     }
   ]

@@ -32,18 +32,26 @@ before installing bd, and the only interview happens at the hand-off.
   pointed at [/cairn:sync-config](./sync-config.md), which pre-fills the Jira
   backend from this detection and can import the existing cards — init never
   configures sync or runs an import by itself.
-- **Step 1 — verify GSD.** GSD ships as a declared dependency of cairn, so it
-  is normally already installed. If missing:
-  `claude plugin install gsd@cairngo`, then `/reload-plugins`.
-- **Step 2 — install the cairn GSD capability** at project scope
-  (`gsd capability install "${CLAUDE_PLUGIN_ROOT}/capability" --scope project
-  --yes`, with `capability update cairn` as the re-run fallback). This
-  registers cairn's loop hooks with GSD itself, so plain `/gsd:plan-phase`,
+- **Step 1 — verify GSD Core.** It ships as a declared dependency of cairn, so
+  it is normally already installed. If missing:
+  `claude plugin install gsd-core@cairngo`, then `/reload-plugins`. The
+  capability system cairn needs exists only on the official
+  `open-gsd/gsd-core` line; the older `gsd` 4.x plugin has no `capability`
+  subcommand.
+- **Step 2 — install the cairn GSD capability** at project scope, via
+  `scripts/cairn-capability.sh install`. It installs the bundle
+  (`capability install …`, falling back to `capability update cairn` on a
+  re-run) and then **verifies the result**: GSD's own `capability list` must
+  report cairn as `active`, and the staged bundle must carry the scripts its
+  gates reference. Registration makes plain `/gsd:plan-phase`,
   `/gsd:execute-phase`, `/gsd:verify-work` and `/gsd:ship` link, claim, close
-  and gate bd issues without the `/cairn:*` wrappers. Idempotent. If the
-  install is blocked (e.g. a `capabilities.strict_known_registries` lockdown),
-  setup continues — the cairn skill covers the same conventions
-  conversationally.
+  and gate bd issues without the `/cairn:*` wrappers. Idempotent.
+
+  Exit 7 means the capability is **not** installed — a blocked install (e.g. a
+  `capabilities.strict_known_registries` lockdown) or a 4.x lineage that cannot
+  host it. Setup continues and the cairn skill still covers the conventions
+  conversationally, but the failure is reported with its cause and fix instead
+  of being swallowed. See [/cairn:doctor](./doctor.md) to re-check later.
 - **Step 3 — ensure beads (`bd`).** If the binary is on PATH, continue. If
   missing, the user is asked **before** anything is installed
   (`brew install beads` / `npm install -g @beads/bd` / curl installer), then

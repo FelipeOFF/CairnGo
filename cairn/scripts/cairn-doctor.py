@@ -14,7 +14,7 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — ten checks
+                        version output -> WARN. Runs first — eleven checks
                         in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
@@ -706,6 +706,71 @@ def check_bd_doctor(root):
             "detail": f"exit {proc.returncode}: {summary}", "items": []}
 
 
+def check_gsd_capability(root):
+    """Check 10 — which GSD lineage is installed, and whether the cairn
+    capability actually registered against it.
+
+    This is the check that would have caught the plugin's longest-lived bug:
+    the wrappers worked, the fusion did not, and nothing said so. It is a
+    FAIL, not a warn, whenever a repo with .planning/ has no registered
+    capability — a soft signal here is exactly how the failure stayed
+    invisible.
+
+    Delegates to cairn-capability.py so the lineage rules and the two
+    registration checks live in one place. Its exit codes: 0 registered,
+    5 no GSD binary found, 7 not registered.
+    """
+    script = Path(__file__).resolve().parent / "cairn-capability.py"
+    if not script.is_file():
+        return {"id": "gsd-capability", "status": "warn",
+                "detail": "cairn-capability.py not found beside this script",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "detect",
+             "--project-dir", str(root), "--json"],
+            capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"id": "gsd-capability", "status": "warn",
+                "detail": f"could not run cairn-capability.py: {exc}",
+                "items": []}
+
+    try:
+        info = json.loads(proc.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"id": "gsd-capability", "status": "warn",
+                "detail": "cairn-capability.py did not return JSON "
+                          f"(exit {proc.returncode})", "items": []}
+
+    lineage = info.get("lineage", "unknown")
+    if lineage == "absent":
+        # No GSD binary is discoverable. That is not proof the capability is
+        # missing, so it does not carry the same verdict as a registry that
+        # answered and did not list cairn.
+        return {"id": "gsd-capability", "status": "warn",
+                "detail": "no GSD binary found — cannot tell whether the "
+                          "cairn capability is registered", "items": []}
+
+    if info.get("ok"):
+        cap = info.get("capability") or {}
+        return {"id": "gsd-capability", "status": "ok",
+                "detail": f"gsd-core lineage; cairn v{cap.get('version', '?')} "
+                          f"registered ({cap.get('scope', '?')} scope)",
+                "items": []}
+
+    remedy = (info.get("remedy") or "").splitlines()
+    detail = {
+        "legacy": "GSD 4.x lineage — it has no 'capability' subcommand, so "
+                  "plain /gsd:* does NOT touch bd issues. Install the official "
+                  "core: claude plugin install gsd-core@cairngo",
+    }.get(lineage)
+    if detail is None:
+        detail = (remedy[0] if remedy
+                  else f"capability not registered (lineage {lineage})")
+    return {"id": "gsd-capability", "status": "fail", "detail": detail,
+            "items": [ln.strip() for ln in remedy[1:] if ln.strip()]}
+
+
 # --------------------------------------------------------------------------- #
 # output + main
 # --------------------------------------------------------------------------- #
@@ -885,6 +950,7 @@ def main():
         check_label_pairs(issues, milestone, fixed, fix_error),
         check_claims_stale(issues, milestone, active_phase),
         check_bd_doctor(root),
+        check_gsd_capability(root),
     ]
     summary["checks"] = checks
     n_fail = sum(1 for c in checks if c["status"] == "fail")

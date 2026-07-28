@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **cairn now depends on the official GSD, `open-gsd/gsd-core`**, pinned to a
+  release tag. The previous dependency was the 4.x line
+  (`jnuyens/gsd-plugin`), which has no capability system — so the beads fusion
+  cairn is built around could never run on it. `/cairn:init`'s capability step
+  was failing on every install and reporting success. Both halves are fixed.
+  Existing installs do not follow a plugin rename: see
+  [Migrating to GSD Core](cairn/docs/gsd-core-migration.md).
+
+### Added
+
+- `/cairn:init` installs the capability through `cairn-capability.sh`, which
+  **verifies** the result instead of assuming it. GSD's own `capability list`
+  must report cairn active, and the staged bundle must carry the scripts its
+  gates run — a bundle staged without them leaves a ship gate that passes
+  without checking anything. Failures name their cause and their fix.
+- `/cairn:doctor` gained a `gsd-capability` check reporting which GSD lineage
+  is installed and whether the capability actually registered. It fails rather
+  than warns: a soft signal is how the original failure stayed invisible.
+- CI runs gsd-core's own `validateCapability` against a pinned checkout on
+  every pull request. A missing validator in CI now fails the run instead of
+  skipping it.
+
+### Deprecated
+
+- The `gsd` marketplace entry (the 4.x line). It remains for one release cycle
+  so existing installs keep resolving, and is **removed in v1.4**.
+
 ## [1.3.0] - 2026-07-27
 
 ### Fixed

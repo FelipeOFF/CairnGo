@@ -47,7 +47,7 @@
 - `gh` (GitHub CLI) - used exclusively by `cairn/adapters/github.py`, which shells out to `gh issue create/edit/close` and reuses `gh`'s own auth (`gh auth status`) rather than handling GitHub tokens itself
 
 **Infrastructure:**
-- GSD ("Get Shit Done", `jnuyens/gsd-plugin`) ≥ 1.8.0 - the planning/execution/verification workflow (`/gsd:*`) that cairn wires into via a capability contribution model (`plan:post`, `execute:wave:pre`, `execute:wave:post`, `verify:post`, `ship:pre` gate). Declared as a plugin dependency in `cairn/.claude-plugin/plugin.json` and version-pinned via `engines.gsd` in `cairn/capability/capability.json`.
+- GSD Core ("Get Shit Done", `open-gsd/gsd-core`) ≥ 1.8.0, pinned to a release tag - the planning/execution/verification workflow (`/gsd:*`) that cairn wires into via a capability contribution model (`plan:post`, `execute:wave:pre`, `execute:wave:post`, `verify:post`, `ship:pre` gate). Declared as a plugin dependency in `cairn/.claude-plugin/plugin.json` and version-pinned via `engines.gsd` in `cairn/capability/capability.json`.
 - context-mode (`mksglu/context-mode`) - optional cross-marketplace dependency providing the `ctx_*` MCP tools for compressed memory; cairn's `cairn-context` skill and `cairn/templates/context.json.example` make it intent-aware (scoped by bd issue + GSD phase) but never required
 - Dolt (embedded) - the storage engine underneath `bd`/beads itself (`.beads/metadata.json`: `"database": "dolt", "dolt_mode": "embedded"`); cairn does not talk to Dolt directly, only through the `bd` CLI
 
