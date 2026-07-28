@@ -42,6 +42,15 @@ make_status_fixture() {
   bd close "$ST_CLOSED" >/dev/null
 }
 
+# Permission bits of FILE, as octal digits, identically on macOS and Linux.
+# `stat` is the trap here: -f is "format" on BSD and "file system" on GNU, so
+# `stat -f '%Lp' x 2>/dev/null || stat -c '%a' x` does not fall through on
+# Linux the way it appears to — the first call can succeed and print something
+# that is not a mode at all. Python reads the same struct on both.
+file_mode() {
+  python3 -c 'import os,sys; print(format(os.stat(sys.argv[1]).st_mode & 0o777, "o"))' "$1"
+}
+
 BOARD_START='<!-- cairn:generated:board:start -->'
 BOARD_END='<!-- cairn:generated:board:end -->'
 
@@ -1054,4 +1063,44 @@ board_inside() {
   refute_in_output 'Traceback'
   run diff binary.html binary.expected
   [ "$status" -eq 0 ]
+}
+
+@test "--html writes a readable page and keeps a mode the reader chose" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # A board is opened in a browser and sometimes served from another machine.
+  # The atomic write goes through a temp file, which Python creates 0600, and
+  # os.replace carries that mode onto the target — so the mode has to be set
+  # back to what an ordinary create would have produced.
+  #
+  # The rule is "the board lands with the mode an ordinary create produces
+  # here", so the reference is an ordinary create made right here, in this
+  # directory, by this process. Computing it from the umask was closer than
+  # hardcoding 644, but still a model of the environment rather than the
+  # environment: a mount option or a default ACL moves the real answer and
+  # the model does not follow.
+  : > reference.tmp
+  local expected
+  expected="$(file_mode reference.tmp)"
+  rm -f reference.tmp
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run file_mode board.html
+  # Both sides on failure: three CI cycles produced "expected != got" without
+  # printing either value, which is why this took so long to pin down.
+  if [ "$output" != "$expected" ]; then
+    echo "board=$output reference=$expected umask=$(umask)" >&2
+  fi
+  [ "$output" = "$expected" ]
+
+  # And a mode the reader set themselves survives regeneration.
+  chmod 640 board.html
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run file_mode board.html
+  [ "$output" = "640" ]
 }
