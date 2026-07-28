@@ -350,3 +350,40 @@ assert "refused" in d["manifest_detail"], d
   [ "$status" -eq 0 ]
   [ "$(manifest_hooks)" = "(absent)" ]
 }
+
+@test "with two copies of the same version, the repair lands on the loaded one" {
+  # The cache can hold the same gsd-core twice, once per marketplace it was
+  # installed from. Version-and-lineage ordering cannot break that tie, so a
+  # repair could land on the copy nobody loads and leave the live plugin
+  # broken. installed_plugins.json is the tiebreaker.
+  command -v node >/dev/null 2>&1 || skip "node is not on PATH"
+  home="$BATS_TEST_TMPDIR/home"
+  cache="$home/.claude/plugins/cache"
+  live="$cache/cairngo/gsd-core/1.8.0"
+  dead="$cache/gsd-core/gsd-core/1.8.0"
+
+  for root in "$live" "$dead"; do
+    mkdir -p "$root/.claude-plugin" "$root/hooks" "$root/gsd-core/bin"
+    printf '{"hooks":[]}\n' > "$root/hooks/hooks.json"
+    printf '{"name":"gsd-core","hooks":"./hooks/hooks.json"}\n' \
+      > "$root/.claude-plugin/plugin.json"
+    cp "$(make_gsd_stub core-active)" "$root/gsd-core/bin/gsd_run"
+    chmod +x "$root/gsd-core/bin/gsd_run"
+  done
+
+  mkdir -p "$home/.claude/plugins"
+  cat > "$home/.claude/plugins/installed_plugins.json" <<EOF
+{"plugins": {"gsd-core@cairngo": [{"scope": "user", "installPath": "$live"}]}}
+EOF
+
+  run env -u CAIRN_GSD_BIN -u CLAUDE_PLUGIN_ROOT HOME="$home" \
+    PATH="/usr/bin:/bin:$(dirname "$(command -v node)")" \
+    bash "$CAP_SH" repair-manifest --project-dir "$PROJ"
+  [ "$status" -eq 0 ]
+
+  live_hooks="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("hooks","(absent)"))' "$live/.claude-plugin/plugin.json")"
+  dead_hooks="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("hooks","(absent)"))' "$dead/.claude-plugin/plugin.json")"
+  [ "$live_hooks" = "(absent)" ]
+  # The copy nobody loads is left exactly as it was.
+  [ "$dead_hooks" = "./hooks/hooks.json" ]
+}

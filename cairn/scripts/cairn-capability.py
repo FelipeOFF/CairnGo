@@ -230,6 +230,31 @@ def _plugin_cache_roots():
     return out
 
 
+def installed_plugin_roots():
+    """Install paths Claude Code actually loads, newest entry first.
+
+    Globbing the plugin cache is not enough on its own: the same gsd-core
+    version can sit there twice, once per marketplace it was installed from,
+    and only one of them is the plugin Claude Code loads. For the capability
+    that makes no difference — either CLI behaves the same — but the manifest
+    repair must land on the copy that is live, or it silently fixes a file
+    nobody reads and leaves the loaded plugin broken.
+    """
+    state = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+    try:
+        data = json.loads(state.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    roots = []
+    for key, entries in (data.get("plugins") or {}).items():
+        if not str(key).split("@", 1)[0].startswith("gsd"):
+            continue
+        for entry in entries if isinstance(entries, list) else [entries]:
+            if isinstance(entry, dict) and entry.get("installPath"):
+                roots.append(Path(entry["installPath"]))
+    return roots
+
+
 def discover_gsd_bins():
     """Every plausible GSD entry point, newest first.
 
@@ -243,6 +268,14 @@ def discover_gsd_bins():
         hit = shutil.which(name)
         if hit:
             found.append(hit)
+    # Ahead of the cache sweep: an entry point under a path Claude Code
+    # records as installed is the plugin it actually loads.
+    for root in installed_plugin_roots():
+        for rel in ("gsd-core/bin/gsd_run", "bin/gsd_run",
+                    "gsd-core/bin/gsd-tools.cjs", "bin/gsd-tools.cjs"):
+            cand = root / rel
+            if cand.is_file() and str(cand) not in found:
+                found.append(str(cand))
     globs = (
         "*/*/gsd-core/bin/gsd_run",   # <marketplace>/<plugin>/<ver>/gsd-core/bin
         "*/*/bin/gsd_run",
