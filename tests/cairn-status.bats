@@ -1066,10 +1066,17 @@ board_inside() {
   # The atomic write goes through a temp file, which Python creates 0600, and
   # os.replace carries that mode onto the target — so the mode has to be set
   # back to what an ordinary create would have produced.
+  #
+  # Expected mode is DERIVED from this environment's umask, never hardcoded:
+  # "what an ordinary create produces" is 0666 & ~umask, which is 644 on a
+  # 022 umask and 664 on the 002 one CI runners use. Pinning 644 made the
+  # test assert the developer's shell rather than the rule.
+  local expected
+  expected="$(printf '%o' "$(( 0666 & ~0$(umask) ))")"
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
   [ "$status" -eq 0 ]
   run bash -c "stat -f '%Lp' board.html 2>/dev/null || stat -c '%a' board.html"
-  [ "$output" = "644" ]
+  [ "$output" = "$expected" ]
 
   # And a mode the reader set themselves survives regeneration.
   chmod 640 board.html
