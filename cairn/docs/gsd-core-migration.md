@@ -61,18 +61,24 @@ claude plugin uninstall gsd@cairngo
 Nothing in `.planning/` or `.beads/` changes. This is a plugin swap, not a data
 migration.
 
-## The deprecation window
+## The old `gsd` entry is gone
 
-The old `gsd` entry stays in this marketplace for **one release cycle** so
-existing installs keep resolving while people migrate.
+**As of cairn v1.4 the `gsd` marketplace entry no longer exists.** Nothing in
+this marketplace publishes the 4.x line any more.
 
-| | |
-|---|---|
-| Deprecated in | cairn v1.3 |
-| **Removed in** | **cairn v1.4** |
+What that means in practice:
 
-After v1.4 the `gsd` entry is gone and an install still pointing at it will fail
-to resolve. Migrate before then.
+- **An install you already have keeps working.** Claude Code holds the plugin
+  in its own cache, so a machine that installed `gsd@cairngo` before v1.4 still
+  has it, still runs `/gsd:*`, and still has no capability system — the fusion
+  was never active on that line.
+- **`claude plugin install gsd@cairngo` no longer resolves**, and neither does
+  a marketplace refresh that tries to re-fetch it. If you are on the old plugin
+  and reinstall, or set up a new machine, that name is not there.
+
+Either way the fix is the same migration below, and it leaves `.planning/` and
+`.beads/` untouched. Run `/cairn:doctor` — a `✗ gsd-capability` line tells you
+whether you still need to.
 
 ## What changed underneath
 
@@ -105,3 +111,29 @@ not that the capability is missing. Confirm GSD is installed with
 will block a third-party bundle. cairn still works through `/cairn:*` and the
 skill; the fusion stays off until the policy allows it, and doctor keeps saying
 so.
+
+**`claude plugin list` reports a hook error on gsd-core.** You will probably
+see this after installing gsd-core 1.8.0:
+
+```
+gsd-core@gsd-core
+  Error: Hook load failed: Duplicate hooks file detected:
+  ./hooks/hooks.json resolves to already-loaded file …/hooks/hooks.json.
+```
+
+It is an upstream manifest bug, not something cairn causes or can fix from
+here: gsd-core's `plugin.json` declares `"hooks": "./hooks/hooks.json"`, and
+Claude Code already loads that standard path automatically, so the explicit
+declaration is a duplicate and the whole hook file is rejected.
+
+**It does not affect the cairn fusion.** cairn's loop hooks are registered
+through GSD's *capability* system (`.gsd/capabilities/cairn/`) and dispatched by
+the GSD workflows themselves, not through Claude Code's hook mechanism. Verified
+on an affected install: `/cairn:doctor` reports `✓ gsd-capability` while that
+error is present.
+
+What it does affect is gsd-core's own Claude Code hooks — its session-start
+checks, its write guards and its context monitor do not run. That is a GSD
+behaviour question; report it upstream at
+[open-gsd/gsd-core](https://github.com/open-gsd/gsd-core/issues) if it matters
+to you.

@@ -26,11 +26,33 @@
 
 | Claim | Evidence |
 |---|---|
-| The old entry still resolves | `.claude-plugin/marketplace.json` carries `gsd` alongside `gsd-core`; JSON validated, three plugins listed |
-| Its consequence is stated where users see it | The entry's own `description` says the beads fusion cannot run on it and names the removal version |
-| The deprecation has a stated end | v1.4 — in the marketplace description, `cairn/docs/gsd-core-migration.md`, the README plugin table and the CHANGELOG's Deprecated section |
+| ~~The old entry still resolves~~ | **Superseded at release — see the amendment below.** |
 | The path does not require starting over | The guide's four commands are install, reload, `/cairn:init`, `/cairn:doctor`; `.planning/` and `.beads/` are untouched, and `/cairn:init` is idempotent |
+| The deprecation has a stated end | It ends in v1.4, stated in the migration guide and the CHANGELOG's Removed section |
 | A user can tell whether they need to act | `/cairn:doctor` → `✗ gsd-capability` names which of the two causes applies |
+
+## Amendment at release (v1.4.0)
+
+The phase shipped the compatibility entry as the requirement asked. **The
+operator then decided to remove it in the same release that introduces the
+migration**, rather than carry it for a cycle.
+
+The cost was put to them explicitly before the decision: an install still on
+`gsd@cairngo` gets no grace period, and the choice contradicts GSD-04's own
+wording. They chose it anyway, so that is what shipped.
+
+Where that leaves GSD-04:
+
+| Part of the requirement | Status |
+|---|---|
+| "a working path to gsd-core that does not require deleting their setup" | **Met.** `cairn/docs/gsd-core-migration.md` documents it; `.planning/` and `.beads/` are untouched |
+| "the deprecation has a stated end" | **Met.** It ends in v1.4, stated in the guide and the CHANGELOG |
+| "keeps the old entry for one release cycle alongside the new one" | **Not met, by decision.** The entry is gone as of v1.4.0 |
+
+Practical effect, since it is narrower than "existing installs break": Claude
+Code caches installed plugins, so a machine that already has `gsd@cairngo`
+keeps running it. What stops working is *re-resolving* that name — a reinstall,
+a new machine, or a marketplace refresh that tries to re-fetch it.
 
 ## Test evidence
 
