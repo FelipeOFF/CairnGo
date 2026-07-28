@@ -1067,12 +1067,17 @@ board_inside() {
   # os.replace carries that mode onto the target — so the mode has to be set
   # back to what an ordinary create would have produced.
   #
-  # Expected mode is DERIVED from this environment's umask, never hardcoded:
-  # "what an ordinary create produces" is 0666 & ~umask, which is 644 on a
-  # 022 umask and 664 on the 002 one CI runners use. Pinning 644 made the
-  # test assert the developer's shell rather than the rule.
+  # The rule is "the board lands with the mode an ordinary create produces
+  # here", so the reference is an ordinary create made right here, in this
+  # directory, by this process. Computing it from the umask was closer than
+  # hardcoding 644, but still a model of the environment rather than the
+  # environment: a mount option or a default ACL moves the real answer and
+  # the model does not follow.
+  : > reference.tmp
   local expected
-  expected="$(printf '%o' "$(( 0666 & ~0$(umask) ))")"
+  expected="$(stat -f '%Lp' reference.tmp 2>/dev/null || stat -c '%a' reference.tmp)"
+  rm -f reference.tmp
+
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
   [ "$status" -eq 0 ]
   run bash -c "stat -f '%Lp' board.html 2>/dev/null || stat -c '%a' board.html"
