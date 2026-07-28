@@ -10,7 +10,7 @@
 </p>
 
 **One lifecycle for planning, tracking and shipping — inside Claude Code.**
-CairnGo fuses [GSD](https://github.com/open-gsd/get-shit-done-redux) (structured
+CairnGo fuses [GSD](https://github.com/open-gsd/gsd-core) (structured
 planning), [beads](https://github.com/gastownhall/beads) (a git-native issue
 tracker built for AI agents) and
 [context-mode](https://github.com/mksglu/context-mode) (compressed memory) into
@@ -72,7 +72,7 @@ Always dry-run first, idempotent on re-runs, resumable if interrupted — and it
 | Plugin | Description |
 |---|---|
 | [**cairn**](./cairn) | The fusion layer itself — capability, hooks, migration, doctor, sync adapters (GitHub/GitLab/Jira/Asana/Azure Boards) and intent-scoped memory. See the [full plugin README](./cairn#readme). |
-| **gsd** | Get Shit Done — planning/execution/verification (`/gsd:*`). Published here as a cairn dependency, sourced from upstream; compatibility pinned by the capability's `engines.gsd`. Standalone: `/plugin install gsd@cairngo`. |
+| **gsd-core** | Get Shit Done — planning/execution/verification (`/gsd:*`) and the capability system cairn plugs into. Published here as a cairn dependency, sourced from [open-gsd/gsd-core](https://github.com/open-gsd/gsd-core) and pinned to a release tag; compatibility declared by the capability's `engines.gsd`. Standalone: `/plugin install gsd-core@cairngo`. |
 
 ## Documentation
 

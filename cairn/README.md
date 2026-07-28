@@ -7,7 +7,7 @@
 > memory** into one marker so a solo build stays on-trail.*
 
 **Cairn is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin**
-that fuses the [GSD](https://github.com/jnuyens/gsd-plugin) planning workflow
+that fuses the [GSD](https://github.com/open-gsd/gsd-core) planning workflow
 (`/gsd:*`, `.planning/`), the [beads](https://github.com/gastownhall/beads)
 issue tracker (`bd`, `.beads/`), and
 [context-mode](https://github.com/mksglu/context-mode) memory (`ctx_*`) into
@@ -45,9 +45,9 @@ tracker fills itself in as the plan advances, and `/cairn:status` (driven by
 /plugin install cairn@cairngo                  # GSD installs with it (declared dependency)
 ```
 
-- **GSD** installs automatically — it is re-published in this marketplace as a
-  pointer to its upstream (`jnuyens/gsd-plugin`), so it stays a clean
-  same-marketplace dependency without being forked.
+- **GSD Core** installs automatically — it is re-published in this marketplace
+  as a pointer to its upstream (`open-gsd/gsd-core`, pinned to a release tag),
+  so it stays a clean same-marketplace dependency without being forked.
 - **beads** (`bd`) is a binary, not a plugin, so cairn offers to install it on
   your first session. Manual install: `brew install beads` ·
   `npm install -g @beads/bd`.

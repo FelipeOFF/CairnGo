@@ -30,7 +30,7 @@ CairnGo's only "external services" are the five optional issue-tracker mirrors r
   - Config: `org_url` (e.g. `https://dev.azure.com/yourorg`), `project`, `work_item_type`, `api_version`, `states` status map
 
 **Sibling Claude Code plugins (not network APIs, but declared dependencies):**
-- GSD (`jnuyens/gsd-plugin`, ≥1.8.0) - the planning/execution/verification workflow that cairn hooks into via capability contribution points (`plan:post`, `execute:wave:pre`, `execute:wave:post`, `verify:post`, `ship:pre`). Declared in `cairn/.claude-plugin/plugin.json` as a plugin dependency; sourced directly from upstream (not forked).
+- GSD Core (`open-gsd/gsd-core`, ≥1.8.0, pinned to a release tag) - the planning/execution/verification workflow that cairn hooks into via capability contribution points (`plan:post`, `execute:wave:pre`, `execute:wave:post`, `verify:post`, `ship:pre`). Declared in `cairn/.claude-plugin/plugin.json` as a plugin dependency; sourced directly from upstream (not forked).
 - context-mode (`mksglu/context-mode`) - optional cross-marketplace dependency providing `ctx_*` MCP tools for compressed memory; wired via `.cairn/context.json` (see `cairn/templates/context.json.example` and the `cairn-context` skill). `allowCrossMarketplaceDependenciesOn: ["context-mode"]` is declared in `.claude-plugin/marketplace.json`.
 
 ## Data Storage
