@@ -767,6 +767,25 @@ def check_gsd_capability(root):
                     "plugin update re-introduces the defect until it lands",
                 ]}
 
+    # Two GSD lineages at once. cairn's discovery prefers gsd-core, so the
+    # capability can be registered and complete while the operator's /gsd:*
+    # commands are answered by the 4.x plugin that cannot host it — the fusion
+    # absent with every other signal green. The likeliest way to land here is
+    # having had GSD before meeting cairn.
+    if info.get("both_lineages"):
+        inst = info.get("installed_gsd") or {}
+        legacy = inst.get("legacy") or []
+        return {"id": "gsd-capability", "status": "fail",
+                "detail": "two GSD lineages installed — "
+                          f"{', '.join(legacy + (inst.get('core') or []))}. "
+                          "/gsd:* may be answered by the 4.x plugin, which "
+                          "cannot host the capability",
+                "items": [
+                    f"Fix: claude plugin uninstall {legacy[0]}"
+                    if legacy else "Fix: remove the 4.x gsd plugin",
+                    "then /reload-plugins",
+                ]}
+
     if info.get("ok"):
         cap = info.get("capability") or {}
         return {"id": "gsd-capability", "status": "ok",

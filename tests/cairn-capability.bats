@@ -387,3 +387,79 @@ EOF
   # The copy nobody loads is left exactly as it was.
   [ "$dead_hooks" = "./hooks/hooks.json" ]
 }
+
+# ─── Two GSD lineages on one machine ─────────────────────────────────────────
+#
+# The likeliest shape for anyone who had GSD before meeting cairn: they run the
+# 4.x `gsd` plugin, install cairn, and cairn's dependency pulls `gsd-core` in
+# beside it. Nothing errors, both provide the same workflow surface, and only
+# one of them can host the capability.
+
+# Write a fake installed_plugins.json under $1 (a HOME). $2... = plugin ids.
+write_installed() {
+  local home="$1"; shift
+  mkdir -p "$home/.claude/plugins"
+  python3 - "$home/.claude/plugins/installed_plugins.json" "$@" <<'PY'
+import json, sys, pathlib
+out = {"plugins": {k: [{"scope": "user"}] for k in sys.argv[2:]}}
+pathlib.Path(sys.argv[1]).write_text(json.dumps(out, indent=2))
+PY
+}
+
+@test "both GSD lineages installed is a failure, not a green board" {
+  stub="$(make_gsd_stub core-active)"
+  stage_bundle "$PROJ"
+  home="$BATS_TEST_TMPDIR/h1"
+  write_installed "$home" "gsd@cairngo" "gsd-core@cairngo"
+
+  run env HOME="$home" bash "$CAP_SH" detect --project-dir "$PROJ" \
+    --gsd-bin "$stub"
+  [ "$status" -eq 7 ]
+  assert_output_contains "both lineages installed"
+  assert_output_contains "claude plugin uninstall gsd@cairngo"
+}
+
+@test "only gsd-core installed passes" {
+  stub="$(make_gsd_stub core-active)"
+  stage_bundle "$PROJ"
+  home="$BATS_TEST_TMPDIR/h2"
+  write_installed "$home" "gsd-core@cairngo"
+
+  run env HOME="$home" bash "$CAP_SH" detect --project-dir "$PROJ" \
+    --gsd-bin "$stub"
+  [ "$status" -eq 0 ]
+  assert_output_contains "fusion is active"
+}
+
+@test "an unreadable installed-plugins state does not invent a collision" {
+  # Absent or corrupt state must not be read as "two lineages" — that would
+  # fail every machine whose plugin state cairn cannot parse.
+  stub="$(make_gsd_stub core-active)"
+  stage_bundle "$PROJ"
+  home="$BATS_TEST_TMPDIR/h3"
+  mkdir -p "$home/.claude/plugins"
+  printf 'not json at all\n' > "$home/.claude/plugins/installed_plugins.json"
+
+  run env HOME="$home" bash "$CAP_SH" detect --project-dir "$PROJ" \
+    --gsd-bin "$stub"
+  [ "$status" -eq 0 ]
+}
+
+@test "--json reports the two lineages for scripting" {
+  stub="$(make_gsd_stub core-active)"
+  stage_bundle "$PROJ"
+  home="$BATS_TEST_TMPDIR/h4"
+  write_installed "$home" "gsd@cairngo" "gsd-core@cairngo"
+
+  run env HOME="$home" bash "$CAP_SH" detect --project-dir "$PROJ" \
+    --gsd-bin "$stub" --json
+  [ "$status" -eq 7 ]
+  printf '%s' "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["both_lineages"] is True, d
+assert d["installed_gsd"]["legacy"] == ["gsd@cairngo"], d
+assert d["installed_gsd"]["core"] == ["gsd-core@cairngo"], d
+assert d["ok"] is False, d
+'
+}

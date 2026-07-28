@@ -47,6 +47,20 @@ The capability system cairn depends on exists only on the official
 (`jnuyens/gsd-plugin`) has no `capability` subcommand at all — step 2 detects
 that and says so.
 
+**Watch for a machine that already had GSD.** Installing cairn pulls `gsd-core`
+in as a dependency, and it lands *beside* an existing 4.x `gsd` plugin rather
+than replacing it. Nothing errors, both provide the same workflow surface, and
+only one of them can host the capability — so `/gsd:*` may be answered by the
+plugin that cannot, while every check reports green. Step 2 fails on this and
+names the plugin to remove:
+
+```bash
+claude plugin uninstall gsd@cairngo    # the id step 2 printed
+```
+
+then `/reload-plugins`. This is the likeliest shape for anyone who used GSD
+before meeting cairn.
+
 ## 2. Install the cairn GSD capability (plain `/gsd:*` does beads)
 
 The capability bundle ships with the plugin at `${CLAUDE_PLUGIN_ROOT}/capability`.

@@ -738,3 +738,27 @@ PY
   grep -qF "will NOT load" <<<"$output"
   grep -qF "repair-manifest" <<<"$output"
 }
+
+@test "gsd-capability: two GSD lineages installed at once fails the doctor" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The capability itself is fine — registered and staged. The point is that a
+  # second GSD can be the one answering /gsd:*, so every other signal being
+  # green is exactly the problem.
+  home="$PWD/fakehome"
+  mkdir -p "$home/.claude/plugins"
+  cat > "$home/.claude/plugins/installed_plugins.json" <<'EOF'
+{"plugins": {"gsd@cairngo": [{"scope": "user"}],
+             "gsd-core@cairngo": [{"scope": "user"}]}}
+EOF
+  # HOME moves version-manager shims off PATH, so rebuild PATH with a real
+  # python3 plus bd's own directory (same trap as the no-GSD-binary test).
+  run env HOME="$home" PATH="/usr/bin:/bin:$(dirname "$(command -v bd)")" \
+    CAIRN_GSD_BIN="$CAIRN_GSD_BIN" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "two GSD lineages installed" <<<"$output"
+  grep -qF "claude plugin uninstall gsd@cairngo" <<<"$output"
+}

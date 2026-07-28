@@ -230,6 +230,30 @@ def _plugin_cache_roots():
     return out
 
 
+def installed_gsd_plugins():
+    """{'legacy': [ids], 'core': [ids]} from Claude Code's installed state.
+
+    Both lineages can sit on one machine, and it is the likeliest shape for
+    anyone who had GSD before meeting cairn: they already run the 4.x `gsd`
+    plugin, they install cairn, and cairn's dependency pulls `gsd-core` in
+    beside it. Nothing errors. Both provide the same workflow surface, and only
+    one of them can host the capability.
+    """
+    state = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+    out = {"legacy": [], "core": []}
+    try:
+        data = json.loads(state.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return out
+    for key in (data.get("plugins") or {}):
+        name = str(key).split("@", 1)[0]
+        if name == "gsd":
+            out["legacy"].append(str(key))
+        elif name == "gsd-core":
+            out["core"].append(str(key))
+    return out
+
+
 def installed_plugin_roots():
     """Install paths Claude Code actually loads, newest entry first.
 
@@ -447,6 +471,7 @@ def inspect(gsd_bin, project_dir):
     missing = missing_staged_files(project_dir)
     manifest = find_plugin_manifest(gsd_bin)
     defective, manifest_detail = manifest_defect(manifest)
+    installed = installed_gsd_plugins()
     return {
         "gsd_bin": gsd_bin,
         "lineage": lineage,
@@ -464,6 +489,12 @@ def inspect(gsd_bin, project_dir):
         "plugin_manifest": str(manifest) if manifest else None,
         "manifest_loadable": not defective,
         "manifest_detail": manifest_detail,
+        # Both GSD lineages installed at once. cairn's own discovery prefers
+        # gsd-core, so every check here can pass while the operator's /gsd:*
+        # commands come from the 4.x plugin that cannot host the capability —
+        # the fusion absent, and every signal green.
+        "installed_gsd": installed,
+        "both_lineages": bool(installed["legacy"] and installed["core"]),
     }
 
 
@@ -487,6 +518,13 @@ def report_lines(info):
     if info["plugin_manifest"] and not info["manifest_loadable"]:
         lines.append(_row(False, "plugin load",
                           "gsd-core will NOT load — " + info["manifest_detail"]))
+    if info["both_lineages"]:
+        lines.append(_row(
+            False, "one GSD",
+            "both lineages installed (" +
+            ", ".join(info["installed_gsd"]["legacy"] +
+                      info["installed_gsd"]["core"]) +
+            ") — /gsd:* may run the 4.x plugin, which cannot host the fusion"))
     if info["capability_command"]:
         cap = info["capability"]
         if info["registered"]:
@@ -511,8 +549,32 @@ def report_lines(info):
     return lines
 
 
+def verdict_ok(info):
+    """One definition of 'the fusion is really active', shared by every caller.
+
+    Registration alone is not enough. The bundle has to be staged completely,
+    the plugin has to be one Claude Code will load, and there has to be exactly
+    one GSD — otherwise the checks can all pass against a plugin that is not
+    the one answering /gsd:*.
+    """
+    return (info["registered"] and info["staged_complete"]
+            and info["manifest_loadable"] and not info["both_lineages"])
+
+
 def failure_remedy(info):
     """What the operator should do, given a verification that did not pass."""
+    if info["both_lineages"]:
+        legacy = ", ".join(info["installed_gsd"]["legacy"])
+        return (
+            "two GSD lineages are installed at once "
+            f"({legacy} alongside "
+            f"{', '.join(info['installed_gsd']['core'])}).\n"
+            "  Only gsd-core can host the cairn capability, so /gsd:* may be "
+            "answered by the 4.x plugin while every check here reports green.\n"
+            "  Fix: remove the old one, then reload:\n"
+            f"    claude plugin uninstall {legacy.split(',')[0].strip()}\n"
+            "    /reload-plugins"
+        )
     if info["lineage"] == "legacy":
         return UPGRADE_HINT
     if info["lineage"] == "unknown":
@@ -559,7 +621,7 @@ def emit(info, opts, ok, remedy=None):
 
 def cmd_detect(opts, gsd_bin, project_dir):
     info = inspect(gsd_bin, project_dir)
-    ok = info["registered"] and info["staged_complete"]
+    ok = verdict_ok(info)
     emit(info, opts, ok, None if ok else failure_remedy(info))
     return EXIT_OK if ok else EXIT_FAILED
 
@@ -621,7 +683,7 @@ def cmd_install(opts, gsd_bin, project_dir):
 
     # The install's own exit code is not the verdict — verification is.
     info = inspect(gsd_bin, project_dir)
-    ok = info["registered"] and info["staged_complete"]
+    ok = verdict_ok(info)
     remedy = None
     if not ok:
         remedy = failure_remedy(info)
