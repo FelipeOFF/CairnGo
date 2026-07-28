@@ -75,7 +75,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
      directly and follow its advice.
    - **gsd-capability** (✗) — the cairn capability is not registered with the
      installed GSD, so plain `/gsd:*` does **not** create, claim, close or gate
-     bd issues. Two causes, both named in the detail line:
+     bd issues. Three causes, all named in the detail line:
+     - *the installed gsd-core will not load* — its own manifest declares the
+       standard `hooks/hooks.json` path that Claude Code loads automatically, so
+       the loader refuses the whole plugin and there are no `/gsd:*` commands at
+       all. Reported before the others because it outranks them, and because the
+       `gsd-tools` CLI keeps working, which hides it → run
+       `scripts/cairn-capability.sh repair-manifest`, then `/reload-plugins`.
+       A gsd-core update restores the original file, which is why this is
+       re-checked rather than fixed once.
      - *GSD 4.x lineage* (`jnuyens/gsd-plugin`) — that line has no `capability`
        subcommand at all and cannot host the fusion →
        `claude plugin install gsd-core@cairngo`, then `/reload-plugins`.

@@ -751,6 +751,22 @@ def check_gsd_capability(root):
                 "detail": "no GSD binary found — cannot tell whether the "
                           "cairn capability is registered", "items": []}
 
+    # Checked before registration, because it outranks it: a plugin Claude Code
+    # refuses to load exposes no /gsd:* commands at all, so a perfectly
+    # registered capability has nothing to attach to. It is also invisible from
+    # inside the capability checks — the gsd-tools CLI keeps working, which is
+    # why the install succeeds while the plugin is dead.
+    if info.get("manifest_loadable") is False:
+        return {"id": "gsd-capability", "status": "fail",
+                "detail": "the installed gsd-core will NOT load — "
+                          f"{info.get('manifest_detail', 'manifest defect')}",
+                "items": [
+                    "Fix: bash \"${CLAUDE_PLUGIN_ROOT}/scripts/"
+                    "cairn-capability.sh\" repair-manifest, then /reload-plugins",
+                    "Upstream: open-gsd/gsd-core#2077 has the one-line fix; a "
+                    "plugin update re-introduces the defect until it lands",
+                ]}
+
     if info.get("ok"):
         cap = info.get("capability") or {}
         return {"id": "gsd-capability", "status": "ok",

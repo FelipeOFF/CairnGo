@@ -62,6 +62,17 @@ mkdir -p .cairn && printf '%s\n' "${CLAUDE_PLUGIN_ROOT}" > .cairn/plugin-root
 exit $rc
 ```
 
+`install` first repairs a defect in gsd-core's own manifest that would otherwise
+stop this step mattering at all. gsd-core 1.7.0 and 1.8.0 declare
+`"hooks": "./hooks/hooks.json"`, a path Claude Code loads automatically, so the
+loader treats it as a duplicate and **refuses the whole plugin** — no `/gsd:*`
+commands exist for the fusion to attach to. cairn removes that one line from the
+installed copy rather than forking gsd-core.
+
+If the repair ran, tell the user to `/reload-plugins`: Claude Code has already
+decided the plugin failed for this session, and only a reload changes that. A
+gsd-core update restores the original file, so `/cairn:doctor` re-checks it.
+
 The script installs the bundle and then **verifies it registered** — GSD's own
 `capability list` must report cairn as active, and the staged bundle must carry
 the scripts its gates reference. Report the result honestly by exit code:
