@@ -27,3 +27,8 @@ status.html
 # Hook / tooling scratch
 .planning/.pending-auth-captures.jsonl
 .beads/hooks/*.old
+
+# GSD capability install state — per machine, and .gsd-capabilities.json
+# records an absolute source path. Re-created by /cairn:init.
+.gsd/
+.gsd-capabilities.json

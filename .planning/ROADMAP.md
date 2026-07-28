@@ -24,8 +24,8 @@ Full details: [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
 
 ### 🚧 v1.2 GSD Core — official source, working fusion (Phases 7-9)
 
-- [ ] Phase 7: Official source + proven capability install (GSD-01, GSD-02)
-- [ ] Phase 8: Upgrade path and lineage reporting (GSD-03, GSD-04)
+- [x] Phase 7: Official source + proven capability install (GSD-01, GSD-02) — completed 2026-07-28
+- [x] Phase 8: Upgrade path and lineage reporting (GSD-03, GSD-04) — completed 2026-07-28
 - [ ] Phase 9: Adopt what gsd-core brings (GSD-05)
 
 ### v1.3 Status Panel — a surface you can act on (Phases 10-12)
@@ -44,8 +44,8 @@ Full details: [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
 | 4. Competitor Baseline | v1.1 | 1/1 | Complete | 2026-07-26 |
 | 5. Corpus Expansion + Bias Controls | v1.1 | 2/2 | Complete | 2026-07-26 |
 | 6. Reporting, Charts & Publication | v1.1 | 3/3 | Complete | 2026-07-26 |
-| 7. Official source + proven capability install | v1.2 | 0/? | Not started | — |
-| 8. Upgrade path and lineage reporting | v1.2 | 0/? | Not started | — |
+| 7. Official source + proven capability install | v1.2 | 1/1 | Complete | 2026-07-28 |
+| 8. Upgrade path and lineage reporting | v1.2 | 1/1 | Complete | 2026-07-28 |
 | 9. Adopt what gsd-core brings | v1.2 | 0/? | Not started | — |
 | 10. Phase model | v1.3 | 0/? | Not started | — |
 | 11. Described pending list + next commands | v1.3 | 0/? | Not started | — |
