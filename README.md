@@ -73,6 +73,7 @@ Always dry-run first, idempotent on re-runs, resumable if interrupted — and it
 |---|---|
 | [**cairn**](./cairn) | The fusion layer itself — capability, hooks, migration, doctor, sync adapters (GitHub/GitLab/Jira/Asana/Azure Boards) and intent-scoped memory. See the [full plugin README](./cairn#readme). |
 | **gsd-core** | Get Shit Done — planning/execution/verification (`/gsd:*`) and the capability system cairn plugs into. Published here as a cairn dependency, sourced from [open-gsd/gsd-core](https://github.com/open-gsd/gsd-core) and pinned to a release tag; compatibility declared by the capability's `engines.gsd`. Standalone: `/plugin install gsd-core@cairngo`. |
+| **gsd** *(deprecated)* | The old 4.x line, kept only so installs predating the migration keep resolving. It has no capability system, so the beads fusion cannot run on it. **Removed in v1.4** — see [Migrating to GSD Core](./cairn/docs/gsd-core-migration.md). |
 
 ## Documentation
 

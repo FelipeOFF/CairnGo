@@ -54,6 +54,22 @@
         "verification",
         "capability"
       ]
+    },
+    {
+      "name": "gsd",
+      "source": {
+        "source": "github",
+        "repo": "jnuyens/gsd-plugin"
+      },
+      "description": "DEPRECATED — kept only so installs that predate the gsd-core migration keep resolving. This is the 4.x line (jnuyens/gsd-plugin); it has no capability system, so the cairn beads fusion CANNOT run on it: /cairn:* commands work, but plain /gsd:* will not create, claim, close or gate bd issues. Migrate with `claude plugin install gsd-core@cairngo` then `/reload-plugins`, and verify with /cairn:doctor. This entry is removed in cairn v1.4 — see docs/gsd-core-migration.md.",
+      "category": "workflow",
+      "tags": [
+        "gsd",
+        "deprecated",
+        "get-shit-done",
+        "workflow",
+        "planning"
+      ]
     }
   ]
 }

@@ -62,6 +62,35 @@ make_doctor_fixture() {
   add_plan_beads .planning/phases/02-api/02-01-PLAN.md "$DOC_P2"
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+  wire_capability_ok
+}
+
+# The gsd-capability check reads GLOBAL state — which GSD is installed on the
+# machine — so without a seam every doctor test would inherit the developer's
+# plugin cache and pass or fail by accident. CAIRN_GSD_BIN pins it to a stub.
+# $1 = lineage: "core" (default, cairn registered) or "legacy".
+wire_capability_ok() {
+  local mode="${1:-core}" stub="$PWD/.gsd-stub"
+  cat > "$stub" <<EOF
+#!/usr/bin/env sh
+mode="$mode"
+EOF
+  cat >> "$stub" <<'EOF'
+[ "$1" = "capability" ] || { echo "unexpected: $*" >&2; exit 1; }
+if [ "$mode" = "legacy" ]; then
+  echo "Error: Unknown command: capability" >&2; exit 1
+fi
+echo '[{"id":"cairn","status":"active","version":"1.0.0","scope":"project"}]'
+EOF
+  chmod +x "$stub"
+  export CAIRN_GSD_BIN="$stub"
+  if [ "$mode" = "core" ]; then
+    mkdir -p .gsd/capabilities/cairn/scripts
+    cp "$CAIRN_REPO_ROOT/cairn/capability/capability.json" \
+       .gsd/capabilities/cairn/capability.json
+    cp "$CAIRN_REPO_ROOT/cairn/capability/scripts/cairn-loop-gate.sh" \
+       .gsd/capabilities/cairn/scripts/
+  fi
 }
 
 @test "healthy wired fixture: exit 0, every check ✓" {
@@ -80,8 +109,73 @@ make_doctor_fixture() {
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '10'
+  assert_json_eq "$output" '.checks | length' '11'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
+}
+
+@test "gsd-capability: the 4.x lineage fails the doctor, exit 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  wire_capability_ok legacy
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "gsd-capability" <<<"$output"
+  grep -qF "claude plugin install gsd-core@cairngo" <<<"$output"
+}
+
+@test "gsd-capability: gsd-core without a registered capability fails, exit 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # gsd-core answers, but the registry does not list cairn.
+  cat > "$PWD/.gsd-stub" <<'EOF'
+#!/usr/bin/env sh
+[ "$1" = "capability" ] || exit 1
+echo '[{"id":"ai-integration","status":"active"}]'
+EOF
+  chmod +x "$PWD/.gsd-stub"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "gsd-capability" <<<"$output"
+}
+
+@test "gsd-capability: a staged bundle missing its gate script fails, exit 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The ship-gate predicate no-ops when this file is absent, so a bundle
+  # staged without it leaves a gate that passes without checking anything.
+  rm -f .gsd/capabilities/cairn/scripts/cairn-loop-gate.sh
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "gsd-capability" <<<"$output"
+}
+
+@test "gsd-capability: no GSD binary at all warns, it does not fail" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # Not evidence either way — a warn, so the exit code stays 0.
+  #
+  # Cutting every GSD discovery route means a HOME with no plugin cache under
+  # it, which also moves any version-manager shims (asdf/mise put python3 on
+  # PATH via $HOME). So PATH is rebuilt from the system dirs plus bd's own,
+  # which the doctor needs — leaving a real python3 at /usr/bin and no
+  # gsd_run/gsd anywhere.
+  mkdir -p "$PWD/nohome"
+  run env -u CAIRN_GSD_BIN -u CLAUDE_PLUGIN_ROOT HOME="$PWD/nohome" \
+    PATH="/usr/bin:/bin:$(dirname "$(command -v bd)")" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "no GSD binary found" <<<"$output"
 }
 
 @test "req-issue: requirement without a gsd.req issue fails, exit 7" {
