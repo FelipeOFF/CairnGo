@@ -17,3 +17,13 @@ benchmarks/plugins/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# pr-autopilot run artifacts (per-PR scratch, disposable)
+.pr-autopilot/
+
+# Generated status board output (regenerate with cairn-status.sh --html)
+status.html
+
+# Hook / tooling scratch
+.planning/.pending-auth-captures.jsonl
+.beads/hooks/*.old
