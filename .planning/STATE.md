@@ -1,6 +1,7 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
+milestone: v1.2
+active_phase: 7
 milestone_name: milestone
 status: Awaiting next milestone
 stopped_at: Verified Phase 6 (Reporting, Charts & Publication) — 18/19 must-haves, 21/21 phase-6 bats green (+14/14 spot-checked regression), $0; 0 blocking gaps (see 06-VERIFICATION.md). Milestone v1.1 execution complete (6 of 6 phases), pending gate/ship.
