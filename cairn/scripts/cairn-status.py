@@ -1499,6 +1499,20 @@ def write_html_board(path, data):
         # interrupted run leaves the previous page intact instead of a
         # truncated one. os.replace is atomic within a filesystem, and the
         # temp file is a sibling precisely to stay on the same one.
+        # The temp file is created 0600 by design, and os.replace carries
+        # that mode onto the target. A board is a page somebody opens in a
+        # browser or serves from a second machine, so it keeps the mode an
+        # ordinary create would have given it: the existing file's own mode
+        # when regenerating (the reader may have chosen it), otherwise
+        # 0666 masked by the process umask, which is what write_text did.
+        try:
+            keep_mode = path.stat().st_mode & 0o777 if path.is_file() else None
+        except OSError:
+            keep_mode = None
+        if keep_mode is None:
+            umask = os.umask(0)
+            os.umask(umask)
+            keep_mode = 0o666 & ~umask
         tmp = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -1507,6 +1521,7 @@ def write_html_board(path, data):
                     delete=False) as fh:
                 tmp = Path(fh.name)
                 fh.write(new_text)
+            os.chmod(str(tmp), keep_mode)
             os.replace(str(tmp), str(path))
         except OSError as e:
             if tmp is not None and tmp.exists():

@@ -1055,3 +1055,26 @@ board_inside() {
   run diff binary.html binary.expected
   [ "$status" -eq 0 ]
 }
+
+@test "--html writes a readable page and keeps a mode the reader chose" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # A board is opened in a browser and sometimes served from another machine.
+  # The atomic write goes through a temp file, which Python creates 0600, and
+  # os.replace carries that mode onto the target — so the mode has to be set
+  # back to what an ordinary create would have produced.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run bash -c "stat -f '%Lp' board.html 2>/dev/null || stat -c '%a' board.html"
+  [ "$output" = "644" ]
+
+  # And a mode the reader set themselves survives regeneration.
+  chmod 640 board.html
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run bash -c "stat -f '%Lp' board.html 2>/dev/null || stat -c '%a' board.html"
+  [ "$output" = "640" ]
+}
