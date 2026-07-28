@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **gsd-core would not load at all, so v1.4.0 shipped a migration into a dead
+  dependency.** gsd-core 1.7.0 and 1.8.0 declare `"hooks": "./hooks/hooks.json"`
+  in their own manifest — the standard path Claude Code already loads
+  automatically. The loader treats it as a duplicate and refuses the **whole
+  plugin** (`Status: ✘ failed to load`), so a user who followed cairn's own
+  migration guide ended up with no `/gsd:*` commands.
+
+  What hid it: the `gsd-tools` CLI keeps working, so the capability installs and
+  registers happily against a plugin Claude Code will not load. The v1.4.0
+  migration guide said the error "does not affect the fusion" — that was wrong,
+  and is corrected.
+
+  `/cairn:init` now removes that one line from the installed copy before
+  installing the capability, `/cairn:doctor` re-checks it on every run (a
+  gsd-core update restores the original file), and
+  `cairn-capability.sh repair-manifest` does it on demand. The repair is narrow:
+  it only removes a declaration naming the *standard* path, never one pointing
+  at additional hook files.
+
+  cairn patches rather than forks — you keep receiving genuine upstream code,
+  with no vendored tree to rebase against a weekly release cadence. Upstream has
+  the same one-line fix in
+  [open-gsd/gsd-core#2077](https://github.com/open-gsd/gsd-core/pull/2077),
+  closed twelve seconds after opening by automation requiring a pre-approved
+  issue. When it lands, this repair becomes a no-op and the code can go.
+
 ## [1.4.0] - 2026-07-28
 
 ### Added

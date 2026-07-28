@@ -714,3 +714,27 @@ PY
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --frobnicate
   [ "$status" -eq 2 ]
 }
+
+@test "gsd-capability: an unloadable gsd-core manifest fails and outranks registration" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # A stub install whose manifest carries the upstream defect: it declares the
+  # standard hooks path, so Claude Code refuses the whole plugin. The capability
+  # itself is registered and staged — the point is that this outranks it,
+  # because a plugin that will not load exposes no /gsd:* commands.
+  root="$PWD/plug"
+  mkdir -p "$root/.claude-plugin" "$root/hooks" "$root/gsd-core/bin"
+  printf '{"hooks":[]}\n' > "$root/hooks/hooks.json"
+  printf '{"name":"gsd-core","hooks":"./hooks/hooks.json"}\n' \
+    > "$root/.claude-plugin/plugin.json"
+  cp "$PWD/.gsd-stub" "$root/gsd-core/bin/gsd_run"
+  chmod +x "$root/gsd-core/bin/gsd_run"
+  export CAIRN_GSD_BIN="$root/gsd-core/bin/gsd_run"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "will NOT load" <<<"$output"
+  grep -qF "repair-manifest" <<<"$output"
+}
