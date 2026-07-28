@@ -154,6 +154,21 @@ body {
   color: var(--bone);
 }
 
+/* What the phase you are standing in actually IS. The line above gives the
+   count; this one gives the name, so the header stops being a coordinate. */
+.pos-title {
+  margin: 2px 0 0;
+  font-size: var(--t-s);
+  color: var(--bone);
+  max-width: 60ch;
+}
+
+.pos-title .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--bone-dim);
+}
+
 /* ------------------------------------------------ the roadmap profile band */
 
 .band { display: grid; gap: 10px; }

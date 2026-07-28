@@ -152,6 +152,20 @@ TABLE_PHASE_ANY = re.compile(
     r"^\s*\|\s*(?:Phase\s+0*(\d+)\b[^|]*|0*(\d+)[.)][^|]*)\|",
     re.IGNORECASE)
 
+# Phase-model parsing. A phase directory may carry an optional project-code
+# prefix (myproj-03-auth), the same shape cairn-map resolves.
+PHASE_DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
+PLAN_FILE = re.compile(r"^\d+-(\d+)-PLAN\.md$")
+SUMMARY_FILE = re.compile(r"^\d+-(\d+)-SUMMARY\.md$")
+# `— completed 2026-07-26` / `- completed 2026-07-26`, stripped by shape.
+# Never split a roadmap line on the dash: titles carry their own em dashes
+# ("Phase model — read what a phase actually is").
+ROADMAP_COMPLETED = re.compile(
+    r"\s*[—–-]?\s*completed\s+(\d{4}-\d{2}-\d{2})\s*$", re.IGNORECASE)
+ROADMAP_TRAILING_PAREN = re.compile(r"\s*\(([^()]*)\)\s*$")
+ROADMAP_PLANS = re.compile(r"^(\d+)\s*/\s*(\d+)\s+plans?$", re.IGNORECASE)
+REQ_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d+(?:\s*,\s*[A-Z][A-Z0-9]*-\d+)*$")
+
 
 def die(msg, code):
     print(f"[cairn-status] error: {msg}", file=sys.stderr)
@@ -318,25 +332,349 @@ def read_lines(path):
         return []
 
 
-def roadmap_phases(planning_dir):
-    """(total, completed) phase numbers from ROADMAP.md — checkbox lines and
-    milestone progress-table rows, parsed with cairn-gate's lenient checkbox
-    patterns plus the stricter TABLE_PHASE_ANY (see its comment)."""
-    all_ns, done_ns = set(), set()
+def phase_dirs(planning_dir):
+    """{phase number: dir} under <planning>/phases/, newest name wins ties."""
+    out = {}
+    root = planning_dir / "phases"
+    if not root.is_dir():
+        return out
+    for d in sorted(p for p in root.iterdir() if p.is_dir()):
+        m = PHASE_DIR_PREFIX.match(d.name)
+        if m:
+            out.setdefault(int(m.group(1)), d)
+    return out
+
+
+def phase_disk_state(pdir):
+    """How far a phase has actually got on disk: none/planned/executed/verified.
+
+    Read from artifacts rather than from the roadmap checkbox, because the two
+    disagree exactly when it matters — a phase can be planned and executed with
+    nobody having ticked the box, and a box can be ticked over a phase whose
+    SUMMARY was never written.
+    """
+    if pdir is None or not pdir.is_dir():
+        return "none"
+    names = [p.name for p in pdir.iterdir() if p.is_file()]
+    has = lambda suffix: any(n.endswith(suffix) for n in names)  # noqa: E731
+    if has("-VERIFICATION.md"):
+        return "verified"
+    if has("-SUMMARY.md"):
+        return "executed"
+    if has("-PLAN.md"):
+        return "planned"
+    return "none"
+
+
+def phase_plan_counts(pdir):
+    """(plans with a SUMMARY, total non-superseded plans) on disk, or None."""
+    if pdir is None or not pdir.is_dir():
+        return None, None
+    plans, summaries = set(), set()
+    for p in pdir.iterdir():
+        if not p.is_file():
+            continue
+        m = PLAN_FILE.match(p.name)
+        if m:
+            plans.add(m.group(1))
+            continue
+        m = SUMMARY_FILE.match(p.name)
+        if m:
+            summaries.add(m.group(1))
+    if not plans:
+        return None, None
+    return len(summaries & plans), len(plans)
+
+
+def plan_depends_on(pdir, dir_to_number):
+    """Phase numbers this phase's plans declare in `depends_on:` frontmatter.
+
+    The roadmap does not carry dependencies, but PLAN.md does, and that is
+    what makes 'these two can run at the same time' computable rather than
+    guessed. Entries may be phase dir names or bare numbers.
+    """
+    if pdir is None or not pdir.is_dir():
+        return []
+    deps = set()
+    for p in sorted(pdir.iterdir()):
+        if not (p.is_file() and PLAN_FILE.match(p.name)):
+            continue
+        lines = read_lines(p)
+        if not lines or lines[0].strip() != "---":
+            continue
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            m = re.match(r"^depends_on\s*:\s*\[(.*)\]\s*$", line)
+            if not m:
+                continue
+            for raw in m.group(1).split(","):
+                tok = raw.strip().strip("'\"").strip()
+                if not tok:
+                    continue
+                if tok.isdigit():
+                    deps.add(int(tok))
+                    continue
+                hit = dir_to_number.get(tok)
+                if hit is None:
+                    dm = PHASE_DIR_PREFIX.match(tok)
+                    hit = int(dm.group(1)) if dm else None
+                if hit is not None:
+                    deps.add(hit)
+    return sorted(deps)
+
+
+def _split_roadmap_rest(rest):
+    """(title, plans_done, plans_total, requirements, completed_on) from the
+    text after `Phase N:` on a roadmap checkbox line.
+
+    Order matters. The completion suffix carries its own em dash, and titles
+    contain em dashes of their own ("Phase model — read what a phase actually
+    is"), so the suffix is stripped by shape and never by splitting on the
+    dash.
+    """
+    completed_on = None
+    m = ROADMAP_COMPLETED.search(rest)
+    if m:
+        completed_on = m.group(1)
+        rest = rest[:m.start()]
+    plans_done = plans_total = None
+    reqs = []
+    m = ROADMAP_TRAILING_PAREN.search(rest)
+    if m:
+        inner = m.group(1).strip()
+        pm = ROADMAP_PLANS.match(inner)
+        if pm:
+            plans_done, plans_total = int(pm.group(1)), int(pm.group(2))
+            rest = rest[:m.start()]
+        elif REQ_ID.match(inner):
+            reqs = [t.strip() for t in inner.split(",") if t.strip()]
+            rest = rest[:m.start()]
+    # `- [x] **Phase 1: Auth** - Signup and login flows` is as common a shape
+    # as the plain one. The bold span delimits the title; what follows it is a
+    # description, not part of the name.
+    close = rest.find("**")
+    if close > 0:
+        rest = rest[:close]
+    title = rest.replace("**", "").replace("__", "").strip()
+    title = title.strip("—–-").strip() or None
+    return title, plans_done, plans_total, reqs, completed_on
+
+
+def roadmap_phase_rows(planning_dir):
+    """{n: partial phase dict} from ROADMAP.md.
+
+    Two sources, merged: the checkbox lines carry the title, the requirement
+    ids and the completion date; the milestone progress table carries the
+    milestone and the plan counts. Neither alone is complete, which is why the
+    board could only ever show a number.
+    """
+    rows = {}
+
+    def slot(n):
+        return rows.setdefault(n, {
+            "number": n, "title": None, "milestone": None, "complete": False,
+            "completed_on": None, "plans_done": None, "plans_total": None,
+            "requirements": [],
+        })
+
     for line in read_lines(planning_dir / "ROADMAP.md"):
         m = ANY_PHASE.match(line)
         if m:
-            all_ns.add(int(m.group(1)))
+            n = int(m.group(1))
+            row = slot(n)
             if CHECKED_PHASE.match(line):
-                done_ns.add(int(m.group(1)))
+                row["complete"] = True
+            after = line.split(f"Phase {m.group(1)}", 1)[-1]
+            after = re.sub(r"^\s*0*\d*\s*[:.)]?\s*", "", after, count=1)
+            title, pd, pt, reqs, done_on = _split_roadmap_rest(after)
+            if title and not row["title"]:
+                row["title"] = clean(title)
+            if pt is not None:
+                row["plans_done"], row["plans_total"] = pd, pt
+            if reqs and not row["requirements"]:
+                row["requirements"] = reqs
+            if done_on and not row["completed_on"]:
+                row["completed_on"] = done_on
             continue
+
         m = TABLE_PHASE_ANY.match(line)
-        if m:
-            n = int(m.group(1) or m.group(2))
-            all_ns.add(n)
-            if TABLE_PHASE_DONE.match(line):
-                done_ns.add(n)
-    return sorted(all_ns), sorted(done_ns)
+        if not m:
+            continue
+        n = int(m.group(1) or m.group(2))
+        row = slot(n)
+        if TABLE_PHASE_DONE.match(line):
+            row["complete"] = True
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells:
+            head = re.sub(r"^(?:Phase\s+)?0*\d+\s*[.)]?\s*", "", cells[0],
+                          count=1).strip()
+            if head and not row["title"]:
+                row["title"] = clean(head)
+        for cell in cells[1:]:
+            vm = re.match(r"^v\d+(?:\.\d+)*$", cell)
+            if vm and not row["milestone"]:
+                row["milestone"] = cell
+                continue
+            pm = re.match(r"^(\d+)\s*/\s*(\d+)$", cell)
+            if pm and row["plans_total"] is None:
+                row["plans_done"] = int(pm.group(1))
+                row["plans_total"] = int(pm.group(2))
+                continue
+            dm = re.match(r"^(\d{4}-\d{2}-\d{2})$", cell)
+            if dm and not row["completed_on"]:
+                row["completed_on"] = cell
+    return rows
+
+
+def dep_target_ids(iss):
+    """Ids this issue depends on, from either shape bd reports.
+
+    The lane queries disagree about how they say it, and the disagreement is
+    silent: `bd list` and `bd ready` return a `dependencies` array of
+    {issue_id, depends_on_id}, while `bd blocked` returns a flat `blocked_by`
+    list of ids and no `dependencies` at all. Reading only the first shape
+    loses every edge whose target is still open — which is exactly the set the
+    parallelism answer is about.
+    """
+    out = []
+    for dep in iss.get("dependencies") or []:
+        if isinstance(dep, dict):
+            tid = str(dep.get("depends_on_id") or "").strip()
+            if tid:
+                out.append(tid)
+    for raw in as_str_list(iss.get("blocked_by")):
+        tid = raw.strip()
+        if tid:
+            out.append(tid)
+    return out
+
+
+def issue_phase_deps(issues):
+    """{phase: {phases it depends on}} lifted from bd's own dependency edges.
+
+    This is the dependency source that exists BEFORE a phase is planned. The
+    PLAN.md `depends_on:` frontmatter only appears once someone has planned the
+    phase, so relying on it alone would report every unplanned phase as
+    independent — which is precisely the claim the parallelism section must not
+    get wrong.
+    """
+    phases_of = {}
+    for iss in issues:
+        iid = str(iss.get("id") or "")
+        if iid:
+            phases_of[iid] = issue_phase_ns(iss)
+    edges = {}
+    for iss in issues:
+        mine = phases_of.get(str(iss.get("id") or ""), set())
+        if not mine:
+            continue
+        for tid in dep_target_ids(iss):
+            for a in mine:
+                for b in phases_of.get(tid, set()):
+                    if a != b:
+                        edges.setdefault(a, set()).add(b)
+    return edges
+
+
+def phase_model(planning_dir, issues=None):
+    """Every phase, described once, for all three surfaces to render from.
+
+    The board, `--json` and the HTML page previously each re-derived what they
+    needed from `(all, done)` int lists; anything richer had to be invented per
+    surface, so the three could disagree. This is the single read: roadmap text
+    merged with what is actually on disk, plus the dependency edges that make
+    parallelism computable.
+    """
+    rows = roadmap_phase_rows(planning_dir)
+    dirs = phase_dirs(planning_dir)
+    for n in dirs:
+        rows.setdefault(n, {
+            "number": n, "title": None, "milestone": None, "complete": False,
+            "completed_on": None, "plans_done": None, "plans_total": None,
+            "requirements": [],
+        })
+    dir_to_number = {d.name: n for n, d in dirs.items()}
+    bd_edges = issue_phase_deps(issues or [])
+
+    out = []
+    for n in sorted(rows):
+        row = dict(rows[n])
+        pdir = dirs.get(n)
+        row["dir"] = str(pdir.relative_to(planning_dir.parent)) if pdir else None
+        row["disk_state"] = phase_disk_state(pdir)
+        if row["plans_total"] is None:
+            done, total = phase_plan_counts(pdir)
+            row["plans_done"], row["plans_total"] = done, total
+        deps = set(plan_depends_on(pdir, dir_to_number)) | bd_edges.get(n, set())
+        row["depends_on"] = sorted(d for d in deps if d != n)
+        out.append(row)
+
+    done_set = {p["number"] for p in out if p["complete"]}
+    for p in out:
+        p["blocked_by"] = [d for d in p["depends_on"] if d not in done_set]
+        p["next_command"] = phase_next_command(p)
+    return out
+
+
+def phase_next_command(p):
+    """The next legal /cairn:* command for a phase, from its state on disk.
+
+    Computed, never authored — which is the difference between a suggestion
+    that stays true and one that rots the first time someone runs a command out
+    of band.
+
+    A phase the roadmap calls complete gets no command, whatever the disk says.
+    Finished milestones have their phase dirs archived out of .planning/phases/,
+    so reading disk state alone would tell the operator to go and plan phase 1
+    again. When the checkbox and the artifacts genuinely disagree, that is
+    /cairn:doctor's report to make, not a suggestion to act on.
+    """
+    if p["complete"]:
+        return None
+    return {
+        "none": f"/cairn:plan {p['number']}",
+        "planned": f"/cairn:work {p['number']}",
+        "executed": f"/cairn:verify {p['number']}",
+        "verified": None,
+    }[p["disk_state"]]
+
+
+def roadmap_phases(planning_dir, model=None):
+    """(total, completed) phase numbers — derived from phase_model so the
+    counts and the described list can never disagree."""
+    model = phase_model(planning_dir) if model is None else model
+    return ([p["number"] for p in model],
+            [p["number"] for p in model if p["complete"]])
+
+
+def find_phase(model, number):
+    """The modelled phase with this number, or None. Accepts '02'/2/'2'."""
+    n = normalize_phase(number)
+    if n is None or not str(n).isdigit():
+        return None
+    n = int(n)
+    for p in model:
+        if p["number"] == n:
+            return p
+    return None
+
+
+def active_phase_title(model, active_phase):
+    """Title of the phase STATE.md points at — the one string that turns a
+    footer reading `phase 10/12` into one that says what phase 10 IS."""
+    p = find_phase(model, active_phase)
+    return p["title"] if p else None
+
+
+def phase_progress_text(p):
+    """`2/3 plans` when the counts are known, else '' — one spelling, shared
+    by every surface, so plan progress cannot read differently in two places."""
+    if not p or p.get("plans_total") in (None, 0):
+        return ""
+    done = p.get("plans_done")
+    done = 0 if done is None else done
+    return f"{done}/{p['plans_total']} plans"
 
 
 def state_frontmatter(planning_dir):
@@ -688,12 +1026,19 @@ def render_board(lanes_items, counts, inner, max_rows, style):
 
 
 def meta_parts(data, style, include_done=True):
-    """`phase X/Y · milestone · done: N` as spans (segments drop out when
-    unknown)."""
+    """`phase X/Y title · milestone · done: N` as spans (segments drop out
+    when unknown).
+
+    The title comes from the shared phase model. `phase 10/12` alone says
+    where you are on a count and nothing about what you are doing.
+    """
     parts = []
     phase = data["phase"]
     if phase["active"] is not None and phase["total"]:
-        parts.append([(f"phase {phase['active']}/{phase['total']}", None)])
+        head = [(f"phase {phase['active']}/{phase['total']}", None)]
+        if phase.get("title"):
+            head.append((f" {style.asciify(phase['title'])}", SGR_DIM))
+        parts.append(head)
     if data["milestone"]:
         parts.append([(data["milestone"], None)])
     if include_done:
@@ -1313,8 +1658,18 @@ def html_head(data):
         bits.append(f'phase <span class="n">{esc(phase["active"])}</span> of '
                     f'<span class="n">{phase["total"]}</span>')
     pos = " &middot; ".join(bits) or "no roadmap position"
+    # The phase's own name, from the shared model — the page said which
+    # numbered phase you were in and never what it was.
+    sub = ""
+    active = find_phase(data.get("phases") or [], phase["active"])
+    if active and active.get("title"):
+        detail = esc(active["title"])
+        prog = phase_progress_text(active)
+        if prog:
+            detail += f' <span class="n">{esc(prog)}</span>'
+        sub = f'<p class="pos-title">{detail}</p>'
     return ('<header class="head"><h1 class="wordmark">cairn</h1>'
-            f'<p class="pos">{pos}</p></header>')
+            f'<p class="pos">{pos}</p>{sub}</header>')
 
 
 def html_next(data):
@@ -1570,7 +1925,11 @@ def main():
         # to a GSD-only board, saying so.
         ready, doing, blocked, closed, n_closed = [], [], [], [], 0
         note = f"no .beads/ at {root}: GSD-only board (bd lanes skipped)"
-    all_phases, done_phases = roadmap_phases(planning_dir)
+    # ONE phase model, built once. Every surface below renders from this list
+    # rather than re-deriving what it needs, so the terminal board, --json and
+    # the HTML page cannot describe the same phase differently.
+    phases = phase_model(planning_dir, ready + doing + blocked + closed)
+    all_phases, done_phases = roadmap_phases(planning_dir, phases)
     # Cross-check (docstring step 4b): open issues whose phase labels are
     # all roadmap-complete keep their lane but get flagged. _stale drives
     # the card marker only — trim_issue never copies it into the JSON.
@@ -1602,7 +1961,11 @@ def main():
         "milestone": milestone,
         "phase": {"active": active_phase,
                   "total": len(all_phases) or None,
-                  "completed": len(done_phases)},
+                  "completed": len(done_phases),
+                  "title": active_phase_title(phases, active_phase)},
+        # The described model, public in --json. Every phase carries what it
+        # is, how far it has got, what it waits on and the next legal command.
+        "phases": phases,
         "next": nxt,
         "sync": {k: sync[k] for k in ("configured", "stale", "detail",
                                       "last_pull")},
