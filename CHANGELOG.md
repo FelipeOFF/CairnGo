@@ -7,7 +7,39 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`/cairn:status` answers which phase to run, not just what work exists.**
+  The board gained a phase panel: every pending phase described by title,
+  requirement ids, where it stands (`not planned` / `planned` / `executed` /
+  `verified`), plan progress and what it waits on — so choosing the next phase
+  no longer means opening ROADMAP.md. Below it, the `/cairn:*` commands to run
+  next, each with the reason it sits where it does. The command comes from that
+  phase's own state on disk and the **order comes from the dependency graph**,
+  so a blocked earlier phase is never listed above a later one that can
+  actually run.
+- **The board says what can proceed at the same time**, and describes the split
+  in real commands ("`/cairn:plan 2` alongside `/cairn:plan 3`. One agent per
+  phase, or one worktree each."). When no dependency is recorded anywhere it
+  says so, rather than reporting every phase as independent and letting that
+  read as a verified ordering.
+- `/cairn:autonomous` resolves its phase order from the status model and
+  **announces** it — the order, the reason for each position, and the
+  concurrency available but unused — instead of deciding silently.
+- `--json` exposes the whole model: `phases[]`, `next_commands[]` and
+  `parallelism`, so other commands can stop re-deriving it.
+
 ### Changed
+
+- The status surfaces read one shared phase model. The roadmap parser used to
+  return two lists of phase numbers, which is why a phase could only render as
+  `10` and why the HTML board had space it could not fill. Title, plan
+  progress, milestone, requirement ids, dependencies and on-disk state are now
+  read once and rendered by the terminal board, `--json` and the HTML page
+  alike, so the three cannot drift.
+- The HTML board uses the desktop it is opened on: the grid grows to 1440px on
+  a wide screen instead of sitting in a fixed 1024px column, while prose keeps
+  its own measure so the sentences stay readable.
 
 - **cairn now depends on the official GSD, `open-gsd/gsd-core`**, pinned to a
   release tag. The previous dependency was the 4.x line

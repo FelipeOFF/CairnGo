@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.3
-active_phase: 10
+active_phase: 12
 milestone_name: milestone
-status: v1.2 complete — starting v1.3 (Status Panel)
-stopped_at: Milestone v1.2 complete (phases 7-9, GSD-01..05). cairn depends on open-gsd/gsd-core pinned at v1.8.0; the capability install verifies itself; cairn-doctor reports the lineage; every gsd-core command has a recorded decision. The fusion is registered and active on this machine (cairn v1.0.0, project scope). Next: phase 10 (PANEL-01, the phase model).
+status: v1.3 complete — awaiting ship
+stopped_at: Milestone v1.3 complete (phases 10-12, PANEL-01..05). The status surfaces read one shared phase model; the board describes pending phases, computes the next /cairn:* commands in dependency order with their reasons, and says what can run at the same time. /cairn:autonomous announces the order it chose. Full suite 295/295.
 last_updated: "2026-07-28T17:30:00.000Z"
-last_activity: 2026-07-28 — milestone v1.2 complete (gsd-core migration, lineage reporting, command triage)
+last_activity: 2026-07-28 — milestone v1.3 complete (phase model, described panel, parallelism)
 progress:
   total_phases: 12
-  completed_phases: 9
-  total_plans: 17
-  completed_plans: 17
-  percent: 75
+  completed_phases: 12
+  total_plans: 20
+  completed_plans: 20
+  percent: 100
 ---
 
 # Project State

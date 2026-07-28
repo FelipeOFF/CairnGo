@@ -107,6 +107,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -610,7 +611,12 @@ def phase_model(planning_dir, issues=None):
         row["depends_on"] = sorted(d for d in deps if d != n)
         out.append(row)
 
-    done_set = {p["number"] for p in out if p["complete"]}
+    # A dependency is satisfied by the WORK being done, not by the checkbox
+    # being ticked. A phase verified on disk whose roadmap box nobody has
+    # updated yet would otherwise keep every phase behind it reading "waits on
+    # 10" long after 10 was finished.
+    done_set = {p["number"] for p in out
+                if p["complete"] or p["disk_state"] == "verified"}
     for p in out:
         p["blocked_by"] = [d for d in p["depends_on"] if d not in done_set]
         p["next_command"] = phase_next_command(p)
@@ -675,6 +681,133 @@ def phase_progress_text(p):
     done = p.get("plans_done")
     done = 0 if done is None else done
     return f"{done}/{p['plans_total']} plans"
+
+
+DISK_STATE_LABEL = {
+    "none": "not planned",
+    "planned": "planned",
+    "executed": "executed",
+    "verified": "verified",
+}
+
+
+def phase_state_text(p):
+    """Where a phase stands, in words — the half of 'what should I run next?'
+    that a phase number cannot answer."""
+    if p.get("complete"):
+        return "complete"
+    return DISK_STATE_LABEL.get(p.get("disk_state"), "unknown")
+
+
+def pending_phases(model):
+    """Phases still to do, in roadmap order. Complete ones drop out."""
+    return [p for p in model if not p["complete"]]
+
+
+def phase_dependents(model, number):
+    """Pending phases that wait on this one."""
+    return [p["number"] for p in model
+            if not p["complete"] and number in p["depends_on"]]
+
+
+def join_numbers(ns):
+    """`10`, `10 and 11`, `10, 11 and 12` — read as a sentence, not a list."""
+    ns = [str(n) for n in ns]
+    if not ns:
+        return ""
+    if len(ns) == 1:
+        return ns[0]
+    return f"{', '.join(ns[:-1])} and {ns[-1]}"
+
+
+def parallelism(model):
+    """What can proceed at the same time, right now, and how honest that is.
+
+    Returns {runnable, blocked, note, declared}. `runnable` is every pending
+    phase nothing still open blocks; two or more of those are independent of
+    each other by construction, because a dependency between them would have
+    blocked the later one.
+
+    `declared` is the honesty flag. Independence is only as good as what is
+    written down: a roadmap where nobody registered a dependency reports every
+    phase as free, which is a statement about the records rather than about the
+    work. The note says so instead of implying the graph was checked.
+    """
+    pending = pending_phases(model)
+    runnable = [p for p in pending if not p["blocked_by"] and p["next_command"]]
+    blocked = [p for p in pending if p["blocked_by"]]
+    declared = any(p["depends_on"] for p in model)
+
+    if not pending:
+        note = "Nothing pending — the milestone is ready to ship."
+    elif not runnable:
+        note = ("Everything pending is waiting on something else. Finish "
+                f"phase {join_numbers(sorted({d for p in blocked for d in p['blocked_by']}))} "
+                "to open the next one up.")
+    elif len(runnable) == 1:
+        p = runnable[0]
+        rest = f" Phase {join_numbers([b['number'] for b in blocked])} waits." \
+            if blocked else ""
+        note = (f"One phase can move: {p['next_command']}."
+                + rest)
+    else:
+        # "alongside", never "then": the whole claim is that these do not have
+        # to be sequenced, and a comma-then reads as an order.
+        pair = " alongside ".join(p["next_command"] for p in runnable[:2])
+        more = "" if len(runnable) < 3 else \
+            f", and {len(runnable) - 2} more the same way"
+        note = (f"Phases {join_numbers([p['number'] for p in runnable])} are "
+                "independent — nothing still open blocks any of them, so they "
+                f"can run at the same time rather than in sequence: {pair}"
+                f"{more}. One agent per phase, or one worktree each.")
+    if not declared and pending:
+        note += (" No dependencies are declared anywhere in this roadmap, so "
+                 "this reflects what is recorded, not a verified ordering.")
+    return {"runnable": [p["number"] for p in runnable],
+            "blocked": [p["number"] for p in blocked],
+            "declared": declared, "note": note}
+
+
+def next_commands(model, milestone=None):
+    """The `/cairn:*` commands to run next, in order, each with its reason.
+
+    Two things this is NOT. It is not authored: every command comes from the
+    phase's own state on disk, so it cannot claim a phase needs planning when
+    someone already planned it. And it is not ordered by phase number: the
+    order comes from the dependency graph, so a later phase that is free
+    outranks an earlier one that is waiting.
+
+    Returns [{command, phase, title, reason, blocked}], unblocked first.
+    """
+    out = []
+    for p in pending_phases(model):
+        cmd = p["next_command"]
+        if not cmd:
+            continue
+        waiting = phase_dependents(model, p["number"])
+        if p["blocked_by"]:
+            reason = f"waits on phase {join_numbers(p['blocked_by'])}"
+        elif waiting:
+            reason = (f"nothing blocks it, and phase "
+                      f"{join_numbers(waiting)} waits on it")
+        else:
+            reason = "nothing blocks it"
+        out.append({"command": cmd, "phase": p["number"],
+                    "title": p["title"], "reason": reason,
+                    "blocked": bool(p["blocked_by"])})
+    # Free work first, then by phase number. Sorting by number alone would put
+    # a blocked phase 11 above a free phase 12 and read as an instruction.
+    out.sort(key=lambda c: (c["blocked"], c["phase"]))
+
+    if not out and model:
+        ms = f" {milestone}" if milestone else ""
+        out.append({"command": "/cairn:ship", "phase": None, "title": None,
+                    "reason": "every phase is complete", "blocked": False})
+        out.append({"command": "/cairn:milestone complete", "phase": None,
+                    "title": None,
+                    "reason": f"closes out{ms} once the gate passes",
+                    "blocked": False})
+    return out
 
 
 def state_frontmatter(planning_dir):
@@ -1052,6 +1185,73 @@ def meta_parts(data, style, include_done=True):
             spans.append((style.sep, SGR_DIM))
         spans += part
     return spans
+
+
+def phase_panel_lines(data, width, style):
+    """The pending phases and the commands to run next.
+
+    The lanes above answer "what tracked work exists". These two blocks answer
+    "which phase should I run, and why that one" — the question a row of phase
+    numbers cannot answer at all. Both render from the shared model, so they
+    cannot disagree with the footer or with the HTML page.
+    """
+    phases = data.get("phases") or []
+    pending = pending_phases(phases)
+    cmds = data.get("next_commands") or []
+    if not pending and not cmds:
+        return []
+
+    lines = [""]
+    if pending:
+        lines.append(render_spans(
+            [("PENDING PHASES", SGR_BOLD),
+             (f"  {len(pending)}", SGR_DIM)], style))
+        # Titles share one column so the states line up and can be read down.
+        num_w = max(len(str(p["number"])) for p in pending)
+        budget = max(24, width - num_w - 34)
+        for p in pending:
+            state = phase_state_text(p)
+            prog = phase_progress_text(p)
+            if prog:
+                state = f"{state} {style.sep} {prog}"
+            if p["blocked_by"]:
+                state = (f"{state} {style.sep} waits on "
+                         f"{join_numbers(p['blocked_by'])}")
+            title = style.asciify(p["title"] or "(untitled)")
+            lines.append(render_spans([
+                ("  ", None),
+                (str(p["number"]).rjust(num_w), None),
+                ("  ", None),
+                (truncate(title, budget, style.ell).ljust(budget), None),
+                ("  ", None),
+                (style.asciify(state), SGR_DIM),
+            ], style))
+
+    if cmds:
+        lines.append("")
+        lines.append(render_spans([("NEXT COMMANDS", SGR_BOLD)], style))
+        cmd_w = max(len(c["command"]) for c in cmds)
+        for c in cmds:
+            lines.append(render_spans([
+                ("  ", None),
+                (c["command"].ljust(cmd_w), SGR_GREEN if not c["blocked"]
+                 else SGR_DIM),
+                ("  ", None),
+                (style.asciify(truncate(c["reason"],
+                                        max(20, width - cmd_w - 4),
+                                        style.ell)), SGR_DIM),
+            ], style))
+
+    par = data.get("parallelism") or {}
+    if par.get("note"):
+        lines.append("")
+        # Wrapped rather than truncated: this one is a sentence, and a
+        # sentence cut at the terminal edge loses the half that qualifies it.
+        for i, chunk in enumerate(textwrap.wrap(style.asciify(par["note"]),
+                                                max(30, width - 2))):
+            lines.append(render_spans(
+                [("  " if i else "  ", None), (chunk, SGR_DIM)], style))
+    return lines
 
 
 def footer_lines(data, width, style):
@@ -1711,6 +1911,77 @@ def html_next(data):
     return f'<section class="next" aria-label="next action">{out}</section>'
 
 
+def html_phases(data):
+    """The two blocks that turn the page from a snapshot into something to act
+    on: what is still pending and what it is, and which commands come next in
+    which order, with the reason for that order.
+
+    Same model as the terminal panel and the same wording, so a page open on a
+    second screen cannot quietly disagree with the shell that produced it.
+    """
+    phases = data.get("phases") or []
+    pending = pending_phases(phases)
+    cmds = data.get("next_commands") or []
+    if not pending and not cmds:
+        return ""
+
+    out = ['<section class="panel">']
+
+    if pending:
+        out.append('<div class="panel-col">')
+        out.append('<h2 class="panel-h">pending phases '
+                   f'<span class="panel-n">{len(pending)}</span></h2>')
+        out.append('<ol class="phase-list">')
+        for p in pending:
+            meta = [esc(phase_state_text(p))]
+            prog = phase_progress_text(p)
+            if prog:
+                meta.append(f'<span class="n">{esc(prog)}</span>')
+            if p["blocked_by"]:
+                meta.append('waits on phase '
+                            f'<span class="n">'
+                            f'{esc(join_numbers(p["blocked_by"]))}</span>')
+            reqs = ""
+            if p.get("requirements"):
+                reqs = ('<span class="phase-req">'
+                        f'{esc(", ".join(p["requirements"]))}</span>')
+            blocked = " is-waiting" if p["blocked_by"] else ""
+            out.append(
+                f'<li class="phase{blocked}">'
+                f'<span class="phase-n">{p["number"]}</span>'
+                '<span class="phase-body">'
+                f'<span class="phase-title">{esc(p["title"] or "(untitled)")}'
+                f'</span>{reqs}'
+                f'<span class="phase-meta">{" &middot; ".join(meta)}</span>'
+                '</span></li>')
+        out.append("</ol></div>")
+
+    if cmds:
+        out.append('<div class="panel-col">')
+        out.append('<h2 class="panel-h">next commands</h2>')
+        out.append('<ol class="cmd-list">')
+        for c in cmds:
+            cls = "cmd is-waiting" if c["blocked"] else "cmd"
+            out.append(
+                f'<li class="{cls}">'
+                f'<code class="cmd-name">{esc(c["command"])}</code>'
+                f'<span class="cmd-why">{esc(c["reason"])}</span></li>')
+        out.append("</ol>")
+        par = data.get("parallelism") or {}
+        if par.get("note"):
+            # Said out loud rather than left to be inferred from the graph.
+            # `is-split` is only for the case that actually offers a choice.
+            split = " is-split" if len(par.get("runnable") or []) > 1 else ""
+            out.append(f'<p class="panel-par{split}">{esc(par["note"])}</p>')
+        out.append('<p class="panel-foot">Order comes from the dependency '
+                   'graph, not the phase number. Each command is derived from '
+                   'that phase&rsquo;s own state on disk.</p>')
+        out.append("</div>")
+
+    out.append("</section>")
+    return "".join(out)
+
+
 def html_card(lane, iss, next_id=None):
     cls = "card"
     if next_id is not None and str(iss.get("id")) == str(next_id):
@@ -1812,7 +2083,7 @@ def render_html_inner(data):
     if model:
         data = dict(data, phase=dict(data["phase"], active=model["active"]))
     return "\n".join([html_head(data), html_band(data), html_next(data),
-                      html_lanes(data), html_foot(data)])
+                      html_phases(data), html_lanes(data), html_foot(data)])
 
 
 def write_html_board(path, data):
@@ -1966,6 +2237,12 @@ def main():
         # The described model, public in --json. Every phase carries what it
         # is, how far it has got, what it waits on and the next legal command.
         "phases": phases,
+        # Computed from that model, not authored: which /cairn:* commands to
+        # run next, in dependency order, each carrying why it sits there.
+        "next_commands": next_commands(phases, milestone),
+        # What can proceed at the same time — the input for splitting work
+        # across agents, and for /cairn:autonomous to state the order it chose.
+        "parallelism": parallelism(phases),
         "next": nxt,
         "sync": {k: sync[k] for k in ("configured", "stale", "detail",
                                       "last_pull")},
@@ -2024,6 +2301,7 @@ def main():
             lines = render_board(data["_lanes"], counts, inner,
                                  opts["max_rows"], style)
             lines += footer_lines(data, cols, style)
+            lines += phase_panel_lines(data, cols, style)
     out = "\n".join(lines)
     try:
         print(out)
