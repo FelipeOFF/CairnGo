@@ -1,168 +1,192 @@
 # Feature Research
 
-**Domain:** Public benchmark suite for coding-agent workflow efficiency (tokens/cost/time), published in a GitHub repo
-**Researched:** 2026-07-25
-**Confidence:** MEDIUM-HIGH (methodology patterns verified against multiple credible sources: SWE-bench/Terminal-Bench aggregators, Aider's official leaderboard docs, Anthropic's official API docs for cache tokens, and several real GitHub repos that publish token/cost benchmarks — including two competitors in CairnGo's exact space)
+**Domain:** Drift detection & multi-source state reconciliation for developer tooling (phase ↔ issue-tracker ↔ artifact ↔ git corroboration)
+**Researched:** 2026-07-29
+**Confidence:** MEDIUM-HIGH (cross-checked against official docs — HashiCorp, Kubernetes, dbt Labs, git-scm.com, Ansible, Pulumi, Nix, Docker, GitHub CLI — plus independent practitioner sources for the alert-fatigue and CLI-layout claims)
+
+## Why this domain, not a generic one
+
+cairn's root problem (PROJECT.md) is that phase state is decided by `phase_disk_state()` checking for four filenames — never opening them, never consulting bd, git, or the tree. This is structurally the same problem solved, in different shapes, by every tool below: a **declared/recorded state** (Terraform state, Kubernetes spec, dbt manifest, git index, cairn's PLAN/SUMMARY/VERIFICATION files) can silently diverge from **what is actually true** (real cloud resources, actual pod health, real warehouse data, the working tree, the actual bd issues and git commits). The research below is deliberately narrow to that shape of problem, because that is the exact shape of this milestone.
+
+## Prior Art Deep Dive (answers to the four research questions)
+
+### Q1 — When sources of truth disagree, what do good tools DO?
+
+**Universal finding: report-and-require-confirmation, never silent auto-reconcile.** Every mature tool researched separates *detecting* a gap from *writing* a correction into at least two explicit steps, and none of them auto-writes by default:
+
+- **Terraform** splits it further than any other tool: `terraform plan -refresh-only` shows drift with **zero** proposed remediation; `terraform apply -refresh-only` is a **second, explicit** command that shows the same diff again and asks for confirmation before writing the updated state file. A plain `terraform plan` refreshes in-memory only — it never writes state or touches infrastructure on its own. ([HashiCorp tutorial](https://developer.hashicorp.com/terraform/tutorials/state/resource-drift))
+- **Ansible** `--check` mode makes every check-mode-aware module report what it *would* change instead of changing it; nothing is written unless you drop `--check` and re-run. `--diff` composes with it for a full textual preview with zero side effects. ([Ansible docs](https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_checkmode.html))
+- **Pulumi** `refresh --preview-only` queries every resource's real provider state, diffs it against stack state, and prints the diff with no writes at all; plain `refresh` does write state but still never touches infrastructure. It is explicitly **not** run automatically by default, specifically because it costs one API round-trip per resource — an intentional latency/cost gate on an otherwise "safe" read operation. ([Pulumi docs](https://www.pulumi.com/docs/iac/operations/stack-management/drift/), [Pulumi blog](https://www.pulumi.com/blog/repairing-state-with-pulumi-refresh/))
+
+**Evidence users tolerate this and resent the alternative:** the commercial platforms built on top of these CLIs (Scalr, Spacelift, HCP Terraform) all had the option to sell "one-click auto-fix drift" and deliberately did not ship full automated remediation — they added severity classification and ignore-lists instead, citing safety. That is a revealed preference from vendors who would profit from selling automation, choosing not to. ([Scalr](https://scalr.com/learning-center/terraform-drift-detection-how-to-prevent-and-remediate))
+
+**Evidence of what users resent:** uncategorized, all-severity-equal drift alerts. Documented failure mode: teams receiving 50+ drift alerts/day see response quality and speed degrade up to 40%; a cited healthcare org adopted open-source drift scanning and ended up with staff **ignoring alerts until a real incident hit**, because false positives (provider-managed read-only fields, expected autoscaling changes) were mixed in with real ones at equal severity. ([Dev|Journal](https://earezki.com/ai-news/2026-05-02-why-severity-classification-changes-everything-about-drift-detection/), [Drift Alert Burnout](https://medium.com/@Praxen/drift-alert-burnout-f1d7f498b53d))
+
+This directly validates two Key Decisions already logged in PROJECT.md ("A escalada nunca grava estado — só propõe"; "Corroboração determinística antes de escalada semântica") — they match the only pattern that survived contact with real users across this entire research set.
+
+### Q2 — Is an explicit "conflict"/"unknown" state a recognized pattern, or do tools avoid it?
+
+**Recognized and load-bearing, not avoided — this is the strongest finding in this research.**
+
+- **Kubernetes conditions** use a literal three-value status: `True` / `False` / `Unknown` — not two. `Unknown` means "cannot be determined right now," and by written convention the **absence** of a condition is read identically to `Unknown` rather than defaulting to `False`. This is normative API convention, not an edge case. ([kubernetes.io](https://kubernetes.io/docs/concepts/workloads/pods/pod-condition/), [maelvls.dev](https://maelvls.dev/kubernetes-conditions/))
+- **Jujutsu (jj)**, a modern VCS, goes further and makes conflicts **first-class, storable data**: a rebase that produces a conflict still *succeeds* and records the conflict inside the resulting commit (a logical representation, not textual markers), so work is never blocked on immediate resolution — you keep going and resolve later, deliberately. ([jj docs](https://github.com/jj-vcs/jj/blob/main/docs/conflicts.md), [Chris Krycho on deferred resolution](https://v5.chriskrycho.com/journal/deferred-conflict-resolution-in-jujutsu/))
+- **Terraform's drift note** ("Note: Objects have changed outside of Terraform...") is the closest real template for *what a good conflict message contains*: it names exactly what changed, states plainly why it matters (the next plan may try to undo real external changes), and tells you the two ways out (update config, or `ignore_changes`). ([HashiCorp support](https://support.hashicorp.com/hc/en-us/articles/4405950960147-New-Feature-Objects-have-changed-outside-of-Terraform))
+
+**Synthesis for cairn:** a good conflict message needs, at minimum: (1) which sources disagree, named explicitly (not "state mismatch" but "bd says closed, SUMMARY.md is absent"); (2) what each source claims, with its own timestamp/actor where available (bd has this natively — closer, author, reason); (3) why it isn't safe to auto-resolve (which source would be discarded and what that would silently erase); (4) the exact next command to resolve it. And per Q1/jj: **a conflict state must not block other work** — it should be visible and durable, the way jj commits a conflict and keeps going, not the way git blocks a merge.
+
+### Q3 — Dense per-unit-of-work status cards in real CLIs
+
+Three concrete, well-known layouts, described precisely enough to copy the information hierarchy:
+
+**1. `kubectl describe pod`** — three stacked zones, each with a different shape, never merged into one:
+- *Identity/current-state block*: flat `Label: value` lines (Name, Namespace, Node, Status, IP) — the "what is this and where does it stand right now" zone.
+- *Conditions table*: a real table, two columns only (`Type | Status`), one row per independent condition (`Initialized`, `Ready`, `ContainersReady`, `PodScheduled`) — deliberately narrow, scannable at a glance, each row independently true/false/unknown.
+- *Events log*: chronological table (`Type | Reason | Age | From | Message`), oldest-to-newest, explicitly the "root cause is usually readable here in plain English" section — this is the *history* zone, distinct from the *current-state* zone above it.
+  ([Warp terminus](https://www.warp.dev/terminus/kubectl-describe-pod), [Spacelift](https://spacelift.io/blog/kubectl-describe))
+
+**2. `systemctl status`** — a colored one-glyph summary (`●`, green/red/yellow) fused to the unit name on line 1, then labeled blocks below it: `Loaded:` (source + enabled/disabled), `Active:` (state + since-timestamp + duration), `Main PID:`, then a tail of the actual journal log inline at the bottom. The structural lesson: **the single most important fact (is it up) is a colored glyph you read in under a second; everything else is progressively more detail below it**, ending in raw evidence (log lines), not a summary of the summary. ([DigitalOcean](https://www.digitalocean.com/community/tutorials/how-to-use-systemctl-to-manage-systemd-services-and-units))
+
+**3. `docker compose ps`** — flat table (`NAME IMAGE COMMAND SERVICE CREATED STATUS PORTS`) with health folded as a parenthetical suffix inside the STATUS cell (`Up 2 minutes (healthy)`). This is the **cautionary** example: collapsing two independently-meaningful signals (process uptime state, health-check result) into one string is exactly the anti-pattern this milestone must not repeat — `--format json` has to expose them as separate `State`/`Health` fields for anything to consume them independently, which the human-readable table does not. ([Docker docs](https://docs.docker.com/reference/cli/docker/compose/ps/), [docker/compose#5525](https://github.com/docker/compose/issues/5525))
+
+**Fourth data point (bucket pattern, not a full layout):** `gh pr checks --json` categorizes every check into a five-value `bucket` field (`pass | fail | pending | skipping | cancel`) rather than a raw per-check string — a small but real example of normalizing N independent signals into a small closed enum for scripting, while the human view still shows each check by name. ([GitHub CLI manual](https://cli.github.com/manual/gh_pr_checks))
+
+**Synthesis for the phase status card cairn needs:** identity/purpose line (what the phase is FOR) → a Conditions-style table of independent signals (research done? requirement ids satisfied? issue counts by status? verification verdict?) → a chronological events/journal tail (what happened, when, per source) → what it waits on → the next command. Never fold two independently-true/false signals into one display string (docker compose's mistake); do fold the single most important fact into one glyph/word at the top (systemctl's `●`).
+
+### Q4 — Anti-features: what caused alert fatigue or got turned off
+
+See the anti-features table below; the evidence is the alert-fatigue research cited in Q1 (50+/day alerts → up to 40% degraded response; a real org disengaging until an incident) plus the concrete workaround teams reached for instead of accepting noisy binary alerts: `.tfdriftignore` entries for known-noisy fields like autoscaling `desired_capacity`, and severity classification of *which* field drifted rather than treating every diff as equally urgent. ([Dev|Journal](https://earezki.com/ai-news/2026-05-02-why-severity-classification-changes-everything-about-drift-detection/))
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-A reader who has seen SWE-bench, Terminal-Bench, or Aider's leaderboard will not take a benchmark seriously without these. Missing any of them reads as "marketing claim," not "benchmark."
+Any tool that reconciles a declared state against reality has these, in every mature example researched. Missing them here would make cairn's drift detection read as unfinished next to Terraform, Kubernetes, or dbt — the exact bar this milestone is competing against.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Fixed, hand-verified task corpus (task list committed to repo, not generated ad hoc) | Every credible benchmark (SWE-bench 1,865 real-commit tasks, Terminal-Bench 89 hand-crafted Docker tasks, Aider's 225 Exercism exercises) is built on a versioned, inspectable task set. Readers check "what exactly did you run?" first. | MEDIUM | Tasks should be small dev workflows representative of what cairn actually does (plan a feature, fix a bug, add a test) — not toy prompts. Version the corpus (`v0.1`) so future changes are traceable. |
-| Task-completion / success verification, external to the agent | SWE-bench and Terminal-Bench are both criticized ("How We Broke Top AI Agent Benchmarks," Berkeley RDI) exactly where verification is agent-writable or agent-influenceable. A token/cost number is meaningless if the task wasn't actually finished, or if "finished" was self-graded by the agent under test. | MEDIUM | Verification script must run outside the agent's tool-call surface (e.g. a checked-out clean test harness that inspects the final repo state / runs a fixed test suite), never trust output the agent itself wrote to a shared file. |
-| Cost/tokens reported *conditioned on* task completion, never in isolation | The single most repeated rule across sources: "a token comparison only counts if the task was completed equivalently." SWE-bench Pro explicitly reports Resolve Rate as the primary metric with cost as a secondary, derived number — never cost alone. | LOW | Pair every cost/token/time row with a pass/fail column in the same table. A baseline that "used fewer tokens" but failed the task must be flagged, not celebrated. |
-| Token breakdown: input / output / cache-write / cache-read, not one aggregate number | Anthropic's API `usage` object exposes `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` as distinct, separately-priced fields (cache read ≈0.1x input price, 5-min cache write ≈1.25x, 1-hour ≈2x). Aggregating them into one "total tokens" number hides where the real cost sits. | LOW-MEDIUM | This is exactly the metric PROJECT.md already calls out ("input/output/cache, custo estimado"). Harness must log the raw `usage` block per turn, not just a token count. |
-| Cost computed from official provider pricing, stated explicitly, with date | Artificial Analysis's methodology explicitly notes cost reflects "provider token pricing rather than consumer plans." A dollar figure with no pricing source/date is unverifiable the moment prices change. | LOW | State model name + pricing table version + date of run next to every $ figure. |
-| Model + version pinning, and run date | Aider's leaderboard records model identifier and date per row for exactly this reason — model behavior drifts between versions. | LOW | Log Claude Code CLI version, model ID/snapshot, and cairn/GSD/competitor plugin version+commit for every run. |
-| Reproduction instructions and raw data committed (not just claimed) | jcodemunch-mcp ships `tasks.json`, `results.md`, and the scripts that regenerate them; Tura-AI links a separate methodology repo with manifest JSONs and round contracts. Absence of this is the #1 anti-pattern (see buildomator below). | MEDIUM | `--reproduce` or `make benchmark` should be runnable by a third party with documented expected cost (already a named PROJECT.md constraint). |
-| Methodology section stating what's *not* covered / known limitations | Every credible source (Aider, Artificial Analysis, jcodemunch) includes an explicit caveats/limitations section (e.g. "baseline is a lower bound," "missing values excluded rather than zeroed"). Its absence reads as either naive or evasive. | LOW | One paragraph per baseline: what it's good at, what it isn't measuring, known confounds (e.g. cache warm/cold state). |
-| Multiple trials per task, variance disclosed (even if small N) | Artificial Analysis runs 3 attempts per task and averages; Holistic Agent Leaderboard explicitly argues single-run comparisons are "comparing noise." A single-shot run presented as definitive is the most common credibility failure found (see the Spec-Kit vs OpenSpec anti-pattern below). | MEDIUM-HIGH | At minimum N=3 repetitions per (task, baseline) pair; report mean + range/stdev, not just a point estimate. This is the single highest-leverage table-stakes item to get right — most amateur benchmarks skip it. |
+| Feature | Why Expected | Complexity | Dependency |
+|---------|--------------|------------|------------|
+| Read-only corroboration pass that never writes (a "plan"/"check mode" for phase state) | Terraform `plan -refresh-only`, Ansible `--check`, Pulumi `refresh --preview-only` are all opt-in, side-effect-free reads before any write. Users expect to be able to ask "what's the real state?" without risking a mutation. | LOW-MEDIUM | Needs the corroboration sources (bd, git log, artifact files) already readable, which they are today via `cairn-status.py`/`cairn-doctor.py`. |
+| Independent per-signal conditions, not one collapsed enum | Kubernetes Conditions (`Ready`, `Progressing`, `Available`, `Degraded`, each True/False/Unknown) and git's staged/unstaged/untracked triad both refuse to compress multiple independent facts into one status word. `phase_disk_state()` doing exactly that (4 filenames → 1 of 4 words) is the diagnosed root cause. | MEDIUM | This is the architectural crux of the milestone — everything else (conflict state, status card, journal) is built on top of a per-signal model, not a single string. |
+| Explicit "cannot determine" / conflict value, not silently defaulting to a guess | K8s's `Unknown` status and "absent condition reads as Unknown" convention; jj's first-class stored conflicts. Silently picking one source's answer when two disagree is the exact anti-pattern PROJECT.md names ("discordância vira `conflict`, nunca escolha silenciosa"). | MEDIUM | Depends on the per-signal model above — you cannot mark *one* signal Unknown/conflicted if state is one collapsed enum. |
+| Human-readable diff naming what changed and where each side's claim came from | Terraform's "Objects have changed outside of Terraform" note itemizes the actual diff, not just "drift detected." A conflict report that says "state mismatch" with no detail is not table stakes, it is a regression from Terraform's bar. | LOW | Depends on the conditions/signals existing as structured data first, not just a boolean. |
+| Never auto-write a correction; propose and require confirmation | Universal across Terraform/Ansible/Pulumi (see Q1). PROJECT.md already commits to this ("A escalada nunca grava estado — só propõe"). | LOW | Mostly a process/discipline constraint on the escalation path, not new plumbing — but must be enforced as a hard invariant (no code path where semantic escalation writes STATE.md/PLAN.md directly). |
+| Machine-readable output mirroring the human view (same shape, `--json`) | `gh pr checks --json` (bucket field), `docker compose ps --format json` (separate State/Health), Terraform `-detailed-exitcode`. cairn's own `/cairn:status --json` already follows this pattern. | LOW | Extend the existing `--json` phase-panel shape (`disk_state`, etc. in status.md) rather than inventing a second schema. |
+| Corroboration keyed on content/identity, not filename existence or mtime | The literal cause named in PROJECT.md: `phase_disk_state()` checks 4 filenames, never opens them. This is Make's exact staleness bug (mtime, not content) — the fix researched tools converged on is content/identity-addressed checking (Bazel/Nix hash inputs; here: do the bd issue ids stamped for this phase actually match what SUMMARY.md/PLAN.md claim, do git commits actually touch the phase's declared paths). | MEDIUM | Requires bd's `metadata.gsd` stamp (already shipped in v1.0) and PLAN frontmatter `beads:` ids (already shipped) to be read and compared, not just checked for file existence. |
 
 ### Differentiators (Competitive Advantage)
 
-Where CairnGo can visibly out-credential the closest comparable projects (GSD, spec-kit, BMAD, buildomator, ralph-style loops), none of which currently publish anything close to a rigorous benchmark.
+Where cairn can visibly exceed both the generic dev-tool bar and its closest direct comparisons (plain GSD, spec-kit, BMAD, buildomator — none of which corroborate state against anything external at all, per PROJECT.md's own finding that GSD needs `/gsd:audit-milestone` precisely because its state is inferred from side effects).
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Cost-vs-completion scatter chart, log-scale x-axis, committed as an image/SVG generated by script | This is *the* recognizable "serious benchmark" visual — Aider's own leaderboard is built around exactly this plot (cost $ on log x-axis, pass-rate on y-axis). No workflow-plugin competitor (GSD, spec-kit, BMAD, buildomator) has one. Doing this first, in this specific space, is a genuine gap. | MEDIUM | Script-generated (matplotlib or similar) from the same `results.json` that feeds the tables — never hand-drawn, so it can't drift from the data. |
-| Multi-baseline comparison in one run: vanilla Claude Code / GSD alone / cairn / ≥1 competitor plugin, same task set, same conditions | Nearly everything found is a two-way comparison (OpenSpec vs Spec-Kit, Tura vs Codex CLI). A clean 3-4-way baseline matrix on identical tasks is rare and directly isolates "does cairn's layer on top of GSD actually help," which is the exact claim in PROJECT.md's Core Value. | HIGH | Needs one harness abstraction that can run "vanilla," "GSD only," "cairn," and "competitor X" as swappable configs against the identical task corpus — this is the crux of the benchmark suite itself. |
-| Token composition breakdown per baseline (stacked bar: input/output/cache-read/cache-write) alongside the $ total | Nobody in the workflow-plugin space breaks this down publicly; most competitor claims (buildomator's "92% lower per-turn overhead") are bare percentages with zero backing. Showing *where* the savings come from (e.g. cache hit rate from reused context) is both more convincing and harder to fake. | MEDIUM | Requires the harness to persist the raw Anthropic API `usage` object per turn, not just a rolled-up total — build this into the harness from day one since it's expensive to retrofit. |
-| Turns / tool-calls count reported alongside tokens and time | The one non-token metric that recurring credible sources (OpenSpec-vs-Spec-Kit article, Tura-AI) both independently chose to add beyond raw tokens, because it correlates with agent "flailing" (many turns, low progress) in a way raw token count can hide. | LOW | Already implied by PROJECT.md's "nº de tool calls/turnos" requirement — just make sure it ships as its own column, not folded into a composite score. |
-| Fully in-repo reproduction: fixed corpus + harness + chart-generation script, runnable by a third party with a documented expected $ cost before they run it | PROJECT.md already sets "custo previsível e documentado" as a constraint. Doing this makes cairn's benchmark strictly more reproducible than Terminal-Bench itself, which keeps results on an external website rather than in-repo (a real, verified gap: terminal-bench's own README has no embedded results or trial-count statement). | MEDIUM | `BENCHMARKS.md` should open with "running this suite costs approximately $X–Y at current pricing" before anything else. |
-| Historical trend line across cairn releases (does token/time efficiency regress or improve version over version) | None of the reviewed competitors track this over time; it turns the benchmark from a one-off marketing artifact into an ongoing regression signal, which is a stronger, longer-lived credibility asset. | MEDIUM-HIGH | Natural v1.x follow-on once the harness exists — store `results/<version>/results.json` and let the chart script plot a series. Explicitly deferred to "Add After Validation" below; do not attempt in the first ship. |
+| Feature | Value Proposition | Complexity | Dependency |
+|---------|-------------------|------------|------------|
+| A named `conflict` phase-state value, with each disagreeing source's claim shown side by side | No competitor in cairn's space corroborates state against bd/git at all — this is table stakes vs. Terraform/K8s, but a genuine differentiator vs. every other GSD-family tool, which has no cross-check step. Modeled on Terraform's drift note (itemized) + K8s's `Unknown` (a first-class value, not an error state). | MEDIUM-HIGH | Requires the per-signal model (table stakes) plus bd's timestamp/author/reason data, which cairn already has structural access to and PROJECT.md explicitly calls out as an advantage GSD itself lacks. |
+| A rich phase status card: purpose, research-happened flag, requirement ids, issue counts, verification verdict, what it waits on, next command — identical rendering in terminal and HTML | Directly modeled on kubectl describe's three-zone layout (identity block → conditions table → events log) and systemctl's "one glyph, then progressive detail" hierarchy. cairn's status board already has a phase panel (`PENDING PHASES`, `NEXT COMMANDS`) — this extends that schema rather than inventing new rendering. | MEDIUM | Depends on the per-signal conditions model; the terminal/HTML parity constraint is already solved architecturally (status.md documents "one model behind the board, the `--json`, and the HTML" from v1.3). |
+| Append-only transition journal, separate from current-state | K8s's Events log (chronological, causal, additive) is a proven, dense, real pattern already validated in Q3 — distinct from the Conditions table, which is a current snapshot. PROJECT.md's stated requirement ("Journal append-only... estado lido, não reconstruído") maps directly onto this split. | MEDIUM | Independent of the conflict-state work but should share the same event vocabulary (what changed, source, timestamp) so the journal and the conflict message use one format, not two. |
+| Phase-level lease visibility for concurrent agents | Not found as a *display* pattern in the infra tools researched (Terraform state-locking blocks rather than displays; Pulumi/Ansible have no equivalent) — the closer analogue is jj's non-blocking-but-visible conflict, and cairn's own existing `◆ assignee` marker on in-progress bd issues in the DOING lane. This is mostly an extension of an already-shipped pattern (issue-level claim visibility) up to phase level, not new territory. | MEDIUM | Depends on bd already exposing assignee/in_progress data (it does, per status.md's DOING lane) — the work is surfacing it at the phase granularity the milestone asks for, not building new plumbing. |
+| Severity-classified conflicts (a cairn-native `.tfdriftignore` equivalent) | Directly answers the alert-fatigue evidence: not every mismatch is equally urgent (a doctor-closed issue vs. zero commits touching a phase's declared paths are very different conflicts). No competitor tool in this space has this at all, since none corroborate in the first place. | MEDIUM | **Requires** the per-signal conditions model and the named `conflict` state to exist first — you cannot classify severity of a mismatch that is still represented as one collapsed word. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|------------------|-------------|
-| Bare percentage claim with no methodology, table, or raw data ("cairn uses 92% fewer tokens") | Fastest to write, feels punchy for a README hero line — exactly what buildomator (a direct GSD-ecosystem competitor) shipped: "~92% lower per-turn token overhead" appears only as an assertion, with zero benchmark comparison, methodology, or data anywhere in the repo. | Reads as marketing the instant a skeptical reader looks for the source; actively damages credibility once someone notices there's nothing behind it — and this is a documented, current failure mode from a direct competitor, not a hypothetical. | Every number in the README must be a hyperlink to the exact table/row in `BENCHMARKS.md` that produced it. If a claim can't cite its row, don't publish the claim yet. |
-| Single-run, no-variance comparison presented as conclusive | Cheapest to produce — run the task once per baseline, report the delta. This is literally what the Spec-Kit-vs-OpenSpec community benchmark did (ran twice, no confidence interval, no statistical treatment, source "available on GitHub" but minimal rigor). | LLM agent runs are stochastic; a single run can differ by a wide margin from the mean purely by chance (temperature, tool-call path taken, retries). Presenting N=1 as fact invites exactly the "comparing noise" critique leveled at major benchmarks. | Minimum N=3 per (task, baseline), report mean and spread. If cost makes N=3 infeasible for all tasks, run N=1 for the full corpus and N≥3 for a small "headline" subset, and say so explicitly. |
-| A single opaque composite "score" (one number blending pass-rate + cost + speed) as the *only* thing shown | Feels convenient for a leaderboard-style headline (Artificial Analysis's Coding Agent Index does this). | An opaque index can hide a cost regression behind a pass-rate gain, and readers can't audit it without the raw components. It's the layer most exposed to "gaming" critique. | Show raw metrics (pass rate, tokens, cost, time, turns) side by side, always. A derived index is fine as an *additional* summary column, never as a replacement for the breakdown. |
-| Externally-verifiable but agent-writable pass/fail check (agent's own tool output decides success) | Simplest harness to build — just check what the agent's last message or its own test run said. | Directly the vulnerability named in "How We Broke Top AI Agent Benchmarks" (Berkeley RDI): SWE-bench trusts pytest output from inside a container the agent controls; Terminal-Bench trusts reward files scripts the agent can tamper with. A benchmark whose own verification can be gamed by the thing being measured is not credible, and it's a well-documented failure class. | Verification must run in a separate process/step the agent cannot write to — clone the result to a clean checkout, run the acceptance test suite there, independent of anything the agent claimed. |
-| Comparing baselines on non-identical task variants or difficulty levels ("apples-to-oranges") | Tempting shortcut when one baseline (e.g. vanilla Claude Code) can't use cairn's structured task decomposition, so it's easy to let each baseline solve "an equivalent but not identical" version of the task. | Breaks the core validity rule found repeatedly in research: a comparison is only meaningful if the task and success bar are identical across baselines. Any difference becomes an unfalsifiable excuse for the result. | Same literal task prompt/spec and same acceptance test for every baseline; only the *workflow* (vanilla vs GSD vs cairn vs competitor) varies. |
-| Continuous telemetry from real user sessions as the source of comparison numbers | Feels more "real-world" than synthetic tasks, and PROJECT.md flags this was actively considered. | Already explicitly ruled out in PROJECT.md ("Telemetria contínua... não escolhida") — and research confirms why: telemetry from different real sessions is never apples-to-apples (different tasks, different repos, different users), so it can't produce a defensible baseline-vs-baseline comparison the way a fixed reproducible suite can. | Fixed task corpus + harness, run by anyone, any time — this is exactly what CairnGo already decided, and the research validates it as the right call. |
-| A hosted dashboard/leaderboard website as the primary presentation surface | Feels more "professional" — it's literally what Terminal-Bench does (results live at tbench.ai, not in the repo README). | Already explicitly out of scope for this milestone (PROJECT.md), and it adds infrastructure/maintenance burden without which the repo-embedded chart pattern (Aider, Tura-AI) already reads as credible. Building it now would also violate the "zero infra" rationale already logged in Key Decisions. | Commit generated charts (PNG/SVG) + `BENCHMARKS.md` + `results.json` directly to the repo, exactly as decided. Revisit a hosted site only if/when the static approach becomes a real bottleneck. |
-| Tuning the harness or prompts specifically to make cairn win the benchmark it publishes | Obvious temptation once the suite exists and the numbers are public. | This is precisely the "gaming/contamination" failure mode documented across multiple sources (training on benchmark-adjacent data, scaffolding tuned to the eval, cherry-picked runs inflating scores by up to 100 points in one cited case). It would be self-defeating for a project whose whole differentiator is "honesty stands up to scrutiny" (PROJECT.md's explicit constraint). | Freeze the task corpus and harness config before running any baseline; treat any post-hoc tuning of cairn's prompts/behavior specifically to improve benchmark numbers as a methodology violation to disclose, not hide. |
+| Auto-reconciliation that silently rewrites STATE.md/PLAN.md to match discovered reality | Feels convenient — "just fix it for me" — and is the fastest thing to build once corroboration exists. | Zero mature tool researched does this by default (Terraform, Ansible, Pulumi all gate writes behind an explicit second command); the commercial platforms that could sell "auto-fix drift" deliberately don't, citing safety. An agent correcting its own state record also destroys the evidence that something went wrong — already logged as a Key Decision risk in PROJECT.md. | Propose a structured diff (each source's claim, named) and require a `/cairn:*` command to confirm the write — exactly the two-step Terraform pattern. |
+| Uncategorized, all-severity-equal conflict alerts on every mismatch | Simplest to ship — flag anything that doesn't match. | Directly the documented failure mode: 50+/day alerts degrade response quality up to 40%, and real teams disengage/mute rather than triage — one cited org ignored drift alerts entirely until an actual incident. A cairn conflict list with no severity would train users to ignore `/cairn:doctor` output the same way. | Classify what disagrees (e.g., "bd closed by doctor sweep, harmless" vs. "phase marked verified, zero commits touch its declared paths, high severity") the same way `.tfdriftignore` and drift-severity classification tools do. |
+| Timestamp/mtime-based re-check of the same four filenames, just refreshed more often | Looks like a quick fix for the root-cause bug — "just also check mtime, not just existence." | This is Make's exact bug, already diagnosed as the root cause in PROJECT.md. A file's mtime says nothing about whether its *content* still matches bd/git reality; a human hand-editing SUMMARY.md updates its mtime without making the claim true. | Content/identity-based corroboration: compare what SUMMARY.md/PLAN.md's stamped requirement ids and bd ids actually say against what bd and git currently show — the Bazel/Nix hash-over-timestamp move, applied to phase artifacts instead of build outputs. |
+| A background watcher/daemon that continuously recomputes phase state on every file change | Feels "always up to date," and the milestone's language ("estado corroborado") could be read as implying live sync. | No tool researched does this by default — Terraform/Pulumi refresh is explicitly opt-in because of round-trip cost; git/Bazel/dbt do not watch by default either. PROJECT.md already ruled out the adjacent idea for the prior milestone ("Telemetria contínua de sessões reais — não escolhida"), for the same reproducibility/cost reasoning. | On-demand corroboration triggered by `/cairn:status`, `/cairn:doctor`, `/cairn:verify` — consistent with cairn's existing philosophy and this milestone's own "Corroboração determinística antes de escalada semântica" decision. |
+| Collapsing a multi-source conflict into one opaque confidence score or percentage | Reads as a tidy, dashboard-friendly single number. | No tool researched does this either — K8s doesn't score conditions into a percentage, Terraform doesn't score drift as "73% confident." A single number hides *which* source disagrees and *why*, which is precisely what the conflict message must show per Q2. cairn's own prior-milestone research independently flagged "one opaque composite score" as an anti-pattern for the benchmark surface — same principle applies here. | Show each source's literal claim (bd: closed, reason X, date Y; git: N commits touching phase dir; PLAN.md: M requirement ids declared; SUMMARY.md: absent) as a structured list, never reduced to one number. |
 
 ## Feature Dependencies
 
 ```
-Fixed, hand-verified task corpus
-    └──requires──> Multi-baseline harness abstraction (vanilla/GSD/cairn/competitor, same tasks)
-                       └──requires──> External, agent-unwritable task verification (pass/fail)
-                                          └──requires──> Token/cost/time logging per turn (input/output/cache-read/cache-write)
-                                                             └──requires──> Cost computation from official pricing table
-                                                                                └──enhances──> Cost-vs-completion scatter chart (script-generated, committed)
-                                                                                └──enhances──> Token composition breakdown chart
+Per-signal conditions model (independent True/False/Unknown per source)
+    └──requires──> nothing new structurally (bd metadata.gsd, PLAN frontmatter, git log all already readable)
 
-Multiple trials per (task, baseline) [N>=3]
-    └──enhances──> Variance/spread reporting in BENCHMARKS.md
-    └──conflicts──> Documented, bounded suite cost (more trials = higher $ cost; must trade off corpus size vs N)
+Named `conflict` phase-state value, itemized by source
+    └──requires──> Per-signal conditions model
+                       └──requires──> nothing new (see above)
 
-Reproduction script + methodology doc
-    └──requires──> Fixed task corpus + harness + raw results.json committed to repo
-    └──enhances──> Third-party credibility (README claims can hyperlink to the exact producing row)
+Severity-classified conflicts (cairn-native ignore/priority list)
+    └──requires──> Named `conflict` state
+                       └──requires──> Per-signal conditions model
 
-Hosted dashboard/leaderboard website [OUT OF SCOPE]
-    └──conflicts──> "Zero infra, repo-embedded charts" decision already logged in PROJECT.md
+Rich phase status card (terminal + HTML, identical schema)
+    └──requires──> Per-signal conditions model
+    └──enhances──> Named `conflict` state (renders it, doesn't create it)
 
-Continuous session telemetry [OUT OF SCOPE]
-    └──conflicts──> Apples-to-apples baseline comparison (different real sessions are never equivalent tasks)
+Append-only transition journal
+    └──requires──> a shared event vocabulary with the conflict message (source, claim, timestamp)
+    └──enhances──> Rich phase status card (feeds its "history" zone, per the kubectl describe layout)
 
-Opaque single composite score
-    └──conflicts──> Raw metric transparency (must show pass-rate/cost/tokens/time separately, not just blended)
+Phase-level lease visibility
+    └──requires──> bd's existing assignee/in_progress data (already shipped)
+    └──independent of── the conflict-state work (can ship in parallel)
+
+Read-only corroboration pass (never writes)
+    └──requires──> Per-signal conditions model
+    └──blocks──> any write-path work (escalation, auto-anything) must sit strictly after this, never before
 ```
 
 ### Dependency Notes
 
-- **Multi-baseline harness requires external verification:** without a verification step the agent under test cannot influence, none of the cost/token numbers downstream are trustworthy — this must be built and tested before any baseline is run "for real," not bolted on after.
-- **Cost/token charts require per-turn `usage` logging:** the four-way token breakdown (input/output/cache-write/cache-read) cannot be reconstructed after the fact from a rolled-up total — the harness must capture the raw API `usage` object at the point each baseline calls Claude, so this is a day-one harness requirement, not a v1.x add-on.
-- **N>=3 trials conflicts with bounded suite cost:** PROJECT.md's constraint that the suite be "rodável por terceiros com custo previsível" pushes toward a *small* task corpus so that N>=3 repetitions per baseline stay affordable; a large corpus with N=1 is cheaper but fails the variance table-stakes item. Resolve by keeping the headline corpus small (handful of representative tasks) and explicit about the $ budget, rather than compromising on repetition count.
-- **Hosted dashboard conflicts with the already-made decision:** flagged here only so the roadmap doesn't accidentally reintroduce it as a "nice differentiator" — research confirms the repo-embedded pattern (Aider, Tura-AI) is already sufficient for credibility; a website is not required to compete on rigor.
-- **Opaque composite score conflicts with the transparency table-stakes:** if a future phase adds a single "cairn efficiency score" for headline purposes, it must be additive to (never a replacement for) the raw per-metric breakdown, or it reintroduces the exact criticism leveled at less transparent leaderboards.
+- **Everything downstream requires the per-signal conditions model first.** This is the single highest-leverage item: it is the direct fix for `phase_disk_state()`'s root-cause bug, and every differentiator (conflict state, status card, severity classification) is unbuildable on top of a collapsed single-enum state. Sequence it first.
+- **Severity classification requires the named conflict state to exist**, not the other way around — you cannot rank the severity of something that isn't yet represented as a distinct, structured value.
+- **Lease visibility is architecturally independent** of the conflict/corroboration work — it reads bd's already-shipped assignee data and can ship in parallel without blocking or being blocked by the state-model rework.
+- **The journal and the conflict message should share one event vocabulary** (source, claim, timestamp, actor) so a conflict report and a journal entry are the same shape, not two schemas that drift apart from each other — which would be a small, ironic instance of the exact problem this milestone fixes.
 
 ## MVP Definition
 
-### Launch With (v1.1, matches PROJECT.md Active requirements)
+### Launch With (v1.4 — Honest State, per PROJECT.md's Active requirements)
 
-- [ ] Fixed, small, hand-verified task corpus (representative dev workflows: e.g. add a feature, fix a bug, add tests) — versioned in-repo — *why essential:* nothing downstream is credible without it
-- [ ] Multi-baseline harness: vanilla Claude Code, GSD alone, cairn, ≥1 competitor plugin, run against identical tasks — *why essential:* this is the actual comparison PROJECT.md's Core Value depends on
-- [ ] External, agent-unwritable task-completion verification (pass/fail) — *why essential:* makes every other number meaningful; the single highest-risk item to skip
-- [ ] Per-turn token logging broken into input/output/cache-write/cache-read + $ cost from official pricing, with model/version/date recorded — *why essential:* directly the PROJECT.md requirement, and the differentiator vs every competitor's bare-percentage claims
-- [ ] Wall-clock time + turn count/tool-call count per run — *why essential:* directly the PROJECT.md requirement; also the signal that catches "fewer tokens but flailing more"
-- [ ] N>=3 repetitions per (task, baseline) with mean+spread reported — *why essential:* the #1 credibility gap found across community benchmarks in this exact space (Spec-Kit vs OpenSpec ran once)
-- [ ] `BENCHMARKS.md` methodology doc: task corpus description, pricing source/date, model versions, reproduction command, expected $ cost to reproduce, explicit caveats/limitations section
-- [ ] Script-generated charts committed to repo and embedded in README: cost-vs-completion scatter (log-x) + token composition breakdown — regenerable from `results.json`, never hand-edited
+- [ ] Per-signal conditions model replacing `phase_disk_state()`'s four-filename check — the load-bearing fix everything else sits on
+- [ ] Named `conflict` state, itemized by source, surfaced instead of a silent choice — matches PROJECT.md's explicit requirement
+- [ ] Read-only corroboration pass with a hard invariant that escalation never writes state — matches PROJECT.md's "propõe, nunca decide" decision
+- [ ] Phase lease visibility extending the existing DOING-lane assignee marker to phase granularity
 
 ### Add After Validation (v1.x)
 
-- [ ] Additional competitor baselines beyond the first one — *trigger:* once the harness abstraction proves stable across 2+ baselines, adding more is low-marginal-cost
-- [ ] Larger/more diverse task corpus (multi-file refactors, debugging, cross-cutting changes) — *trigger:* once the small headline corpus has validated the harness and readers ask "does this hold on harder tasks"
-- [ ] Historical trend chart across cairn releases — *trigger:* once there are at least 2-3 tagged cairn versions with stored `results.json` to plot
-- [ ] CI regression gate that flags a token/cost/time regression beyond a threshold on PRs — *trigger:* once the suite is cheap/fast enough to run routinely, not just for milestone releases
+- [ ] Rich terminal+HTML phase status card (kubectl-describe-style: identity → conditions table → events tail → next command) — once the per-signal model is stable, the rendering is comparatively low-risk to extend
+- [ ] Append-only transition journal sharing the conflict-message event vocabulary
 
 ### Future Consideration (v2+)
 
-- [ ] Hosted leaderboard/dashboard website — *why defer:* explicitly out of scope per PROJECT.md; repo-embedded charts already meet the credibility bar set by comparable projects (Aider, Tura-AI)
-- [ ] Continuous real-session telemetry as a supplementary data source — *why defer:* explicitly ruled out; would need a fundamentally different (and much harder to defend) methodology than the fixed-suite approach already chosen
-- [ ] Community-submitted baseline configs (other plugins beyond the initial competitor) — *why defer:* needs a stable, documented harness contract first; premature before v1.1 ships
+- [ ] Severity classification / cairn-native ignore-list for known-harmless conflicts (e.g., doctor-sweep-closed issues) — defer until there is a real corpus of conflict types to classify; premature severity tiers on zero real data would be guessing, the same mistake the alert-fatigue research warns against
+- [ ] Cross-repo or cross-milestone conflict trend view — no evidence any researched tool needs this at cairn's scale; revisit only if the conflict volume itself becomes a scaling problem
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Fixed task corpus + external verification | HIGH | MEDIUM | P1 |
-| Multi-baseline harness (vanilla/GSD/cairn/competitor) | HIGH | HIGH | P1 |
-| Per-turn token breakdown (input/output/cache) + $ cost | HIGH | LOW-MEDIUM | P1 |
-| Time + turns/tool-calls per run | MEDIUM | LOW | P1 |
-| N>=3 trials with variance reporting | HIGH | MEDIUM-HIGH | P1 |
-| BENCHMARKS.md methodology + reproduction doc | HIGH | LOW | P1 |
-| Cost-vs-completion scatter chart (script-generated) | HIGH | MEDIUM | P1 |
-| Token composition breakdown chart | MEDIUM | LOW-MEDIUM | P2 |
-| Additional competitor baselines | MEDIUM | LOW (once harness exists) | P2 |
-| Larger/harder task corpus | MEDIUM | MEDIUM | P2 |
-| Historical trend chart across releases | MEDIUM | MEDIUM | P3 |
-| CI regression gate on benchmark metrics | LOW-MEDIUM | MEDIUM | P3 |
-| Hosted dashboard/leaderboard site | LOW (given repo-embedded already sufficient) | HIGH | P3 (deferred, out of scope) |
-
-**Priority key:**
-- P1: Must have for launch
-- P2: Should have, add when possible
-- P3: Nice to have, future consideration
+| Per-signal conditions model | HIGH | MEDIUM | P1 |
+| Named `conflict` state, itemized by source | HIGH | MEDIUM | P1 |
+| Escalation never writes (hard invariant) | HIGH | LOW | P1 |
+| Phase lease visibility | MEDIUM | MEDIUM | P1 |
+| Rich phase status card (terminal+HTML) | HIGH | MEDIUM | P2 |
+| Append-only transition journal | MEDIUM | MEDIUM | P2 |
+| Severity-classified conflicts | MEDIUM | MEDIUM | P3 |
+| Cross-milestone conflict trends | LOW | HIGH | P3 |
 
 ## Competitor Feature Analysis
 
-| Feature | Aider Leaderboard | SWE-bench / Terminal-Bench | GSD-ecosystem competitors (buildomator, OpenSpec-vs-Spec-Kit article) | Tura-AI | Our Approach |
-|---------|--------------------|------------------------------|--------------------------------------------------------------------|---------|--------------|
-| Task corpus | 225 versioned Exercism exercises, public | 1,865 real-commit tasks (SWE-bench Pro) / 89 hand-crafted Docker tasks (Terminal-Bench) | Ad hoc: one MVP chat-app task, run twice | 25 DeepSWE + 5 rewrite + 2 design tasks, versioned manifest | Small, versioned, hand-verified dev-workflow corpus in-repo |
-| Verification | Unit-test pass/fail, second attempt on failure | External test suite, but flagged as agent-tamperable in places | Not clearly external/independent | External, documented in a separate methodology repo | External, agent-unwritable pass/fail per task |
-| Cost reporting | $ per full benchmark run, per model, on leaderboard table | $ per task (Resolve Rate paired w/ Average Cost) | Token counts only, no $ | Tokens + turns, cost inferred | $ from official pricing + input/output/cache breakdown, paired with pass/fail |
-| Trials/variance | Not clearly multi-trial per exercise | 3 attempts/task averaged (Artificial Analysis aggregator) | Single run x2 (no variance treatment) | Not fully disclosed per-task | N>=3 per (task, baseline), mean+spread reported |
-| Visual presentation | Interactive scatter (cost log-x vs pass-rate y), on leaderboard site | External leaderboard site, no embedded repo charts | None (bare README claim) | SVG chart embedded directly in README | Script-generated charts committed to repo + embedded in README |
-| Reproducibility | Public exercises + aider CLI commands per row | Public repo/tasks, external submission process | Source "available on GitHub," minimal rigor | Public methodology repo, manifest JSONs linked | `BENCHMARKS.md` + `results.json` + regen script, in-repo, documented $ cost |
-| Multi-baseline (workflow-level, not just model-level) | No (compares LLMs, not workflows) | No | Two-way only (Spec-Kit vs OpenSpec) | Two-way (Tura vs Codex CLI) | Three-to-four-way: vanilla / GSD / cairn / competitor, same tasks |
+| Feature | Plain GSD (4.x / gsd-core without cairn) | Terraform/Pulumi (nearest infra analogue) | cairn's approach |
+|---------|--------------------------------------------|--------------------------------------------|-------------------|
+| Cross-checks declared state against an independent source | No — state is inferred from side effects; PROJECT.md notes this is exactly why GSD needs `/gsd:audit-milestone` | Yes — real infra is the independent source, queried on demand | Yes — bd (timestamped, authored, reasoned) and git are the independent sources cairn already has structural access to |
+| Explicit "cannot determine" / conflict value | No | Partial — Terraform reports drift as a diff, not a named enum state; no built-in "Unknown" value in its CLI vocabulary (K8s has this, Terraform does not) | Yes — `conflict` as a first-class phase-state value, closer to Kubernetes' convention than Terraform's |
+| Auto-write on detected mismatch | N/A (no detection at all) | No, by design, across every tool researched | No — matches the universal pattern; already a Key Decision |
+| Dense single-command status view | Partial — ROADMAP.md/STATE.md prose | Partial — `terraform plan` output, not a persistent card | Yes — extends the existing `/cairn:status` phase panel, terminal+HTML parity already solved |
 
 ## Sources
 
-- [Aider LLM Leaderboards (official docs)](https://aider.chat/docs/leaderboards/) — HIGH confidence, official source
-- [Aider Benchmarks Scatter Plot (VizHub)](https://vizhub.com/curran/aider-benchmarks-scatter-plot) — MEDIUM confidence, community visualization of official data
-- [SWE-bench Pro Leaderboard (Morph)](https://www.morphllm.com/swe-bench-pro) — MEDIUM confidence, third-party aggregator
-- [Holistic Agent Leaderboard (arXiv 2510.11977)](https://arxiv.org/pdf/2510.11977) — HIGH confidence, peer-reviewed methodology paper; source of "cost-adjusted comparison" and multi-rollout argument
-- [Artificial Analysis: Coding Agent Index Methodology](https://artificialanalysis.ai/methodology/coding-agents-benchmarking) — MEDIUM-HIGH confidence, published methodology
-- [Terminal-Bench GitHub repo](https://github.com/laude-institute/terminal-bench) — MEDIUM confidence, verified README does not embed results/trial-count in-repo
-- [How We Broke Top AI Agent Benchmarks (Berkeley RDI)](https://rdi.berkeley.edu/blog/trustworthy-benchmarks-cont/) — HIGH confidence, source of the agent-writable-verification anti-pattern
-- ["Spec Driven Development Is Wasting Tokens" (Medium/IT Chronicles)](https://medium.com/it-chronicles/is-your-safe-choice-burning-your-budget-1cfddf8782e4) — LOW-MEDIUM confidence (single community benchmark, N=2 runs, no variance treatment) — used as an anti-pattern example, not as a factual claim about Spec-Kit/OpenSpec
-- [buildomator (jnuyens/gsd-plugin) GitHub repo](https://github.com/jnuyens/gsd-plugin) — MEDIUM confidence, direct verification that the "~92% lower per-turn token overhead" claim has no supporting data in-repo (verified anti-pattern, current direct GSD-ecosystem competitor)
-- [Tura-AI/tura GitHub repo](https://github.com/Tura-AI/tura) — MEDIUM confidence, verified example of embedded chart + linked methodology repo + disclosed evidence gaps
-- [jcodemunch-mcp benchmarks/README.md](https://github.com/jgravelle/jcodemunch-mcp/blob/main/benchmarks/README.md) — MEDIUM confidence, verified example of a well-structured in-repo BENCHMARKS.md (methodology, task corpus table, caveats section)
-- [Anthropic Prompt Caching official docs](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) — HIGH confidence, official documentation of `cache_creation_input_tokens`/`cache_read_input_tokens`/`input_tokens` fields and pricing multipliers
-- [BMAD-METHOD token efficiency claims discussion (Medium)](https://medium.com/@hieutrantrung.it/from-token-hell-to-90-savings-how-bmad-v6-revolutionized-ai-assisted-development-09c175013085) — LOW confidence, self-reported claims with contradicting caveats found in the same search (31,667 tokens/run, ~$847/month reported by users) — used to illustrate the "big % claim, weak backing" anti-pattern
-- CairnGo project context: `/Users/felipeoliveira/Projects/CairnGo/.planning/PROJECT.md`
+- Terraform drift/refresh: [HashiCorp tutorial — Manage resource drift](https://developer.hashicorp.com/terraform/tutorials/state/resource-drift), [HashiCorp blog — Detecting and Managing Drift](https://www.hashicorp.com/en/blog/detecting-and-managing-drift-with-terraform), [HashiCorp support — "Objects have changed outside of Terraform"](https://support.hashicorp.com/hc/en-us/articles/4405950960147-New-Feature-Objects-have-changed-outside-of-Terraform)
+- Kubernetes conditions: [kubernetes.io — Pod Conditions](https://kubernetes.io/docs/concepts/workloads/pods/pod-condition/), [maelvls.dev — What the heck are Conditions](https://maelvls.dev/kubernetes-conditions/), [oneuptime — CRD Status Conditions Conventions](https://oneuptime.com/blog/post/2026-02-09-crd-status-conditions-conventions/view)
+- dbt: [dbt Developer Hub — Configure state selection](https://docs.getdbt.com/reference/node-selection/configure-state), [dbt Developer Hub — Source freshness](https://docs.getdbt.com/docs/deploy/source-freshness), [dbt Developer Hub — Node selector methods](https://docs.getdbt.com/reference/node-selection/methods)
+- Build systems / content addressing: [Buckaroo — Build-Systems Should Use Hashes Over Timestamps](https://medium.com/@buckaroo.pm/build-systems-should-use-hashes-over-timestamps-54d09f6f2c4), [Nalys — Bazel vs Make](https://nalys-taas-projects.gitlab.io/internal/taas_blog/post/bazel_vs_make/), [Nix reference manual — Content-addressing derivation outputs](https://nix.dev/manual/nix/2.28/store/derivation/outputs/content-address.html), [NixOS RFC 62](https://github.com/NixOS/rfcs/blob/master/rfcs/0062-content-addressed-paths.md)
+- git status: [git-scm.com — git-status docs](https://git-scm.com/docs/git-status)
+- Ansible: [Ansible Community Docs — Check mode and diff mode](https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_checkmode.html)
+- Pulumi refresh: [Pulumi Docs — Detecting and reconciling drift](https://www.pulumi.com/docs/iac/operations/stack-management/drift/), [Pulumi Blog — Repairing State With Pulumi Refresh](https://www.pulumi.com/blog/repairing-state-with-pulumi-refresh/)
+- Alert fatigue / drift severity: [Dev|Journal — Solving Alert Fatigue via Severity Classification](https://earezki.com/ai-news/2026-05-02-why-severity-classification-changes-everything-about-drift-detection/), [Drift Alert Burnout](https://medium.com/@Praxen/drift-alert-burnout-f1d7f498b53d), [Scalr — Terraform Drift Detection](https://scalr.com/learning-center/terraform-drift-detection-how-to-prevent-and-remediate)
+- Dense CLI status layouts: [Warp — kubectl describe pod](https://www.warp.dev/terminus/kubectl-describe-pod), [Spacelift — Kubectl Describe Command](https://spacelift.io/blog/kubectl-describe), [Docker Docs — docker compose ps](https://docs.docker.com/reference/cli/docker/compose/ps/), [docker/compose#5525](https://github.com/docker/compose/issues/5525), [DigitalOcean — systemctl](https://www.digitalocean.com/community/tutorials/how-to-use-systemctl-to-manage-systemd-services-and-units), [GitHub CLI — gh pr checks manual](https://cli.github.com/manual/gh_pr_checks)
+- First-class conflict state: [jj-vcs — conflicts.md](https://github.com/jj-vcs/jj/blob/main/docs/conflicts.md), [Chris Krycho — Deferred Conflict Resolution in Jujutsu](https://v5.chriskrycho.com/journal/deferred-conflict-resolution-in-jujutsu/)
+- Project context: `.planning/PROJECT.md` (root-cause diagnosis of `phase_disk_state()`, milestone requirements and Key Decisions already logged), `cairn/docs/commands/doctor.md` and `cairn/docs/commands/status.md` (existing surfaces this milestone extends)
 
 ---
-*Feature research for: public benchmark suite for coding-agent workflow efficiency*
-*Researched: 2026-07-25*
+*Feature research for: cairn v1.4 "Honest State" — drift detection & multi-source state reconciliation*
+*Researched: 2026-07-29*
