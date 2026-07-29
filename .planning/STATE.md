@@ -1,18 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-active_phase: none
-milestone_name: milestone
-status: v1.3 shipped and archived — awaiting next milestone
-stopped_at: Milestones v1.2 and v1.3 shipped and archived (phases 7-12). Plugin released as 1.4.2 after three fixes to the same root cause — a green signal that did not prove what it claimed. Open unphased work: CairnGo-9xy (build the 13 decided wrappers), CairnGo-c8v (remove the gsd-core manifest repair when upstream lands #2077).
-last_updated: "2026-07-28T17:30:00.000Z"
-last_activity: 2026-07-28 — v1.2 and v1.3 archived, cairn 1.4.2 released
+milestone: v1.4
+milestone_name: Honest State
+status: planning
+last_updated: "2026-07-29T18:53:00.646Z"
+last_activity: 2026-07-29
 progress:
-  total_phases: 12
-  completed_phases: 12
-  total_plans: 20
-  completed_plans: 20
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -26,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-25)
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-27 — Milestone v1.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-29 — Milestone v1.4 started
 
 ## Performance Metrics
 
