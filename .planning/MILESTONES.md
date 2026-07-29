@@ -1,5 +1,32 @@
 # Milestones
 
+## v1.3 Status Panel (Shipped: 2026-07-28)
+
+**Phases completed:** 3 phases, 3 plans
+
+**Key accomplishments:**
+
+- One shared phase model behind the terminal board, `--json` and the HTML page, proven by a test that renders all three and compares — the roadmap parser used to return two lists of ints, which is why a phase could only render as a number
+- Pending phases described by title, requirement ids, state on disk and what they wait on, so the next phase can be chosen without opening ROADMAP.md
+- Next `/cairn:*` commands computed from each phase's own artifacts and ordered by the dependency graph, each carrying the reason it sits where it does
+- Parallelism stated out loud in real commands, with an explicit honesty flag when no dependency is recorded anywhere
+- `/cairn:autonomous` announces the order it chose instead of deciding silently
+
+**Found while building:** bd reports dependency edges in two different shapes depending on the subcommand (`dependencies` from list/ready, a flat `blocked_by` from blocked); reading only the first dropped every edge whose target was still open.
+
+## v1.2 GSD Core (Shipped: 2026-07-28)
+
+**Phases completed:** 3 phases, 3 plans
+
+**Key accomplishments:**
+
+- cairn depends on the official `open-gsd/gsd-core`, pinned to a release tag rather than tracking its development branch
+- The capability install verifies that it registered instead of assuming; a bundle staged without its gate scripts is caught, because the ship-gate predicate no-ops when its script is missing
+- `/cairn:doctor` reports which GSD lineage is installed and whether the capability actually registered
+- Every one of the 54 gsd-core commands cairn does not wrap carries a written decision, derived from the installed copy rather than from an earlier note that undercounted by half
+
+**The finding that outranked the migration:** the fusion had never run for anyone. The old lineage has no capability system, `gsd_run` is not on PATH so init never even attempted the install, and a trailing `|| echo "skipped"` turned every failure into success.
+
 ## v1.1 Metrics & Benchmarks (Shipped: 2026-07-27)
 
 **Phases completed:** 6 phases, 14 plans, 17 tasks
