@@ -1,12 +1,12 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-active_phase: 12
+milestone: none
+active_phase: none
 milestone_name: milestone
-status: v1.3 complete — awaiting ship
-stopped_at: Milestone v1.3 complete (phases 10-12, PANEL-01..05). The status surfaces read one shared phase model; the board describes pending phases, computes the next /cairn:* commands in dependency order with their reasons, and says what can run at the same time. /cairn:autonomous announces the order it chose. Full suite 295/295.
+status: v1.3 shipped and archived — awaiting next milestone
+stopped_at: Milestones v1.2 and v1.3 shipped and archived (phases 7-12). Plugin released as 1.4.2 after three fixes to the same root cause — a green signal that did not prove what it claimed. Open unphased work: CairnGo-9xy (build the 13 decided wrappers), CairnGo-c8v (remove the gsd-core manifest repair when upstream lands #2077).
 last_updated: "2026-07-28T17:30:00.000Z"
-last_activity: 2026-07-28 — milestone v1.3 complete (phase model, described panel, parallelism)
+last_activity: 2026-07-28 — v1.2 and v1.3 archived, cairn 1.4.2 released
 progress:
   total_phases: 12
   completed_phases: 12
