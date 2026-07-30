@@ -1,6 +1,6 @@
 ---
 description: Run every remaining phase hands-off — the full cairn loop per phase (map → plan → claim → execute → close → verify), doctor between phases, ship gate at the end
-argument-hint: "[start-phase]"
+argument-hint: "[start-phase] [--interactive]"
 ---
 
 Run the milestone to completion under the `cairn` conventions, phase by phase,
@@ -45,12 +45,50 @@ cairn GSD capability is installed — its hooks are idempotent with these steps.
    sensible defaults recorded as Claude's Discretion in each phase's
    CONTEXT.md.
 
+   **`--interactive` inverts that last sentence**, and only that one. The
+   pre-flight, the order, the stop rules and every bd step are unchanged; what
+   changes is that a genuine design decision is put to the user instead of
+   being recorded as Claude's Discretion. Step 0 of each phase below is the
+   mechanism.
+
 ## Per phase N (in order)
 
-1. **Plan** — `/cairn:plan N`, non-interactively (skip discussion questions;
-   record assumptions instead). This regenerates the beads map, runs
-   `/gsd:plan-phase N`, reconciles divergence (CONTEXT wins) and sets each
-   PLAN.md's `beads:` frontmatter.
+0. **Discuss (only under `--interactive`)** — if the phase has no
+   `NN-CONTEXT.md`, run `/gsd:discuss-phase N` **before** planning it.
+   Invoke it here, in the autonomous loop, rather than telling the user to run
+   it themselves.
+
+   This is allowed, and the reason matters. GSD's `plan-phase` workflow forbids
+   invoking discuss-phase as a nested Skill/Task call, because
+   `AskUserQuestion` misbehaves in a subcontext (gsd-core #1009) — that
+   prohibition is about **plan-phase** nesting it one level down. The
+   autonomous loop runs in the top-level session, so a `Skill` call from here
+   is the same context the user's own `/gsd:discuss-phase` would run in, and
+   the questions work. Do not hand the command back to the user as if you
+   could not run it.
+
+   **Discuss at the phase's turn, never in a batch up front.** It is tempting,
+   with five pending phases, to discuss all five before planning any — do not.
+   A CONTEXT.md is a set of locked decisions, and decisions locked for phase
+   N+2 are taken against a codebase that phase N is about to change: the
+   discussion is held over a guess, and the guess is then recorded as settled.
+   That is the same failure this whole plugin is built to catch — a record
+   that claims more certainty than anything corroborates.
+
+   One narrow exception, and it must be checked rather than assumed: a phase
+   may be discussed ahead of its turn when `blocked_by` is empty **and** its
+   roadmap entry says it needs no research during planning. Anything else
+   waits for its turn in the loop.
+
+   Without `--interactive`, skip this step entirely — gray areas resolve to
+   Claude's Discretion, as above.
+
+1. **Plan** — `/cairn:plan N`. Without `--interactive`, run it
+   non-interactively (skip discussion questions; record assumptions instead);
+   under `--interactive`, step 0 has already produced the CONTEXT.md that
+   plan-phase would otherwise have prompted about. This regenerates the beads
+   map, runs `/gsd:plan-phase N`, reconciles divergence (CONTEXT wins) and sets
+   each PLAN.md's `beads:` frontmatter.
 2. **Work** — `/cairn:work N`: for each plan, claim its `beads:` ids
    (`bd update <id> --claim`) **before starting it**, run
    `/gsd:execute-phase N`, close ids on verified completion
