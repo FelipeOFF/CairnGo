@@ -25,15 +25,15 @@ reporta sucesso sem provar sucesso não conta como pronto.
 
 ### 🚧 v1.4 Honest State — um estado que prova o que afirma (Phases 13-17)
 
-- [ ] Phase 13: Corroboração de estado (CORR-01, CORR-02, CORR-03, CORR-04, CORR-05, CORR-06, CORR-07, CORR-08)
-- [ ] Phase 14: Card de fase que diz para que a fase serve (CARD-01, CARD-02, CARD-03, CARD-04)
-- [ ] Phase 15: Lease de fase (LEASE-01, LEASE-02, LEASE-03, LEASE-04, LEASE-05)
-- [ ] Phase 16: Journal append-only de transições (JOUR-01, JOUR-02, JOUR-03, JOUR-04, JOUR-05)
-- [ ] Phase 17: Escalada semântica que propõe (ESC-01, ESC-02, ESC-03, ESC-04)
+- [ ] Phase 13: State corroboration (CORR-01, CORR-02, CORR-03, CORR-04, CORR-05, CORR-06, CORR-07, CORR-08)
+- [ ] Phase 14: Phase card (CARD-01, CARD-02, CARD-03, CARD-04)
+- [ ] Phase 15: Phase lease (LEASE-01, LEASE-02, LEASE-03, LEASE-04, LEASE-05)
+- [ ] Phase 16: Transition journal (JOUR-01, JOUR-02, JOUR-03, JOUR-04, JOUR-05)
+- [ ] Phase 17: Semantic escalation (ESC-01, ESC-02, ESC-03, ESC-04)
 
 ## Detalhe das fases
 
-### Phase 13: Corroboração de estado
+### Phase 13: State corroboration
 
 **Goal:** o estado de uma fase deixa de ser um palpite do sistema de arquivos e passa
 a ser um veredito em que quatro fontes independentes votaram, onde a discordância é
@@ -66,7 +66,7 @@ métodos de pesquisa independentes validaram.
 
 ---
 
-### Phase 14: Card de fase que diz para que a fase serve
+### Phase 14: Phase card
 
 **Goal:** toda superfície passa a dizer o que a fase É e por onde ela passou, nas
 mesmas palavras — hoje o card mostra número, título e estado, e o terminal mostra
@@ -94,7 +94,7 @@ computa.
 
 ---
 
-### Phase 15: Lease de fase
+### Phase 15: Phase lease
 
 **Goal:** dois agentes na mesma fase vira fato visível antes do trabalho começar, em
 vez de descoberta reativa no meio da execução, id por id.
@@ -124,7 +124,7 @@ requisito.
 
 ---
 
-### Phase 16: Journal append-only de transições
+### Phase 16: Transition journal
 
 **Goal:** o histórico do que realmente aconteceu sobrevive a uma queda e consegue
 explicar um conflito, sem nunca virar autoridade sobre o estado corrente.
@@ -151,7 +151,7 @@ liberação de lease.
 
 ---
 
-### Phase 17: Escalada semântica que propõe
+### Phase 17: Semantic escalation
 
 **Goal:** quando as fontes discordam, uma investigação lê código, história e memória e
 **propõe** uma reconciliação; aplicar é ato humano, e a investigação é incapaz de
