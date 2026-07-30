@@ -33,13 +33,13 @@ reporta sucesso sem provar sucesso não conta como pronto.
 
 ## Detalhe das fases
 
-### Phase 13 — Corroboração de estado
+### Phase 13: Corroboração de estado
 
 **Goal:** o estado de uma fase deixa de ser um palpite do sistema de arquivos e passa
 a ser um veredito em que quatro fontes independentes votaram, onde a discordância é
 nomeada e uma fonte que não deu para ler diz isso em vez de concordar.
 
-**Requirements:** CORR-01 … CORR-08
+**Requirements**: CORR-01, CORR-02, CORR-03, CORR-04, CORR-05, CORR-06, CORR-07, CORR-08
 
 **Success criteria:**
 
@@ -66,13 +66,13 @@ métodos de pesquisa independentes validaram.
 
 ---
 
-### Phase 14 — Card de fase que diz para que a fase serve
+### Phase 14: Card de fase que diz para que a fase serve
 
 **Goal:** toda superfície passa a dizer o que a fase É e por onde ela passou, nas
 mesmas palavras — hoje o card mostra número, título e estado, e o terminal mostra
 menos que o HTML.
 
-**Requirements:** CARD-01 … CARD-04
+**Requirements**: CARD-01, CARD-02, CARD-03, CARD-04
 
 **Success criteria:**
 
@@ -94,12 +94,12 @@ computa.
 
 ---
 
-### Phase 15 — Lease de fase
+### Phase 15: Lease de fase
 
 **Goal:** dois agentes na mesma fase vira fato visível antes do trabalho começar, em
 vez de descoberta reativa no meio da execução, id por id.
 
-**Requirements:** LEASE-01 … LEASE-05
+**Requirements**: LEASE-01, LEASE-02, LEASE-03, LEASE-04, LEASE-05
 
 **Success criteria:**
 
@@ -124,12 +124,12 @@ requisito.
 
 ---
 
-### Phase 16 — Journal append-only de transições
+### Phase 16: Journal append-only de transições
 
 **Goal:** o histórico do que realmente aconteceu sobrevive a uma queda e consegue
 explicar um conflito, sem nunca virar autoridade sobre o estado corrente.
 
-**Requirements:** JOUR-01 … JOUR-05
+**Requirements**: JOUR-01, JOUR-02, JOUR-03, JOUR-04, JOUR-05
 
 **Success criteria:**
 
@@ -151,13 +151,13 @@ liberação de lease.
 
 ---
 
-### Phase 17 — Escalada semântica que propõe
+### Phase 17: Escalada semântica que propõe
 
 **Goal:** quando as fontes discordam, uma investigação lê código, história e memória e
 **propõe** uma reconciliação; aplicar é ato humano, e a investigação é incapaz de
 gravar estado por construção, não por instrução.
 
-**Requirements:** ESC-01 … ESC-04
+**Requirements**: ESC-01, ESC-02, ESC-03, ESC-04
 
 **Success criteria:**
 
