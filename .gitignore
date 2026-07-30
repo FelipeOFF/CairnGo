@@ -32,3 +32,6 @@ status.html
 # records an absolute source path. Re-created by /cairn:init.
 .gsd/
 .gsd-capabilities.json
+
+# Research fetch cache (per-machine, written by the research agents)
+.planning/research/.cache/
