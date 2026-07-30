@@ -22,7 +22,13 @@ Behavior:
        .beads/, bd is never queried (bd walks UP to find a database, which
        could silently render an ancestor repo's board): the board degrades
        to a GSD-only render with a note — mirroring cairn-gate's
-       applicability decision.
+       applicability decision. When the root DOES have a .beads/ but a
+       cheap `bd list --limit 1` probe run before the lane queries itself
+       fails (bd present on PATH, the query broken — a crashed daemon, a
+       corrupted DB), the board degrades the same way — every lane empty,
+       a note naming the failure — and `phase_model()`'s `bd_ok` flag turns
+       False, so every phase's corroboration `bd` evidence reads "unknown"
+       rather than silently agreeing with disk (see 4c).
     3. Read GSD position leniently (regex, no YAML lib — patterns shared
        with cairn-gate, except TABLE_PHASE_ANY which is stricter, see its
        comment): ROADMAP.md phase checkboxes / progress-table rows and the
@@ -42,6 +48,20 @@ Behavior:
        data — but carry a dim ·done-phase marker on their card, a footer
        warning pointing at /cairn:doctor --close-completed, and their ids
        under the JSON key stale_complete.
+    4c. Corroborate each phase's state from four independent reads: disk
+       (phase_disk_state — file existence only), bd (that phase's own
+       phase-N-labeled issues), the ROADMAP checkbox, and STATE.md's
+       active_phase pointer. Each `--json` phase row carries additive keys
+       `evidence` (the raw per-source reads), `corroboration` (`"ok"` /
+       `"conflict"` / `"unknown"`), and `conflicts` (itemized `{severity,
+       sources, detail}`, severity `"blocks"` or `"informs"`) — disk_state
+       itself is never widened, so it stays exactly the four values it
+       always was. A source that could not be read (bd unreachable) is
+       reported "unknown", never folded into agreement: an unreadable bd
+       never produces "ok" by itself. A phase needing attention (an
+       "unknown" verdict, or a "blocks" conflict) is rerouted to
+       `/cairn:doctor` instead of its disk-driven next command, both in
+       `phases[].next_command` and in `next_commands[]`.
     5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
        gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
        list (< 40 cols). Non-TTY without an output flag: --plain
@@ -95,7 +115,11 @@ Behavior:
 
 Exit codes:
     0 ok    2 usage (bad flag, or an unusable --html target/template)
-    5 bd unavailable (not on PATH, or a bd query failed)
+    5 bd unavailable — not on PATH, or the pre-lane-query probe failed
+      (bd present but the query itself broke). Can now happen on ANY
+      render path (--json, --html, or the terminal/plain/brief default),
+      always after this run's real output on stdout, never a silent,
+      empty exit.
 """
 import html
 import json
@@ -367,6 +391,102 @@ def phase_disk_state(pdir):
     return "none"
 
 
+def bd_state(issues, n, roadmap_done_set):
+    """bd's own verdict on phase n: none/closed/in_progress/open.
+
+    Only issues whose phase-label set is entirely covered by phase n plus
+    already-roadmap-complete phases count as evidence for n — an issue that
+    also carries an undone OTHER phase's label is genuinely live work for
+    THAT phase, not evidence against n. This mirrors in_done_phase's
+    ALL-not-ANY discipline, so a legitimate cross-phase issue can never
+    fabricate a false conflict for a phase it isn't really about.
+    """
+    allowed = roadmap_done_set | {n}
+    qualifying = [iss for iss in issues
+                  if n in issue_phase_ns(iss) and issue_phase_ns(iss) <= allowed]
+    if not qualifying:
+        return "none"
+    statuses = [iss.get("status") for iss in qualifying]
+    if all(s == "closed" for s in statuses):
+        return "closed"
+    if any(s == "in_progress" for s in statuses):
+        return "in_progress"
+    return "open"
+
+
+def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
+                state_md_active_phase):
+    """(verdict, evidence, conflicts) for phase n from four independent
+    reads: disk, bd, the roadmap checkbox, and STATE.md's active_phase
+    pointer.
+
+    Two severities only (D-09), each rule carrying its own justification for
+    the one it gets:
+      R1 blocks, disk vs bd — both are direct, artifact-backed reads of real
+         work state; a disagreement between them is exactly what ROADMAP SC2
+         and D-05 ("disk vs bd invalidates") describe.
+      R2 blocks, roadmap vs disk — a checked box with nothing built is at
+         least as dangerous as R1, and it fires independent of whether bd
+         has any opinion at all. The reverse (disk verified, box unticked)
+         is the existing, accepted lag phase_model() already documents and
+         must NOT fire here.
+      R3 informs, state_md vs disk — STATE.md's active_phase is a workflow
+         POINTER, not a work-completion signal (D-05): it must never
+         invalidate /cairn:work N on its own, so it can never outrank R1/R2.
+
+    Verdict is "conflict" whenever conflicts is non-empty, else "unknown"
+    when bd could not be read, else "ok". An unreadable bd (bd_ok False)
+    never fabricates agreement (D-07) — its axis simply casts no vote, so R2
+    and R3 can still fire and produce "conflict" without it, since neither
+    needs bd to disagree. Two readable sources disagreeing is already a
+    conflict: no majority, no tiebreak (D-06).
+
+    Pure and silent by construction: no prompting, no blocking on input, no
+    AskUserQuestion anywhere in this call graph (D-02) — this only reports,
+    structured and deterministic; the prose in cairn/commands/*.md is what
+    later offers the human options.
+    """
+    evidence = {
+        "disk": disk_state,
+        "bd": bd_val if bd_ok else "unknown",
+        "roadmap": "complete" if roadmap_complete else "incomplete",
+        "state_md": "active" if state_md_active_phase == n else None,
+    }
+    conflicts = []
+
+    if bd_ok and bd_val != "none":
+        disk_done = disk_state in ("executed", "verified")
+        bd_done = bd_val == "closed"
+        if disk_done != bd_done:
+            conflicts.append({
+                "severity": "blocks", "sources": ["disk", "bd"],
+                "detail": (f"disk reports phase {n} {disk_state}, bd "
+                          f"reports its issues {bd_val}"),
+            })
+
+    if roadmap_complete and disk_state not in ("executed", "verified"):
+        conflicts.append({
+            "severity": "blocks", "sources": ["roadmap", "disk"],
+            "detail": (f"roadmap marks phase {n} complete, disk reports "
+                      f"{disk_state}"),
+        })
+
+    if state_md_active_phase == n and disk_state in ("executed", "verified"):
+        conflicts.append({
+            "severity": "informs", "sources": ["state_md", "disk"],
+            "detail": (f"STATE.md still points at phase {n}, disk already "
+                      f"reports {disk_state}"),
+        })
+
+    if conflicts:
+        verdict = "conflict"
+    elif not bd_ok:
+        verdict = "unknown"
+    else:
+        verdict = "ok"
+    return verdict, evidence, conflicts
+
+
 def phase_plan_counts(pdir):
     """(plans with a SUMMARY, total non-superseded plans) on disk, or None."""
     if pdir is None or not pdir.is_dir():
@@ -578,7 +698,7 @@ def issue_phase_deps(issues):
     return edges
 
 
-def phase_model(planning_dir, issues=None):
+def phase_model(planning_dir, issues=None, bd_ok=True):
     """Every phase, described once, for all three surfaces to render from.
 
     The board, `--json` and the HTML page previously each re-derived what they
@@ -586,6 +706,13 @@ def phase_model(planning_dir, issues=None):
     surface, so the three could disagree. This is the single read: roadmap text
     merged with what is actually on disk, plus the dependency edges that make
     parallelism computable.
+
+    Each row also carries additive corroboration keys — `evidence`,
+    `corroboration`, `conflicts`, `needs_doctor` — computed by corroborate()
+    from disk/bd/roadmap/STATE.md without ever widening `disk_state` itself.
+    `bd_ok` (default True, unchanged behavior for every existing caller) says
+    whether `issues` is a trustworthy read of bd; when False (bd unreachable)
+    the bd axis reports "unknown" rather than fabricating agreement.
     """
     rows = roadmap_phase_rows(planning_dir)
     dirs = phase_dirs(planning_dir)
@@ -598,12 +725,36 @@ def phase_model(planning_dir, issues=None):
     dir_to_number = {d.name: n for n, d in dirs.items()}
     bd_edges = issue_phase_deps(issues or [])
 
+    # Independent evidence corroborate() needs, read once — not the
+    # disk-aware done_set below, which corroborate() must be free to
+    # disagree with (a checked box with nothing on disk is exactly the
+    # conflict R2 exists to catch).
+    roadmap_done_set = {n for n, row in rows.items() if row.get("complete")}
+    active_raw = normalize_phase(state_frontmatter(planning_dir)["active_phase"])
+    active_phase_n = (int(active_raw) if active_raw is not None
+                      and str(active_raw).isdigit() else None)
+
     out = []
     for n in sorted(rows):
         row = dict(rows[n])
         pdir = dirs.get(n)
         row["dir"] = str(pdir.relative_to(planning_dir.parent)) if pdir else None
         row["disk_state"] = phase_disk_state(pdir)
+        bd_val = bd_state(issues or [], n, roadmap_done_set)
+        verdict, evidence, conflicts = corroborate(
+            n, row["disk_state"], row["complete"], bd_val, bd_ok,
+            active_phase_n)
+        row["evidence"] = evidence
+        row["corroboration"] = verdict
+        row["conflicts"] = conflicts
+        # The single, shared "route this phase to /cairn:doctor" predicate —
+        # computed exactly once, here, and only ever READ by
+        # phase_next_command()'s guard and next_commands()'s sort/blocked
+        # fold below. Neither of them recomputes this condition.
+        row["needs_doctor"] = (
+            verdict == "unknown"
+            or (verdict == "conflict"
+                and any(c["severity"] == "blocks" for c in conflicts)))
         if row["plans_total"] is None:
             done, total = phase_plan_counts(pdir)
             row["plans_done"], row["plans_total"] = done, total
@@ -635,9 +786,22 @@ def phase_next_command(p):
     so reading disk state alone would tell the operator to go and plan phase 1
     again. When the checkbox and the artifacts genuinely disagree, that is
     /cairn:doctor's report to make, not a suggestion to act on.
+
+    A needs_doctor phase (an "unknown" corroboration verdict, or a "blocks"
+    conflict) is routed to /cairn:doctor instead of its disk-driven command —
+    the one shared field computed once in phase_model(), never recomputed
+    here.
     """
     if p["complete"]:
+        # Deliberately unconditional and deliberately BEFORE the needs_doctor
+        # guard below — a roadmap-complete phase keeps returning None whatever
+        # corroboration says. A complete-but-conflicting phase is not "next
+        # work to do"; it is a done phase that might be WRONG, and auditing
+        # that is the ship gate's (13-04) and doctor's (13-03) job, never
+        # next-command routing's. Do not reorder this check after the guard.
         return None
+    if p.get("needs_doctor"):
+        return "/cairn:doctor"
     return {
         "none": f"/cairn:plan {p['number']}",
         "planned": f"/cairn:work {p['number']}",
@@ -778,23 +942,38 @@ def next_commands(model, milestone=None):
     outranks an earlier one that is waiting.
 
     Returns [{command, phase, title, reason, blocked}], unblocked first.
+
+    A needs_doctor phase (the same stored field phase_next_command() reads —
+    never recomputed here) reroutes both its reason and its blocked flag: an
+    "unknown" verdict and a "blocks" conflict are both deprioritized behind
+    every runnable phase, not just the conflict half — the self-contained
+    ROADMAP SC4 guarantee (see 13-01's Objective for the doctor pre-flight's
+    complementary half).
     """
     out = []
     for p in pending_phases(model):
         cmd = p["next_command"]
         if not cmd:
             continue
-        waiting = phase_dependents(model, p["number"])
-        if p["blocked_by"]:
-            reason = f"waits on phase {join_numbers(p['blocked_by'])}"
-        elif waiting:
-            reason = (f"nothing blocks it, and phase "
-                      f"{join_numbers(waiting)} waits on it")
+        needs_doctor = p.get("needs_doctor", False)
+        if needs_doctor:
+            # Takes priority over the blocked_by/waiting branches below: a
+            # corroboration/doctor routing is not a dependency wait, so it
+            # gets its own distinct message rather than borrowing theirs.
+            reason = ("corroboration conflict — resolve via /cairn:doctor "
+                      "before continuing")
         else:
-            reason = "nothing blocks it"
+            waiting = phase_dependents(model, p["number"])
+            if p["blocked_by"]:
+                reason = f"waits on phase {join_numbers(p['blocked_by'])}"
+            elif waiting:
+                reason = (f"nothing blocks it, and phase "
+                          f"{join_numbers(waiting)} waits on it")
+            else:
+                reason = "nothing blocks it"
         out.append({"command": cmd, "phase": p["number"],
                     "title": p["title"], "reason": reason,
-                    "blocked": bool(p["blocked_by"])})
+                    "blocked": bool(p["blocked_by"]) or needs_doctor})
     # Free work first, then by phase number. Sorting by number alone would put
     # a blocked phase 11 above a free phase 12 and read as an instruction.
     out.sort(key=lambda c: (c["blocked"], c["phase"]))
@@ -2187,19 +2366,35 @@ def main():
 
     note = None
     if (root / ".beads").is_dir():
-        ready, doing, blocked, closed = fetch_lanes(root)
-        n_closed = len(closed)
+        # A cheap probe before the real lane queries: bd can be present on
+        # PATH and still fail the call itself (crashed daemon, corrupted
+        # DB) — that must degrade to "unknown" everywhere, not die via
+        # fetch_lanes()/run_bd()'s die() before any output is produced.
+        probe_cmd = ["bd", "-C", str(root), "list", "--limit", "1", "--json"]
+        probe = subprocess.run(probe_cmd, capture_output=True, text=True)
+        if probe.returncode != 0:
+            bd_ok = False
+            ready, doing, blocked, closed, n_closed = [], [], [], [], 0
+            note = (f"bd query failed at {root}: "
+                    f"{probe.stderr.strip() or 'unknown error'} — "
+                    "run /cairn:doctor")
+        else:
+            ready, doing, blocked, closed = fetch_lanes(root)
+            n_closed = len(closed)
+            bd_ok = True
     else:
         # bd resolves its database by walking UP from the root, so querying
         # it here could silently render an ANCESTOR repo's board. Mirror
         # cairn-gate's applicability decision instead: skip bd and degrade
-        # to a GSD-only board, saying so.
+        # to a GSD-only board, saying so. This is "no bd usage here", not
+        # "bd failed" — every phase's bd axis reads "none", never "unknown".
         ready, doing, blocked, closed, n_closed = [], [], [], [], 0
         note = f"no .beads/ at {root}: GSD-only board (bd lanes skipped)"
+        bd_ok = True
     # ONE phase model, built once. Every surface below renders from this list
     # rather than re-deriving what it needs, so the terminal board, --json and
     # the HTML page cannot describe the same phase differently.
-    phases = phase_model(planning_dir, ready + doing + blocked + closed)
+    phases = phase_model(planning_dir, ready + doing + blocked + closed, bd_ok=bd_ok)
     all_phases, done_phases = roadmap_phases(planning_dir, phases)
     # Cross-check (docstring step 4b): open issues whose phase labels are
     # all roadmap-complete keep their lane but get flagged. _stale drives
@@ -2254,6 +2449,11 @@ def main():
         "_closed": closed,
         "_phases": {"all": all_phases, "done": done_phases},
     }
+    # EXIT_NO_BD (5) is the documented "bd unavailable" contract — a query
+    # that failed after bd was found on PATH degrades exactly the same way
+    # as bd missing entirely: real output first, on every render path below,
+    # then this exit code rather than a silent EXIT_OK.
+    exit_code = EXIT_OK if bd_ok else EXIT_NO_BD
 
     html_info = None
     if opts["html"] is not None:
@@ -2264,7 +2464,7 @@ def main():
         if html_info is not None:
             out["html"] = html_info
         print(json.dumps(out))
-        sys.exit(EXIT_OK)
+        sys.exit(exit_code)
 
     if html_info is not None:
         c = data["counts"]
@@ -2275,7 +2475,7 @@ def main():
         print(f"[cairn-status] {state} {html_info['file']} — "
               f"{c['ready']} ready, {c['doing']} doing, "
               f"{c['blocked']} blocked")
-        sys.exit(EXIT_OK)
+        sys.exit(exit_code)
 
     style = Style(opts)
     if opts["brief"]:
@@ -2310,7 +2510,7 @@ def main():
         # the offending characters instead of crashing.
         enc = getattr(sys.stdout, "encoding", None) or "ascii"
         sys.stdout.buffer.write(out.encode(enc, errors="replace") + b"\n")
-    sys.exit(EXIT_OK)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

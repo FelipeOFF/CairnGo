@@ -3,6 +3,7 @@ __pycache__/
 .cairn/id-map.json
 .cairn/state.json
 .cairn/conflicts.json
+.cairn/hook.log
 .DS_Store
 
 # cairn 2.0 per-machine state (never commit)

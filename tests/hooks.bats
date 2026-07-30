@@ -20,7 +20,12 @@ refute_in_output() {
 }
 
 # Recorder stubs: append "$@" to a log, exit 0. Wired in via the CAIRN_GBSYNC
-# and CAIRN_MAP env seams (the hook invokes them through bash).
+# and CAIRN_MAP env seams (the hook invokes them through bash). Also seeds
+# default CAIRN_GH / CAIRN_BD stubs (gh: silent no-op, "no PR yet" — the
+# common case; bd: a recorder, same shape as gbsync/map) so every test stays
+# hermetic against the external-ref job without needing to care about it —
+# tests that DO exercise that job override CAIRN_GH/CAIRN_BD themselves
+# before calling post_bd_write (see post_bd_write's fallback expansion).
 make_recorders() {
   GBSYNC_STUB="$BATS_TEST_TMPDIR/gbsync-recorder"
   GBSYNC_LOG="$BATS_TEST_TMPDIR/gbsync.log"
@@ -29,14 +34,41 @@ make_recorders() {
   printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$GBSYNC_LOG" > "$GBSYNC_STUB"
   printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$MAP_LOG" > "$MAP_STUB"
   chmod +x "$GBSYNC_STUB" "$MAP_STUB"
+
+  GH_STUB="$BATS_TEST_TMPDIR/gh-recorder"
+  BD_STUB="$BATS_TEST_TMPDIR/bd-recorder"
+  BD_LOG="$BATS_TEST_TMPDIR/bd.log"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$GH_STUB"
+  printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$BD_LOG" > "$BD_STUB"
+  chmod +x "$GH_STUB" "$BD_STUB"
 }
 
-# Feed a fake PostToolUse payload for COMMAND into the hook.
+# Feed a fake PostToolUse payload for COMMAND into the hook. CAIRN_GH/CAIRN_BD
+# default to the hermetic no-op stubs from make_recorders when the caller
+# hasn't already set them (bash dynamic scoping: a plain `CAIRN_GH=...`
+# assignment in the calling @test is visible here, same as GBSYNC_STUB etc.).
 post_bd_write() {
   printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" \
     | env CLAUDE_PROJECT_DIR="$PWD" \
           CAIRN_GBSYNC="$GBSYNC_STUB" CAIRN_MAP="$MAP_STUB" \
+          CAIRN_GH="${CAIRN_GH:-$GH_STUB}" CAIRN_BD="${CAIRN_BD:-$BD_STUB}" \
           bash "$CAIRN_HOOKS_DIR/post-bd-write.sh"
+}
+
+# $PATH with every directory containing a `gh` executable removed. Used only
+# by the "gh genuinely absent" test below — everything else the hook needs
+# (bash, python3, possibly via an asdf/pyenv shim chain) stays resolvable,
+# because this is a deny-list (strip gh's dir(s)), not a hand-picked
+# allow-list that would have to know about every transitive tool a shim
+# might invoke.
+path_without_gh() {
+  local dir out=""
+  IFS=':' read -ra dirs <<< "$PATH"
+  for dir in "${dirs[@]}"; do
+    [ -x "$dir/gh" ] && continue
+    out="${out:+$out:}$dir"
+  done
+  printf '%s' "$out"
 }
 
 write_sync_json() {  # $1 = true|false (enabled flag of the single backend)
@@ -217,6 +249,73 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   wait_for_lines "$GBSYNC_LOG" 2
   grep -qxF "create $a" "$GBSYNC_LOG"
   grep -qxF "create $b" "$GBSYNC_LOG"
+}
+
+#-----------------------------------------------------------------------------
+# post-bd-write.sh — external-ref backfill on bd close (CORR-08 / D-12)
+#-----------------------------------------------------------------------------
+
+@test "post-bd-write: bd close on a branch with an open PR fires bd update --external-ref in background" {
+  make_tmp_repo
+  make_recorders
+
+  CAIRN_GH="$BATS_TEST_TMPDIR/gh-stub-success"
+  printf '#!/usr/bin/env bash\necho 42\n' > "$CAIRN_GH"
+  chmod +x "$CAIRN_GH"
+  # CAIRN_BD left unset — post_bd_write falls back to the default $BD_STUB
+  # recorder from make_recorders.
+
+  run post_bd_write "bd close map-9 --reason=done"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -le 1 ]
+  grep -qF "queued" <<<"$output"
+
+  # Proves the write was ATTEMPTED with the right arguments.
+  wait_for_lines "$BD_LOG" 1
+  grep -qF "update map-9 --external-ref gh-42" "$BD_LOG"
+}
+
+@test "post-bd-write: gh genuinely absent from PATH — bd close is a silent no-op, no hook.log" {
+  make_tmp_repo
+  make_recorders
+
+  # No CAIRN_GH stub at all: the hook falls back to the literal name "gh",
+  # and this PATH has every directory that could resolve it stripped out —
+  # proves the `command -v gh` guard itself fails closed, not just that a
+  # stub returned nothing.
+  run env CLAUDE_PROJECT_DIR="$PWD" PATH="$(path_without_gh)" \
+      bash "$CAIRN_HOOKS_DIR/post-bd-write.sh" \
+      <<<'{"tool_name":"Bash","tool_input":{"command":"bd close map-1 --reason=done"}}'
+
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -le 1 ]
+  [ ! -f "$PWD/.cairn/hook.log" ]
+}
+
+@test "post-bd-write: external-ref write failure is observable in .cairn/hook.log, never swallowed" {
+  # The load-bearing test: this hook's contract is "never fail the caller",
+  # so a write failure here would otherwise vanish into /dev/null exactly
+  # like the bug shape D-12 names. Force bd to fail and prove the failure
+  # surfaces somewhere durable instead of disappearing.
+  make_tmp_repo
+  make_recorders
+
+  CAIRN_GH="$BATS_TEST_TMPDIR/gh-stub-forced-failure"
+  printf '#!/usr/bin/env bash\necho 77\n' > "$CAIRN_GH"
+  chmod +x "$CAIRN_GH"
+
+  CAIRN_BD="$BATS_TEST_TMPDIR/bd-stub-forced-failure"
+  printf '#!/usr/bin/env bash\necho "bd: external-ref write failed: simulated failure" >&2\nexit 1\n' > "$CAIRN_BD"
+  chmod +x "$CAIRN_BD"
+
+  run post_bd_write "bd close map-13 --reason=done"
+  # Contract intact even though the underlying write failed.
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -le 1 ]
+
+  # The failure is observable, not discarded.
+  wait_for_lines "$PWD/.cairn/hook.log" 1
+  grep -qF "simulated failure" "$PWD/.cairn/hook.log"
 }
 
 #-----------------------------------------------------------------------------
