@@ -118,6 +118,60 @@ PY
   assert_json_eq "$output" '.offending[0].phase' '1'
 }
 
+#-----------------------------------------------------------------------------
+# roadmap-complete-but-nothing-built (CORR-05 / D-10) — additive, independent
+# of what bd says. See cairn-loop-gate.bats-equivalent test in capability.bats
+# for the twin's coverage, and the cross-script test there for lockstep proof.
+#-----------------------------------------------------------------------------
+
+@test "gate blocks a completed phase with no directory on disk at all, even with zero bd issues" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # ROADMAP: phase 1 is [x]
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+  rm -rf .planning/phases/01-auth
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh" --json
+  [ "$status" -eq 6 ]
+  assert_json_eq "$output" \
+    '[.offending[] | select(.status == "no-artifacts")] | length' '1'
+  assert_json_eq "$output" \
+    '.offending[] | select(.status == "no-artifacts") | .phase' '1'
+  assert_json_eq "$output" \
+    '.offending[] | select(.status == "no-artifacts") | .id' 'null'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
+  [ "$status" -eq 6 ]
+  grep -qF "GATE FAILED" <<<"$output"
+  grep -qF "phase-1" <<<"$output"
+}
+
+@test "gate blocks a completed phase whose disk holds only a bare PLAN.md (planned, never executed)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # ROADMAP: phase 1 is [x], with SUMMARY + VERIFICATION
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+  rm -f .planning/phases/01-auth/01-01-SUMMARY.md \
+        .planning/phases/01-auth/01-VERIFICATION.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh" --json
+  [ "$status" -eq 6 ]
+  assert_json_eq "$output" \
+    '[.offending[] | select(.status == "no-artifacts")] | length' '1'
+}
+
+@test "gate passes a completed phase with VERIFICATION.md on disk and zero bd issues (unchanged by this check)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 already ships a VERIFICATION.md
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.ok' 'true'
+  assert_json_eq "$output" '.offending | length' '0'
+}
+
 @test "no .beads/ — gate not applicable, exit 0 with a note" {
   make_tmp_repo
   make_gsd_fixture "$PWD"

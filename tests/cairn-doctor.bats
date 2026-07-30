@@ -109,7 +109,7 @@ EOF
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '11'
+  assert_json_eq "$output" '.checks | length' '13'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
@@ -242,7 +242,12 @@ PY
   make_tmp_repo
   make_gsd_fixture "$PWD"
   make_doctor_fixture
-  bd close "$DOC_P2" >/dev/null   # map 2 NOT regenerated
+  # A new open issue (not a close) keeps disk/bd corroboration agreeing —
+  # phase 2 stays "not done" on both sides — while still making the map
+  # stale, which is all this test needs.
+  bd create "API-02: Second endpoint" -t task -l phase-2,m-v1.0 \
+    --metadata '{"gsd":{"req":"API-02","phase":2,"milestone":"v1.0"}}' \
+    --silent >/dev/null   # map 2 NOT regenerated
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]   # warnings alone never change the exit code
@@ -297,10 +302,15 @@ EOF
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null   # keep check 3 ok
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  [ "$status" -eq 0 ]   # WARN, never fail
-  assert_json_eq "$output" '.ok' 'true'
+  # phase-complete-open itself only WARNs here, but phase-corroboration
+  # (check 11) independently reads the same fact — phase 1 verified on
+  # disk, one of its issues still open — as its R1 "blocks" rule (disk vs
+  # bd), so the OVERALL run fails until the straggler is closed.
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.ok' 'false'
   assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .status' 'warn'
   assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .items | length' '1'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
   grep -qF "$straggler" <<<"$output"
   # Phase 1's disk artifacts agree (PLAN has its SUMMARY) — no divergence note.
   refute_in_output "artifacts disagree"
@@ -431,9 +441,14 @@ EOF
   rm .planning/phases/01-auth/01-01-SUMMARY.md   # disk now disagrees
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  [ "$status" -eq 0 ]
+  # VERIFICATION.md still exists, so disk still reads "verified" — an open
+  # issue in a verified phase is also phase-corroboration's R1 "blocks"
+  # conflict (check 11), which is why the run fails overall even though
+  # phase-complete-open itself only warns.
+  [ "$status" -eq 7 ]
   assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .status' 'warn'
   assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .items | length' '2'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
   grep -qF "$straggler" <<<"$output"
   grep -qF "artifacts disagree" <<<"$output"
 }
@@ -448,19 +463,27 @@ EOF
     --silent >/dev/null
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
 
-  # Gap 1: the PLAN is there, its SUMMARY is not.
+  # Gap 1: the PLAN is there, its SUMMARY is not. VERIFICATION.md still
+  # exists, so disk still reads "verified" to phase-corroboration — an
+  # open issue (AUTH-04) in a verified phase is its R1 "blocks" conflict
+  # (check 11), so the run fails overall even though phase-complete-open
+  # itself only warns.
   rm .planning/phases/01-auth/01-01-SUMMARY.md
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 7 ]
   grep -qF "01-01-PLAN.md lacks its SUMMARY" <<<"$output"
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
 
   # Gap 2: no phase directory at all — the note used to blame a missing
-  # SUMMARY for a phase that has no PLAN to lack one.
+  # SUMMARY for a phase that has no PLAN to lack one. disk now reads
+  # "none"; roadmap still marks phase 1 complete, which is R2's "blocks"
+  # conflict (roadmap vs disk) — still failing, for a different reason.
   rm -rf .planning/phases/01-auth
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 7 ]
   grep -qF "no phase directory on disk" <<<"$output"
   refute_in_output "lacks its SUMMARY"
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
 }
 
 @test "phase-complete-open: --close-completed drains an epic<-epic<-epic chain in ONE run" {
@@ -521,8 +544,19 @@ PY
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
   [ "$status" -eq 0 ]
   refute_in_output "[cairn-doctor] closed"
-  refute_in_output "⚠"
   refute_in_output "✗"
+  # phase-corroboration (check 11) still reports one "informs" item — this
+  # fixture marks phase 2 complete on disk without also moving STATE.md's
+  # active_phase off 2, a real (non-blocking) staleness the check exists to
+  # surface — so a blanket refute of "⚠" would now fail for a legitimate
+  # reason. Assert the specific check is clean AND pin the warning that is
+  # expected, so an unexpected SECOND warning from any other check still
+  # breaks this test — which is the property the blanket refute was
+  # carrying, and the reason not to simply drop it.
+  grep -qF "✓ phase-complete-open" <<<"$output"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '[.checks[] | select(.status=="warn")] | length' '1'
+  assert_json_eq "$output" '.checks[] | select(.status=="warn") | .id' 'phase-corroboration'
 }
 
 @test "phase-complete-open: a close bd refuses fails the check, exit 7" {
@@ -642,10 +676,15 @@ PY
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null   # keep check 3 ok
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  [ "$status" -eq 0 ]
+  # claims-stale itself only WARNs, but phase-corroboration (check 11)
+  # independently reads the same fact — phase 1 verified on disk, one of
+  # its issues in_progress — as its R1 "blocks" conflict (disk vs bd), so
+  # the OVERALL run fails until the claim is resolved.
+  [ "$status" -eq 7 ]
   assert_json_eq "$output" '.active_phase' '2'
   assert_json_eq "$output" '.checks[] | select(.id=="claims-stale") | .status' 'warn'
   assert_json_eq "$output" '.checks[] | select(.id=="claims-stale") | .items | length' '1'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
   grep -qF "$claimed" <<<"$output"
   grep -qF "stale claim" <<<"$output"
 }
@@ -762,3 +801,229 @@ EOF
   grep -qF "two GSD lineages installed" <<<"$output"
   grep -qF "claude plugin uninstall gsd@cairngo" <<<"$output"
 }
+
+# --------------------------------------------------------------------------- #
+# phase-corroboration (check 11, CORR-06) — 13-03
+# --------------------------------------------------------------------------- #
+
+# Point STATE.md's active_phase at N (fixture always ships '"2"').
+set_state_active_phase() {
+  python3 - "$1" <<'PY'
+import re
+import sys
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r'active_phase: ".*?"', f'active_phase: "{sys.argv[1]}"',
+                     p.read_text()))
+PY
+}
+
+@test "phase-corroboration: clean fixture reports ok with no items" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .items | length' '0'
+}
+
+@test "phase-corroboration: disk-vs-bd blocks conflict fails the check and the run, exit 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 verified on disk and roadmap-complete
+  make_doctor_fixture
+  # Plan 13-01's canonical "blocks" scenario: disk says phase 1 is done
+  # (SUMMARY + VERIFICATION exist), bd still has an open issue for it.
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.ok' 'false'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-corroboration") | .items[] | select(startswith("1:"))] | length' '1'
+  grep -qF "disk reports phase 1 verified" <<<"$output"
+  grep -qF "close the open bd issue(s) if the work is done" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "✗ phase-corroboration" <<<"$output"
+  grep -qF "[cairn-doctor] FAIL" <<<"$output"
+}
+
+@test "phase-corroboration: state_md-vs-disk informs conflict warns, never fails the run" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 verified, phase 2 active
+  make_doctor_fixture
+  # Point the workflow pointer at the phase that already shipped — a stale
+  # pointer (R3, informs) with nothing else disagreeing.
+  set_state_active_phase 1
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]   # informs never fails the run (D-10)
+  assert_json_eq "$output" '.ok' 'true'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'warn'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .items | length' '1'
+  grep -qF "STATE.md still points at phase 1, disk already reports verified" <<<"$output"
+  grep -qF "STATE.md's active_phase looks stale" <<<"$output"
+}
+
+@test "phase-corroboration: recommendation text is routed per conflict source pair" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # Both a "blocks" (disk vs bd) AND an "informs" (state_md vs disk)
+  # conflict on the SAME phase in the SAME run — the routed recommendation
+  # must differ per item, not bleed from one item's text into the other's.
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  set_state_active_phase 1
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-corroboration") | .items[] | select(test("disk reports")) | select(test("close the open bd issue"))] | length' '1'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-corroboration") | .items[] | select(test("STATE.md still points")) | select(test("close the open bd issue"))] | length' '0'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-corroboration") | .items[] | select(test("STATE.md still points")) | select(test("looks stale"))] | length' '1'
+}
+
+# --------------------------------------------------------------------------- #
+# external-ref (check 12, CORR-08/D-11) — 13-03
+# --------------------------------------------------------------------------- #
+
+@test "external-ref: unambiguous git match reported by default, --link-refs backfills, idempotent" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # Isolate the scenario to DOC_A1: DOC_A2 already carries an external_ref,
+  # so it drops out of `lacking` and stays out of what is asserted here.
+  bd update "$DOC_A2" --external-ref gh-1 >/dev/null
+  mkdir -p src
+  echo "def signup(): pass" >> src/auth.py
+  git add src/auth.py
+  git commit -qm "feat(auth): add signup handler (#42)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="external-ref") | .status' 'warn'
+  assert_json_eq "$output" \
+    "[.checks[] | select(.id==\"external-ref\") | .items[] | select(. == \"$DOC_A1 -> gh-42\")] | length" '1'
+
+  # Nothing written yet — the default run is read-only.
+  run bd show "$DOC_A1" --json
+  assert_json_eq "$output" '.[0].external_ref // "none"' 'none'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --link-refs
+  [ "$status" -eq 0 ]
+  grep -qF "linked $DOC_A1 -> gh-42" <<<"$output"
+
+  run bd show "$DOC_A1" --json
+  assert_json_eq "$output" '.[0].external_ref' 'gh-42'
+
+  # Idempotent: a second run (a fresh process reading fresh bd state) has
+  # nothing left to link.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json --link-refs
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="external-ref") | .status' 'ok'
+  refute_in_output "linked"
+}
+
+@test "external-ref: two different PR numbers in the window is ambiguous, never a candidate" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  bd update "$DOC_A2" --external-ref gh-1 >/dev/null
+  mkdir -p src
+  echo "one" >> src/auth.py
+  git add src/auth.py
+  git commit -qm "wip: signup tweak (#10)"
+  echo "two" >> src/auth.py
+  git add src/auth.py
+  git commit -qm "wip: another tweak (#11)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="external-ref") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="external-ref") | .items | length' '0'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --link-refs
+  [ "$status" -eq 0 ]
+  run bd show "$DOC_A1" --json
+  assert_json_eq "$output" '.[0].external_ref // "none"' 'none'
+}
+
+@test "external-ref: a real shallow clone skips --link-refs entirely, writes nothing (D-08)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  mkdir -p src
+  echo "def signup(): pass" >> src/auth.py
+  git add src/auth.py
+  git commit -qm "feat(auth): add signup handler (#42)"
+
+  # A REAL shallow clone (git clone --depth 1), per STACK.md's verified
+  # recipe — not a simulated flag. bd's actual data lives under a
+  # gitignored embeddeddolt/ dir that a plain clone never carries, and
+  # .planning/ here was never committed either, so both are copied across
+  # the same way an operator would after cloning.
+  local src_repo="$PWD"
+  local clone_dir="$BATS_TEST_TMPDIR/ext-ref-shallow-clone"
+  git clone --depth 1 -q "file://$src_repo" "$clone_dir"
+  rm -rf "$clone_dir/.beads"
+  cp -r "$src_repo/.beads" "$clone_dir/.beads"
+  chmod 700 "$clone_dir/.beads"
+  cp -r "$src_repo/.planning" "$clone_dir/.planning"
+
+  run git -C "$clone_dir" rev-parse --is-shallow-repository
+  [ "$output" = "true" ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --project-dir "$clone_dir" \
+    --json --link-refs
+  assert_json_eq "$output" '.checks[] | select(.id=="external-ref") | .status' 'warn'
+  grep -qF "shallow clone" <<<"$output"
+
+  run bd -C "$clone_dir" show "$DOC_A1" --json
+  assert_json_eq "$output" '.[0].external_ref // "none"' 'none'
+}
+
+@test "external-ref: composes with --close-completed in one invocation" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 checked off in ROADMAP.md
+  make_doctor_fixture
+  bd update "$DOC_A2" --external-ref gh-1 >/dev/null
+  mkdir -p src
+  echo "def signup(): pass" >> src/auth.py
+  git add src/auth.py
+  git commit -qm "feat(auth): add signup handler (#42)"
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json --link-refs --close-completed
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-complete-open") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="external-ref") | .status' 'ok'
+
+  run bd show "$DOC_A1" --json
+  assert_json_eq "$output" '.[0].external_ref' 'gh-42'
+  run bd show "$straggler" --json
+  assert_json_eq "$output" '.[0].status' 'closed'
+}
+

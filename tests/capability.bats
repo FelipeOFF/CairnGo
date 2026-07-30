@@ -272,6 +272,68 @@ require_or_skip() {
   assert_output_contains "$PH2_ISSUE"
 }
 
+#-----------------------------------------------------------------------------
+# roadmap-complete-but-nothing-built (CORR-05 / D-10) — additive, independent
+# of what bd says. Twin of the cairn-gate.py coverage in cairn-gate.bats.
+#-----------------------------------------------------------------------------
+
+@test "ship-gate blocks a completed phase with no directory on disk at all, even with zero bd issues" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # ROADMAP: phase 1 is [x]
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+  rm -rf .planning/phases/01-auth
+
+  run bash "$GATE_SH" ship-gate
+  [ "$status" -eq 1 ]
+  assert_output_contains "phase 1"
+  assert_output_contains "no artifacts on disk"
+}
+
+@test "ship-gate blocks a completed phase whose disk holds only a bare PLAN.md (planned, never executed)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 ships SUMMARY + VERIFICATION by default
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+  rm -f .planning/phases/01-auth/01-01-SUMMARY.md \
+        .planning/phases/01-auth/01-VERIFICATION.md
+
+  run bash "$GATE_SH" ship-gate
+  [ "$status" -eq 1 ]
+  assert_output_contains "no artifacts on disk"
+}
+
+@test "ship-gate passes a completed phase with VERIFICATION.md on disk and zero bd issues (unchanged by this check)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 already ships a VERIFICATION.md
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+
+  run bash "$GATE_SH" ship-gate
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "cross-script lockstep (D-10): cairn-gate.sh and cairn-loop-gate.sh ship-gate both block on the same no-artifacts repo state" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # ROADMAP: phase 1 is [x]
+  bd init -q --prefix lock --non-interactive >/dev/null 2>&1   # zero issues
+  rm -rf .planning/phases/01-auth
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
+  local gate_status="$status"
+
+  run bash "$GATE_SH" ship-gate
+  local loop_gate_status="$status"
+
+  # D-10's concrete lockstep proof: a phase the ROADMAP marks complete with
+  # nothing built on disk blocks BOTH ship-gate entry points on the identical
+  # repo state — never one twin passing while the other blocks.
+  [ "$gate_status" -ne 0 ]
+  [ "$loop_gate_status" -ne 0 ]
+}
+
 @test "verify-cross reports MISMATCH for open issues against a passed VERIFICATION, OK after close" {
   require_bd
   make_tmp_repo

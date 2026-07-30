@@ -863,6 +863,35 @@ def phase_state_text(p):
     return DISK_STATE_LABEL.get(p.get("disk_state"), "unknown")
 
 
+def conflict_summary_text(p):
+    """`word — detail` for a "conflict" verdict phase (D-03's one-line
+    rendering): `conflict` when the phase carries a "blocks" item, else
+    `diverges` when only "informs" items exist. The detail is that item's
+    own `detail` string, already naming both sources (built by corroborate()
+    in Plan 13-01) — never re-derived here, so the terminal panel and the
+    HTML page can only ever repeat the exact same claim, not each
+    independently summarize it (D-04)."""
+    conflicts = p.get("conflicts") or []
+    blocks = [c for c in conflicts if c["severity"] == "blocks"]
+    item = blocks[0] if blocks else conflicts[0]
+    word = "conflict" if blocks else "diverges"
+    return f"{word} — {item['detail']}"
+
+
+def conflict_marker(p, style):
+    """(glyph, sgr) naming a phase's corroboration verdict — computed once so
+    the terminal panel and the HTML CSS class can never point at a different
+    severity for the same phase (D-04). "unknown" (bd unreachable, no
+    conflicts computed) gets the same quiet g_stale/SGR_DIM treatment as a
+    stale marker elsewhere on the board; a "blocks" item outranks "informs"
+    within a "conflict" verdict, matching conflict_summary_text()'s pick."""
+    if p.get("corroboration") == "unknown":
+        return (style.g_stale, SGR_DIM)
+    if any(c["severity"] == "blocks" for c in (p.get("conflicts") or [])):
+        return (style.g_conflict, SGR_RED)
+    return (style.g_informs, SGR_YELLOW)
+
+
 def pending_phases(model):
     """Phases still to do, in roadmap order. Complete ones drop out."""
     return [p for p in model if not p["complete"]]
@@ -1204,6 +1233,7 @@ class Style:
             self.ell, self.sep = "...", " | "
             self.g_next, self.g_dep, self.g_who = ">", "<-", "@"
             self.g_stale = "*"
+            self.g_conflict, self.g_informs = "x", "!"
         else:
             self.tl, self.tm, self.tr = "┌", "┬", "┐"
             self.bl, self.bm, self.br = "└", "┴", "┘"
@@ -1211,6 +1241,7 @@ class Style:
             self.ell, self.sep = "…", " · "
             self.g_next, self.g_dep, self.g_who = "▶", "⧗", "◆"
             self.g_stale = "·"
+            self.g_conflict, self.g_informs = "✗", "⚠"
 
     def asciify(self, text):
         """Downgrade the punctuation this script itself injects. Issue titles
@@ -1388,14 +1419,34 @@ def phase_panel_lines(data, width, style):
         # Titles share one column so the states line up and can be read down.
         num_w = max(len(str(p["number"])) for p in pending)
         budget = max(24, width - num_w - 34)
+        n_blocks = n_informs = 0
         for p in pending:
-            state = phase_state_text(p)
-            prog = phase_progress_text(p)
-            if prog:
-                state = f"{state} {style.sep} {prog}"
-            if p["blocked_by"]:
-                state = (f"{state} {style.sep} waits on "
-                         f"{join_numbers(p['blocked_by'])}")
+            corrob = p.get("corroboration")
+            if corrob == "conflict":
+                # One phase, one line (D-03): the marker + reason REPLACES
+                # the normal state text entirely, it never sits alongside it.
+                if any(c["severity"] == "blocks" for c in p["conflicts"]):
+                    n_blocks += 1
+                else:
+                    n_informs += 1
+                glyph, sgr = conflict_marker(p, style)
+                state_span = (style.asciify(truncate(
+                    f"{glyph} {conflict_summary_text(p)}", budget,
+                    style.ell)), sgr)
+            elif corrob == "unknown":
+                glyph, sgr = conflict_marker(p, style)
+                state_span = (style.asciify(truncate(
+                    f"{glyph} corroboration unknown", budget, style.ell)),
+                    sgr)
+            else:
+                state = phase_state_text(p)
+                prog = phase_progress_text(p)
+                if prog:
+                    state = f"{state} {style.sep} {prog}"
+                if p["blocked_by"]:
+                    state = (f"{state} {style.sep} waits on "
+                             f"{join_numbers(p['blocked_by'])}")
+                state_span = (style.asciify(state), SGR_DIM)
             title = style.asciify(p["title"] or "(untitled)")
             lines.append(render_spans([
                 ("  ", None),
@@ -1403,8 +1454,25 @@ def phase_panel_lines(data, width, style):
                 ("  ", None),
                 (truncate(title, budget, style.ell).ljust(budget), None),
                 ("  ", None),
-                (style.asciify(state), SGR_DIM),
+                state_span,
             ], style))
+        if n_blocks or n_informs:
+            # The itemized per-source detail lives in /cairn:doctor and
+            # --json only — this line counts, it never dumps a second line
+            # per phase onto the board itself.
+            lines.append("")
+            spans = [("  ", None)]
+            if n_blocks:
+                spans.append((f"{style.g_conflict} {n_blocks} blocks",
+                              SGR_RED))
+            if n_blocks and n_informs:
+                spans.append((style.sep, SGR_DIM))
+            if n_informs:
+                spans.append((f"{style.g_informs} {n_informs} informs",
+                              SGR_YELLOW))
+            spans.append((style.asciify(" — /cairn:doctor for the itemized "
+                                        "report"), SGR_DIM))
+            lines.append(render_spans(spans, style))
 
     if cmds:
         lines.append("")
@@ -2112,7 +2180,22 @@ def html_phases(data):
                    f'<span class="panel-n">{len(pending)}</span></h2>')
         out.append('<ol class="phase-list">')
         for p in pending:
-            meta = [esc(phase_state_text(p))]
+            # Same D-04 helpers as the terminal panel — meta[0] is never
+            # re-derived here, so the two surfaces cannot independently
+            # summarize the same conflict differently.
+            corrob = p.get("corroboration")
+            conflict_cls = ""
+            if corrob == "conflict":
+                meta = [esc(conflict_summary_text(p))]
+                has_blocks = any(c["severity"] == "blocks"
+                                 for c in p["conflicts"])
+                conflict_cls = " phase-conflict" if has_blocks \
+                    else " phase-informs"
+            elif corrob == "unknown":
+                meta = [esc("corroboration unknown")]
+                conflict_cls = " phase-unknown"
+            else:
+                meta = [esc(phase_state_text(p))]
             prog = phase_progress_text(p)
             if prog:
                 meta.append(f'<span class="n">{esc(prog)}</span>')
@@ -2126,7 +2209,7 @@ def html_phases(data):
                         f'{esc(", ".join(p["requirements"]))}</span>')
             blocked = " is-waiting" if p["blocked_by"] else ""
             out.append(
-                f'<li class="phase{blocked}">'
+                f'<li class="phase{blocked}{conflict_cls}">'
                 f'<span class="phase-n">{p["number"]}</span>'
                 '<span class="phase-body">'
                 f'<span class="phase-title">{esc(p["title"] or "(untitled)")}'

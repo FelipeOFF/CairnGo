@@ -453,3 +453,319 @@ for p in d["phases"]:
   grep -qF 'corroboration' <<<"$output"
   grep -qF 'bd_ok' <<<"$output"
 }
+
+# ─── Plan 13-02, Task 1: D-03 one-phase-one-line terminal rendering ─────────
+
+@test "a blocks conflict and an informs-only conflict render as one PENDING PHASES line each, with the panel summary counting each severity separately" {
+  require_bd
+  make_tmp_repo
+  write_corr_roadmap
+  # Phase 1: disk says executed, bd still has its issue open — R1, blocks.
+  mkdir -p .planning/phases/01-first
+  touch .planning/phases/01-first/01-01-SUMMARY.md
+  # Phase 2: disk already verified, STATE.md still points at it — R3, informs.
+  mkdir -p .planning/phases/02-second
+  touch .planning/phases/02-second/02-01-PLAN.md
+  touch .planning/phases/02-second/02-01-SUMMARY.md
+  touch .planning/phases/02-second/02-VERIFICATION.md
+  cat > .planning/STATE.md <<'EOF'
+---
+active_phase: "2"
+---
+EOF
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+  bd create "phase 1 still open" -t task -l phase-1 --silent >/dev/null
+
+  run bash "$STATUS_SH" --width 100
+  [ "$status" -eq 0 ]
+  # One line per phase, never two: each marker word appears on exactly one
+  # line, and it is near enough the front of that line to survive the
+  # title-column truncation budget at this width. The glyph is part of the
+  # search string because NEXT COMMANDS' own (glyph-less) reason text for a
+  # blocks-routed phase also happens to contain the bare substring
+  # "conflict —" ("corroboration conflict — resolve via /cairn:doctor...").
+  [ "$(grep -cF '✗ conflict —' <<<"$output")" -eq 1 ]
+  [ "$(grep -cF '⚠ diverges —' <<<"$output")" -eq 1 ]
+  # The panel summary counts each severity separately (D-03's closing line).
+  grep -qF '1 blocks' <<<"$output"
+  grep -qF '1 informs' <<<"$output"
+  grep -qF '/cairn:doctor for the itemized report' <<<"$output"
+
+  # A wide-enough terminal proves the reason text itself is not silently
+  # dropping either side of the disagreement once truncation stops mattering
+  # — the detail strings here (~70-76 cells) do not fit under --width 100's
+  # ~65-cell budget, so this is checked at a width that has room for them.
+  run bash "$STATUS_SH" --width 240
+  [ "$status" -eq 0 ]
+  grep -qF 'disk reports phase 1 executed, bd reports its issues open' \
+    <<<"$output"
+  grep -qF 'STATE.md still points at phase 2, disk already reports verified' \
+    <<<"$output"
+}
+
+@test "--ascii renders x/! glyphs in place of the unicode conflict markers" {
+  require_bd
+  make_tmp_repo
+  write_corr_roadmap
+  mkdir -p .planning/phases/01-first
+  touch .planning/phases/01-first/01-01-SUMMARY.md
+  mkdir -p .planning/phases/02-second
+  touch .planning/phases/02-second/02-01-PLAN.md
+  touch .planning/phases/02-second/02-01-SUMMARY.md
+  touch .planning/phases/02-second/02-VERIFICATION.md
+  cat > .planning/STATE.md <<'EOF'
+---
+active_phase: "2"
+---
+EOF
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+  bd create "phase 1 still open" -t task -l phase-1 --silent >/dev/null
+
+  run bash "$STATUS_SH" --ascii --width 100
+  [ "$status" -eq 0 ]
+  # asciify() also downgrades the em dash this script itself injects, so the
+  # ascii marker text reads "x conflict -"/"! diverges -", hyphen not dash.
+  grep -qF 'x conflict -' <<<"$output"
+  grep -qF '! diverges -' <<<"$output"
+}
+
+# ─── Plan 13-02, Task 2: D-04 cross-surface parity (--json / terminal / HTML) ─
+
+@test "a blocks conflict's detail string is verbatim-identical across --json, the terminal panel and the HTML page" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  # Phase 2 already has a SUMMARY (disk says "executed"); bd still shows its
+  # own issue open — same R1 shape as the disk-vs-bd test above.
+  touch .planning/phases/02-api/02-01-SUMMARY.md
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+  bd create "phase 2 still open" -t task -l phase-2 --silent >/dev/null
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" > "$BATS_TEST_TMPDIR/j.json"
+
+  # A wide render, not the --width 100 a narrow terminal would use: the HTML
+  # side never truncates conflict_summary_text() at all, so proving textual
+  # identity requires the terminal side to actually carry the full string
+  # too, not a --width 100 rendering that R1/R3's own detail text (~70+
+  # cells) cannot fit under this panel's fixed truncation budget.
+  run bash "$STATUS_SH" --width 200
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/term.txt"
+
+  run bash "$STATUS_SH" --html board.html
+  [ "$status" -eq 0 ]
+
+  python3 - "$BATS_TEST_TMPDIR/j.json" "$BATS_TEST_TMPDIR/term.txt" board.html <<'PY'
+import json, sys, pathlib
+doc = json.loads(pathlib.Path(sys.argv[1]).read_text())
+term = pathlib.Path(sys.argv[2]).read_text()
+html = pathlib.Path(sys.argv[3]).read_text()
+p = [x for x in doc["phases"] if x["number"] == 2][0]
+assert p["corroboration"] == "conflict", p
+blocks = [c for c in p["conflicts"] if c["severity"] == "blocks"]
+assert len(blocks) == 1, p["conflicts"]
+detail = blocks[0]["detail"]
+assert detail in term, ("terminal", detail, term)
+assert detail in html, ("html", detail, html)
+PY
+  grep -qF 'class="phase phase-conflict"' board.html
+}
+
+@test "an informs-only conflict's detail string is verbatim-identical across --json, the terminal panel and the HTML page" {
+  require_bd
+  make_tmp_repo
+  write_corr_roadmap
+  mkdir -p .planning/phases/02-second
+  touch .planning/phases/02-second/02-01-PLAN.md
+  touch .planning/phases/02-second/02-01-SUMMARY.md
+  touch .planning/phases/02-second/02-VERIFICATION.md
+  cat > .planning/STATE.md <<'EOF'
+---
+active_phase: "2"
+---
+EOF
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+  # No bd issues for phase 2 at all — bd agrees by having no opinion.
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" > "$BATS_TEST_TMPDIR/j.json"
+
+  run bash "$STATUS_SH" --width 200
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/term.txt"
+
+  run bash "$STATUS_SH" --html board.html
+  [ "$status" -eq 0 ]
+
+  python3 - "$BATS_TEST_TMPDIR/j.json" "$BATS_TEST_TMPDIR/term.txt" board.html <<'PY'
+import json, sys, pathlib
+doc = json.loads(pathlib.Path(sys.argv[1]).read_text())
+term = pathlib.Path(sys.argv[2]).read_text()
+html = pathlib.Path(sys.argv[3]).read_text()
+p = [x for x in doc["phases"] if x["number"] == 2][0]
+assert p["corroboration"] == "conflict", p
+assert not any(c["severity"] == "blocks" for c in p["conflicts"]), p["conflicts"]
+detail = p["conflicts"][0]["detail"]
+assert detail in term, ("terminal", detail, term)
+assert detail in html, ("html", detail, html)
+PY
+  grep -qF 'class="phase phase-informs"' board.html
+}
+
+@test "an unknown corroboration verdict renders 'corroboration unknown' identically across the terminal panel and the HTML page" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+  local stub
+  stub="$(make_failing_bd_stub)"
+
+  run env PATH="$stub:$PATH" bash "$STATUS_SH" --json
+  [ "$status" -eq 5 ]
+  printf '%s' "$output" > "$BATS_TEST_TMPDIR/j.json"
+
+  run env PATH="$stub:$PATH" bash "$STATUS_SH" --width 200
+  [ "$status" -eq 5 ]
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/term.txt"
+
+  run env PATH="$stub:$PATH" bash "$STATUS_SH" --html board.html
+  [ "$status" -eq 5 ]
+
+  python3 - "$BATS_TEST_TMPDIR/j.json" "$BATS_TEST_TMPDIR/term.txt" board.html <<'PY'
+import json, sys, pathlib
+doc = json.loads(pathlib.Path(sys.argv[1]).read_text())
+term = pathlib.Path(sys.argv[2]).read_text()
+html = pathlib.Path(sys.argv[3]).read_text()
+p = [x for x in doc["phases"] if x["number"] == 2][0]
+assert p["corroboration"] == "unknown", p
+assert p["conflicts"] == [], p["conflicts"]
+assert "corroboration unknown" in term, term
+assert "corroboration unknown" in html, html
+PY
+  grep -qF 'class="phase phase-unknown"' board.html
+}
+
+# ─── Plan 13-02, Task 3: harmless-diff corpus (CORR-07) ─────────────────────
+# Four known-non-signal combinations, each proven here to produce zero false
+# conflicts — the same discipline bench-corpus.bats already applies to this
+# repo's cost claims, and PITFALLS.md Pitfall 1's explicit fix for the
+# cry-wolf detector ("if you can't explain why you're ignoring a diff, don't
+# ignore it"). Each entry below carries its own one-line justification
+# directly above its @test.
+#   1. Zero bd issues under phase-N at all.
+#   2. A cross-phase issue open only because a LATER phase isn't done.
+#   3. A regenerated NN-BEADS-MAP.md (new mtime, new content).
+#   4. A touched-but-unmodified -SUMMARY.md.
+
+# Absence of bd data must never be read as disagreement.
+@test "a phase with zero bd issues under phase-N corroborates ok, whatever disk/roadmap say" {
+  require_bd
+  make_tmp_repo
+  write_corr_roadmap
+  mkdir -p .planning/phases/01-first
+  touch .planning/phases/01-first/01-01-PLAN.md
+  touch .planning/phases/01-first/01-01-SUMMARY.md
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+  # No bd issues created at all, for phase 1 or otherwise.
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 1 corroboration)" = "ok" ]
+  printf '%s' "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+p = [x for x in d["phases"] if x["number"] == 1][0]
+assert p["evidence"]["bd"] == "none", p["evidence"]
+assert p["conflicts"] == [], p["conflicts"]
+'
+}
+
+# A cross-phase issue open only because a LATER phase is not done is real
+# work for that later phase, not evidence THIS phase's own work is
+# unfinished — the exact bd_state() ALL-not-ANY exclusion Plan 13-01 built.
+@test "a cross-phase bd issue blocked on a later, undone phase corroborates the earlier phase ok" {
+  require_bd
+  make_tmp_repo
+  mkdir -p .planning
+  cat > .planning/ROADMAP.md <<'EOF'
+# Roadmap: Corroboration Fixture
+
+## Phases
+
+- [x] Phase 3: Third phase
+- [ ] Phase 4: Fourth phase
+EOF
+  mkdir -p .planning/phases/03-third
+  touch .planning/phases/03-third/03-01-SUMMARY.md
+  touch .planning/phases/03-third/03-VERIFICATION.md
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+  bd create "cross-phase follow-up" -t task -l phase-3,phase-4 --silent >/dev/null
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 3 corroboration)" = "ok" ]
+  printf '%s' "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+p3 = [x for x in d["phases"] if x["number"] == 3][0]
+assert p3["evidence"]["bd"] == "none", p3["evidence"]
+assert p3["conflicts"] == [], p3["conflicts"]
+'
+}
+
+# disk_state()/corroborate() only ever look at -PLAN.md/-SUMMARY.md/
+# -VERIFICATION.md suffixes; the map file is invisible to this comparison by
+# construction.
+@test "regenerating a phase's NN-BEADS-MAP.md between two runs changes nothing corroborate() reads" {
+  require_bd
+  make_tmp_repo
+  write_corr_roadmap
+  mkdir -p .planning/phases/01-first
+  touch .planning/phases/01-first/01-01-PLAN.md
+  touch .planning/phases/01-first/01-01-SUMMARY.md
+  echo "map v1" > .planning/phases/01-first/01-BEADS-MAP.md
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  before_state="$(printf '%s' "$output" | phase_field 1 disk_state)"
+  [ "$(printf '%s' "$output" | phase_field 1 corroboration)" = "ok" ]
+
+  sleep 1
+  echo "map v2 — completely rewritten content" \
+    > .planning/phases/01-first/01-BEADS-MAP.md
+  touch .planning/phases/01-first/01-BEADS-MAP.md
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 1 corroboration)" = "ok" ]
+  [ "$(printf '%s' "$output" | phase_field 1 disk_state)" = "$before_state" ]
+}
+
+# phase_disk_state() is existence-only, never mtime- or content-sensitive.
+@test "touching an existing -SUMMARY.md without changing its content leaves disk_state and corroboration unchanged" {
+  require_bd
+  make_tmp_repo
+  write_corr_roadmap
+  mkdir -p .planning/phases/01-first
+  touch .planning/phases/01-first/01-01-PLAN.md
+  echo "original summary content" \
+    > .planning/phases/01-first/01-01-SUMMARY.md
+  bd init -q --prefix cf --non-interactive >/dev/null 2>&1
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 1 disk_state)" = "executed" ]
+  [ "$(printf '%s' "$output" | phase_field 1 corroboration)" = "ok" ]
+
+  sleep 1
+  touch .planning/phases/01-first/01-01-SUMMARY.md
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 1 disk_state)" = "executed" ]
+  [ "$(printf '%s' "$output" | phase_field 1 corroboration)" = "ok" ]
+}

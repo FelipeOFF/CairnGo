@@ -519,6 +519,24 @@ body {
    can are what the eye lands on. Tone, not a colour or a badge. */
 .phase.is-waiting .phase-title { color: var(--bone-dim); }
 
+/* A phase whose sources disagree takes the same accent-edge treatment as
+   the split note below (.panel-par.is-split) - severity picks the colour,
+   never a badge/pill/icon-tile. --oxide's own contrast floor (3.38:1, see
+   :root) is documented as marks/accents only, so it lives on the border,
+   not the small meta text; the text itself brightens to --bone instead of
+   staying at --bone-dim, so nothing here drops out of AA. */
+.phase.phase-conflict .phase-meta {
+  padding-left: 10px;
+  border-left: 2px solid var(--oxide);
+  color: var(--bone);
+}
+
+.phase.phase-informs .phase-meta {
+  padding-left: 10px;
+  border-left: 2px solid var(--amber);
+  color: var(--bone);
+}
+
 .cmd {
   display: grid;
   gap: 2px;

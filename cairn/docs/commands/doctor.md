@@ -5,13 +5,13 @@
 ## Usage
 
 ```
-/cairn:doctor [--fix-labels] [--close-completed] [--json]
+/cairn:doctor [--fix-labels] [--close-completed] [--link-refs] [--json]
 ```
 
 Flags typed by the user are appended to the script call. Under the hood:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--close-completed]
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--close-completed] [--link-refs]
 ```
 
 ## What it does
@@ -40,7 +40,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
    invocation drains an `epic ← epic ← epic` chain without `--force`.
    A target bd still refuses is reported with bd's reason and **fails**
    the check (exit `7`) instead of a silent partial sweep.
-5. Routes each finding to its remediation:
+5. When the **external-ref** check finds an unambiguous, unlinked git
+   match, offers a re-run with `--link-refs`, which backfills bd's
+   `external_ref` field (`bd update <id> --external-ref gh-<N>`) for every
+   closed issue whose match is unambiguous, printing each id it links.
+   Idempotent — an issue that already carries an `external_ref` is never
+   reconsidered, so a second run links nothing further. On a shallow
+   clone, skips entirely and says so (see the check's own entry below).
+6. Routes each finding to its remediation:
    - **req-issue** (✗) — a ROADMAP requirement has no stamped, phase-labeled
      issue → `/cairn:migrate` (mode C wires or creates), or a one-off
      `bd create "CAT-NN: <title>" -l m-<m>,phase-<N> --metadata
@@ -105,9 +112,37 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
      used only when no GSD binary can be found at all, since that is not
      evidence either way.
 
-   (An eleventh check probes the minimum supported `bd` version; it needs no
-   routing beyond upgrading bd.)
-6. Re-runs the doctor after fixes to confirm a clean `ok` footer.
+   - **phase-corroboration** (⚠/✗) — Plan 13-01's `phase_model()` verdict
+     for a phase disagrees across disk, bd, the ROADMAP checkbox, or
+     STATE.md's `active_phase` pointer. Each item is routed to the
+     likely-correct fix first: a **disk-vs-bd** item (disk says the phase
+     shipped, bd still has an open issue) → close the open issue(s) if the
+     work is really done, or `/cairn:work N` if it is not; a
+     **roadmap-vs-disk** item (the checkbox is ticked, disk disagrees) →
+     confirm the phase is really done before leaving it ticked, or
+     re-plan it; a **state_md-vs-disk** item (STATE.md still points at a
+     phase disk already finished) → nothing to fix unless you are
+     genuinely still working that phase. Disk-vs-bd and roadmap-vs-disk
+     are `blocks` severity and **fail** the run (exit `7`); a
+     state_md-vs-disk item, or bd being unreadable for a phase
+     (`unknown`), is `informs` and only warns. Shells to `cairn-status.py
+     --json`; a failure there degrades this check to a warn rather than
+     crashing the doctor run.
+   - **external-ref** (⚠) — a closed issue has no bd `external_ref` and an
+     unambiguous `(#N)` PR reference was found in this repo's own git
+     history (a commit within ±2 days of the issue's `closed_at`, touching
+     that phase's `files_modified`) → step 5 above (`--link-refs`). Never
+     warns merely because history predates the convention — that is this
+     repo's entire history today (STACK.md) and is not, by itself,
+     actionable. On a shallow clone, the check is skipped for the whole
+     run and says so: a shallow clone's git match can be silently *wrong*
+     at the boundary commit, not merely incomplete, so `--link-refs`
+     never trusts one (run against a full clone, or `git fetch
+     --unshallow`, then retry).
+
+   (Check 0, `bd-version`, runs first but needs no routing beyond
+   upgrading bd — thirteen checks in total.)
+7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
 
@@ -116,6 +151,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
 | `--json` | Machine-readable report |
 | `--fix-labels` | Repair label pairs via `cairn-relabel pair` (active milestone) before checking |
 | `--close-completed` | Bulk-close non-closed issues in ROADMAP-complete phases via `bd close --reason` before checking (idempotent, prints each closed id; sweeps as a fixpoint so parent/blocker chains drain in one run, and exits `7` if bd refuses one) |
+| `--link-refs` | Backfill closed issues lacking `external_ref` from an unambiguous git match via `bd update --external-ref` (idempotent, prints each linked id; skipped entirely on a shallow clone) |
 
 ## Exit codes
 
@@ -124,7 +160,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
 | `0` | All ok (warnings included) — or not-applicable: `.planning/` or `.beads/` absent (one side present → suggests `/cairn:migrate`; neither → `/cairn:init`) |
 | `2` | Usage — notably `--fix-labels` refuses when candidates exist but the milestone is unresolvable: set `milestone:` in STATE.md frontmatter, or mark the in-progress ROADMAP milestone with 🚧, then retry |
 | `5` | `bd` unavailable |
-| `7` | At least one check **failed** (✗) — including `--close-completed` leaving a target unclosed because bd refused it (reported on the phase-complete-open check with bd's reason) |
+| `7` | At least one check **failed** (✗) — including `--close-completed` leaving a target unclosed because bd refused it (reported on the phase-complete-open check with bd's reason), and a `blocks`-severity phase-corroboration conflict |
 
 ## Examples
 
@@ -139,7 +175,7 @@ cairn doctor — root: ~/Projects/app · milestone: v1.0 · active phase: 3
 ✓ req-issue          ✓ frontmatter-ids     ⚠ maps-fresh (phase 2 stale)
 ✓ superseded-released ✓ phase-complete-open ✓ orphans
 ✓ label-pairs        ✓ claims-stale        ✓ bd-doctor
-✓ gsd-capability
+✓ gsd-capability      ✓ phase-corroboration ✓ external-ref
 ok (1 warning)
 ```
 
@@ -149,7 +185,7 @@ A repo whose GSD cannot host the fusion reports it plainly:
 ✗ gsd-capability     GSD 4.x lineage — it has no 'capability' subcommand, so
                      plain /gsd:* does NOT touch bd issues. Install the
                      official core: claude plugin install gsd-core@cairngo
-FAIL — 10 ok, 0 warning(s), 1 failure(s)
+FAIL — 12 ok, 0 warning(s), 1 failure(s)
 ```
 
 Repair label pairs, then re-check:
@@ -161,10 +197,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 ## Files touched
 
 - **Reads:** `.planning/ROADMAP.md`, `.planning/STATE.md`, phase dirs
-  (PLAN.md frontmatter, `NN-BEADS-MAP.md` freshness), beads state via `bd`
+  (PLAN.md frontmatter, `NN-BEADS-MAP.md` freshness, `files_modified:`),
+  beads state via `bd`, `cairn-status.py --json` (phase corroboration),
+  git history (`git rev-parse --is-shallow-repository`, `git log` — the
+  external-ref check reads this for its report even without `--link-refs`)
 - **Writes:** nothing by default; with `--fix-labels`, issue labels via
   `cairn-relabel pair` (`bd update`); with `--close-completed`, issue status
-  via `bd close --reason`
+  via `bd close --reason`; with `--link-refs`, `external_ref` via
+  `bd update --external-ref` — never any git write
 
 ## Related
 

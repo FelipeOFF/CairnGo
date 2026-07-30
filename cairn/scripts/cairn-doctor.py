@@ -3,19 +3,20 @@
 
 Cross-checks the two sources of truth (.planning/ and the bd tracker) and
 reports drift. Read-only except for --fix-labels, which delegates to
-cairn-relabel.py pair, and --close-completed, which bulk-closes via
-'bd close'.
+cairn-relabel.py pair, --close-completed, which bulk-closes via
+'bd close', and --link-refs, which backfills bd's --external-ref field
+via 'bd update'.
 
 Usage:
     cairn-doctor.py [--project-dir <dir>] [--json] [--fix-labels]
-                    [--close-completed]
+                    [--close-completed] [--link-refs]
 
 Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — eleven checks
-                        in total.
+                        version output -> WARN. Runs first — thirteen
+                        checks in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
                         metadata.gsd.req matches, scoped to the phase's
@@ -91,6 +92,58 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     9. bd-doctor        run 'bd doctor'; first line captured as the
                         summary, pass/fail as bd reports it (exit 0 -> ok,
                         else FAIL).
+    10. gsd-capability  which GSD lineage is installed and whether the
+                        cairn capability actually registered against it
+                        (see check_gsd_capability()'s own docstring for
+                        the full routing — an unloadable manifest, two
+                        lineages at once, the 4.x lineage, or an
+                        unregistered/partly-staged bundle -> FAIL; no GSD
+                        binary found at all -> WARN, not evidence either
+                        way).
+    11. phase-corroboration  reads Plan 13-01's phase_model() verdict for
+                        every phase (shells to 'cairn-status.py --json',
+                        the same subprocess pattern check 3 already uses
+                        for cairn-map.py --check) and itemizes every
+                        phase whose corroboration != "ok": a "conflict"
+                        verdict lists each entry in that phase's
+                        conflicts[] as '<n>: <detail> (<severity>) —
+                        <recommendation>', the recommendation being the
+                        FIRST, most-likely fix (D-01) and differing by the
+                        conflict's source pair (disk/bd -> close the bd
+                        issue or run /cairn:work; roadmap/disk -> confirm
+                        before leaving the checkbox ticked; state_md/disk
+                        -> the pointer is merely stale, no action needed);
+                        an "unknown" verdict (bd unreadable for that
+                        phase) gets one item saying so. A "blocks"-
+                        severity conflict -> FAIL (reuses EXIT_FAILED, no
+                        new exit code); "informs"-only or "unknown" ->
+                        WARN, never fails the run (D-10 applied to
+                        doctor's own exit code). A subprocess/JSON
+                        failure degrades to WARN rather than crashing the
+                        whole doctor run over this one check.
+    12. external-ref    CORR-08/D-11 backfill: every CLOSED issue lacking
+                        bd's own 'external_ref' field, resolved to its
+                        phase and that phase's plan(s) 'files_modified:',
+                        cross-referenced against 'git log' in a +/-2 day
+                        window around the issue's closed_at for a commit
+                        subject carrying a single, unambiguous '(#N)'
+                        token (zero or multiple distinct numbers found ->
+                        never a candidate, never guessed). Read-only by
+                        default: reports each unambiguous candidate as
+                        '<id> -> gh-N', writes nothing. --link-refs backs
+                        it: runs 'bd update <id> --external-ref gh-N' for
+                        each candidate, itemizes what it linked, and is
+                        idempotent (an issue already carrying an
+                        external_ref is excluded from consideration up
+                        front). A shallow clone's git match can be
+                        silently WRONG at the boundary commit, not merely
+                        incomplete (D-08, reproduced in STACK.md) — a
+                        single 'git rev-parse --is-shallow-repository'
+                        check skips the whole check for the run rather
+                        than trusting it. WARN only when an unambiguous,
+                        actionable candidate is waiting (never merely
+                        because history predates the convention — that is
+                        the expected, unremarkable case per STACK.md).
 
 Active milestone is resolved leniently like cairn-gate: STATE.md
 frontmatter 'milestone:' first, else the ROADMAP.md milestone marked in
@@ -106,7 +159,8 @@ Exit codes:
     5  bd unavailable (not on PATH, or bd list failed).
     7  at least one check FAILED — including --close-completed leaving a
        target unclosed (bd refused it and the fixpoint could not drain it),
-       which fails check 5 rather than exiting silently 0.
+       which fails check 5 rather than exiting silently 0, and including a
+       "blocks"-severity phase-corroboration conflict (check 11).
 """
 import argparse
 import json
@@ -115,6 +169,7 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 EXIT_OK = 0
@@ -136,6 +191,7 @@ REQ_LINE = re.compile(r"^\*\*Requirements\*\*\s*:(.*)$")
 REQ_ID = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
 DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
+PR_NUMBER = re.compile(r"\(#(\d+)\)")
 
 # Labels that legitimately carry no phase-* label (migration parking lots,
 # plus unphased /cairn:quick side-quests).
@@ -807,6 +863,287 @@ def check_gsd_capability(root):
 
 
 # --------------------------------------------------------------------------- #
+# check 11 — phase-corroboration (CORR-06)
+# --------------------------------------------------------------------------- #
+CORROBORATION_RECOMMENDATION = {
+    ("disk", "bd"): "close the open bd issue(s) if the work is done, or "
+                    "run /cairn:work N if it is not",
+    ("roadmap", "disk"): "confirm the phase is really done before leaving "
+                         "the checkbox ticked, or re-plan it",
+    ("state_md", "disk"): "STATE.md's active_phase looks stale — no action "
+                          "needed unless you are actually still working "
+                          "phase N",
+}
+
+
+def corroboration_recommendation(sources):
+    """The first, most-likely fix for a conflict's source pair (D-01: the
+    likely-correct option presented first, never a bare list of options)."""
+    return CORROBORATION_RECOMMENDATION.get(
+        tuple(sources), "see /cairn:doctor for details")
+
+
+def check_phase_corroboration(root, planning_dir):
+    """Check 11, id "phase-corroboration" (CORR-06) — reads Plan 13-01's
+    phase_model() corroboration verdict for every phase (shells to
+    'cairn-status.py --json', the same subprocess pattern check_maps_fresh()
+    already uses for cairn-map.py --check) and routes each non-"ok" phase to
+    a recommended fix.
+
+    Two severities only (D-09), each carrying corroborate()'s own written
+    justification (see cairn-status.py): a "blocks" conflict FAILS the
+    doctor run (reuses EXIT_FAILED, no new exit code); an "informs"
+    conflict or an "unknown" verdict (bd unreadable for that phase) WARNs
+    without failing — D-10's "the ship gate bars only the blockers" posture,
+    applied here to doctor's own exit code too. A subprocess/parse failure
+    degrades to WARN rather than crashing the whole doctor run over one
+    check — corroboration is additive, never a new way for doctor itself to
+    become unusable.
+    """
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "cairn-status.py"), "--json",
+         "--planning-dir", str(planning_dir)],
+        capture_output=True, text=True, cwd=str(root))
+    # 0 (every phase corroborated) and 5 (cairn-status.py's own bd probe
+    # failed — a normal, documented degrade that still emits valid JSON
+    # with every affected phase's bd axis reading "unknown") are the two
+    # exit codes cairn-status.py --json is documented to pair with real
+    # output; anything else is unexpected.
+    if proc.returncode not in (0, 5):
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return {"id": "phase-corroboration", "status": "warn",
+                "detail": f"cairn-status.py --json exited "
+                          f"{proc.returncode}, corroboration could not be "
+                          f"computed: {first}",
+                "items": []}
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        return {"id": "phase-corroboration", "status": "warn",
+                "detail": "cairn-status.py --json returned invalid JSON, "
+                          f"corroboration could not be computed: {e}",
+                "items": []}
+
+    items = []
+    any_blocks = False
+    n_phases = 0
+    for p in data.get("phases") or []:
+        verdict = p.get("corroboration")
+        if verdict in (None, "ok"):
+            continue
+        n_phases += 1
+        n = p.get("number")
+        if verdict == "conflict":
+            for c in p.get("conflicts") or []:
+                sev = c.get("severity")
+                rec = corroboration_recommendation(c.get("sources") or [])
+                items.append(f"{n}: {c.get('detail', '')} ({sev}) — {rec}")
+                if sev == "blocks":
+                    any_blocks = True
+        elif verdict == "unknown":
+            items.append(f"{n}: bd could not be read for this phase — "
+                         f"re-run once bd is reachable")
+    detail = (f"{len(items)} corroboration item(s) across {n_phases} "
+              "phase(s)" if items else "every phase's corroboration is ok")
+    status = "fail" if any_blocks else ("warn" if items else "ok")
+    return {"id": "phase-corroboration", "status": status,
+            "detail": detail, "items": items}
+
+
+# --------------------------------------------------------------------------- #
+# check 12 — external-ref backfill (CORR-08, D-11)
+# --------------------------------------------------------------------------- #
+def parse_plan_files_modified(path):
+    """`files_modified:` paths from a PLAN.md's YAML frontmatter, the same
+    lenient flow-list-or-block-list shape parse_plan_frontmatter() already
+    reads for `beads:` — a sibling parser, so that function's (status,
+    beads) return contract never changes."""
+    lines = read_lines(path)
+    if not lines or lines[0].strip() != "---":
+        return []
+    body = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        body.append(line)
+    for i, line in enumerate(body):
+        m = re.match(r"^files_modified\s*:\s*(.*)$", line)
+        if not m:
+            continue
+        rest = m.group(1)
+        if "[" in rest:
+            inner = rest[rest.index("[") + 1:]
+            if "]" in inner:
+                inner = inner[:inner.index("]")]
+            return [t.strip().strip("'\"") for t in inner.split(",")
+                    if t.strip().strip("'\"")]
+        files = []
+        for cont in body[i + 1:]:
+            mi = re.match(r"^\s*-\s*(.+?)\s*$", cont)
+            if not mi:
+                break
+            files.append(mi.group(1).strip("'\""))
+        return files
+    return []
+
+
+def phase_files_modified(planning_dir, n):
+    """Every files_modified path across phase n's non-superseded plans,
+    de-duplicated in first-seen order — the pathspec link_ref_candidate()
+    narrows its git query to."""
+    files = []
+    for num, d in phase_dirs(planning_dir):
+        if num != n:
+            continue
+        for f in sorted(d.glob("*-PLAN.md")):
+            status, _ = parse_plan_frontmatter(f)
+            if status == "superseded":
+                continue
+            files.extend(parse_plan_files_modified(f))
+    seen, out = set(), []
+    for f in files:
+        if f not in seen:
+            seen.add(f)
+            out.append(f)
+    return out
+
+
+def git_is_shallow(root):
+    """True when root is a shallow git clone — verified live (STACK.md) to
+    make -S/-G/--grep results silently WRONG at the boundary commit, not
+    merely incomplete (D-08); check_external_ref must never trust a git
+    match from one."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--is-shallow-repository"],
+        capture_output=True, text=True)
+    return proc.returncode == 0 and proc.stdout.strip() == "true"
+
+
+def closed_window(closed_at, pad_days=2):
+    """(since, until) ISO8601 strings +/-pad_days around a bd closed_at
+    timestamp, or (None, None) when it is missing/unparsable."""
+    if not closed_at:
+        return None, None
+    s = str(closed_at).strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None, None
+    delta = timedelta(days=pad_days)
+    return (dt - delta).isoformat(), (dt + delta).isoformat()
+
+
+def link_ref_candidate(root, planning_dir, iss):
+    """The single unambiguous PR number for a closed issue, or None.
+
+    Resolves the issue's phase from its phase-<N> label(s) (the lowest
+    numbered one when it carries several), narrows a 'git log' query to
+    that phase's files_modified (falling back to the phase directory path
+    when no files_modified is known) within +/-2 days of the issue's
+    closed_at, and scans matching commit subjects for a '(#N)' token.
+    Exactly one distinct PR number among the matches is the candidate;
+    zero or multiple distinct numbers is never a candidate — this never
+    guesses (T-13-07: a crafted '(#N)' misattributing a PR is bounded to
+    'nothing written', never a wrong link silently accepted).
+    """
+    nums = phase_nums(iss)
+    if not nums:
+        return None
+    n = min(nums)
+    since, until = closed_window(iss.get("closed_at"))
+    if since is None:
+        return None
+    pathspec = phase_files_modified(planning_dir, n)
+    if not pathspec:
+        d = dict(phase_dirs(planning_dir)).get(n)
+        if d is None:
+            return None
+        pathspec = [str(d.relative_to(root))]
+    proc = subprocess.run(
+        ["git", "-C", str(root), "log", f"--since={since}",
+         f"--until={until}", "--format=%H|%s", "--", *pathspec],
+        capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    prs = set()
+    for line in proc.stdout.splitlines():
+        if "|" not in line:
+            continue
+        subject = line.split("|", 1)[1]
+        m = PR_NUMBER.search(subject)
+        if m:
+            prs.add(int(m.group(1)))
+    if len(prs) == 1:
+        return next(iter(prs))
+    return None
+
+
+def check_external_ref(root, planning_dir, issues, do_write):
+    """Check 12, id "external-ref" (CORR-08, D-11) — backfills the
+    bd-issue-to-PR linkage on already-closed issues from this repo's own
+    git history. See link_ref_candidate() for the exact match rule.
+
+    Read-only by default: reports each unambiguous candidate as
+    '<id> -> gh-N', writes nothing. do_write (--link-refs) writes 'bd
+    update <id> --external-ref gh-N' for each candidate and itemizes what
+    it linked — naturally idempotent, since an issue that already carries
+    an external_ref is excluded from `lacking` up front, so a second run
+    (a fresh process reading fresh bd state) has nothing left to
+    (re)write.
+
+    D-08: a shallow clone's git match can be silently WRONG at the
+    boundary commit, not merely incomplete (verified live in STACK.md) —
+    checked once before any query and reported as a single item rather
+    than trusted.
+
+    WARN only when an unambiguous, actionable candidate is waiting — never
+    merely because closed issues predate the --external-ref convention.
+    Per STACK.md, that is the expected, unremarkable state of this
+    repo's entire history today; flagging it unconditionally would be
+    exactly the vacuous-check failure mode this milestone exists to avoid.
+    """
+    if git_is_shallow(root):
+        return {"id": "external-ref", "status": "warn",
+                "detail": "shallow clone — git history cannot be trusted "
+                          "for --link-refs (D-08); run against a full "
+                          "clone (git fetch --unshallow)",
+                "items": ["shallow clone: --link-refs skipped entirely "
+                          "this run"]}
+
+    closed = [i for i in issues if i.get("status") == "closed"]
+    lacking = [i for i in closed
+               if not str(i.get("external_ref") or "").strip()]
+    candidates = []
+    for iss in lacking:
+        pr = link_ref_candidate(root, planning_dir, iss)
+        if pr is not None:
+            candidates.append((iss.get("id"), pr))
+
+    linked = []
+    if do_write:
+        for iid, pr in candidates:
+            proc = subprocess.run(
+                ["bd", "-C", str(root), "update", iid, "--external-ref",
+                 f"gh-{pr}"], capture_output=True, text=True)
+            if proc.returncode == 0:
+                linked.append(iid)
+
+    remaining_lacking = len(lacking) - len(linked)
+    remaining_candidates = len(candidates) - len(linked)
+    items = [f"linked {iid} -> gh-{pr}" if iid in linked
+             else f"{iid} -> gh-{pr}" for iid, pr in candidates]
+    detail = (f"{remaining_lacking} closed issue(s) lack an external ref, "
+              f"{remaining_candidates} have an unambiguous git match "
+              f"(run --link-refs to backfill)")
+    if linked:
+        detail += f" — linked {len(linked)} via --link-refs"
+    return {"id": "external-ref",
+            "status": "warn" if remaining_candidates else "ok",
+            "detail": detail, "items": items}
+
+
+# --------------------------------------------------------------------------- #
 # output + main
 # --------------------------------------------------------------------------- #
 def emit(as_json, summary, human_lines):
@@ -834,6 +1171,11 @@ def main():
                              "complete (bd close --reason), before the "
                              "checks run; a cross-phase issue with an open "
                              "phase is left alone")
+    parser.add_argument("--link-refs", action="store_true",
+                        help="backfill closed issues lacking bd's "
+                             "external_ref field from an unambiguous git "
+                             "match (bd update --external-ref), read-only "
+                             "without this flag")
     args = parser.parse_args()
 
     root = Path(args.project_dir
@@ -986,6 +1328,8 @@ def main():
         check_claims_stale(issues, milestone, active_phase),
         check_bd_doctor(root),
         check_gsd_capability(root),
+        check_phase_corroboration(root, planning_dir),
+        check_external_ref(root, planning_dir, issues, args.link_refs),
     ]
     summary["checks"] = checks
     n_fail = sum(1 for c in checks if c["status"] == "fail")
