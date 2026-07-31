@@ -15,7 +15,7 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — thirteen
+                        version output -> WARN. Runs first — fourteen
                         checks in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
@@ -121,7 +121,36 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         doctor's own exit code). A subprocess/JSON
                         failure degrades to WARN rather than crashing the
                         whole doctor run over this one check.
-    12. external-ref    CORR-08/D-11 backfill: every CLOSED issue lacking
+    12. phase-artifacts CARD-02/D-04: names which artifact is missing for a
+                        phase whose board row would otherwise be a bare
+                        dash. Reuses main()'s already-computed
+                        disk_incomplete_reasons() (no duplicate frontmatter
+                        parser) plus 'cairn-status.py --json' (same
+                        subprocess pattern as check 11) for disk_state /
+                        verify_status. Two WARN-only shapes: a phase whose
+                        disk_state has already reached "verified" (an
+                        NN-VERIFICATION.md exists) while one of its
+                        PLAN.md files still lacks its own SUMMARY.md,
+                        named by filename; and a "verified" phase whose
+                        NN-VERIFICATION.md carries no readable 'status:'
+                        field. The missing-SUMMARY half is gated on
+                        disk_state == "verified" ON PURPOSE — an ungated
+                        version fired on every plans-without-summary gap,
+                        which is the state of any phase mid-flight between
+                        waves, and a plan-checker caught that as noise; a
+                        phase someone ran /cairn:verify on despite an
+                        unsummarized plan is a genuine anomaly, ordinary
+                        in-progress work is not. Known accepted gap: a
+                        phase stuck at "executed" that never reaches
+                        "verified" — its SUMMARY-less plan never gets
+                        flagged here either, the false negative the
+                        narrowed gate trades for removing the mid-flight
+                        false positive. NEVER fails the run (see
+                        check_phase_artifacts()'s own docstring for why);
+                        a subprocess/JSON failure against cairn-status.py
+                        degrades to a single WARN item rather than falling
+                        back to the ungated dump.
+    13. external-ref    CORR-08/D-11 backfill: every CLOSED issue lacking
                         bd's own 'external_ref' field, resolved to its
                         phase and that phase's plan(s) 'files_modified:',
                         cross-referenced against 'git log' in a +/-2 day
@@ -952,7 +981,102 @@ def check_phase_corroboration(root, planning_dir):
 
 
 # --------------------------------------------------------------------------- #
-# check 12 — external-ref backfill (CORR-08, D-11)
+# check 12 — phase-artifacts (CARD-02, D-04)
+# --------------------------------------------------------------------------- #
+def check_phase_artifacts(root, planning_dir, disk_reasons):
+    """Check 12, id "phase-artifacts" (CARD-02/D-04) — names which artifact
+    is missing when a phase's board row would otherwise show only a bare
+    dash: a PLAN.md still lacking its own SUMMARY.md in a phase that has
+    already reached disk_state "verified", or an NN-VERIFICATION.md with
+    no readable 'status:' verdict in its frontmatter. This is the doctor
+    half of D-04's narrowing of the phase card's missing-artifact story —
+    the board says "not planned" or renders a dash; naming the concrete
+    gap by filename is doctor's job, the same division of labor phase 13
+    already established for per-source conflict detail (check 11, above).
+
+    The missing-SUMMARY half is gated on disk_state == "verified"
+    DELIBERATELY, not on every plans/summary gap
+    disk_incomplete_reasons() (already computed once in main() as
+    disk_reasons, reused here rather than recomputed — no duplicate
+    frontmatter parser in this file) reports. An earlier draft fired on
+    ANY phase with an unsummarized plan regardless of state; a
+    plan-checker caught that this fires on completely ordinary mid-flight
+    work (a phase between waves always has some plans without summaries
+    yet) and is noise, not signal. A phase someone ran /cairn:verify on
+    despite one of its plans never having been summarized is a genuine
+    anomaly; a phase still being worked is not.
+
+    Known, accepted residual gap — written down rather than left as a
+    silent trap: a phase stuck at disk_state "executed" (its SUMMARY-less
+    plan sits there, nobody ever runs /cairn:verify on it, so it never
+    reaches "verified") never fires this check either. The narrowed gate
+    trades that false negative for the mid-flight false positive it was
+    built to remove; check 5 (phase-complete-open) independently covers
+    the ROADMAP-checkbox-complete flavor of the same on-disk gap.
+
+    Shells to 'cairn-status.py --json' exactly the way
+    check_phase_corroboration() already does, reading phase_model()'s
+    disk_state and verify_status for every phase in the same subprocess
+    call. On a returncode outside (0, 5) or a JSON-decode failure, this
+    check cannot determine disk_state for its gate, so it degrades to a
+    single WARN item rather than falling back to the ungated disk_reasons
+    dump — that fallback would silently reintroduce the exact mid-flight
+    noise this check's narrowed gate exists to remove.
+
+    Status is ALWAYS "warn" (items present) or "ok" (none), NEVER "fail" —
+    a deliberate choice distinct from phase-corroboration's blocks/fail
+    behavior, because a missing SUMMARY or an unreadable verdict is a
+    record-hygiene gap, not contradictory evidence about what actually
+    happened (D-01's "cairn never stops the flow", applied here to
+    hygiene rather than correctness findings).
+    """
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "cairn-status.py"), "--json",
+         "--planning-dir", str(planning_dir)],
+        capture_output=True, text=True, cwd=str(root))
+    if proc.returncode not in (0, 5):
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return {"id": "phase-artifacts", "status": "warn",
+                "detail": f"cairn-status.py --json exited "
+                          f"{proc.returncode}, phase-artifacts could not "
+                          f"run: {first}",
+                "items": []}
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        return {"id": "phase-artifacts", "status": "warn",
+                "detail": "cairn-status.py --json returned invalid JSON, "
+                          f"phase-artifacts could not run: {e}",
+                "items": []}
+
+    phases = data.get("phases") or []
+    state_by_n = {p.get("number"): p.get("disk_state") for p in phases}
+    verify_by_n = {p.get("number"): p.get("verify_status") for p in phases}
+
+    items = []
+    # First pass: a PLAN.md missing its SUMMARY.md, but ONLY for phases
+    # that have already reached disk_state "verified" — the narrowed gate
+    # this check exists to enforce (see docstring above).
+    for n, reason in sorted((disk_reasons or {}).items()):
+        if state_by_n.get(n) == "verified":
+            items.append(f"phase {n}: {reason}")
+    # Second pass: a "verified" phase whose NN-VERIFICATION.md carries no
+    # readable 'status:' field.
+    for n, ds in sorted(state_by_n.items()):
+        if ds == "verified" and not verify_by_n.get(n):
+            items.append(f"phase {n}: has a VERIFICATION.md but no "
+                         f"readable 'status:' field in its frontmatter")
+
+    detail = (f"{len(items)} phase(s) with an unexpected missing/unreadable "
+              "artifact" if items
+              else "every phase's artifacts are complete and readable")
+    return {"id": "phase-artifacts", "status": "warn" if items else "ok",
+            "detail": detail, "items": items}
+
+
+# --------------------------------------------------------------------------- #
+# check 13 — external-ref backfill (CORR-08, D-11)
 # --------------------------------------------------------------------------- #
 def parse_plan_files_modified(path):
     """`files_modified:` paths from a PLAN.md's YAML frontmatter, the same
@@ -1329,6 +1453,7 @@ def main():
         check_bd_doctor(root),
         check_gsd_capability(root),
         check_phase_corroboration(root, planning_dir),
+        check_phase_artifacts(root, planning_dir, disk_reasons),
         check_external_ref(root, planning_dir, issues, args.link_refs),
     ]
     summary["checks"] = checks

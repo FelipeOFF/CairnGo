@@ -128,6 +128,25 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
      (`unknown`), is `informs` and only warns. Shells to `cairn-status.py
      --json`; a failure there degrades this check to a warn rather than
      crashing the doctor run.
+   - **phase-artifacts** (⚠) — names which artifact is missing for a phase
+     whose board row would otherwise be a bare dash (CARD-02/D-04): a
+     `PLAN.md` still lacking its own `SUMMARY.md` in a phase that has
+     already reached `disk_state: verified` (an `NN-VERIFICATION.md`
+     exists), or an `NN-VERIFICATION.md` with no readable `status:` field
+     in its frontmatter → write the missing `SUMMARY.md`, or add the
+     missing `status:` field to the verification report. The
+     missing-`SUMMARY` half is deliberately narrower than it sounds: it
+     only fires once a phase has reached `verified`, not on every
+     unsummarized plan — an ordinary phase between waves always has some,
+     and that is not the anomaly this check exists to name. One accepted
+     consequence: a phase stuck at `executed` (a plan never summarized,
+     and nobody ever runs `/cairn:verify` on it) never reaches `verified`
+     and so is never flagged here either — check 5 (`phase-complete-open`)
+     independently covers the ROADMAP-checkbox-complete flavor of the same
+     gap. Shells to `cairn-status.py --json`, same pattern as
+     phase-corroboration. Never fails the run — a missing `SUMMARY` or an
+     unreadable verdict is record hygiene, not contradictory evidence
+     about what happened.
    - **external-ref** (⚠) — a closed issue has no bd `external_ref` and an
      unambiguous `(#N)` PR reference was found in this repo's own git
      history (a commit within ±2 days of the issue's `closed_at`, touching
@@ -141,7 +160,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
      --unshallow`, then retry).
 
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — thirteen checks in total.)
+   upgrading bd — fourteen checks in total.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
@@ -175,7 +194,8 @@ cairn doctor — root: ~/Projects/app · milestone: v1.0 · active phase: 3
 ✓ req-issue          ✓ frontmatter-ids     ⚠ maps-fresh (phase 2 stale)
 ✓ superseded-released ✓ phase-complete-open ✓ orphans
 ✓ label-pairs        ✓ claims-stale        ✓ bd-doctor
-✓ gsd-capability      ✓ phase-corroboration ✓ external-ref
+✓ gsd-capability      ✓ phase-corroboration ✓ phase-artifacts
+✓ external-ref
 ok (1 warning)
 ```
 

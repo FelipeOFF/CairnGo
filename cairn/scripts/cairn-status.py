@@ -34,7 +34,11 @@ Behavior:
        comment): ROADMAP.md phase checkboxes / progress-table rows and the
        🚧 milestone line; STATE.md frontmatter `milestone:`, `active_phase:`
        and `next_action:`. All of it is optional — missing files degrade to
-       an issues-only board.
+       an issues-only board. `roadmap_phase_rows()` also reads each phase's
+       `### Phase N:` detail block for `**Card:**` (or, failing that, the
+       first sentence of `**Goal:**`) — per D-03, this is the phase's
+       `purpose`, and it is `null` only when the phase has no detail block
+       at all.
     4. Synthesize ONE next action. In order: an in_progress issue exists →
        continue it; else the highest-priority ready issue labeled
        m-<milestone>,phase-<active>; else STATE.md's next_action; else the
@@ -62,6 +66,15 @@ Behavior:
        "unknown" verdict, or a "blocks" conflict) is rerouted to
        `/cairn:doctor` instead of its disk-driven next command, both in
        `phases[].next_command` and in `next_commands[]`.
+    4d. Each `--json` phase row also carries four additive, purely
+       descriptive keys for the phase card: `purpose` (see step 3),
+       `research_done` (does the phase directory carry an `NN-RESEARCH.md`),
+       `issues_done`/`issues_total` (bd issues matching that phase's own
+       `phase-N` label by ANY match — a looser count than bd_state()'s
+       ALL-not-ANY corroboration filter, and never used for corroboration),
+       and `verify_status` (the literal `status:` value from the phase's
+       `NN-VERIFICATION.md` frontmatter, or `null` when absent/unreadable).
+       `disk_state` itself is still never widened by any of this.
     5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
        gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
        list (< 40 cols). Non-TTY without an output flag: --plain
@@ -72,6 +85,19 @@ Behavior:
        ignored (--ascii alone does not force it). All bd/STATE.md text is
        passed through clean(), which strips C0/C1 control bytes — titles
        from remote trackers can't inject escape sequences or forge rows.
+    5b. Below the columned/stacked board, `phase_panel_lines()` prints a
+       PENDING PHASES table (`#`, `phase`, `state`, `rsch`, `plans`, `issues`,
+       `verify`, `waits`, `next` — the same step-4d/4c fields the HTML page
+       renders) and a PURPOSE list keyed by phase number, each line pairing
+       that phase's purpose with the reason `next_commands()` ordered it
+       where it did. There is no separate NEXT COMMANDS section: the command
+       itself is the table's `next` column, and the reason lives in PURPOSE
+       instead. PURPOSE is the one place text wraps rather than truncates —
+       a phase's purpose is never cut. When every phase is complete
+       (`pending_phases()` empty), PURPOSE still renders: `next_commands()`'s
+       `phase: None` pair (`/cairn:ship`, `/cairn:milestone complete`) prints
+       there with no phase-number prefix, so the terminal never shows less
+       than `--json` or the HTML page.
     6. When .cairn/sync.json exists, append a sync-staleness line from the
        last-pull watermarks in .cairn/state.json (missing or older than 24h
        → suggest /cairn:sync-pull).
@@ -190,6 +216,18 @@ ROADMAP_COMPLETED = re.compile(
 ROADMAP_TRAILING_PAREN = re.compile(r"\s*\(([^()]*)\)\s*$")
 ROADMAP_PLANS = re.compile(r"^(\d+)\s*/\s*(\d+)\s+plans?$", re.IGNORECASE)
 REQ_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d+(?:\s*,\s*[A-Z][A-Z0-9]*-\d+)*$")
+
+# "## Detalhe das fases" prose blocks (Phase 14): a THIRD phase-reference
+# shape, an H3 heading, distinct in form from ANY_PHASE's checkbox line and
+# TABLE_PHASE_ANY's table row — it can never collide with either.
+DETAIL_PHASE_HEADING = re.compile(r"^###\s+Phase\s+0*(\d+)\b")
+CARD_LABEL = re.compile(r"^\*\*Card:\*\*\s*(.*)$")
+GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
+# Recognizes ANY bold label line, both the colon-inside shape (`**Card:**`)
+# and the colon-outside shape used by `**Requirements**:` elsewhere in the
+# same blocks. Used only to know when to STOP collecting continuation text
+# for a Card/Goal block, never to start it.
+BOLD_LABEL = re.compile(r"^\*\*[^*]+\*\*:?")
 
 
 def die(msg, code):
@@ -507,6 +545,62 @@ def phase_plan_counts(pdir):
     return len(summaries & plans), len(plans)
 
 
+def phase_has_research(pdir):
+    """Whether this phase directory carries at least one `*-RESEARCH.md`
+    file — the same suffix-match shape phase_disk_state() already uses for
+    its own four suffixes: existence only, never mtime- or content-sensitive.
+    """
+    if pdir is None or not pdir.is_dir():
+        return False
+    return any(p.name.endswith("-RESEARCH.md") for p in pdir.iterdir()
+              if p.is_file())
+
+
+def phase_issue_counts(issues, n):
+    """(done, total) bd issues carrying phase n's own `phase-N` label, by ANY
+    match.
+
+    Deliberately looser than bd_state()'s ALL-not-ANY qualifying filter: an
+    issue that also carries an undone OTHER phase's label is still counted
+    here. This is a raw completion tally for the phase card, not a
+    corroboration read that must avoid fabricating a false conflict — do not
+    reuse this count for corroboration, and do not reuse bd_state()'s
+    qualifying list here. The two answer different questions.
+    """
+    done = total = 0
+    for iss in issues:
+        if n in issue_phase_ns(iss):
+            total += 1
+            if iss.get("status") == "closed":
+                done += 1
+    return done, total
+
+
+def verification_status(pdir):
+    """The literal `status:` value from a phase's `NN-VERIFICATION.md`
+    frontmatter, or None when the file is absent, unreadable, or the field
+    is missing/empty. Mirrors state_frontmatter()'s lenient
+    regex-and-strip shape rather than a YAML lib.
+    """
+    if pdir is None or not pdir.is_dir():
+        return None
+    candidates = sorted(p for p in pdir.iterdir()
+                        if p.is_file() and p.name.endswith("-VERIFICATION.md"))
+    if not candidates:
+        return None
+    lines = read_lines(candidates[0])
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^status\s*:\s*(.+?)\s*$", line)
+        if m:
+            val = m.group(1).split("#", 1)[0].strip().strip("'\"").strip()
+            return val or None
+    return None
+
+
 def plan_depends_on(pdir, dir_to_number):
     """Phase numbers this phase's plans declare in `depends_on:` frontmatter.
 
@@ -596,10 +690,66 @@ def roadmap_phase_rows(planning_dir):
         return rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [],
+            "requirements": [], "purpose": None,
         })
 
+    # State machine for the "## Detalhe das fases" prose blocks, tracked
+    # across the same single pass below (no second file read): detail_phase
+    # is the `### Phase N:` block currently open (or None), collecting is
+    # None/"card"/"goal" naming which label is being gathered, buffer holds
+    # its continuation lines so far. card_text/goal_text are resolved once
+    # after the loop, per phase number.
+    detail_phase = None
+    collecting = None
+    buffer = []
+    card_text, goal_text = {}, {}
+
+    def flush():
+        # Joins the buffered continuation lines into one cleaned string and
+        # files it under the label ("card"/"goal") currently being
+        # collected, keyed by the detail block it belongs to. A no-op when
+        # nothing is being collected.
+        nonlocal collecting, buffer
+        if collecting is not None:
+            text = " ".join(b for b in buffer if b).strip()
+            target = card_text if collecting == "card" else goal_text
+            target[detail_phase] = text
+        collecting = None
+        buffer = []
+
     for line in read_lines(planning_dir / "ROADMAP.md"):
+        m = DETAIL_PHASE_HEADING.match(line)
+        if m:
+            flush()
+            detail_phase = int(m.group(1))
+            slot(detail_phase)
+            continue
+
+        if detail_phase is not None:
+            m = CARD_LABEL.match(line)
+            if m:
+                flush()
+                collecting = "card"
+                buffer = [m.group(1).strip()]
+                continue
+            m = GOAL_LABEL.match(line)
+            if m:
+                flush()
+                collecting = "goal"
+                buffer = [m.group(1).strip()]
+                continue
+            if collecting is not None:
+                stripped = line.strip()
+                if not stripped or BOLD_LABEL.match(line) or stripped == "---":
+                    flush()
+                    if stripped == "---":
+                        # The `---` rule separates one phase's detail block
+                        # from the next, per the file's own structure.
+                        detail_phase = None
+                    continue
+                buffer.append(stripped)
+                continue
+
         m = ANY_PHASE.match(line)
         if m:
             n = int(m.group(1))
@@ -645,6 +795,22 @@ def roadmap_phase_rows(planning_dir):
             dm = re.match(r"^(\d{4}-\d{2}-\d{2})$", cell)
             if dm and not row["completed_on"]:
                 row["completed_on"] = cell
+    flush()  # a Card/Goal block running to EOF with no trailing `---`
+
+    for n in set(card_text) | set(goal_text):
+        slot(n)
+        card, goal = card_text.get(n), goal_text.get(n)
+        if card:
+            purpose = card
+        elif goal:
+            # First sentence only (up to and including the first period);
+            # the whole Goal text when no period exists.
+            sm = re.search(r"^(.*?\.)(?:\s|$)", goal)
+            purpose = sm.group(1) if sm else goal
+        else:
+            purpose = None
+        rows[n]["purpose"] = clean(purpose) if purpose else None
+
     return rows
 
 
@@ -720,7 +886,7 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
         rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [],
+            "requirements": [], "purpose": None,
         })
     dir_to_number = {d.name: n for n, d in dirs.items()}
     bd_edges = issue_phase_deps(issues or [])
@@ -740,6 +906,10 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
         pdir = dirs.get(n)
         row["dir"] = str(pdir.relative_to(planning_dir.parent)) if pdir else None
         row["disk_state"] = phase_disk_state(pdir)
+        row["research_done"] = phase_has_research(pdir)
+        row["issues_done"], row["issues_total"] = phase_issue_counts(
+            issues or [], n)
+        row["verify_status"] = verification_status(pdir)
         bd_val = bd_state(issues or [], n, roadmap_done_set)
         verdict, evidence, conflicts = corroborate(
             n, row["disk_state"], row["complete"], bd_val, bd_ok,
@@ -845,6 +1015,42 @@ def phase_progress_text(p):
     done = p.get("plans_done")
     done = 0 if done is None else done
     return f"{done}/{p['plans_total']} plans"
+
+
+def phase_purpose_text(p):
+    """What a phase IS, in one sentence — Plan 14-01's resolved `purpose`
+    (Card verbatim, or the first sentence of Goal), with the same
+    never-blank fallback shape `title` already uses elsewhere on this
+    board. Shared by the terminal PURPOSE list and the HTML purpose
+    paragraph so the two can only ever repeat the same sentence (D-04)."""
+    return p.get("purpose") or p.get("title") or "(no purpose recorded)"
+
+
+def phase_research_text(p):
+    """`yes`/`—` — whether an `NN-RESEARCH.md` exists for this phase."""
+    return "yes" if p.get("research_done") else "—"
+
+
+def phase_issues_text(p):
+    """`done/total`, or `—` when this phase has no bd issues mapped to it at
+    all. Distinct from `0/N`, real information (issues exist, none closed
+    yet) that must never collapse to a dash — only the true absence of any
+    issue does."""
+    total = p.get("issues_total")
+    if not total:
+        return "—"
+    return f"{p['issues_done']}/{total}"
+
+
+def phase_verify_text(p):
+    """The verification verdict: the literal `status:` value from
+    `NN-VERIFICATION.md` when one exists; `pending` when a SUMMARY exists but
+    no VERIFICATION.md yet (`disk_state == "executed"`); else `—`."""
+    if p.get("verify_status"):
+        return p["verify_status"]
+    if p.get("disk_state") == "executed":
+        return "pending"
+    return "—"
 
 
 DISK_STATE_LABEL = {
@@ -1397,13 +1603,26 @@ def meta_parts(data, style, include_done=True):
     return spans
 
 
-def phase_panel_lines(data, width, style):
-    """The pending phases and the commands to run next.
+PHASE_TABLE_FLOOR = 18       # target minimum for the `phase` column
+STATE_TABLE_FLOOR = 16       # enough for "x conflict -" (12 cells) plus a
+                              # margin under both --ascii (3-cell ellipsis)
+                              # and unicode (1-cell ellipsis)
+RSCH_W, PLANS_W, ISSUES_W = 5, 6, 7
+VERIFY_W, WAITS_W, NEXT_W = 16, 7, 16   # 16: fits "needs-revision" (14) whole
 
-    The lanes above answer "what tracked work exists". These two blocks answer
-    "which phase should I run, and why that one" — the question a row of phase
-    numbers cannot answer at all. Both render from the shared model, so they
-    cannot disagree with the footer or with the HTML page.
+
+def phase_panel_lines(data, width, style):
+    """The pending phases, what each one IS and has done, and what comes
+    next for it.
+
+    The lanes above answer "what tracked work exists". This block answers
+    "which phase should I run, why that one, and what has it actually done" —
+    a table for the vertical scan (read `issues` down every row at once),
+    plus a PURPOSE list below carrying what a fixed-width column cannot:
+    each phase's purpose in full (D-01), and the next-command routing reason
+    beside it (D-02 — `NEXT COMMANDS` no longer exists as its own section).
+    Both render from the shared model, so they cannot disagree with the
+    footer or with the HTML page.
     """
     phases = data.get("phases") or []
     pending = pending_phases(phases)
@@ -1412,50 +1631,116 @@ def phase_panel_lines(data, width, style):
         return []
 
     lines = [""]
+    # Shared by the table above and the PURPOSE list below, so a phase
+    # number lines up under the same width in both — and so this still
+    # works when `pending` is empty (the all-complete case: PURPOSE is
+    # carried entirely by `global_cmds`, computed below).
+    num_w = max((len(str(p["number"])) for p in pending), default=1)
+
     if pending:
         lines.append(render_spans(
             [("PENDING PHASES", SGR_BOLD),
              (f"  {len(pending)}", SGR_DIM)], style))
-        # Titles share one column so the states line up and can be read down.
-        num_w = max(len(str(p["number"])) for p in pending)
-        budget = max(24, width - num_w - 34)
+
+        # Pass 1: gather each row's raw (untruncated) content. The `state`
+        # column's width is only known once every row's real need is known
+        # (a conflict/unknown verdict's marker+detail can run to ~70-80
+        # cells; a plain "not planned" needs far less) — computing it
+        # requires a full pass before anything is truncated or printed.
+        rows = []
         n_blocks = n_informs = 0
         for p in pending:
             corrob = p.get("corroboration")
             if corrob == "conflict":
-                # One phase, one line (D-03): the marker + reason REPLACES
-                # the normal state text entirely, it never sits alongside it.
+                # One phase, one line (D-03, inherited unchanged from Phase
+                # 13): the marker + reason REPLACES the normal state text
+                # entirely, it never sits alongside it. This plan only
+                # narrows the column the marker lives in.
                 if any(c["severity"] == "blocks" for c in p["conflicts"]):
                     n_blocks += 1
                 else:
                     n_informs += 1
                 glyph, sgr = conflict_marker(p, style)
-                state_span = (style.asciify(truncate(
-                    f"{glyph} {conflict_summary_text(p)}", budget,
-                    style.ell)), sgr)
+                state_raw = f"{glyph} {conflict_summary_text(p)}"
             elif corrob == "unknown":
                 glyph, sgr = conflict_marker(p, style)
-                state_span = (style.asciify(truncate(
-                    f"{glyph} corroboration unknown", budget, style.ell)),
-                    sgr)
+                state_raw = f"{glyph} corroboration unknown"
             else:
-                state = phase_state_text(p)
-                prog = phase_progress_text(p)
-                if prog:
-                    state = f"{state} {style.sep} {prog}"
-                if p["blocked_by"]:
-                    state = (f"{state} {style.sep} waits on "
-                             f"{join_numbers(p['blocked_by'])}")
-                state_span = (style.asciify(state), SGR_DIM)
-            title = style.asciify(p["title"] or "(untitled)")
+                sgr = SGR_DIM
+                state_raw = phase_state_text(p)
+            blocked = bool(p["blocked_by"]) or p.get("needs_doctor", False)
+            rows.append({
+                "p": p, "state_raw": state_raw, "state_sgr": sgr,
+                "title": style.asciify(p["title"] or "(untitled)"),
+                "rsch": phase_research_text(p),
+                "plans": phase_progress_text(p) or "—",
+                "issues": phase_issues_text(p),
+                "verify": phase_verify_text(p),
+                "waits": join_numbers(p["blocked_by"]) or "—",
+                "next": p["next_command"] or "—",
+                "next_sgr": SGR_DIM if blocked else SGR_GREEN,
+            })
+
+        # Widths: `state` gets exactly what its widest row needs, capped so
+        # `phase` never collapses; `phase` gets whatever `state` doesn't
+        # need. This is what lets a plain "not planned" render at its full
+        # width while a ~76-cell conflict detail also renders whole at a
+        # wide terminal, from the same formula, with no special-casing.
+        fixed = (2 + num_w + 2 + 2 + 2  # margin, "#", gutters around phase/state
+                 + RSCH_W + 2 + PLANS_W + 2 + ISSUES_W + 2 + VERIFY_W + 2
+                 + WAITS_W + 2 + NEXT_W)
+        available = max(0, width - fixed)
+        natural_state = max((display_width(r["state_raw"]) for r in rows),
+                            default=STATE_TABLE_FLOOR)
+        cap = max(STATE_TABLE_FLOOR, available - PHASE_TABLE_FLOOR)
+        state_w = max(STATE_TABLE_FLOOR, min(natural_state, cap))
+        phase_w = max(1, available - state_w)
+
+        # Header sub-row, built from the SAME width variables as the data
+        # rows below, so header and data always line up.
+        lines.append(render_spans([
+            ("  ", None), ("#".rjust(num_w), SGR_DIM), ("  ", None),
+            ("phase".ljust(phase_w), SGR_DIM), ("  ", None),
+            ("state".ljust(state_w), SGR_DIM), ("  ", None),
+            ("rsch".ljust(RSCH_W), SGR_DIM), ("  ", None),
+            ("plans".ljust(PLANS_W), SGR_DIM), ("  ", None),
+            ("issues".ljust(ISSUES_W), SGR_DIM), ("  ", None),
+            ("verify".ljust(VERIFY_W), SGR_DIM), ("  ", None),
+            ("waits".ljust(WAITS_W), SGR_DIM), ("  ", None),
+            ("next", SGR_DIM),
+        ], style))
+
+        for r in rows:
+            p = r["p"]
+            state_text = style.asciify(
+                truncate(r["state_raw"], state_w, style.ell))
             lines.append(render_spans([
                 ("  ", None),
                 (str(p["number"]).rjust(num_w), None),
                 ("  ", None),
-                (truncate(title, budget, style.ell).ljust(budget), None),
+                (truncate(r["title"], phase_w, style.ell).ljust(phase_w),
+                 None),
                 ("  ", None),
-                state_span,
+                (state_text.ljust(state_w), r["state_sgr"]),
+                ("  ", None),
+                (truncate(r["rsch"], RSCH_W, style.ell).ljust(RSCH_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["plans"], PLANS_W, style.ell).ljust(PLANS_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["issues"], ISSUES_W, style.ell).ljust(ISSUES_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["verify"], VERIFY_W, style.ell).ljust(VERIFY_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["waits"], WAITS_W, style.ell).ljust(WAITS_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["next"], NEXT_W, style.ell), r["next_sgr"]),
             ], style))
+
         if n_blocks or n_informs:
             # The itemized per-source detail lives in /cairn:doctor and
             # --json only — this line counts, it never dumps a second line
@@ -1474,20 +1759,47 @@ def phase_panel_lines(data, width, style):
                                         "report"), SGR_DIM))
             lines.append(render_spans(spans, style))
 
-    if cmds:
+    # PURPOSE: the routing reason moves here from the deleted NEXT COMMANDS
+    # section (D-02). This is the ONE place text wraps instead of truncating
+    # (D-01 — a phase's purpose is never cut), and it is also the only
+    # section left standing when every phase is complete: `pending` is then
+    # empty and the per-phase loop below contributes nothing, but
+    # `global_cmds` (the /cairn:ship + /cairn:milestone complete pair
+    # next_commands() emits with `phase: None`) still carries its reasons
+    # into the terminal here — the fix for the bug this plan exists to
+    # close (the terminal silently dropping those two commands while --json
+    # and the HTML page still had them).
+    phase_cmds = [c for c in cmds if c["phase"] is not None]
+    global_cmds = [c for c in cmds if c["phase"] is None]
+    reason_by_phase = {c["phase"]: c["reason"] for c in phase_cmds}
+
+    if pending or global_cmds:
         lines.append("")
-        lines.append(render_spans([("NEXT COMMANDS", SGR_BOLD)], style))
-        cmd_w = max(len(c["command"]) for c in cmds)
-        for c in cmds:
+        lines.append(render_spans([("PURPOSE", SGR_BOLD)], style))
+        wrap_w = max(30, width - num_w - 4)
+        for p in pending:
+            text = phase_purpose_text(p)
+            reason = reason_by_phase.get(p["number"])
+            if reason:
+                text = f"{text} — {reason}"
+            wrapped = textwrap.wrap(style.asciify(text), wrap_w) or [""]
             lines.append(render_spans([
-                ("  ", None),
-                (c["command"].ljust(cmd_w), SGR_GREEN if not c["blocked"]
-                 else SGR_DIM),
-                ("  ", None),
-                (style.asciify(truncate(c["reason"],
-                                        max(20, width - cmd_w - 4),
-                                        style.ell)), SGR_DIM),
+                ("  ", None), (str(p["number"]).rjust(num_w), None),
+                ("  ", None), (wrapped[0], None),
             ], style))
+            for cont in wrapped[1:]:
+                lines.append(render_spans(
+                    [(" " * (num_w + 4), None), (cont, None)], style))
+        for c in global_cmds:
+            # No phase number and no purpose prefix — a global command is
+            # not attached to any one phase.
+            text = c["command"]
+            if c.get("reason"):
+                text = f"{text} — {c['reason']}"
+            wrapped = textwrap.wrap(style.asciify(text), wrap_w) or [""]
+            for cont in wrapped:
+                lines.append(render_spans([("  ", None), (cont, None)],
+                                          style))
 
     par = data.get("parallelism") or {}
     if par.get("note"):
@@ -2160,11 +2472,18 @@ def html_next(data):
 
 def html_phases(data):
     """The two blocks that turn the page from a snapshot into something to act
-    on: what is still pending and what it is, and which commands come next in
-    which order, with the reason for that order.
+    on: what is still pending, what it is (purpose, research, plans, issues,
+    verify), and which commands come next in which order, with the reason for
+    that order.
 
-    Same model as the terminal panel and the same wording, so a page open on a
-    second screen cannot quietly disagree with the shell that produced it.
+    Same `phase_purpose_text()`/`phase_research_text()`/`phase_issues_text()`/
+    `phase_verify_text()` helpers the terminal table calls (CARD-03), and the
+    same wording, so a page open on a second screen cannot quietly disagree
+    with the shell that produced it. The HTML side does not mirror the
+    terminal's table-plus-PURPOSE-list split (D-01 leaves that layout choice
+    to the terminal only) — this column stays a single per-phase list, with
+    the purpose paragraph and the research/issues/verify meta spans folded
+    into the same `<li>`.
     """
     phases = data.get("phases") or []
     pending = pending_phases(phases)
@@ -2199,6 +2518,12 @@ def html_phases(data):
             prog = phase_progress_text(p)
             if prog:
                 meta.append(f'<span class="n">{esc(prog)}</span>')
+            # Same D-04 helpers as the terminal table's rsch/issues/verify
+            # columns — never re-derived here, so the two surfaces cannot
+            # independently summarize the same phase differently (CARD-03).
+            meta.append(f'<span class="n">{esc(phase_research_text(p))}</span>')
+            meta.append(f'<span class="n">{esc(phase_issues_text(p))}</span>')
+            meta.append(f'<span class="n">{esc(phase_verify_text(p))}</span>')
             if p["blocked_by"]:
                 meta.append('waits on phase '
                             f'<span class="n">'
@@ -2213,7 +2538,10 @@ def html_phases(data):
                 f'<span class="phase-n">{p["number"]}</span>'
                 '<span class="phase-body">'
                 f'<span class="phase-title">{esc(p["title"] or "(untitled)")}'
-                f'</span>{reqs}'
+                '</span>'
+                f'<span class="phase-purpose">{esc(phase_purpose_text(p))}'
+                '</span>'
+                f'{reqs}'
                 f'<span class="phase-meta">{" &middot; ".join(meta)}</span>'
                 '</span></li>')
         out.append("</ol></div>")
