@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # cairn SessionStart hook.
-# Three jobs:
+# Four jobs:
 #   1. First-run bootstrap nudge — if beads (bd) isn't installed yet, inject a
 #      one-time offer so Claude can prompt the user and install it. GSD ships as
 #      a declared plugin dependency, so it is already auto-installed; only the
@@ -9,10 +9,18 @@
 #      generated NN-BEADS-MAP.md) gets a one-line /cairn:migrate nudge.
 #   3. Integration-active reminder — when the repo has BOTH .planning/ (GSD) and
 #      .beads/ (beads), inject the cairn convention reminder.
+#   4. Lease heartbeat (D-03) — best-effort, backgrounded renewal of any phase
+#      lease this worktree already holds. renew's own STATE.md active_phase
+#      resolution decides which phase, if any, gets renewed; this hook never
+#      acquires or creates a lease as a side effect of merely starting a
+#      session.
 # Anything printed to stdout is injected into the session as additional context.
 set -euo pipefail
 
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(dirname "$HOOK_DIR")"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+CAIRN_LEASE="${CAIRN_LEASE:-$PLUGIN_ROOT/scripts/cairn-lease.sh}"
 DATA_DIR="${CLAUDE_PLUGIN_DATA:-}"
 SKIP_MARKER="${DATA_DIR:+$DATA_DIR/bd-install.skip}"
 
@@ -100,6 +108,15 @@ skill conventions when the ctx_* tools are present:
     splitting the active bd issue into sub-tasks (bd create + bd dep add)
   • scope-by-label only — this layer NEVER calls ctx_purge (manual/user-only)
 MSG
+
+  # 4. lease heartbeat — best-effort, backgrounded renewal of any lease this
+  #    worktree already holds (D-03). No phase argument: renew's own
+  #    STATE.md active_phase resolution decides which phase, if any, to
+  #    renew. This line must never appear outside the .planning/ + .beads/
+  #    guard above — a repo without both is not cairn-wired. Backgrounded
+  #    (nohup + &) so a slow/hanging bd call can never delay session start,
+  #    matching post-bd-write.sh's fire-and-forget pattern (T-15-06).
+  command -v bd >/dev/null 2>&1 && nohup bash "$CAIRN_LEASE" renew --project-dir "$PROJECT_DIR" >/dev/null 2>&1 &
 fi
 
 exit 0

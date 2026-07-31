@@ -15,7 +15,7 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — fourteen
+                        version output -> WARN. Runs first — fifteen
                         checks in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
@@ -173,6 +173,22 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         actionable candidate is waiting (never merely
                         because history predates the convention — that is
                         the expected, unremarkable case per STACK.md).
+    14. lease-stale     cairn-lease.py status --all --json (Plan 15-01)
+                        itemized for every phase whose lease is currently
+                        held AND stale (heartbeat older than the 4h TTL
+                        cairn-lease.py enforces): phase, holder, actor,
+                        acquired_at, heartbeat_at, and the reclaim path
+                        ("reclaimable — the next /cairn:work N takes it
+                        automatically, or run cairn-lease.sh release N to
+                        clear it now") -> WARN, one item per stale lease;
+                        no stale lease -> ok. Never FAIL — mirrors check 8
+                        (claims-stale)'s own discipline one level up
+                        (D-04/LEASE-05): a stale lease is reclaimable, not
+                        itself a doctor failure. A non-zero cairn-lease.py
+                        exit or unparsable JSON degrades to WARN with an
+                        explanatory detail rather than crashing the whole
+                        doctor run over this one check (same degrade
+                        shape as check_phase_corroboration()).
 
 Active milestone is resolved leniently like cairn-gate: STATE.md
 frontmatter 'milestone:' first, else the ROADMAP.md milestone marked in
@@ -223,8 +239,12 @@ DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
 PR_NUMBER = re.compile(r"\(#(\d+)\)")
 
 # Labels that legitimately carry no phase-* label (migration parking lots,
-# plus unphased /cairn:quick side-quests).
-NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick"}
+# unphased /cairn:quick side-quests, plus the phase-lease bookkeeping issue
+# — cairn-lease.py's module docstring explains why it never carries a
+# phase-<N> label: it would make the lease look like real phase work to
+# this doctor's own phase-complete-open check, phase-corroboration, and
+# work.md's done-check).
+NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick", "lease"}
 
 
 def die(msg, code):
@@ -1268,6 +1288,77 @@ def check_external_ref(root, planning_dir, issues, do_write):
 
 
 # --------------------------------------------------------------------------- #
+# check 13 — lease-stale (LEASE-05)
+# --------------------------------------------------------------------------- #
+def check_lease_stale(root):
+    """Check 13, id "lease-stale" (LEASE-05) — a stale phase lease reported
+    with the same WARN-only discipline check 8 (claims-stale) already
+    applies to a stale issue claim, one level up: shells to
+    'cairn-lease.py status --all --json' (Plan 15-01), the same
+    shell-out-to-a-sibling-script pattern check_maps_fresh() already uses
+    for cairn-map.py --check and check_phase_corroboration() uses for
+    cairn-status.py --json — no TTL/staleness math is re-derived here.
+
+    Itemizes every phase whose lease is currently held AND stale (past the
+    4h TTL cairn-lease.py enforces) by phase, holder, actor, acquired_at,
+    heartbeat_at, and the reclaim path. Never FAILS: a stale lease is
+    reclaimable — the next acquire takes it automatically, or a human runs
+    'cairn-lease.sh release N' — exactly the "reclaimable, not a bug" case
+    D-03/LEASE-04 describe, matching claims-stale's own never-fails
+    posture exactly.
+
+    A non-zero cairn-lease.py exit or unparsable JSON degrades to WARN
+    with an explanatory detail rather than crashing the whole doctor run
+    over this one check (same degrade shape as
+    check_phase_corroboration()).
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / "cairn-lease.py"), "status",
+             "--all", "--json", "--project-dir", str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"id": "lease-stale", "status": "warn",
+                "detail": f"could not run cairn-lease.py: {exc}",
+                "items": []}
+    if proc.returncode != 0:
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return {"id": "lease-stale", "status": "warn",
+                "detail": f"cairn-lease.py status --all exited "
+                          f"{proc.returncode}, lease staleness could not "
+                          f"be computed: {first}",
+                "items": []}
+    try:
+        entries = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError as e:
+        return {"id": "lease-stale", "status": "warn",
+                "detail": "cairn-lease.py status --all returned invalid "
+                          f"JSON, lease staleness could not be computed: "
+                          f"{e}",
+                "items": []}
+    if not isinstance(entries, list):
+        entries = []
+
+    items = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("held") and entry.get("stale"):
+            phase = entry.get("phase")
+            items.append(
+                f"phase {phase}: held by {entry.get('holder')} (actor: "
+                f"{entry.get('actor')}) since {entry.get('acquired_at')}, "
+                f"last renewed {entry.get('heartbeat_at')} — reclaimable "
+                f"— the next /cairn:work {phase} takes it automatically, "
+                f"or run cairn-lease.sh release {phase} to clear it now")
+    detail = (f"{len(items)} stale phase lease(s)" if items
+              else "no stale phase leases")
+    return {"id": "lease-stale", "status": "warn" if items else "ok",
+            "detail": detail, "items": items}
+
+
+# --------------------------------------------------------------------------- #
 # output + main
 # --------------------------------------------------------------------------- #
 def emit(as_json, summary, human_lines):
@@ -1455,6 +1546,7 @@ def main():
         check_phase_corroboration(root, planning_dir),
         check_phase_artifacts(root, planning_dir, disk_reasons),
         check_external_ref(root, planning_dir, issues, args.link_refs),
+        check_lease_stale(root),
     ]
     summary["checks"] = checks
     n_fail = sum(1 for c in checks if c["status"] == "fail")

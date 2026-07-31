@@ -9,6 +9,26 @@
 Applies only when the project root contains `.beads/`. If it is missing, or
 the plan has no `beads:` frontmatter key, skip silently.
 
+Before executing the first task of this wave, re-acquire this phase's
+coordination lease (it exits 0 and prints a report; it no-ops silently
+outside beads repos):
+
+```bash
+CAP=".gsd/capabilities/cairn"; [ -d "$CAP" ] || CAP="${GSD_HOME:-$HOME}/.gsd/capabilities/cairn"
+bash "$CAP/scripts/cairn-lease.sh" acquire <N>
+```
+
+This repeats the acquire call `/cairn:work` already made once at session
+start rather than relying on that single call for the whole run: it is what
+keeps the lease's heartbeat fresh for the DURATION of a long, multi-wave
+execution — session-start only renews the lease once, so without this
+per-wave call a phase that runs for hours across several waves with no
+session restart would have its lease read as stale partway through, even
+though the same worktree is still actively working it. If it reports the
+lease held by another live worktree (exit 3), surface the printed report
+verbatim — same posture as `/cairn:work`'s own acquire step: report and
+continue, never block the wave.
+
 Before executing the first task of your assigned plan, claim every id listed
 in the plan's `beads:` frontmatter:
 

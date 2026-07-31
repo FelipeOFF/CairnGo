@@ -109,7 +109,7 @@ EOF
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '14'
+  assert_json_eq "$output" '.checks | length' '15'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
@@ -1258,5 +1258,127 @@ EOF
   assert_json_eq "$output" '.[0].external_ref' 'gh-42'
   run bd show "$straggler" --json
   assert_json_eq "$output" '.[0].status' 'closed'
+}
+
+# --------------------------------------------------------------------------- #
+# lease-stale (check 13, LEASE-05) — 15-03
+# --------------------------------------------------------------------------- #
+
+LEASE="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
+
+# Hand-set a lease issue's heartbeat_at to hours-in-the-past via bd update
+# directly (same technique as tests/cairn-lease.bats' own staleness
+# fixture) — never a real 4-hour sleep.
+stale_lease_heartbeat() {
+  local lease_id="$1" phase="$2" holder="$3" acquired_at="$4" hours_ago="$5"
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=$hours_ago)).isoformat())
+")"
+  bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":$phase,\"holder\":\"$holder\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}" \
+    >/dev/null
+}
+
+@test "lease-stale: a lease with a heartbeat older than 4h warns, itemized by phase and holder, exit 0" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$LEASE" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_id acquired_at holder
+  lease_id="$(jq -r '.id' <<<"$output")"
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+  holder="$(jq -r '.holder' <<<"$output")"
+
+  stale_lease_heartbeat "$lease_id" 2 "$holder" "$acquired_at" 5
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]   # WARN never fails the doctor run (D-04/LEASE-05)
+  assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .status' 'warn'
+  assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .items | length' '1'
+  grep -qF "phase 2" <<<"$output"
+  grep -qF "$holder" <<<"$output"
+  grep -qF "reclaimable" <<<"$output"
+  grep -qF "cairn-lease.sh release 2" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "⚠ lease-stale" <<<"$output"
+}
+
+@test "lease-stale: a freshly-acquired lease (no stale heartbeat) reads ok, empty items" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$LEASE" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .items | length' '0'
+}
+
+@test "lease-stale: the lease bookkeeping issue is exempt from check 6 (orphans) even vacant" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$LEASE" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  run bash "$LEASE" release 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .items | length' '0'
+  assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .status' 'ok'
+}
+
+@test "lease-stale: cairn-lease.py itself failing degrades to warn, never crashes the doctor run" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  # A bd wrapper that fails ONLY the lease-label lookup cairn-lease.py's
+  # status --all makes ('bd ... -l lease ...'), passing every other
+  # invocation straight through to the real bd. Same PATH-stub seam as the
+  # "bd missing from PATH" test above, narrowed to a single sibling
+  # script's own bd call instead of bd being entirely absent — the only
+  # way to observe lease-stale actually degrade while the REST of the
+  # doctor run completes normally.
+  local real_bd
+  real_bd="$(command -v bd)"
+  local stub="$BATS_TEST_TMPDIR/bd-lease-fail-bin"
+  mkdir -p "$stub"
+  cat > "$stub/bd" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [ "\$a" = "lease" ]; then
+    echo "bd: simulated lease lookup failure" >&2
+    exit 1
+  fi
+done
+exec "$real_bd" "\$@"
+EOF
+  chmod +x "$stub/bd"
+
+  run env PATH="$stub:$PATH" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  refute_in_output "Traceback"
+  assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .status' 'warn'
+  grep -qF "lease staleness could not be computed" <<<"$output"
+  # The failure stayed scoped to lease-stale — nothing else regressed.
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id != "lease-stale" and .status != "ok")] | length' '0'
 }
 

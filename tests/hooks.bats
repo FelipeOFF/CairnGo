@@ -11,6 +11,7 @@
 load 'helpers'
 
 CAIRN_HOOKS_DIR="$CAIRN_REPO_ROOT/cairn/hooks"
+CAIRN_LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
 
 refute_in_output() {
   if grep -qF -- "$1" <<<"$output"; then
@@ -41,6 +42,11 @@ make_recorders() {
   printf '#!/usr/bin/env bash\nexit 0\n' > "$GH_STUB"
   printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$BD_LOG" > "$BD_STUB"
   chmod +x "$GH_STUB" "$BD_STUB"
+
+  LEASE_STUB="$BATS_TEST_TMPDIR/lease-recorder"
+  LEASE_LOG="$BATS_TEST_TMPDIR/lease.log"
+  printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$LEASE_LOG" > "$LEASE_STUB"
+  chmod +x "$LEASE_STUB"
 }
 
 # Feed a fake PostToolUse payload for COMMAND into the hook. CAIRN_GH/CAIRN_BD
@@ -55,21 +61,23 @@ post_bd_write() {
           bash "$CAIRN_HOOKS_DIR/post-bd-write.sh"
 }
 
-# $PATH with every directory containing a `gh` executable removed. Used only
-# by the "gh genuinely absent" test below — everything else the hook needs
-# (bash, python3, possibly via an asdf/pyenv shim chain) stays resolvable,
-# because this is a deny-list (strip gh's dir(s)), not a hand-picked
-# allow-list that would have to know about every transitive tool a shim
-# might invoke.
-path_without_gh() {
-  local dir out=""
+# $PATH with every directory containing a NAME executable removed. A
+# deny-list (strip NAME's dir(s)), not a hand-picked allow-list that would
+# have to know about every transitive tool a shim might invoke — everything
+# else the hook needs (bash, python3, possibly via an asdf/pyenv shim chain)
+# stays resolvable.
+path_without_bin() {  # $1 = binary name
+  local dir out="" name="$1"
   IFS=':' read -ra dirs <<< "$PATH"
   for dir in "${dirs[@]}"; do
-    [ -x "$dir/gh" ] && continue
+    [ -x "$dir/$name" ] && continue
     out="${out:+$out:}$dir"
   done
   printf '%s' "$out"
 }
+
+# Used only by the "gh genuinely absent" test below.
+path_without_gh() { path_without_bin gh; }
 
 write_sync_json() {  # $1 = true|false (enabled flag of the single backend)
   mkdir -p .cairn
@@ -362,6 +370,75 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
 }
 
 #-----------------------------------------------------------------------------
+# session-start.sh — lease heartbeat renewal (D-03)
+#-----------------------------------------------------------------------------
+
+@test "session-start: fires lease renew in the background when both .planning/ and .beads/ are present" {
+  require_bd
+  make_tmp_repo
+  make_recorders
+  mkdir -p .planning .beads
+
+  run env CLAUDE_PROJECT_DIR="$PWD" CAIRN_LEASE="$LEASE_STUB" \
+      bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+
+  wait_for_lines "$LEASE_LOG" 1
+  grep -qxF "renew --project-dir $PWD" "$LEASE_LOG"
+}
+
+@test "session-start: missing .planning/ or .beads/ never invokes the lease seam" {
+  require_bd
+  make_tmp_repo
+  make_recorders
+  mkdir -p .planning   # .beads/ absent
+
+  run env CLAUDE_PROJECT_DIR="$PWD" CAIRN_LEASE="$LEASE_STUB" \
+      bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+  sleep 0.5
+  [ ! -f "$LEASE_LOG" ]
+}
+
+@test "session-start: .beads/ present but .planning/ absent never invokes the lease seam" {
+  require_bd
+  make_tmp_repo
+  make_recorders
+  mkdir -p .beads   # .planning/ absent
+
+  run env CLAUDE_PROJECT_DIR="$PWD" CAIRN_LEASE="$LEASE_STUB" \
+      bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+  sleep 0.5
+  [ ! -f "$LEASE_LOG" ]
+}
+
+@test "session-start: bd missing from PATH — lease seam never invoked, hook still exits 0" {
+  make_tmp_repo
+  make_recorders
+  mkdir -p .planning .beads
+
+  run env CLAUDE_PROJECT_DIR="$PWD" CAIRN_LEASE="$LEASE_STUB" \
+      PATH="$(path_without_bin bd)" \
+      bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+  sleep 0.5
+  [ ! -f "$LEASE_LOG" ]
+}
+
+@test "session-start: broken CAIRN_LEASE path — hook still exits 0, no traceback" {
+  require_bd
+  make_tmp_repo
+  mkdir -p .planning .beads
+
+  run env CLAUDE_PROJECT_DIR="$PWD" \
+      CAIRN_LEASE="$BATS_TEST_TMPDIR/does-not-exist.sh" \
+      bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+  refute_in_output "Traceback"
+}
+
+#-----------------------------------------------------------------------------
 # session-stop.sh
 #-----------------------------------------------------------------------------
 
@@ -405,4 +482,189 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   run env CLAUDE_PROJECT_DIR="$PWD" bash "$CAIRN_HOOKS_DIR/session-stop.sh"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+# 15-05 added scope (see deferred-items.md): 15-04's own test isolated the
+# in_progress-issue check from the lease bookkeeping issue by acquiring the
+# lease under a DIFFERENT actor. This test proves the real-world case —
+# SAME actor for both — now works correctly: the lease is excluded from the
+# in_progress report, and a genuine in_progress issue for that same actor is
+# still reported in the same run (the second half is load-bearing: it proves
+# the exemption filters precisely, not that it silences the whole check).
+@test "session-stop: the in_progress-issue report excludes the lease bookkeeping issue but still reports a genuine in_progress issue in the same run" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+
+  # A genuine in_progress issue for the actor — must still be reported.
+  local real_id
+  real_id="$(bd create "Mid-flight work" -t task --silent)"
+  env BEADS_ACTOR="tester" bd update "$real_id" --claim >/dev/null
+
+  # Acquire a lease under the SAME actor: acquire's own --claim marks the
+  # lease bookkeeping issue in_progress and assigns it to this actor too —
+  # exactly the interaction deferred-items.md measured live.
+  run env BEADS_ACTOR="tester" \
+      bash "$CAIRN_LEASE_SH" acquire 15 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_id
+  lease_id="$(jq -r '.id' <<<"$output")"
+
+  run env CLAUDE_PROJECT_DIR="$PWD" BEADS_ACTOR="tester" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  # Two lines: the in_progress warning (real_id only) and the lease-released
+  # confirmation — never a third line, never the lease id anywhere.
+  [ "${#lines[@]}" -eq 2 ]
+  grep -qF "$real_id" <<<"$output"
+  grep -qF "in_progress" <<<"$output"
+  grep -qF "released" <<<"$output"
+  grep -qF "15" <<<"$output"
+  refute_in_output "$lease_id"
+}
+
+#-----------------------------------------------------------------------------
+# session-stop.sh — lease release (D-03)
+#-----------------------------------------------------------------------------
+
+@test "session-stop: releases every lease this worktree holds, confirmed via a follow-up status call, and prints exactly one line naming the phase" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+
+  # Acquire under a distinct actor so the lease bookkeeping issue itself
+  # (bd's own --claim marks it in_progress, assigned to the acquiring actor)
+  # doesn't also trip the pre-existing in_progress-issue check just above —
+  # that check is unrelated to this task and must stay untouched.
+  run env BEADS_ACTOR="lease-agent" \
+      bash "$CAIRN_LEASE_SH" acquire 15 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run env CLAUDE_PROJECT_DIR="$PWD" BEADS_ACTOR="tester" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 1 ]
+  grep -qF "15" <<<"$output"
+  grep -qF "released" <<<"$output"
+
+  # Assert against raw cairn-lease state, not just this hook's own stdout.
+  run bash "$CAIRN_LEASE_SH" status 15 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'false'
+}
+
+@test "session-stop: a lease held by a DIFFERENT worktree is left completely untouched and silent" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+
+  local wt_a
+  wt_a="$(git rev-parse --show-toplevel)"
+  local wt_b="$BATS_TEST_TMPDIR/wt-b-stop"
+  git worktree add -q "$wt_b" -b wt-b-stop-branch
+  wt_b="$(git -C "$wt_b" rev-parse --show-toplevel)"
+
+  run bash "$CAIRN_LEASE_SH" acquire 20 --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+
+  # session-stop runs from worktree B — a DIFFERENT holder identity — and
+  # must leave worktree A's lease completely alone.
+  run env CLAUDE_PROJECT_DIR="$wt_b" BEADS_ACTOR="tester" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  refute_in_output "released"
+
+  run bash "$CAIRN_LEASE_SH" status 20 --project-dir "$wt_a" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+  assert_json_eq "$output" '.holder' "$wt_a"
+}
+
+@test "session-stop: nothing held — silent, exactly like the existing in_progress check when clean" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+
+  run env CLAUDE_PROJECT_DIR="$PWD" BEADS_ACTOR="tester" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "session-stop: bd missing from PATH — lease release never invoked, hook still exits 0" {
+  make_tmp_repo
+  mkdir .beads
+
+  run env CLAUDE_PROJECT_DIR="$PWD" PATH="$(path_without_bin bd)" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "session-stop: broken CAIRN_LEASE path — hook still exits 0, no traceback" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+
+  run env CLAUDE_PROJECT_DIR="$PWD" \
+      CAIRN_LEASE="$BATS_TEST_TMPDIR/does-not-exist.sh" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  refute_in_output "Traceback"
+}
+
+#-----------------------------------------------------------------------------
+# the hook-never-ran risk (D-03): staleness must be visible, never silent
+#-----------------------------------------------------------------------------
+# D-03's mechanism only works if the hooks actually run. This test never
+# invokes session-start.sh or session-stop.sh anywhere — a lease acquired
+# and then simply left alone, with a hand-advanced heartbeat_at, IS the
+# "hook never ran" scenario. The load-bearing assertions are on CONTENT
+# (the `stale`/`status` fields), never on a bare exit-code check alone —
+# both hooks exit 0 unconditionally by contract, so an exit-0 assertion
+# here would prove nothing, the same trap post-bd-write.sh's own
+# external-ref test already documents.
+
+@test "the hook-never-ran risk: a lease whose heartbeat was never renewed is independently reported stale by both cairn-lease status and cairn-doctor, without either hook ever running" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix hnr --non-interactive >/dev/null 2>&1
+
+  # Acquire a real lease for phase 2 (make_gsd_fixture's active phase) from
+  # this real worktree fixture.
+  run bash "$CAIRN_LEASE_SH" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_id acquired_at holder
+  lease_id="$(jq -r '.id' <<<"$output")"
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+  holder="$(jq -r '.holder' <<<"$output")"
+
+  # Hand-advance heartbeat_at more than 4h into the past via bd directly,
+  # bypassing both hooks entirely — never a real 4-hour sleep (same
+  # technique as tests/cairn-lease.bats and tests/cairn-doctor.bats' own
+  # lease-stale fixtures).
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
+")"
+  run bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":2,\"holder\":\"$holder\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}"
+  [ "$status" -eq 0 ]
+
+  # Load-bearing assertion #1: cairn-lease status — run completely
+  # independently of either hook — reports the staleness on its own, a
+  # content-based check on a real field.
+  run bash "$CAIRN_LEASE_SH" status 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+  assert_json_eq "$output" '.stale' 'true'
+
+  # Load-bearing assertion #2: cairn-doctor — a second, independent
+  # surface — also reports it, itemized by phase and holder.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json --project-dir "$PWD"
+  assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .status' 'warn'
+  grep -qF "phase 2" <<<"$output"
+  grep -qF "$holder" <<<"$output"
 }

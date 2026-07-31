@@ -158,9 +158,18 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
      at the boundary commit, not merely incomplete, so `--link-refs`
      never trusts one (run against a full clone, or `git fetch
      --unshallow`, then retry).
+   - **lease-stale** (⚠) — a phase-level coordination lease
+     (`cairn-lease.py`, Plan 15-01) is currently held and its heartbeat is
+     older than the 4h TTL → reclaimable, not a bug: the next
+     `/cairn:work N` reclaims it automatically, or run `cairn-lease.sh
+     release N` directly to clear it now. Mirrors **claims-stale**'s own
+     never-fails posture one level up (D-04/LEASE-05) — always a warning,
+     never a doctor failure. Shells to `cairn-lease.py status --all
+     --json`; a non-zero exit or unparsable JSON degrades this check to a
+     warn rather than crashing the doctor run.
 
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — fourteen checks in total.)
+   upgrading bd — fifteen checks in total.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
@@ -195,7 +204,7 @@ cairn doctor — root: ~/Projects/app · milestone: v1.0 · active phase: 3
 ✓ superseded-released ✓ phase-complete-open ✓ orphans
 ✓ label-pairs        ✓ claims-stale        ✓ bd-doctor
 ✓ gsd-capability      ✓ phase-corroboration ✓ phase-artifacts
-✓ external-ref
+✓ external-ref        ✓ lease-stale
 ok (1 warning)
 ```
 
@@ -219,8 +228,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 - **Reads:** `.planning/ROADMAP.md`, `.planning/STATE.md`, phase dirs
   (PLAN.md frontmatter, `NN-BEADS-MAP.md` freshness, `files_modified:`),
   beads state via `bd`, `cairn-status.py --json` (phase corroboration),
-  git history (`git rev-parse --is-shallow-repository`, `git log` — the
-  external-ref check reads this for its report even without `--link-refs`)
+  `cairn-lease.py status --all --json` (lease staleness), git history
+  (`git rev-parse --is-shallow-repository`, `git log` — the external-ref
+  check reads this for its report even without `--link-refs`)
 - **Writes:** nothing by default; with `--fix-labels`, issue labels via
   `cairn-relabel pair` (`bd update`); with `--close-completed`, issue status
   via `bd close --reason`; with `--link-refs`, `external_ref` via

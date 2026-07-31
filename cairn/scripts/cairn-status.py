@@ -101,6 +101,12 @@ Behavior:
     6. When .cairn/sync.json exists, append a sync-staleness line from the
        last-pull watermarks in .cairn/state.json (missing or older than 24h
        → suggest /cairn:sync-pull).
+    6b. When the active phase's lease (Plan 15-01) is actively held and
+       fresh, append one footer line naming who holds it and since when
+       (D-05) — computed once from data["lease"] and shared verbatim by
+       the terminal footer, --plain and the HTML foot, so the three can
+       never disagree. A vacant or stale hold renders nothing here (a
+       stale hold is /cairn:doctor's story to tell, not the footer's).
     7. --html <path> renders the SAME data as a standalone HTML board (no
        network of any kind: styles, texture and the profile are inline, no
        font/script/image is loaded from anywhere). The page is a generated
@@ -119,8 +125,8 @@ Behavior:
        HTML escaping, so a title carrying markup renders as text.
 
     --json      one machine line: {ready, doing, blocked, counts, milestone,
-                phase, next, sync, stale_complete, note} (+ html: {file,
-                changed} when --html also ran)
+                phase, next, sync, stale_complete, note, lease} (+ html:
+                {file, changed} when --html also ran)
     --plain     tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA) plus
                 PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color, no
                 truncation
@@ -353,6 +359,15 @@ def issue_phase_ns(iss):
     return out
 
 
+def is_lease_issue(iss):
+    """True when this is the phase-lease bookkeeping issue (Plan 15-01):
+    a real bd issue, carrying the `lease` label, that is never tracked
+    work — it must never show up as a phantom card in READY/DOING/BLOCKED,
+    or inflate the done count, alongside issues that actually are (D-05).
+    Mirrors NO_PHASE_EXEMPT's `lease` entry in cairn-doctor.py."""
+    return "lease" in as_str_list(iss.get("labels"))
+
+
 def in_done_phase(iss, done_set):
     """True when the issue is phase-labeled and EVERY phase label points at
     a roadmap-complete phase — an open issue the roadmap says was already
@@ -384,6 +399,36 @@ def fetch_lanes(root):
     key = lambda i: (issue_priority(i), str(i.get("id") or ""))  # noqa: E731
     return (sorted(ready, key=key), sorted(doing, key=key),
             sorted(blocked, key=key), closed)
+
+
+def fetch_lease_status(root, active_phase, bd_ok):
+    """data["lease"]: the active phase's lease status (Plan 15-01), or
+    None when there is no active phase to ask about or bd itself could not
+    be read.
+
+    One subprocess call to `cairn-lease.py status <active_phase> --json`,
+    mirroring cairn-doctor.py's check_phase_corroboration()/
+    check_lease_stale() shell-out-and-parse-defensively shape: a
+    subprocess failure or unparsable JSON degrades to None, never a
+    crash. No TTL/staleness math is re-derived here — cairn-lease.py
+    status --json is the single source for that.
+    """
+    if active_phase is None or not bd_ok:
+        return None
+    lease_script = Path(__file__).resolve().parent / "cairn-lease.py"
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(lease_script), "status", str(active_phase),
+             "--json", "--project-dir", str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        return None
 
 
 # --------------------------------------------------------------- GSD reading
@@ -1813,6 +1858,33 @@ def phase_panel_lines(data, width, style):
     return lines
 
 
+def active_lease(data):
+    """The active phase's lease dict when it is actively held and fresh
+    (D-05), else None — the single held/stale gate every renderer shares,
+    so a stale hold (doctor's story to tell, not the footer's — Plan
+    15-03) or a vacant lease can never render on one surface and not
+    another."""
+    lease = data.get("lease")
+    if lease and lease.get("held") and not lease.get("stale"):
+        return lease
+    return None
+
+
+def lease_line_text(data):
+    """`phase N in use by HOLDER since ACQUIRED_AT` for an actively-held,
+    fresh lease, or None. The terminal footer and the HTML foot both
+    render this exact sentence (asciified / esc()-escaped respectively);
+    --plain carries the same three values as separate LEASE\\t... fields
+    instead, per its own row convention — one read of data["lease"], no
+    renderer re-derives it independently (mirrors 13-01's D-04)."""
+    lease = active_lease(data)
+    if lease is None:
+        return None
+    return (f"phase {data['phase']['active']} in use by "
+            f"{clean(lease.get('holder') or '')} since "
+            f"{clean(lease.get('acquired_at') or '')}")
+
+
 def footer_lines(data, width, style):
     lines = [render_spans(meta_parts(data, style), style)]
     nxt = style.asciify(data["next"]["text"])
@@ -1825,6 +1897,11 @@ def footer_lines(data, width, style):
             [("sync: ", SGR_DIM),
              (style.asciify(f"{sync['detail']} — run /cairn:sync-pull"),
               None)], style))
+    lease_text = lease_line_text(data)
+    if lease_text:
+        lines.append(render_spans(
+            [(style.g_who, SGR_YELLOW), (" ", None),
+             (style.asciify(lease_text), None)], style))
     if data["note"]:
         lines.append(render_spans(
             [("note: ", SGR_DIM), (style.asciify(data["note"]), None)],
@@ -1881,6 +1958,11 @@ def render_plain(data):
         lines.append(f"MILESTONE\t{data['milestone']}")
     lines.append(f"DONE\t{data['counts']['closed']}")
     lines.append(f"NEXT\t{data['next']['text']}")
+    lease = active_lease(data)
+    if lease:
+        lines.append(f"LEASE\t{data['phase']['active']}\t"
+                      f"{clean(lease.get('holder') or '')}\t"
+                      f"{clean(lease.get('acquired_at') or '')}")
     sync = data["sync"]
     if sync["configured"]:
         state = "stale" if sync["stale"] else "fresh"
@@ -2647,6 +2729,10 @@ def html_foot(data):
         tally.append(f'<span class="n">{phase["total"]}</span> phases on the '
                      'roadmap')
     lines.append(f'<p class="foot-line">{" &middot; ".join(tally)}</p>')
+    lease_text = lease_line_text(data)
+    if lease_text:
+        lines.append(f'<p class="foot-line has-mark">{PEBBLE}'
+                     f'<span class="foot-text">{esc(lease_text)}</span></p>')
     if data["note"]:
         lines.append(f'<p class="foot-line has-mark foot-note">{PEBBLE}'
                      f'<span class="foot-text">{esc(data["note"])}</span></p>')
@@ -2791,6 +2877,15 @@ def main():
                     "run /cairn:doctor")
         else:
             ready, doing, blocked, closed = fetch_lanes(root)
+            # The lease bookkeeping issue (Plan 15-01) is real bd state —
+            # a genuine claimed, in_progress issue — but never tracked
+            # work. Exclude it before phase_model(), the stale-marker
+            # cross-check, or the data dict ever sees it, so it can never
+            # appear on any lane or inflate the done count (D-05).
+            ready = [i for i in ready if not is_lease_issue(i)]
+            doing = [i for i in doing if not is_lease_issue(i)]
+            blocked = [i for i in blocked if not is_lease_issue(i)]
+            closed = [i for i in closed if not is_lease_issue(i)]
             n_closed = len(closed)
             bd_ok = True
     else:
@@ -2828,6 +2923,10 @@ def main():
     nxt = synthesize_next(ready, doing, milestone, active_phase,
                           fm["next_action"], done_phases)
     sync = sync_status(root)
+    # Additive: the active phase's lease status (Plan 15-01), for the
+    # footer line D-05 adds — never re-derived by any renderer below, one
+    # read shared by the terminal footer, --plain and the HTML foot.
+    lease = fetch_lease_status(root, active_phase, bd_ok)
 
     data = {
         "ready": [trim_issue(i) for i in ready],
@@ -2854,6 +2953,7 @@ def main():
                                       "last_pull")},
         "stale_complete": stale_ids,
         "note": note,
+        "lease": lease,
         # Underscore keys are renderer-private: the --json summary filters
         # them out, so the machine contract stays exactly as documented.
         "_lanes": [ready, doing, blocked],
