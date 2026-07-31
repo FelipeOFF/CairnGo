@@ -30,6 +30,7 @@ reporta sucesso sem provar sucesso não conta como pronto.
 - [ ] Phase 15: Phase lease (LEASE-01, LEASE-02, LEASE-03, LEASE-04, LEASE-05)
 - [ ] Phase 16: Transition journal (JOUR-01, JOUR-02, JOUR-03, JOUR-04, JOUR-05)
 - [ ] Phase 17: Semantic escalation (ESC-01, ESC-02, ESC-03, ESC-04)
+- [ ] Phase 18: Parallel phase execution (PAR-01, PAR-02, PAR-03, PAR-04, PAR-05)
 
 ## Detalhe das fases
 
@@ -179,22 +180,69 @@ precedente neste código.
 
 ---
 
+### Phase 18: Parallel phase execution
+
+**Card:** duas fases independentes passam a rodar de verdade ao mesmo tempo, cada
+agente na própria worktree, sem ninguém pisar em ninguém.
+
+**Goal:** o `/cairn:autonomous` para de executar em sequência o que ele próprio já
+identifica como paralelizável. Hoje `parallelism()` anuncia "as fases 14 e 15 são
+independentes, uma agente ou worktree cada" e em seguida roda as duas em fila. Esta
+fase transforma esse anúncio em execução: worktree por fase, lease impedindo dois
+agentes na mesma fase, journal registrando o que cada um fez, e reconciliação que
+reporta divergência em vez de escolher um vencedor.
+
+**Requirements**: PAR-01, PAR-02, PAR-03, PAR-04, PAR-05
+
+**Success criteria:**
+
+1. Com duas fases sem dependência entre si, `/cairn:autonomous` executa as duas
+   concorrentemente e diz, antes de começar, quantas correm e por quê — em vez de
+   anunciar o paralelismo e rodar em fila.
+2. Cada fase paralela roda numa worktree própria; um teste prova que edições de uma
+   não aparecem na árvore da outra até a reconciliação.
+3. Duas execuções que tentam a mesma fase são impedidas pelo lease da fase 15, com
+   quem segura e desde quando — não por convenção, por mecanismo.
+4. A reconciliação ao final relata o que cada fase produziu e trata conflito de
+   merge como conflito reportado, nunca resolvido em silêncio.
+5. Falha ou interrupção de uma fase não corrompe a outra nem deixa lease órfão: um
+   teste mata uma execução no meio e prova que a outra termina e que o lease morto
+   é liberável.
+
+**Research durante o planejamento:** precisa. Duas perguntas em aberto: se
+`bd update` (caminho de **escrita**) a partir de uma segunda worktree cai no mesmo
+banco — as leituras já foram medidas e caem — e qual estratégia de reconciliação
+usar quando duas fases tocam o mesmo arquivo.
+
+**Depende de:** Phase 15 (o lease é o mecanismo de exclusão) e Phase 16 (o journal
+é o registro que sobrevive a duas escritas concorrentes). Transitivamente a 13: um
+resultado paralelo só é confiável se as fontes puderem ser corroboradas.
+
+---
+
 ## Cobertura
 
-26 requisitos v1, 26 mapeados, 0 sem fase. Cada requisito pertence a exatamente uma
+31 requisitos v1, 31 mapeados, 0 sem fase. Cada requisito pertence a exatamente uma
 fase — ver a tabela de rastreabilidade em `REQUIREMENTS.md`.
 
 ## Ordem de dependência
 
 ```
 13 ──┬──> 14
-     ├──> 15 ──> 16 ──┐
-     └────────────────┴──> 17
+     ├──> 15 ──> 16 ──┬──> 17
+     └────────────────┘
+             15, 16 ──> 18
 ```
 
 13 primeiro porque não exige I/O novo (a lista de issues do bd já é buscada antes de
 `phase_model()` rodar) e porque tudo o mais depende dela. 14 e 15 podem correr lado a
-lado depois de 13. 17 por último por construção: precisa de um conflito real sobre o
-que operar.
+lado depois de 13. 17 por último dos quatro originais por construção: precisa de um
+conflito real sobre o que operar.
+
+18 fecha o arco. Ela não é uma capacidade solta acrescentada no fim: o lease (15), o
+journal (16) e a corroboração (13) são exatamente o substrato que execução paralela
+exige — exclusão mútua, registro que aguenta escrita concorrente, e um veredito
+confiável sobre o que cada agente entregou. Nenhuma das três foi desenhada pensando
+nisso, e as três são pré-requisito dela.
 
 Trabalho aberto e sem fase vive no beads (`bd ready`), não aqui.

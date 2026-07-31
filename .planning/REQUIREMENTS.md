@@ -48,6 +48,14 @@ Requisitos deste milestone. Cada um mapeia para exatamente uma fase do roadmap.
 - [ ] **ESC-03**: Aplicar uma proposta é um comando separado, invocado por humano, que enumera o que vai mudar antes de mudar
 - [ ] **ESC-04**: A escalada roda apenas sobre conflito detectado, nunca numa passada rotineira de status ou doctor, e seu veredito é cacheado por hash da árvore
 
+### Execução paralela de fases (PAR)
+
+- [ ] **PAR-01**: O `/cairn:autonomous` executa concorrentemente as fases que ele já identifica como independentes, em vez de anunciar o paralelismo e rodar em fila
+- [ ] **PAR-02**: Cada fase paralela roda numa worktree própria, e edições de uma não aparecem na árvore da outra antes da reconciliação
+- [ ] **PAR-03**: Duas execuções na mesma fase são impedidas pelo lease, com quem segura e desde quando — por mecanismo, não por convenção
+- [ ] **PAR-04**: A reconciliação relata o que cada fase produziu, e conflito de merge é reportado, nunca resolvido em silêncio
+- [ ] **PAR-05**: Falha ou interrupção de uma fase não corrompe as outras nem deixa lease órfão
+
 ## v2 Requirements
 
 Reconhecidos e adiados. Não entram neste roadmap.
@@ -77,14 +85,14 @@ Excluídos explicitamente.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORR-01 | Phase 13 | Pending |
-| CORR-02 | Phase 13 | Pending |
-| CORR-03 | Phase 13 | Pending |
-| CORR-04 | Phase 13 | Pending |
-| CORR-05 | Phase 13 | Pending |
-| CORR-06 | Phase 13 | Pending |
-| CORR-07 | Phase 13 | Pending |
-| CORR-08 | Phase 13 | Pending |
+| CORR-01 | Phase 13 | Complete |
+| CORR-02 | Phase 13 | Complete |
+| CORR-03 | Phase 13 | Complete |
+| CORR-04 | Phase 13 | Complete |
+| CORR-05 | Phase 13 | Complete |
+| CORR-06 | Phase 13 | Complete |
+| CORR-07 | Phase 13 | Complete |
+| CORR-08 | Phase 13 | Complete |
 | CARD-01 | Phase 14 | Pending |
 | CARD-02 | Phase 14 | Pending |
 | CARD-03 | Phase 14 | Pending |
@@ -103,10 +111,15 @@ Excluídos explicitamente.
 | ESC-02 | Phase 17 | Pending |
 | ESC-03 | Phase 17 | Pending |
 | ESC-04 | Phase 17 | Pending |
+| PAR-01 | Phase 18 | Pending |
+| PAR-02 | Phase 18 | Pending |
+| PAR-03 | Phase 18 | Pending |
+| PAR-04 | Phase 18 | Pending |
+| PAR-05 | Phase 18 | Pending |
 
 **Coverage:**
-- v1 requirements: 26 total
-- Mapped to phases: 26
+- v1 requirements: 31 total
+- Mapped to phases: 31
 - Unmapped: 0 ✓
 
 ## Decisões travadas antes do roadmap
