@@ -39,12 +39,18 @@ COMMAND_FILE="$CAIRN_REPO_ROOT/cairn/commands/reconcile.md"
 # The full write-capable tool set — not just the two (Bash, Edit) the
 # plan-check's original target named. Any one of these present in the
 # tools: line is a failure.
-WRITE_CAPABLE="Write Edit Bash NotebookEdit"
+# ctx_purge destroys the context-mode knowledge base, so it belongs in this
+# set even though it is an MCP tool rather than a core one. The naive way to
+# grant memory access here would have been the glob other agents use
+# (mcp__<server>__*), which would have handed this agent ctx_purge along with
+# ctx_search — a destructive write inside the one agent whose whole point is
+# having no write at all. The grant names ctx_search and nothing else.
+WRITE_CAPABLE="Write Edit Bash NotebookEdit ctx_purge"
 
 # The exact grant Task 1 declared: Read/Grep/Glob always, ctx_search only
 # if a future revision confirms its real MCP tool name — never a name
 # guessed today.
-ALLOWED_TOOLS="Read Grep Glob ctx_search"
+ALLOWED_TOOLS="Read Grep Glob mcp__plugin_context-mode_context-mode__ctx_search"
 
 tools_line() {
   grep "^tools:" "$AGENT_FILE" | sed 's/^tools:[[:space:]]*//'

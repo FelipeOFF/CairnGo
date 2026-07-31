@@ -1,7 +1,7 @@
 ---
 name: reconcile-investigator
 description: Reads one phase's conflict-evidence bundle plus its own further code/git/memory investigation and proposes a cited reconciliation, as text only. Spawned exclusively by /cairn:reconcile, and only once that command has already confirmed the target phase's corroboration verdict reads "conflict" — never spawned speculatively, never invoked by a user directly, never chained from any other command.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, mcp__plugin_context-mode_context-mode__ctx_search
 ---
 
 You are cairn's semantic escalation investigator (phase 17, D-01's middle

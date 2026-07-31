@@ -114,10 +114,10 @@ Excluídos explicitamente.
 | JOUR-03 | Phase 16 | Complete |
 | JOUR-04 | Phase 16 | Complete |
 | JOUR-05 | Phase 16 | Complete |
-| ESC-01 | Phase 17 | Pending |
-| ESC-02 | Phase 17 | Pending |
-| ESC-03 | Phase 17 | Pending |
-| ESC-04 | Phase 17 | Pending |
+| ESC-01 | Phase 17 | Complete |
+| ESC-02 | Phase 17 | Complete |
+| ESC-03 | Phase 17 | Complete |
+| ESC-04 | Phase 17 | Complete |
 | PAR-01 | Phase 18 | Pending |
 | PAR-02 | Phase 18 | Pending |
 | PAR-03 | Phase 18 | Pending |
