@@ -74,7 +74,9 @@ dois e compara.
   itemizado por fonte — a mesma divisão de trabalho entre as duas superfícies, não
   uma exceção nova.
 
-  Isto **estreita o CARD-03**, e o estreitamento é deliberado, não omissão: no
+  Isto **estreita o critério 3 do roadmap** (o CARD-03 em REQUIREMENTS.md é a
+  paridade terminal↔HTML, outro requisito), e o estreitamento é deliberado, não
+  omissão: no
   board a ausência esperada é um traço; a ausência **inesperada** (uma fase
   `executed` sem SUMMARY, por exemplo) é o que merece marca, e nomear qual
   artefato falta é trabalho do doctor.
