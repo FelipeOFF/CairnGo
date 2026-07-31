@@ -900,6 +900,133 @@ PY
 }
 
 # --------------------------------------------------------------------------- #
+# phase-corroboration's last-moved enrichment (JOUR-02) — 16-05
+# --------------------------------------------------------------------------- #
+
+@test "last-moved: a real conflict item names each cited source's last-moved timestamp, or 'never observed'" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # Plan 13-01's canonical "blocks" scenario: disk says phase 1 is done,
+  # bd still has an open issue for it.
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  # Seed phase 1's disk axis directly (cairn-journal.py observe, NOT
+  # through any /cairn:status render), so its last-moved timestamp is a
+  # KNOWN value captured straight from the seed call — never guessed.
+  local seed_output seeded_ts
+  seed_output="$(printf '[{"phase":1,"evidence":{"disk":"verified"}}]' \
+    | python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" observe --project-dir "$PWD" --json)"
+  seeded_ts="$(jq -r '.written[0].ts' <<<"$seed_output")"
+  [ -n "$seeded_ts" ]
+  [ "$seeded_ts" != "null" ]
+
+  # A CAIRN_JOURNAL stub that blocks ONLY the `observe` subcommand (the
+  # exact call cairn-status.py's own internal journal wiring, Plan 16-04,
+  # makes as part of computing this very conflict) but execs into the
+  # REAL cairn-journal.py for every other subcommand. Without this, bd's
+  # first-ever real value would be observed and journaled moments before
+  # doctor's own last-moved read — this stub is what keeps bd genuinely
+  # "never observed" while disk's earlier seed stays exactly as written.
+  local stub="$BATS_TEST_TMPDIR/observe-blocking-journal.py"
+  cat > "$stub" <<'PYEOF'
+#!/usr/bin/env python3
+import os, sys
+if sys.argv[1] == "observe":
+    sys.exit(1)
+os.execv(sys.executable,
+         [sys.executable, os.environ["CAIRN_JOURNAL_REAL"]] + sys.argv[1:])
+PYEOF
+  chmod +x "$stub"
+
+  run env CAIRN_JOURNAL="$stub" \
+      CAIRN_JOURNAL_REAL="$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
+
+  local item
+  item="$(jq -r '[.checks[] | select(.id=="phase-corroboration") | .items[] | select(startswith("1:"))][0]' <<<"$output")"
+  [ "$item" != "null" ]
+  grep -qF "disk last moved $seeded_ts" <<<"$item"
+  grep -qF "bd last moved never observed" <<<"$item"
+}
+
+@test "last-moved: a broken CAIRN_JOURNAL leaves status/detail identical to a working journal, only the clause is missing" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  local working_status working_count
+  working_status="$(jq -r '.checks[] | select(.id=="phase-corroboration") | .status' <<<"$output")"
+  working_count="$(jq -r '.checks[] | select(.id=="phase-corroboration") | .items | length' <<<"$output")"
+  grep -qF "last moved" <<<"$output"
+
+  run env CAIRN_JOURNAL=/nonexistent/path bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  local broken_status broken_count
+  broken_status="$(jq -r '.checks[] | select(.id=="phase-corroboration") | .status' <<<"$output")"
+  broken_count="$(jq -r '.checks[] | select(.id=="phase-corroboration") | .items | length' <<<"$output")"
+  [ "$broken_status" = "$working_status" ]
+  [ "$broken_count" = "$working_count" ]
+  refute_in_output "last moved"
+}
+
+@test "last-moved: journal_last_moved() is called at most once per phase, not once per conflict item" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # Phase 2 with BOTH a disk-vs-bd AND a roadmap-vs-disk conflict at once
+  # (the plan's own example): roadmap ticked, disk still "planned" (a
+  # PLAN.md, no SUMMARY yet), bd's only phase-2 issue closed.
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".planning/ROADMAP.md")
+p.write_text(p.read_text().replace("- [ ] **Phase 2: API**",
+                                   "- [x] **Phase 2: API**"))
+PY
+  bd close "$DOC_P2" >/dev/null
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+
+  local stub="$BATS_TEST_TMPDIR/counting-journal.py"
+  local count_file="$BATS_TEST_TMPDIR/last-moved-call-count"
+  cat > "$stub" <<'PYEOF'
+#!/usr/bin/env python3
+import os, sys
+with open(os.environ["CAIRN_JOURNAL_CALL_COUNT_FILE"], "a") as f:
+    f.write(sys.argv[1] + "\n")
+os.execv(sys.executable,
+         [sys.executable, os.environ["CAIRN_JOURNAL_REAL"]] + sys.argv[1:])
+PYEOF
+  chmod +x "$stub"
+
+  run env CAIRN_JOURNAL="$stub" \
+      CAIRN_JOURNAL_CALL_COUNT_FILE="$count_file" \
+      CAIRN_JOURNAL_REAL="$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-corroboration") | .items[] | select(startswith("2:"))] | length' '2'
+
+  [ -f "$count_file" ]
+  local n_last_moved
+  n_last_moved="$(grep -c '^last-moved$' "$count_file" || true)"
+  [ "$n_last_moved" -eq 1 ]
+}
+
+# --------------------------------------------------------------------------- #
 # phase-artifacts (check 12, CARD-02/D-04) — 14-03
 # --------------------------------------------------------------------------- #
 
