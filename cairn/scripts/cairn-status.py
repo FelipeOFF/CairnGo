@@ -34,7 +34,11 @@ Behavior:
        comment): ROADMAP.md phase checkboxes / progress-table rows and the
        🚧 milestone line; STATE.md frontmatter `milestone:`, `active_phase:`
        and `next_action:`. All of it is optional — missing files degrade to
-       an issues-only board.
+       an issues-only board. `roadmap_phase_rows()` also reads each phase's
+       `### Phase N:` detail block for `**Card:**` (or, failing that, the
+       first sentence of `**Goal:**`) — per D-03, this is the phase's
+       `purpose`, and it is `null` only when the phase has no detail block
+       at all.
     4. Synthesize ONE next action. In order: an in_progress issue exists →
        continue it; else the highest-priority ready issue labeled
        m-<milestone>,phase-<active>; else STATE.md's next_action; else the
@@ -190,6 +194,18 @@ ROADMAP_COMPLETED = re.compile(
 ROADMAP_TRAILING_PAREN = re.compile(r"\s*\(([^()]*)\)\s*$")
 ROADMAP_PLANS = re.compile(r"^(\d+)\s*/\s*(\d+)\s+plans?$", re.IGNORECASE)
 REQ_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d+(?:\s*,\s*[A-Z][A-Z0-9]*-\d+)*$")
+
+# "## Detalhe das fases" prose blocks (Phase 14): a THIRD phase-reference
+# shape, an H3 heading, distinct in form from ANY_PHASE's checkbox line and
+# TABLE_PHASE_ANY's table row — it can never collide with either.
+DETAIL_PHASE_HEADING = re.compile(r"^###\s+Phase\s+0*(\d+)\b")
+CARD_LABEL = re.compile(r"^\*\*Card:\*\*\s*(.*)$")
+GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
+# Recognizes ANY bold label line, both the colon-inside shape (`**Card:**`)
+# and the colon-outside shape used by `**Requirements**:` elsewhere in the
+# same blocks. Used only to know when to STOP collecting continuation text
+# for a Card/Goal block, never to start it.
+BOLD_LABEL = re.compile(r"^\*\*[^*]+\*\*:?")
 
 
 def die(msg, code):
@@ -596,10 +612,66 @@ def roadmap_phase_rows(planning_dir):
         return rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [],
+            "requirements": [], "purpose": None,
         })
 
+    # State machine for the "## Detalhe das fases" prose blocks, tracked
+    # across the same single pass below (no second file read): detail_phase
+    # is the `### Phase N:` block currently open (or None), collecting is
+    # None/"card"/"goal" naming which label is being gathered, buffer holds
+    # its continuation lines so far. card_text/goal_text are resolved once
+    # after the loop, per phase number.
+    detail_phase = None
+    collecting = None
+    buffer = []
+    card_text, goal_text = {}, {}
+
+    def flush():
+        # Joins the buffered continuation lines into one cleaned string and
+        # files it under the label ("card"/"goal") currently being
+        # collected, keyed by the detail block it belongs to. A no-op when
+        # nothing is being collected.
+        nonlocal collecting, buffer
+        if collecting is not None:
+            text = " ".join(b for b in buffer if b).strip()
+            target = card_text if collecting == "card" else goal_text
+            target[detail_phase] = text
+        collecting = None
+        buffer = []
+
     for line in read_lines(planning_dir / "ROADMAP.md"):
+        m = DETAIL_PHASE_HEADING.match(line)
+        if m:
+            flush()
+            detail_phase = int(m.group(1))
+            slot(detail_phase)
+            continue
+
+        if detail_phase is not None:
+            m = CARD_LABEL.match(line)
+            if m:
+                flush()
+                collecting = "card"
+                buffer = [m.group(1).strip()]
+                continue
+            m = GOAL_LABEL.match(line)
+            if m:
+                flush()
+                collecting = "goal"
+                buffer = [m.group(1).strip()]
+                continue
+            if collecting is not None:
+                stripped = line.strip()
+                if not stripped or BOLD_LABEL.match(line) or stripped == "---":
+                    flush()
+                    if stripped == "---":
+                        # The `---` rule separates one phase's detail block
+                        # from the next, per the file's own structure.
+                        detail_phase = None
+                    continue
+                buffer.append(stripped)
+                continue
+
         m = ANY_PHASE.match(line)
         if m:
             n = int(m.group(1))
@@ -645,6 +717,22 @@ def roadmap_phase_rows(planning_dir):
             dm = re.match(r"^(\d{4}-\d{2}-\d{2})$", cell)
             if dm and not row["completed_on"]:
                 row["completed_on"] = cell
+    flush()  # a Card/Goal block running to EOF with no trailing `---`
+
+    for n in set(card_text) | set(goal_text):
+        slot(n)
+        card, goal = card_text.get(n), goal_text.get(n)
+        if card:
+            purpose = card
+        elif goal:
+            # First sentence only (up to and including the first period);
+            # the whole Goal text when no period exists.
+            sm = re.search(r"^(.*?\.)(?:\s|$)", goal)
+            purpose = sm.group(1) if sm else goal
+        else:
+            purpose = None
+        rows[n]["purpose"] = clean(purpose) if purpose else None
+
     return rows
 
 
@@ -720,7 +808,7 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
         rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [],
+            "requirements": [], "purpose": None,
         })
     dir_to_number = {d.name: n for n, d in dirs.items()}
     bd_edges = issue_phase_deps(issues or [])
