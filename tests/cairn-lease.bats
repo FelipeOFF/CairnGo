@@ -640,3 +640,88 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   assert_json_eq "$output" '.records | length' '1'
   assert_json_eq "$output" '.records[0].action' 'acquired'
 }
+
+#-----------------------------------------------------------------------------
+# Phase 16 Plan 03 Task 2: a broken/missing journal never blocks the
+# lease's own documented contract (D-02) — the only observable difference
+# is a stderr warning; exit codes and bd state are identical to a normal
+# working-journal call.
+#-----------------------------------------------------------------------------
+
+@test "journal failure: acquire/release/renew succeed identically to normal, with a stderr warning, when CAIRN_JOURNAL points at a nonexistent path" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  local broken="$BATS_TEST_TMPDIR/nowhere/cairn-journal.py"
+
+  run --separate-stderr env CAIRN_JOURNAL="$broken" \
+    bash "$LEASE" acquire 40 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  grep -qF "[cairn-lease] warning:" <<<"$stderr"
+  grep -qiF "journal" <<<"$stderr"
+  local lease_id
+  lease_id="$(jq -r '.id' <<<"$output")"
+
+  run bd show "$lease_id" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.[0].metadata.cairn.lease.holder' "$root"
+
+  # renew: never calls the journal in any branch, so it is trivially
+  # unaffected — proven here rather than assumed.
+  run --separate-stderr env CAIRN_JOURNAL="$broken" \
+    bash "$LEASE" renew 40 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run --separate-stderr env CAIRN_JOURNAL="$broken" \
+    bash "$LEASE" release 40 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "[cairn-lease] warning:" <<<"$stderr"
+
+  run bd show "$lease_id" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.[0].status' 'open'
+  assert_json_eq "$output" '(.[0].metadata.cairn.lease.holder // "absent")' 'absent'
+}
+
+@test "journal failure: acquire/release/renew succeed identically to normal, with a stderr warning, when CAIRN_JOURNAL is a stub that always exits 1" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  local root
+  root="$(git rev-parse --show-toplevel)"
+  local stub="$BATS_TEST_TMPDIR/always-fail-journal.py"
+  cat > "$stub" <<'PYEOF'
+#!/usr/bin/env python3
+import sys
+sys.exit(1)
+PYEOF
+
+  run --separate-stderr env CAIRN_JOURNAL="$stub" \
+    bash "$LEASE" acquire 41 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  grep -qF "[cairn-lease] warning:" <<<"$stderr"
+  local lease_id
+  lease_id="$(jq -r '.id' <<<"$output")"
+
+  run bd show "$lease_id" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.[0].metadata.cairn.lease.holder' "$root"
+
+  run --separate-stderr env CAIRN_JOURNAL="$stub" \
+    bash "$LEASE" renew 41 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run --separate-stderr env CAIRN_JOURNAL="$stub" \
+    bash "$LEASE" release 41 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "[cairn-lease] warning:" <<<"$stderr"
+
+  run bd show "$lease_id" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.[0].status' 'open'
+  assert_json_eq "$output" '(.[0].metadata.cairn.lease.holder // "absent")' 'absent'
+}
