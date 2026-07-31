@@ -1548,3 +1548,239 @@ EOF
     '[.checks[] | select(.id != "lease-stale" and .status != "ok")] | length' '0'
 }
 
+# --------------------------------------------------------------------------- #
+# --apply-reconciliation (ESC-03, Phase 17 Plan 3) — the human-invoked,
+# separate command that applies a verified semantic-escalation reconciliation
+# proposal. Not a check: a fixer, tested the same way --close-completed and
+# --fix-labels are, against a real conflicted fixture and a real bd.
+# --------------------------------------------------------------------------- #
+
+RECONCILE="$CAIRN_SCRIPTS_DIR/cairn-reconcile.sh"
+
+# The same disk-vs-bd "blocks" corroboration conflict the phase-corroboration
+# tests above build (line ~833): phase 1 verified on disk and roadmap-
+# complete, one straggler bd issue for phase 1 still open — the recipe that
+# makes `cairn-reconcile.py collect 1` succeed with a "conflict" verdict
+# instead of refusing. Exports RECON_STRAGGLER (the open issue's id).
+make_conflicted_fixture() {
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  RECON_STRAGGLER="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+}
+
+# A fresh, evidence-hash-current reconciliation proposal for PHASE: a
+# bd_close claim naming TARGET (any bd id — callers pick one in or out of
+# PHASE's own labels) plus a manual_review claim, both citing REAL lines
+# from ROADMAP.md so citation verification passes. Calls a real `collect`
+# to capture the CURRENT evidence_hash — the same hash
+# --apply-reconciliation's own freshness re-check will re-derive and
+# compare against, so a proposal built by this helper and applied
+# immediately always starts out valid on both axes.
+write_valid_proposal() {
+  local phase="$1" target="$2"
+  local ehash
+  ehash="$(bash "$RECONCILE" collect "$phase" --project-dir "$PWD" --json | jq -r '.evidence_hash')"
+  local line1
+  line1="$(sed -n '1p' .planning/ROADMAP.md)"
+  mkdir -p .cairn
+  python3 - "$phase" "$ehash" "$target" "$line1" <<'PY'
+import json
+import sys
+
+phase, ehash, target, line1 = sys.argv[1:5]
+proposal = {
+    "phase": int(phase),
+    "generated_at": "2026-07-31T00:00:00Z",
+    "evidence_hash": ehash,
+    "claims": [
+        {
+            "statement": f"{target} is an open straggler in a phase disk "
+                         "already reports verified.",
+            "citations": [
+                {"file": ".planning/ROADMAP.md", "line": 1, "text": line1}
+            ],
+            "recommended_action": {"type": "bd_close", "issue": target,
+                                    "reason": "phase complete, straggler stale"}
+        },
+        {
+            "statement": "A separate, ambiguous finding needs a human look.",
+            "citations": [
+                {"file": ".planning/ROADMAP.md", "line": 1, "text": line1}
+            ],
+            "recommended_action": {"type": "manual_review", "issue": None,
+                                    "note": "ambiguous, needs a human"}
+        }
+    ]
+}
+with open(".cairn/conflicts.json", "w") as f:
+    json.dump(proposal, f)
+PY
+}
+
+@test "apply-reconciliation: no .cairn/conflicts.json -> clean refusal, no crash" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --apply-reconciliation 1
+  [ "$status" -eq 2 ]
+  refute_in_output "Traceback"
+  grep -qiF "no proposal" <<<"$output"
+}
+
+@test "apply-reconciliation: a stale evidence_hash is refused, bd state unchanged" {
+  require_bd
+  make_conflicted_fixture
+  local bd_before
+  bd_before="$(bd list --all --limit 0 --json | jq -S 'sort_by(.id)')"
+
+  write_valid_proposal 1 "$RECON_STRAGGLER"
+  # Corrupt the stored hash to a plausible-looking but wrong one — the
+  # tree did not actually move, but the proposal's own claim about its
+  # evidence no longer matches what a fresh collect produces.
+  python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path(".cairn/conflicts.json")
+data = json.loads(p.read_text())
+data["evidence_hash"] = "sha256:" + "0" * 64
+p.write_text(json.dumps(data))
+PY
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --apply-reconciliation 1
+  [ "$status" -eq 7 ]
+  grep -qF "proposal is stale" <<<"$output"
+
+  local bd_after
+  bd_after="$(bd list --all --limit 0 --json | jq -S 'sort_by(.id)')"
+  [ "$bd_before" = "$bd_after" ]
+  run bd show "$RECON_STRAGGLER" --json
+  assert_json_eq "$output" '.[0].status' 'open'
+}
+
+@test "apply-reconciliation: a proposal with one wrong citation is refused wholesale, bd state unchanged" {
+  require_bd
+  make_conflicted_fixture
+  local bd_before
+  bd_before="$(bd list --all --limit 0 --json | jq -S 'sort_by(.id)')"
+
+  write_valid_proposal 1 "$RECON_STRAGGLER"
+  # Poison ONE citation's text so it no longer matches what is really on
+  # line 1 — the other claim's citation is left correct (D-03's trap: one
+  # bad citation must still reject the WHOLE proposal).
+  python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path(".cairn/conflicts.json")
+data = json.loads(p.read_text())
+data["claims"][0]["citations"][0]["text"] = \
+    "this is definitely not what line 1 of ROADMAP.md says"
+p.write_text(json.dumps(data))
+PY
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --apply-reconciliation 1
+  [ "$status" -eq 7 ]
+  grep -qF "citation verification" <<<"$output"
+
+  local bd_after
+  bd_after="$(bd list --all --limit 0 --json | jq -S 'sort_by(.id)')"
+  [ "$bd_before" = "$bd_after" ]
+  run bd show "$RECON_STRAGGLER" --json
+  assert_json_eq "$output" '.[0].status' 'open'
+}
+
+@test "apply-reconciliation: correct citations do not excuse a claim naming an id outside phase N, bd state unchanged" {
+  require_bd
+  make_conflicted_fixture
+  local bd_before
+  bd_before="$(bd list --all --limit 0 --json | jq -S 'sort_by(.id)')"
+
+  # $DOC_P2 (make_doctor_fixture's phase-2 issue) carries no phase-1 label.
+  # Every citation in this proposal is genuinely correct — the ONLY defect
+  # is that the bd_close claim targets an issue outside the phase being
+  # reconciled.
+  write_valid_proposal 1 "$DOC_P2"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --apply-reconciliation 1
+  [ "$status" -eq 7 ]
+  grep -qF "issue-provenance" <<<"$output"
+  grep -qF "carries no phase-1 label" <<<"$output"
+
+  local bd_after
+  bd_after="$(bd list --all --limit 0 --json | jq -S 'sort_by(.id)')"
+  [ "$bd_before" = "$bd_after" ]
+  run bd show "$DOC_P2" --json
+  assert_json_eq "$output" '.[0].status' 'open'
+}
+
+@test "apply-reconciliation: every claim is enumerated in output BEFORE the first bd write happens" {
+  require_bd
+  make_conflicted_fixture
+  write_valid_proposal 1 "$RECON_STRAGGLER"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --apply-reconciliation 1
+  [ "$status" -eq 0 ]
+  # Both claims — the bd_close AND the manual_review — appear in the
+  # enumeration.
+  grep -qF "will close $RECON_STRAGGLER" <<<"$output"
+  grep -qF "skipped (manual review" <<<"$output"
+
+  # ...and BOTH enumerated lines precede the first bd 'closed' confirmation
+  # line: the FULL plan prints before the first write, never interleaved
+  # enumerate-then-apply-then-enumerate-next.
+  local enum_line1 enum_line2 close_line
+  enum_line1="$(grep -nF "will close $RECON_STRAGGLER" <<<"$output" | head -1 | cut -d: -f1)"
+  enum_line2="$(grep -nF "skipped (manual review" <<<"$output" | head -1 | cut -d: -f1)"
+  close_line="$(grep -nF "closed $RECON_STRAGGLER —" <<<"$output" | head -1 | cut -d: -f1)"
+  [ -n "$close_line" ]
+  [ "$enum_line1" -lt "$close_line" ]
+  [ "$enum_line2" -lt "$close_line" ]
+}
+
+@test "apply-reconciliation: a valid fresh proposal actually closes the bd_close issue; manual_review never touches bd" {
+  require_bd
+  make_conflicted_fixture
+  write_valid_proposal 1 "$RECON_STRAGGLER"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --apply-reconciliation 1
+  [ "$status" -eq 0 ]
+  grep -qF "1 applied, 1 skipped (manual review), 0 refused by bd" <<<"$output"
+
+  run bd show "$RECON_STRAGGLER" --json
+  assert_json_eq "$output" '.[0].status' 'closed'
+}
+
+@test "apply-reconciliation: an unrecognized recommended_action.type refuses the WHOLE apply, bd state unchanged" {
+  require_bd
+  make_conflicted_fixture
+  local bd_before
+  bd_before="$(bd list --all --limit 0 --json | jq -S 'sort_by(.id)')"
+
+  write_valid_proposal 1 "$RECON_STRAGGLER"
+  # Corrupt the SECOND claim's type to something outside the closed
+  # vocabulary — the FIRST claim is a perfectly valid bd_close, proving one
+  # bad claim refuses the whole proposal, never just its own.
+  python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path(".cairn/conflicts.json")
+data = json.loads(p.read_text())
+data["claims"][1]["recommended_action"]["type"] = "bd_delete"
+p.write_text(json.dumps(data))
+PY
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --apply-reconciliation 1
+  [ "$status" -eq 7 ]
+  grep -qF "unrecognized recommended_action.type" <<<"$output"
+
+  local bd_after
+  bd_after="$(bd list --all --limit 0 --json | jq -S 'sort_by(.id)')"
+  [ "$bd_before" = "$bd_after" ]
+  run bd show "$RECON_STRAGGLER" --json
+  assert_json_eq "$output" '.[0].status' 'open'
+}
+
