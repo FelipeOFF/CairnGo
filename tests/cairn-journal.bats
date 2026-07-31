@@ -379,3 +379,29 @@ print(len(before))
   assert_json_eq "$output" '[.records[] | select(.to == "executed")] | length' '1'
   assert_json_eq "$output" '[.records[] | select(.to == "verified")] | length' '0'
 }
+
+#-----------------------------------------------------------------------------
+# T-16-01: malformed observe stdin degrades to EXIT_USAGE, never a traceback
+#-----------------------------------------------------------------------------
+
+@test "observe: malformed stdin (non-JSON, non-array, missing phase, wrong-typed phase) dies EXIT_USAGE, never a traceback" {
+  make_tmp_repo
+
+  run bash -c "echo 'not json' | bash \"$JOURNAL\" observe --project-dir \"$PWD\""
+  [ "$status" -eq 2 ]
+  refute_in_output "Traceback"
+
+  run bash -c "echo '{\"phase\": 1}' | bash \"$JOURNAL\" observe --project-dir \"$PWD\""
+  [ "$status" -eq 2 ]
+  refute_in_output "Traceback"
+
+  run bash -c "echo '[{\"evidence\": {}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\""
+  [ "$status" -eq 2 ]
+  refute_in_output "Traceback"
+
+  run bash -c "echo '[{\"phase\": \"5\"}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\""
+  [ "$status" -eq 2 ]
+  refute_in_output "Traceback"
+
+  [ ! -f .cairn/journal.jsonl ]
+}

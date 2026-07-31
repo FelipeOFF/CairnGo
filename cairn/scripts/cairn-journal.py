@@ -398,19 +398,22 @@ def _load_observe_payload():
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        die(f"stdin is not valid JSON: {e}", EXIT_USAGE)
+        die(f"stdin is not valid JSON: {e}\n{USAGE}", EXIT_USAGE)
     if not isinstance(data, list):
-        die("stdin must be a JSON array of observation objects", EXIT_USAGE)
+        die(f"stdin must be a JSON array of observation objects\n{USAGE}",
+            EXIT_USAGE)
     for i, item in enumerate(data):
         if not isinstance(item, dict) or "phase" not in item:
-            die(f"element {i} is missing required field 'phase'",
+            die(f"element {i} is missing required field 'phase'\n{USAGE}",
                 EXIT_USAGE)
         if not isinstance(item["phase"], int) or isinstance(item["phase"],
                                                               bool):
-            die(f"element {i}'s 'phase' must be an integer", EXIT_USAGE)
+            die(f"element {i}'s 'phase' must be an integer\n{USAGE}",
+                EXIT_USAGE)
         evidence = item.get("evidence")
         if evidence is not None and not isinstance(evidence, dict):
-            die(f"element {i}'s 'evidence' must be an object", EXIT_USAGE)
+            die(f"element {i}'s 'evidence' must be an object\n{USAGE}",
+                EXIT_USAGE)
     return data
 
 
