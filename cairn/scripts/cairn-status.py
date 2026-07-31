@@ -75,6 +75,15 @@ Behavior:
        and `verify_status` (the literal `status:` value from the phase's
        `NN-VERIFICATION.md` frontmatter, or `null` when absent/unreadable).
        `disk_state` itself is still never widened by any of this.
+    4e. `phase_model()` ends with exactly ONE batched call to
+       `cairn-journal.py observe` (Phase 16, D-01/D-02), carrying every
+       phase's `evidence`+`corroboration` from 4c above as one JSON array
+       on stdin — the concrete write path for the journal's "phase state"
+       and "corroboration verdict" categories, reached from every surface
+       that renders the board. Purely a side effect: the journal is never
+       read anywhere in this script, so a missing or broken
+       cairn-journal.py degrades to a stderr warning and changes nothing
+       else about this run (JOUR-03) — see journal_observe_phases().
     5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
        gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
        list (< 40 cols). Non-TTY without an output flag: --plain
@@ -171,6 +180,16 @@ from pathlib import Path
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_NO_BD = 5
+
+# Test/override seam for the journal companion script (mirrors the existing
+# CAIRN_GBSYNC/CAIRN_MAP/CAIRN_GATE env-seam convention and cairn-lease.py's
+# identical CAIRN_JOURNAL seam — see CONVENTIONS.md's "Environment variable
+# seams" note). Default: the sibling cairn-journal.py next to this script.
+# phase_model()'s own observe call (Phase 16, D-01/D-02) shells out through
+# this seam, resiliently — see journal_observe_phases().
+CAIRN_JOURNAL = os.environ.get(
+    "CAIRN_JOURNAL",
+    str(Path(__file__).resolve().parent / "cairn-journal.py"))
 
 USAGE = ("usage: cairn-status.py [--json] [--plain] [--brief] [--width N] "
          "[--max-rows N] [--ascii] [--color=always|never] "
@@ -928,6 +947,50 @@ def issue_phase_deps(issues):
     return edges
 
 
+def journal_observe_phases(root, phases):
+    """Best-effort, single batched append of every phase's already-computed
+    evidence/corroboration into cairn-journal.py's `observe` subcommand
+    (Phase 16, D-01/D-02) — the concrete write path for JOUR-01's "phase
+    state" and "corroboration verdict" categories. Exactly ONE subprocess
+    call per phase_model() invocation, carrying every phase's own
+    `{"phase", "evidence", "verdict"}` as one JSON array on stdin; never one
+    call per phase.
+
+    Purely a side effect appended AFTER corroborate() has already produced
+    every value in the payload (see phase_model()'s own call site) —
+    nothing here can feed back into corroboration itself, and nothing here
+    is read by anything else in this module (JOUR-03: the journal is never
+    consulted as a source of "current state"). On ANY failure — a nonzero
+    exit, a missing script (FileNotFoundError), any other
+    subprocess.SubprocessError, or output that is not valid JSON — prints a
+    single `[cairn-status] warning: could not record journal observation:
+    ...` line to stderr and returns. NEVER raises, NEVER calls die():
+    recording history is bookkeeping, rendering the board is the real work
+    (mirrors fetch_lease_status()'s and cairn-lease.py's
+    journal_lease_event()'s identical resilience posture)."""
+    payload = [{"phase": p["number"], "evidence": p["evidence"],
+                "verdict": p["corroboration"]} for p in phases]
+    cmd = [sys.executable, CAIRN_JOURNAL, "observe",
+           "--project-dir", str(root), "--json"]
+    try:
+        proc = subprocess.run(cmd, input=json.dumps(payload),
+                               capture_output=True, text=True)
+    except (FileNotFoundError, subprocess.SubprocessError) as e:
+        print(f"[cairn-status] warning: could not record journal "
+              f"observation: {e}", file=sys.stderr)
+        return
+    if proc.returncode != 0:
+        detail = proc.stderr.strip() or f"exit {proc.returncode}"
+        print(f"[cairn-status] warning: could not record journal "
+              f"observation: {detail}", file=sys.stderr)
+        return
+    try:
+        json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        print(f"[cairn-status] warning: could not record journal "
+              f"observation: unparsable output ({e})", file=sys.stderr)
+
+
 def phase_model(planning_dir, issues=None, bd_ok=True):
     """Every phase, described once, for all three surfaces to render from.
 
@@ -943,6 +1006,15 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
     `bd_ok` (default True, unchanged behavior for every existing caller) says
     whether `issues` is a trustworthy read of bd; when False (bd unreachable)
     the bd axis reports "unknown" rather than fabricating agreement.
+
+    Once every phase's evidence/corroboration below is computed, this
+    function ends with exactly ONE batched call to journal_observe_phases()
+    (Phase 16, D-01/D-02) — a pure, best-effort side effect appended AFTER
+    corroborate() has already produced its answer for every phase. The
+    journal is never read anywhere in this call graph and never feeds back
+    into any value computed here, so a missing or broken journal changes
+    zero bytes of this function's return value, only a stderr warning
+    (JOUR-03).
     """
     rows = roadmap_phase_rows(planning_dir)
     dirs = phase_dirs(planning_dir)
@@ -963,12 +1035,17 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
     active_raw = normalize_phase(state_frontmatter(planning_dir)["active_phase"])
     active_phase_n = (int(active_raw) if active_raw is not None
                       and str(active_raw).isdigit() else None)
+    # Project root: the same resolution main() already applies (planning_dir
+    # is always root / ".planning", whichever branch resolved it) — reused
+    # here rather than invented a second way, both for row["dir"] below and
+    # for the observe call's --project-dir at the end of this function.
+    root = planning_dir.parent
 
     out = []
     for n in sorted(rows):
         row = dict(rows[n])
         pdir = dirs.get(n)
-        row["dir"] = str(pdir.relative_to(planning_dir.parent)) if pdir else None
+        row["dir"] = str(pdir.relative_to(root)) if pdir else None
         row["disk_state"] = phase_disk_state(pdir)
         row["research_done"] = phase_has_research(pdir)
         row["issues_done"], row["issues_total"] = phase_issue_counts(
@@ -1005,6 +1082,10 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
     for p in out:
         p["blocked_by"] = [d for d in p["depends_on"] if d not in done_set]
         p["next_command"] = phase_next_command(p)
+    # Every phase's evidence/corroboration is fully computed above — this is
+    # the ONE place in the whole module where the batch gets observed into
+    # the journal, resiliently (see journal_observe_phases()).
+    journal_observe_phases(root, out)
     return out
 
 

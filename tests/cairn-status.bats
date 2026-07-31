@@ -13,6 +13,10 @@
 
 load 'helpers'
 
+# The journal-failure test uses `run --separate-stderr` (bats-core >= 1.5.0)
+# to assert on stdout and stderr independently.
+bats_require_minimum_version 1.5.0
+
 # Assert NEEDLE does not appear in $output. (`! grep` cannot be used inline:
 # bash's `!` suppresses errexit, so its failure would never fail the test.)
 refute_in_output() {
@@ -1333,4 +1337,104 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   [ "$status" -eq 0 ]
   grep -qF '@ phase 2 in use by' <<<"$output"
   refute_in_output '◆'
+}
+
+#-----------------------------------------------------------------------------
+# Phase 16 Plan 04: phase_model() batch-wires every render into
+# cairn-journal.py's `observe` subcommand (JOUR-01/JOUR-02, D-01/D-02), and
+# corroborate() itself stays provably independent of the journal's presence
+# or contents (JOUR-03 — Pitfall 11's exact failure shape, closed
+# mechanically, not narrated).
+#
+# CAIRN_JOURNAL is phase_model()'s own env-override seam (identical shape to
+# cairn-lease.py's seam of the same name).
+#-----------------------------------------------------------------------------
+
+JOURNAL_SH="$CAIRN_SCRIPTS_DIR/cairn-journal.sh"
+
+@test "journal observe: exactly one batched cairn-journal.py invocation per --json run, not one per phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # A stub that counts its own invocations to a side file, then execs into
+  # the real cairn-journal.py so the run still actually journals (this test
+  # also proves the DONE criterion: history shows the expected records).
+  local stub="$BATS_TEST_TMPDIR/counting-journal.py"
+  local count_file="$BATS_TEST_TMPDIR/journal-call-count"
+  cat > "$stub" <<'PYEOF'
+#!/usr/bin/env python3
+import os, sys
+with open(os.environ["CAIRN_JOURNAL_CALL_COUNT_FILE"], "a") as f:
+    f.write("1\n")
+os.execv(sys.executable,
+         [sys.executable, os.environ["CAIRN_JOURNAL_REAL"]] + sys.argv[1:])
+PYEOF
+  chmod +x "$stub"
+
+  run env CAIRN_JOURNAL="$stub" \
+      CAIRN_JOURNAL_CALL_COUNT_FILE="$count_file" \
+      CAIRN_JOURNAL_REAL="$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  # Exactly one subprocess spawn for this whole render, not one per phase
+  # (this fixture has 2 phases via make_gsd_fixture).
+  [ "$(wc -l < "$count_file" | tr -d ' ')" = "1" ]
+
+  # The one batched call wrote what phase_model() actually computed: one
+  # state_changed/verdict_changed set per phase, on a journal that had never
+  # observed either phase before (4 evidence axes + 1 verdict each = 5).
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.records[] | select(.phase==1)] | length' '5'
+  assert_json_eq "$output" '[.records[] | select(.phase==2)] | length' '5'
+  assert_json_eq "$output" \
+    '[.records[] | select(.phase==1 and .event=="verdict_changed")] | length' '1'
+  assert_json_eq "$output" \
+    '[.records[] | select(.phase==2 and .event=="verdict_changed")] | length' '1'
+}
+
+@test "journal observe: a broken CAIRN_JOURNAL produces byte-identical --json output to a working one, plus a stderr warning" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local working_output="$output"
+
+  run --separate-stderr env CAIRN_JOURNAL=/nonexistent/path \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  [ "$output" = "$working_output" ]
+  grep -qF "[cairn-status] warning:" <<<"$stderr"
+  grep -qiF "journal" <<<"$stderr"
+}
+
+@test "journal observe: two --json runs with no state change between them append zero new records the second time" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  local count_after_first
+  count_after_first="$(jq '.records | length' <<<"$output")"
+  [ "$count_after_first" -gt 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  local count_after_second
+  count_after_second="$(jq '.records | length' <<<"$output")"
+  [ "$count_after_second" -eq "$count_after_first" ]
 }
