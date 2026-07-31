@@ -61,6 +61,15 @@ purpose when a Card is present.
 The second sentence carries SECONDSENTENCEMARKER and must never appear.
 
 ---
+
+### Phase 4: Goal wrapping onto an emphasized word
+
+**Goal:** the sentence runs past the first line and continues with
+**emphasis** carried mid-sentence, then reaches WRAPENDMARKER.
+
+**Requirements**: WRAP-01
+
+---
 EOF
 }
 
@@ -87,6 +96,29 @@ setup() {
   purpose="$(printf '%s' "$output" | phase_field 2 purpose)"
   [ "$purpose" = "the first sentence stands alone and must resolve as the purpose." ]
   ! grep -qF "SECONDSENTENCEMARKER" <<<"$purpose"
+}
+
+@test "a Goal wrapping onto a line that starts with emphasis is not truncated there" {
+  # Regression: BOLD_LABEL used to make the colon optional, so ANY bold span at
+  # the start of a continuation line read as a new label and flushed the buffer
+  # early. Phase 17's real Goal in this repo wraps onto `**propõe** uma
+  # reconciliação` and rendered as a fragment with no closing period — through
+  # 238 green tests, because no fixture had emphasis at a line start.
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  purpose="$(printf '%s' "$output" | phase_field 4 purpose)"
+  grep -qF "WRAPENDMARKER" <<<"$purpose"
+}
+
+@test "inline emphasis inside a purpose reaches the card as words, not as asterisks" {
+  # The markers are markup for a markdown reader; the board is not one. Kept as
+  # a separate assertion from the truncation test above so a regression in
+  # either one is named for what it is.
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  purpose="$(printf '%s' "$output" | phase_field 4 purpose)"
+  grep -qF "with emphasis carried" <<<"$purpose"
+  ! grep -qF '**' <<<"$purpose"
 }
 
 @test "a phase with neither Card nor Goal reads purpose as null, not a fabricated string" {

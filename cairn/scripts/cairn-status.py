@@ -233,7 +233,18 @@ GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
 # and the colon-outside shape used by `**Requirements**:` elsewhere in the
 # same blocks. Used only to know when to STOP collecting continuation text
 # for a Card/Goal block, never to start it.
-BOLD_LABEL = re.compile(r"^\*\*[^*]+\*\*:?")
+#
+# The colon is REQUIRED, in one position or the other. It used to be optional
+# (`\*\*:?`), which made every emphasized word at the start of a wrapped line
+# look like a new label: phase 17's real Goal wraps onto a line beginning
+# `**propõe** uma reconciliação`, so the purpose was flushed early and rendered
+# as a sentence fragment with no closing period. Prose emphasis carries no
+# colon; a label always does.
+BOLD_LABEL = re.compile(r"^\*\*[^*]+\*\*:|^\*\*[^*]+:\*\*")
+
+# Inline **bold** / __bold__ / *italic* / _italic_ inside a Card or Goal, with
+# the marked words kept. Applied only to the purpose text, never to a label.
+INLINE_EMPHASIS = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_")
 
 
 def die(msg, code):
@@ -757,6 +768,14 @@ def roadmap_phase_rows(planning_dir):
         nonlocal collecting, buffer
         if collecting is not None:
             text = " ".join(b for b in buffer if b).strip()
+            # Prose emphasis is markup for a markdown reader, not for a
+            # terminal column — `**propõe**` in phase 17's Goal would reach
+            # the board as four literal asterisks. Strip the bold/italic
+            # markers and keep the words. Backticks are deliberately left
+            # alone: in this project's prose they mark real identifiers, and
+            # that distinction is worth carrying into the card.
+            text = INLINE_EMPHASIS.sub(
+                lambda m: next(g for g in m.groups() if g is not None), text)
             target = card_text if collecting == "card" else goal_text
             target[detail_phase] = text
         collecting = None
