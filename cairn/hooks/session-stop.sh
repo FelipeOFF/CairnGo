@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 # cairn Stop hook — end-of-session tracker hygiene.
-# When the repo has .beads/ and bd is available, list in_progress issues
-# still assigned to the current actor (resolved the way bd itself does:
-# $BEADS_ACTOR, then git user.name, then $USER) and print ONE warning line
-# if any remain. Silent when clean, silent on any failure, ALWAYS exit 0 —
-# this hook never blocks the stop.
+# Two jobs, both silent when clean, silent on any failure, ALWAYS exit 0 —
+# this hook never blocks the stop:
+#   1. in_progress-issue reminder — list in_progress issues still assigned
+#      to the current actor (resolved the way bd itself does: $BEADS_ACTOR,
+#      then git user.name, then $USER) and print ONE warning line if any
+#      remain.
+#   2. lease release (D-03) — release every phase lease THIS worktree holds
+#      via `cairn-lease.sh release --mine` (worktree-scoped identity — never
+#      the unconditional `release <N>` verify-post.md calls once per phase
+#      regardless of holder) and print one line naming what was released.
+#      A lease held by a DIFFERENT worktree is never touched.
 set -uo pipefail
 
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(dirname "$HOOK_DIR")"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+CAIRN_LEASE="${CAIRN_LEASE:-$PLUGIN_ROOT/scripts/cairn-lease.sh}"
 [ -d "$PROJECT_DIR/.beads" ] || exit 0
 command -v bd >/dev/null 2>&1 || exit 0
 
@@ -33,4 +42,23 @@ if ids:
 ' 2>/dev/null || true)"
 
 [ -n "$LINE" ] && echo "$LINE"
+
+# --- lease release (D-03) -----------------------------------------------
+# release --mine is worktree-scoped by holder identity, so it can never
+# clear a DIFFERENT worktree's active lease — verify-post.md's own
+# unconditional `release <N>` is a deliberately different verb.
+LEASE_LINE="$(bash "$CAIRN_LEASE" release --mine --project-dir "$PROJECT_DIR" \
+                --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    result = json.load(sys.stdin) or {}
+except Exception:
+    raise SystemExit
+phases = result.get("phases") or []
+if phases:
+    print("[cairn] session ending — released %d phase lease(s) you were "
+          "holding: %s" % (len(phases), ", ".join(str(p) for p in phases)))
+' 2>/dev/null || true)"
+
+[ -n "$LEASE_LINE" ] && echo "$LEASE_LINE"
 exit 0
