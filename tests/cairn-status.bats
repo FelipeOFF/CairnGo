@@ -1438,3 +1438,93 @@ PYEOF
   count_after_second="$(jq '.records | length' <<<"$output")"
   [ "$count_after_second" -eq "$count_after_first" ]
 }
+
+#-----------------------------------------------------------------------------
+# JOUR-03: corroborate() itself is provably independent of the journal —
+# a hand-edit made outside any cairn command is caught on the FIRST read
+# (never depends on a prior observe having seen an intermediate state), and
+# deleting the journal entirely changes zero bytes of the next --json
+# render. This is the mechanical proof this plan exists to carry (Pitfall
+# 11: journal-as-ground-truth is the milestone's own root bug shape).
+#-----------------------------------------------------------------------------
+
+@test "JOUR-03: a hand-edit outside any cairn command is caught on the first read, and deleting the journal changes nothing" {
+  require_bd
+  make_tmp_repo
+  # A 2-phase roadmap; neither phase has a directory on disk yet, and
+  # nothing has ever run cairn-status.sh in this repo.
+  mkdir -p .planning
+  cat > .planning/ROADMAP.md <<'EOF'
+# Roadmap: JOUR-03 Fixture
+
+## Phases
+
+- [ ] Phase 1: First phase
+- [ ] Phase 2: Second phase
+EOF
+  bd init -q --prefix j3 --non-interactive >/dev/null 2>&1
+
+  # No prior cairn-status.sh run has happened yet in this fixture — the
+  # journal genuinely does not exist before the hand-edit below. This rules
+  # out the test passing only because a PRIOR observe call happened to have
+  # already recorded the right thing.
+  [ ! -f .cairn/journal.jsonl ]
+
+  # Part (1): hand-edit OUTSIDE any cairn command — a plain sed on
+  # ROADMAP.md, never a cairn-*.sh invocation — checks phase 1's box while
+  # its phase directory has no -SUMMARY.md/-VERIFICATION.md at all. This
+  # deterministically produces R2's roadmap-vs-disk "blocks" conflict.
+  sed -i.bak 's/^- \[ \] Phase 1/- [x] Phase 1/' .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+
+  # This IS the first read after the hand-edit — the journal cannot have
+  # observed this phase before (it did not even exist a moment ago).
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local first_read_output="$output"
+  printf '%s' "$first_read_output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+p = [x for x in d["phases"] if x["number"] == 1][0]
+assert p["corroboration"] == "conflict", p
+items = [c for c in p["conflicts"]
+         if c["severity"] == "blocks" and c["sources"] == ["roadmap", "disk"]]
+assert len(items) == 1, p["conflicts"]
+'
+
+  # That first read's own observe call just wrote this phase's evidence into
+  # the journal for the first time — confirm it, rather than assume it.
+  [ -f .cairn/journal.jsonl ]
+
+  # Part (2): pin the fixture — no .cairn/sync.json, no lease held anywhere
+  # — the only two genuinely time-varying keys the --json payload can carry.
+  # Assert this directly rather than trust it; a fixture that violates
+  # either would make the coming full-output diff flaky for reasons that
+  # have nothing to do with JOUR-03.
+  [ ! -f .cairn/sync.json ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" status --all --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
+
+  # "before": a SECOND read, now against a journal that genuinely has real
+  # accumulated history for this phase (unlike first_read_output, which ran
+  # against no journal at all) — this is the render that deletion below
+  # must prove made no difference to, not a repeat of the no-journal case.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local before_output="$output"
+  # A second read against a populated journal changes nothing either — the
+  # same structural proof, one call earlier.
+  diff <(jq -S . <<<"$first_read_output") <(jq -S . <<<"$before_output")
+
+  # Delete the journal entirely, then render again and diff structurally
+  # against before_output. Deleting a journal that had real history in it
+  # must change zero bytes of the corroboration output.
+  rm -f .cairn/journal.jsonl
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local after_output="$output"
+
+  diff <(jq -S . <<<"$before_output") <(jq -S . <<<"$after_output")
+}
