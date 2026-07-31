@@ -5,7 +5,12 @@
 #   1. in_progress-issue reminder — list in_progress issues still assigned
 #      to the current actor (resolved the way bd itself does: $BEADS_ACTOR,
 #      then git user.name, then $USER) and print ONE warning line if any
-#      remain.
+#      remain. Excludes any issue carrying the `lease` label (Plan 15-01):
+#      acquiring a lease claims its bookkeeping issue in_progress under
+#      this same actor, and "bd close <id> --reason=..." is wrong advice
+#      for it — job 2 below already releases it, one line later, in the
+#      same hook run. Mirrors cairn-status.py's is_lease_issue() exemption
+#      (Plan 15-05) and NO_PHASE_EXEMPT in cairn-doctor.py.
 #   2. lease release (D-03) — release every phase lease THIS worktree holds
 #      via `cairn-lease.sh release --mine` (worktree-scoped identity — never
 #      the unconditional `release <N>` verify-post.md calls once per phase
@@ -33,7 +38,8 @@ except Exception:
     raise SystemExit
 if not isinstance(issues, list):
     issues = [issues]
-ids = [i.get("id", "?") for i in issues]
+ids = [i.get("id", "?") for i in issues
+       if "lease" not in (i.get("labels") or [])]
 if ids:
     print("[cairn] session ending with %d in_progress issue(s) still "
           "assigned to you: %s — bd close <id> --reason=..., pause per the "

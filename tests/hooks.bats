@@ -484,6 +484,45 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   [ -z "$output" ]
 }
 
+# 15-05 added scope (see deferred-items.md): 15-04's own test isolated the
+# in_progress-issue check from the lease bookkeeping issue by acquiring the
+# lease under a DIFFERENT actor. This test proves the real-world case —
+# SAME actor for both — now works correctly: the lease is excluded from the
+# in_progress report, and a genuine in_progress issue for that same actor is
+# still reported in the same run (the second half is load-bearing: it proves
+# the exemption filters precisely, not that it silences the whole check).
+@test "session-stop: the in_progress-issue report excludes the lease bookkeeping issue but still reports a genuine in_progress issue in the same run" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix hok --non-interactive >/dev/null 2>&1
+
+  # A genuine in_progress issue for the actor — must still be reported.
+  local real_id
+  real_id="$(bd create "Mid-flight work" -t task --silent)"
+  env BEADS_ACTOR="tester" bd update "$real_id" --claim >/dev/null
+
+  # Acquire a lease under the SAME actor: acquire's own --claim marks the
+  # lease bookkeeping issue in_progress and assigns it to this actor too —
+  # exactly the interaction deferred-items.md measured live.
+  run env BEADS_ACTOR="tester" \
+      bash "$CAIRN_LEASE_SH" acquire 15 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_id
+  lease_id="$(jq -r '.id' <<<"$output")"
+
+  run env CLAUDE_PROJECT_DIR="$PWD" BEADS_ACTOR="tester" \
+      bash "$CAIRN_HOOKS_DIR/session-stop.sh"
+  [ "$status" -eq 0 ]
+  # Two lines: the in_progress warning (real_id only) and the lease-released
+  # confirmation — never a third line, never the lease id anywhere.
+  [ "${#lines[@]}" -eq 2 ]
+  grep -qF "$real_id" <<<"$output"
+  grep -qF "in_progress" <<<"$output"
+  grep -qF "released" <<<"$output"
+  grep -qF "15" <<<"$output"
+  refute_in_output "$lease_id"
+}
+
 #-----------------------------------------------------------------------------
 # session-stop.sh — lease release (D-03)
 #-----------------------------------------------------------------------------
