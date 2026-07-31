@@ -85,6 +85,19 @@ Behavior:
        ignored (--ascii alone does not force it). All bd/STATE.md text is
        passed through clean(), which strips C0/C1 control bytes — titles
        from remote trackers can't inject escape sequences or forge rows.
+    5b. Below the columned/stacked board, `phase_panel_lines()` prints a
+       PENDING PHASES table (`#`, `phase`, `state`, `rsch`, `plans`, `issues`,
+       `verify`, `waits`, `next` — the same step-4d/4c fields the HTML page
+       renders) and a PURPOSE list keyed by phase number, each line pairing
+       that phase's purpose with the reason `next_commands()` ordered it
+       where it did. There is no separate NEXT COMMANDS section: the command
+       itself is the table's `next` column, and the reason lives in PURPOSE
+       instead. PURPOSE is the one place text wraps rather than truncates —
+       a phase's purpose is never cut. When every phase is complete
+       (`pending_phases()` empty), PURPOSE still renders: `next_commands()`'s
+       `phase: None` pair (`/cairn:ship`, `/cairn:milestone complete`) prints
+       there with no phase-number prefix, so the terminal never shows less
+       than `--json` or the HTML page.
     6. When .cairn/sync.json exists, append a sync-staleness line from the
        last-pull watermarks in .cairn/state.json (missing or older than 24h
        → suggest /cairn:sync-pull).
@@ -1004,6 +1017,42 @@ def phase_progress_text(p):
     return f"{done}/{p['plans_total']} plans"
 
 
+def phase_purpose_text(p):
+    """What a phase IS, in one sentence — Plan 14-01's resolved `purpose`
+    (Card verbatim, or the first sentence of Goal), with the same
+    never-blank fallback shape `title` already uses elsewhere on this
+    board. Shared by the terminal PURPOSE list and the HTML purpose
+    paragraph so the two can only ever repeat the same sentence (D-04)."""
+    return p.get("purpose") or p.get("title") or "(no purpose recorded)"
+
+
+def phase_research_text(p):
+    """`yes`/`—` — whether an `NN-RESEARCH.md` exists for this phase."""
+    return "yes" if p.get("research_done") else "—"
+
+
+def phase_issues_text(p):
+    """`done/total`, or `—` when this phase has no bd issues mapped to it at
+    all. Distinct from `0/N`, real information (issues exist, none closed
+    yet) that must never collapse to a dash — only the true absence of any
+    issue does."""
+    total = p.get("issues_total")
+    if not total:
+        return "—"
+    return f"{p['issues_done']}/{total}"
+
+
+def phase_verify_text(p):
+    """The verification verdict: the literal `status:` value from
+    `NN-VERIFICATION.md` when one exists; `pending` when a SUMMARY exists but
+    no VERIFICATION.md yet (`disk_state == "executed"`); else `—`."""
+    if p.get("verify_status"):
+        return p["verify_status"]
+    if p.get("disk_state") == "executed":
+        return "pending"
+    return "—"
+
+
 DISK_STATE_LABEL = {
     "none": "not planned",
     "planned": "planned",
@@ -1554,13 +1603,26 @@ def meta_parts(data, style, include_done=True):
     return spans
 
 
-def phase_panel_lines(data, width, style):
-    """The pending phases and the commands to run next.
+PHASE_TABLE_FLOOR = 18       # target minimum for the `phase` column
+STATE_TABLE_FLOOR = 16       # enough for "x conflict -" (12 cells) plus a
+                              # margin under both --ascii (3-cell ellipsis)
+                              # and unicode (1-cell ellipsis)
+RSCH_W, PLANS_W, ISSUES_W = 5, 6, 7
+VERIFY_W, WAITS_W, NEXT_W = 16, 7, 16   # 16: fits "needs-revision" (14) whole
 
-    The lanes above answer "what tracked work exists". These two blocks answer
-    "which phase should I run, and why that one" — the question a row of phase
-    numbers cannot answer at all. Both render from the shared model, so they
-    cannot disagree with the footer or with the HTML page.
+
+def phase_panel_lines(data, width, style):
+    """The pending phases, what each one IS and has done, and what comes
+    next for it.
+
+    The lanes above answer "what tracked work exists". This block answers
+    "which phase should I run, why that one, and what has it actually done" —
+    a table for the vertical scan (read `issues` down every row at once),
+    plus a PURPOSE list below carrying what a fixed-width column cannot:
+    each phase's purpose in full (D-01), and the next-command routing reason
+    beside it (D-02 — `NEXT COMMANDS` no longer exists as its own section).
+    Both render from the shared model, so they cannot disagree with the
+    footer or with the HTML page.
     """
     phases = data.get("phases") or []
     pending = pending_phases(phases)
@@ -1569,50 +1631,116 @@ def phase_panel_lines(data, width, style):
         return []
 
     lines = [""]
+    # Shared by the table above and the PURPOSE list below, so a phase
+    # number lines up under the same width in both — and so this still
+    # works when `pending` is empty (the all-complete case: PURPOSE is
+    # carried entirely by `global_cmds`, computed below).
+    num_w = max((len(str(p["number"])) for p in pending), default=1)
+
     if pending:
         lines.append(render_spans(
             [("PENDING PHASES", SGR_BOLD),
              (f"  {len(pending)}", SGR_DIM)], style))
-        # Titles share one column so the states line up and can be read down.
-        num_w = max(len(str(p["number"])) for p in pending)
-        budget = max(24, width - num_w - 34)
+
+        # Pass 1: gather each row's raw (untruncated) content. The `state`
+        # column's width is only known once every row's real need is known
+        # (a conflict/unknown verdict's marker+detail can run to ~70-80
+        # cells; a plain "not planned" needs far less) — computing it
+        # requires a full pass before anything is truncated or printed.
+        rows = []
         n_blocks = n_informs = 0
         for p in pending:
             corrob = p.get("corroboration")
             if corrob == "conflict":
-                # One phase, one line (D-03): the marker + reason REPLACES
-                # the normal state text entirely, it never sits alongside it.
+                # One phase, one line (D-03, inherited unchanged from Phase
+                # 13): the marker + reason REPLACES the normal state text
+                # entirely, it never sits alongside it. This plan only
+                # narrows the column the marker lives in.
                 if any(c["severity"] == "blocks" for c in p["conflicts"]):
                     n_blocks += 1
                 else:
                     n_informs += 1
                 glyph, sgr = conflict_marker(p, style)
-                state_span = (style.asciify(truncate(
-                    f"{glyph} {conflict_summary_text(p)}", budget,
-                    style.ell)), sgr)
+                state_raw = f"{glyph} {conflict_summary_text(p)}"
             elif corrob == "unknown":
                 glyph, sgr = conflict_marker(p, style)
-                state_span = (style.asciify(truncate(
-                    f"{glyph} corroboration unknown", budget, style.ell)),
-                    sgr)
+                state_raw = f"{glyph} corroboration unknown"
             else:
-                state = phase_state_text(p)
-                prog = phase_progress_text(p)
-                if prog:
-                    state = f"{state} {style.sep} {prog}"
-                if p["blocked_by"]:
-                    state = (f"{state} {style.sep} waits on "
-                             f"{join_numbers(p['blocked_by'])}")
-                state_span = (style.asciify(state), SGR_DIM)
-            title = style.asciify(p["title"] or "(untitled)")
+                sgr = SGR_DIM
+                state_raw = phase_state_text(p)
+            blocked = bool(p["blocked_by"]) or p.get("needs_doctor", False)
+            rows.append({
+                "p": p, "state_raw": state_raw, "state_sgr": sgr,
+                "title": style.asciify(p["title"] or "(untitled)"),
+                "rsch": phase_research_text(p),
+                "plans": phase_progress_text(p) or "—",
+                "issues": phase_issues_text(p),
+                "verify": phase_verify_text(p),
+                "waits": join_numbers(p["blocked_by"]) or "—",
+                "next": p["next_command"] or "—",
+                "next_sgr": SGR_DIM if blocked else SGR_GREEN,
+            })
+
+        # Widths: `state` gets exactly what its widest row needs, capped so
+        # `phase` never collapses; `phase` gets whatever `state` doesn't
+        # need. This is what lets a plain "not planned" render at its full
+        # width while a ~76-cell conflict detail also renders whole at a
+        # wide terminal, from the same formula, with no special-casing.
+        fixed = (2 + num_w + 2 + 2 + 2  # margin, "#", gutters around phase/state
+                 + RSCH_W + 2 + PLANS_W + 2 + ISSUES_W + 2 + VERIFY_W + 2
+                 + WAITS_W + 2 + NEXT_W)
+        available = max(0, width - fixed)
+        natural_state = max((display_width(r["state_raw"]) for r in rows),
+                            default=STATE_TABLE_FLOOR)
+        cap = max(STATE_TABLE_FLOOR, available - PHASE_TABLE_FLOOR)
+        state_w = max(STATE_TABLE_FLOOR, min(natural_state, cap))
+        phase_w = max(1, available - state_w)
+
+        # Header sub-row, built from the SAME width variables as the data
+        # rows below, so header and data always line up.
+        lines.append(render_spans([
+            ("  ", None), ("#".rjust(num_w), SGR_DIM), ("  ", None),
+            ("phase".ljust(phase_w), SGR_DIM), ("  ", None),
+            ("state".ljust(state_w), SGR_DIM), ("  ", None),
+            ("rsch".ljust(RSCH_W), SGR_DIM), ("  ", None),
+            ("plans".ljust(PLANS_W), SGR_DIM), ("  ", None),
+            ("issues".ljust(ISSUES_W), SGR_DIM), ("  ", None),
+            ("verify".ljust(VERIFY_W), SGR_DIM), ("  ", None),
+            ("waits".ljust(WAITS_W), SGR_DIM), ("  ", None),
+            ("next", SGR_DIM),
+        ], style))
+
+        for r in rows:
+            p = r["p"]
+            state_text = style.asciify(
+                truncate(r["state_raw"], state_w, style.ell))
             lines.append(render_spans([
                 ("  ", None),
                 (str(p["number"]).rjust(num_w), None),
                 ("  ", None),
-                (truncate(title, budget, style.ell).ljust(budget), None),
+                (truncate(r["title"], phase_w, style.ell).ljust(phase_w),
+                 None),
                 ("  ", None),
-                state_span,
+                (state_text.ljust(state_w), r["state_sgr"]),
+                ("  ", None),
+                (truncate(r["rsch"], RSCH_W, style.ell).ljust(RSCH_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["plans"], PLANS_W, style.ell).ljust(PLANS_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["issues"], ISSUES_W, style.ell).ljust(ISSUES_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["verify"], VERIFY_W, style.ell).ljust(VERIFY_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["waits"], WAITS_W, style.ell).ljust(WAITS_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["next"], NEXT_W, style.ell), r["next_sgr"]),
             ], style))
+
         if n_blocks or n_informs:
             # The itemized per-source detail lives in /cairn:doctor and
             # --json only — this line counts, it never dumps a second line
@@ -1631,20 +1759,47 @@ def phase_panel_lines(data, width, style):
                                         "report"), SGR_DIM))
             lines.append(render_spans(spans, style))
 
-    if cmds:
+    # PURPOSE: the routing reason moves here from the deleted NEXT COMMANDS
+    # section (D-02). This is the ONE place text wraps instead of truncating
+    # (D-01 — a phase's purpose is never cut), and it is also the only
+    # section left standing when every phase is complete: `pending` is then
+    # empty and the per-phase loop below contributes nothing, but
+    # `global_cmds` (the /cairn:ship + /cairn:milestone complete pair
+    # next_commands() emits with `phase: None`) still carries its reasons
+    # into the terminal here — the fix for the bug this plan exists to
+    # close (the terminal silently dropping those two commands while --json
+    # and the HTML page still had them).
+    phase_cmds = [c for c in cmds if c["phase"] is not None]
+    global_cmds = [c for c in cmds if c["phase"] is None]
+    reason_by_phase = {c["phase"]: c["reason"] for c in phase_cmds}
+
+    if pending or global_cmds:
         lines.append("")
-        lines.append(render_spans([("NEXT COMMANDS", SGR_BOLD)], style))
-        cmd_w = max(len(c["command"]) for c in cmds)
-        for c in cmds:
+        lines.append(render_spans([("PURPOSE", SGR_BOLD)], style))
+        wrap_w = max(30, width - num_w - 4)
+        for p in pending:
+            text = phase_purpose_text(p)
+            reason = reason_by_phase.get(p["number"])
+            if reason:
+                text = f"{text} — {reason}"
+            wrapped = textwrap.wrap(style.asciify(text), wrap_w) or [""]
             lines.append(render_spans([
-                ("  ", None),
-                (c["command"].ljust(cmd_w), SGR_GREEN if not c["blocked"]
-                 else SGR_DIM),
-                ("  ", None),
-                (style.asciify(truncate(c["reason"],
-                                        max(20, width - cmd_w - 4),
-                                        style.ell)), SGR_DIM),
+                ("  ", None), (str(p["number"]).rjust(num_w), None),
+                ("  ", None), (wrapped[0], None),
             ], style))
+            for cont in wrapped[1:]:
+                lines.append(render_spans(
+                    [(" " * (num_w + 4), None), (cont, None)], style))
+        for c in global_cmds:
+            # No phase number and no purpose prefix — a global command is
+            # not attached to any one phase.
+            text = c["command"]
+            if c.get("reason"):
+                text = f"{text} — {c['reason']}"
+            wrapped = textwrap.wrap(style.asciify(text), wrap_w) or [""]
+            for cont in wrapped:
+                lines.append(render_spans([("  ", None), (cont, None)],
+                                          style))
 
     par = data.get("parallelism") or {}
     if par.get("note"):
