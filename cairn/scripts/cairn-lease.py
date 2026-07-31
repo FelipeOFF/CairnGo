@@ -53,9 +53,12 @@ phase-complete-open check, and work.md's own
 non-closed phase-<N>-labelled issue as unfinished phase work.
 
 Usage:
-    cairn-lease.py acquire <N>   [--project-dir DIR] [--json]
-    cairn-lease.py release <N>   [--project-dir DIR] [--json]
-    cairn-lease.py status  <N>   [--project-dir DIR] [--json]
+    cairn-lease.py acquire <N>            [--project-dir DIR] [--json]
+    cairn-lease.py release <N>            [--project-dir DIR] [--json]
+    cairn-lease.py release --mine         [--project-dir DIR] [--json]
+    cairn-lease.py renew   [<N>]          [--project-dir DIR] [--json]
+    cairn-lease.py status  <N>            [--project-dir DIR] [--json]
+    cairn-lease.py status  --all          [--project-dir DIR] [--json]
 
     --project-dir DIR   project root for bd/git discovery (default:
                         $CLAUDE_PROJECT_DIR or cwd)
@@ -63,26 +66,53 @@ Usage:
                         one-line human report
 
 Behavior:
-    acquire <N>   Vacant, already held by this worktree, or stale (heartbeat
-                  older than the TTL) -> acquire/renew: one `bd update
-                  --claim --metadata` call carrying the FULL replacement
-                  lease object, exit 0. Held by another worktree with a
-                  fresh heartbeat -> write NOTHING, report who holds it and
-                  since when, exit EXIT_HELD (3) — a report, never an error
-                  that should stop the caller (D-04).
-    release <N>   Unconditionally clears the lease
-                  ({"cairn": {"lease": {"phase": N}}} plus `--assignee ""
-                  --status open`), regardless of who currently holds it.
-                  No-op, exit 0, when no lease issue exists yet for N or it
-                  is already vacant.
-    status  <N>   Read-only, NEVER creates the lease issue. Reports phase,
-                  id (null if never created), held (true whenever a holder
-                  is recorded, stale or not), holder, actor, host,
-                  acquired_at, heartbeat_at, stale, ttl_hours.
+    acquire <N>    Vacant, already held by this worktree, or stale
+                   (heartbeat older than the TTL) -> acquire/renew: one `bd
+                   update --claim --metadata` call carrying the FULL
+                   replacement lease object, exit 0. Held by another
+                   worktree with a fresh heartbeat -> write NOTHING, report
+                   who holds it and since when, exit EXIT_HELD (3) — a
+                   report, never an error that should stop the caller
+                   (D-04).
+    release <N>    Unconditionally clears the lease
+                   ({"cairn": {"lease": {"phase": N}}} plus `--assignee ""
+                   --status open`), regardless of who currently holds it.
+                   No-op, exit 0, when no lease issue exists yet for N or it
+                   is already vacant. Different from `release --mine`
+                   below: this verb releases phase N's lease REGARDLESS of
+                   who holds it — verify-post.md calls it once per phase,
+                   asserting the phase's cycle is over regardless of who
+                   ran it.
+    release --mine Releases every lease THIS worktree (by holder identity)
+                   currently holds, and only those — a lease held by a
+                   DIFFERENT worktree, even on the same machine, is left
+                   untouched. Zero matches is a no-op, exit 0.
+    renew [<N>]    Heartbeats a lease this worktree ALREADY holds:
+                   heartbeat_at -> now, acquired_at unchanged, exit 0. When
+                   this worktree is NOT the recorded holder (including
+                   "nobody holds it"), a SILENT no-op, exit 0, writes
+                   nothing. With no <N>, N is read from
+                   <project-dir>/.planning/STATE.md's `active_phase:`
+                   frontmatter key (lenient parse, same pattern as
+                   cairn-doctor.py's state_frontmatter); no STATE.md, or no
+                   active_phase key, is also a silent no-op, exit 0.
+    status  <N>    Read-only, NEVER creates the lease issue. Reports phase,
+                   id (null if never created), held (true whenever a holder
+                   is recorded, stale or not), holder, actor, host,
+                   acquired_at, heartbeat_at, stale, ttl_hours. A phase
+                   with no lease issue yet reports held=false, every other
+                   identity field null.
+    status  --all  One status entry (same shape) per phase that has EVER
+                   had a lease issue created. An issue whose metadata is
+                   unreadable/malformed is skipped, never crashes the whole
+                   call. Zero lease issues ever created -> empty array,
+                   exit 0.
 
 Exit codes:
     0  ok (including "not held" / "no-op" outcomes — those are not errors)
-    2  usage error
+    2  usage error (non-numeric or missing phase where one is required;
+       `status`/`release` given neither a phase number nor their
+       `--all`/`--mine` flag)
     3  acquire only: held by another worktree with a live (non-stale)
        heartbeat — nothing was written
     5  bd unavailable (not on PATH, or any bd subprocess call failed or
@@ -91,6 +121,7 @@ Exit codes:
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -104,6 +135,9 @@ EXIT_HELD = 3
 EXIT_NO_BD = 5
 
 LEASE_TTL_SECONDS = 4 * 60 * 60
+
+USAGE = ("usage: cairn-lease.py {acquire N|release N|release --mine|"
+         "renew [N]|status N|status --all} [--project-dir DIR] [--json]")
 
 
 def die(msg, code):
@@ -135,6 +169,31 @@ def resolve_holder(root):
         return str(root)
     out = proc.stdout.strip()
     return out or str(root)
+
+
+def resolve_active_phase(root):
+    """active_phase from <root>/.planning/STATE.md's YAML frontmatter,
+    parsed leniently (same pattern as cairn-doctor.py's state_frontmatter:
+    tolerates quotes and leading zeros). None when the file, its
+    frontmatter, or the key is absent — the caller (`renew` with no <N>)
+    treats that as a silent no-op, never a crash."""
+    try:
+        lines = (root / ".planning" / "STATE.md").read_text(
+            encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^active_phase\s*:\s*(.+?)\s*$", line)
+        if m:
+            val = m.group(1).split("#", 1)[0].strip().strip("'\"").strip()
+            digits = re.search(r"\d+", val)
+            if digits:
+                return int(digits.group(0))
+    return None
 
 
 def resolve_actor(root):
@@ -238,6 +297,25 @@ def find_lease_issue(root, phase):
         if lease_phase == phase:
             return issue.get("id"), lease
     return None, None
+
+
+def collect_all_statuses(root):
+    """[status_entry(...)] for every phase that has EVER had a lease issue
+    created. An issue whose lease metadata is missing/malformed, or whose
+    `phase` field isn't int-castable, is skipped — never crashes the whole
+    call. Sorted by phase for deterministic output."""
+    entries = []
+    for issue in bd_list_lease_issues(root):
+        lease = lease_metadata(issue)
+        if lease is None:
+            continue
+        try:
+            phase = int(lease.get("phase"))
+        except (TypeError, ValueError):
+            continue
+        entries.append(status_entry(phase, issue.get("id"), lease))
+    entries.sort(key=lambda e: e["phase"])
+    return entries
 
 
 def lease_payload(phase, holder=None, actor=None, host=None,
@@ -364,8 +442,7 @@ def cmd_acquire(args, root):
     sys.exit(EXIT_OK)
 
 
-def cmd_release(args, root):
-    phase = args.phase
+def release_one(args, root, phase):
     issue_id, _lease = find_lease_issue(root, phase)
     if issue_id is None:
         if args.json:
@@ -373,20 +450,86 @@ def cmd_release(args, root):
         else:
             print(f"[cairn-lease] phase {phase} lease: nothing to release "
                   f"(no lease issue exists)")
-        sys.exit(EXIT_OK)
+        return
 
     write_lease(root, issue_id, lease_payload(phase), vacate=True)
     if args.json:
         print(json.dumps(status_entry(phase, issue_id, None)))
     else:
         print(f"[cairn-lease] released phase {phase} lease")
+
+
+def cmd_release(args, root):
+    if args.mine:
+        holder = resolve_holder(root)
+        mine = [e for e in collect_all_statuses(root)
+                if e["held"] and e["holder"] == holder]
+        for entry in mine:
+            write_lease(root, entry["id"], lease_payload(entry["phase"]),
+                        vacate=True)
+        if args.json:
+            print(json.dumps({"released": len(mine), "holder": holder,
+                               "phases": [e["phase"] for e in mine]}))
+        else:
+            print(f"[cairn-lease] released {len(mine)} lease(s) held by "
+                  f"{holder}")
+        sys.exit(EXIT_OK)
+
+    if args.phase is None:
+        die("release requires a phase number or --mine\n" + USAGE,
+            EXIT_USAGE)
+    release_one(args, root, args.phase)
+    sys.exit(EXIT_OK)
+
+
+def cmd_renew(args, root):
+    phase = args.phase
+    if phase is None:
+        phase = resolve_active_phase(root)
+        if phase is None:
+            sys.exit(EXIT_OK)  # no STATE.md / no active_phase -> silent no-op
+
+    issue_id, lease = find_lease_issue(root, phase)
+    if issue_id is None:
+        sys.exit(EXIT_OK)  # no lease issue for this phase -> silent no-op
+
+    holder = resolve_holder(root)
+    current_holder = lease.get("holder")
+    if current_holder != holder:
+        sys.exit(EXIT_OK)  # not the holder -> silent no-op, writes nothing
+
+    now = datetime.now(timezone.utc).isoformat()
+    payload = lease_payload(phase, holder=holder, actor=lease.get("actor"),
+                             host=lease.get("host"),
+                             acquired_at=lease.get("acquired_at"),
+                             heartbeat_at=now)
+    write_lease(root, issue_id, payload, claim=True)
+
+    entry = status_entry(phase, issue_id, payload["cairn"]["lease"])
+    if args.json:
+        print(json.dumps(entry))
+    else:
+        print(f"[cairn-lease] phase {phase} lease heartbeat renewed")
     sys.exit(EXIT_OK)
 
 
 def cmd_status(args, root):
-    phase = args.phase
-    issue_id, lease = find_lease_issue(root, phase)
-    entry = status_entry(phase, issue_id, lease)
+    if args.all:
+        entries = collect_all_statuses(root)
+        if args.json:
+            print(json.dumps(entries))
+        elif not entries:
+            print("[cairn-lease] no phase leases have ever been created")
+        else:
+            for entry in entries:
+                print_status_human(entry)
+        sys.exit(EXIT_OK)
+
+    if args.phase is None:
+        die("status requires a phase number or --all\n" + USAGE, EXIT_USAGE)
+
+    issue_id, lease = find_lease_issue(root, args.phase)
+    entry = status_entry(args.phase, issue_id, lease)
     if args.json:
         print(json.dumps(entry))
     else:
@@ -410,16 +553,29 @@ def build_parser():
     acquire.set_defaults(func=cmd_acquire)
 
     release = sub.add_parser("release", help="release a phase lease "
-                              "unconditionally")
-    release.add_argument("phase", type=int, help="phase number")
+                              "unconditionally, or --mine (every lease this "
+                              "worktree holds)")
+    release.add_argument("phase", type=int, nargs="?", help="phase number")
+    release.add_argument("--mine", action="store_true",
+                          help="release every lease this worktree holds")
     release.set_defaults(func=cmd_release)
 
-    status = sub.add_parser("status", help="report a phase lease's state "
-                             "(read-only, never creates the lease issue)")
-    status.add_argument("phase", type=int, help="phase number")
+    renew = sub.add_parser("renew", help="heartbeat a lease this worktree "
+                            "already holds; silent no-op otherwise")
+    renew.add_argument("phase", type=int, nargs="?",
+                        help="phase number (default: STATE.md's "
+                             "active_phase)")
+    renew.set_defaults(func=cmd_renew)
+
+    status = sub.add_parser("status", help="report a phase lease's state, "
+                             "or --all (every phase that ever had a lease) "
+                             "-- read-only, never creates the lease issue")
+    status.add_argument("phase", type=int, nargs="?", help="phase number")
+    status.add_argument("--all", action="store_true",
+                         help="report every phase that ever had a lease")
     status.set_defaults(func=cmd_status)
 
-    for p in (acquire, release, status):
+    for p in (acquire, release, renew, status):
         p.add_argument("--project-dir", metavar="DIR",
                         help="project root for bd/git discovery (default: "
                              "$CLAUDE_PROJECT_DIR or cwd)")
