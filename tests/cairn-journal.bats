@@ -55,3 +55,134 @@ refute_in_output() {
   # entry) — this test only needs to observe the file was written, not
   # assert anything about its git-tracked status yet.
 }
+
+#-----------------------------------------------------------------------------
+# Task 2: dedup diff logic in observe, verdict_changed, lease, last-moved
+#-----------------------------------------------------------------------------
+
+@test "observe dedup: resubmitting identical evidence+verdict appends zero new lines" {
+  make_tmp_repo
+
+  local payload='[{"phase": 7, "evidence": {"disk": "executed", "bd": "closed", "roadmap": "complete", "state_md": "active"}, "verdict": "ok"}]'
+
+  run bash -c "echo '$payload' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written | length' '5'
+  local lines_after_first
+  lines_after_first="$(wc -l < .cairn/journal.jsonl | tr -d ' ')"
+
+  run bash -c "echo '$payload' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written | length' '0'
+  local lines_after_second
+  lines_after_second="$(wc -l < .cairn/journal.jsonl | tr -d ' ')"
+  [ "$lines_after_first" -eq "$lines_after_second" ]
+}
+
+@test "observe dedup: state_md null-to-null is zero new records, null-to-value is one with from null" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 8, \"evidence\": {\"state_md\": null}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written | length' '1'
+  assert_json_eq "$output" '.written[0].to' 'null'
+  assert_json_eq "$output" '.written[0].from' 'null'
+
+  run bash -c "echo '[{\"phase\": 8, \"evidence\": {\"state_md\": null}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written | length' '0'
+
+  run bash -c "echo '[{\"phase\": 8, \"evidence\": {\"state_md\": \"active\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written | length' '1'
+  assert_json_eq "$output" '.written[0].from' 'null'
+  assert_json_eq "$output" '.written[0].to' 'active'
+}
+
+@test "observe dedup: verdict change appends exactly one verdict_changed record independent of evidence" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 6, \"evidence\": {}, \"verdict\": \"ok\"}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written | length' '1'
+  assert_json_eq "$output" '.written[0].event' 'verdict_changed'
+  assert_json_eq "$output" '.written[0].from' 'null'
+  assert_json_eq "$output" '.written[0].to' 'ok'
+
+  run bash -c "echo '[{\"phase\": 6, \"evidence\": {}, \"verdict\": \"conflict\"}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written | length' '1'
+  assert_json_eq "$output" '.written[0].from' 'ok'
+  assert_json_eq "$output" '.written[0].to' 'conflict'
+
+  run bash -c "echo '[{\"phase\": 6, \"evidence\": {}, \"verdict\": \"conflict\"}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written | length' '0'
+}
+
+@test "lease subcommand: always appends unconditionally, holder/actor/prev_holder preserved" {
+  make_tmp_repo
+
+  run bash "$JOURNAL" lease 9 acquired --holder /path/A --actor felipe --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" history --phase 9 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+  assert_json_eq "$output" '.records[0].event' 'lease_changed'
+  assert_json_eq "$output" '.records[0].action' 'acquired'
+  assert_json_eq "$output" '.records[0].holder' '/path/A'
+  assert_json_eq "$output" '.records[0].actor' 'felipe'
+  assert_json_eq "$output" '.records[0].prev_holder' 'null'
+
+  # Second call with the SAME holder still appends a SECOND record — lease
+  # does no dedup itself; that is the caller's job (Plan 16-03/16-04).
+  run bash "$JOURNAL" lease 9 acquired --holder /path/A --actor felipe --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" history --phase 9 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '2'
+
+  # released with a --prev-holder given round-trips correctly too.
+  run bash "$JOURNAL" lease 9 released --holder "" --prev-holder /path/A --actor felipe --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  run bash "$JOURNAL" history --phase 9 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '3'
+  assert_json_eq "$output" '[.records[] | select(.action == "released") | .prev_holder][0]' '/path/A'
+}
+
+@test "last-moved: reports last value+ts per axis, or null when never observed" {
+  make_tmp_repo
+
+  # No journal file at all yet: every axis null, exit 0, never an error.
+  run bash "$JOURNAL" last-moved --phase 999 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.disk' 'null'
+  assert_json_eq "$output" '.bd' 'null'
+  assert_json_eq "$output" '.roadmap' 'null'
+  assert_json_eq "$output" '.state_md' 'null'
+  assert_json_eq "$output" '.verdict' 'null'
+  assert_json_eq "$output" '.lease' 'null'
+  [ ! -f .cairn/journal.jsonl ]
+
+  run bash "$JOURNAL" lease 9 acquired --holder /path/A --actor felipe --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" last-moved --phase 9 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.lease.value' 'acquired'
+  assert_json_eq "$output" '.lease.holder' '/path/A'
+  assert_json_eq "$output" '.disk' 'null'
+  assert_json_eq "$output" '.bd' 'null'
+  assert_json_eq "$output" '.roadmap' 'null'
+  assert_json_eq "$output" '.state_md' 'null'
+  assert_json_eq "$output" '.verdict' 'null'
+
+  # Still no records for an unrelated phase, even though the journal file
+  # itself now exists (holding phase 9's record).
+  run bash "$JOURNAL" last-moved --phase 999 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.lease' 'null'
+}
