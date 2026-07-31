@@ -54,13 +54,23 @@ Append atomicity — the whole reason this is a single writer (D-02): every
 write funnels through _append_record(), which builds the complete line in
 memory first (json.dumps(record, sort_keys=True) + "\n", encoded once),
 then opens the file with os.open(O_WRONLY | O_CREAT | O_APPEND) and issues
-exactly ONE os.write() of that full line, verifying the returned byte
+exactly ONE os.write() of that full payload, verifying the returned byte
 count. This is deliberately NOT open(path, "a"): a plain buffered
 io.TextIOWrapper is not guaranteed to translate one .write() call into
 exactly one write(2) syscall — internal buffering/encoding can split it
 into several, each individually losing the O_APPEND atomicity guarantee
 POSIX defines at the SYSCALL level, not the language-object level (see
 .planning/research/STACK.md's "Append-Only Journal" section).
+_append_record() also guards a case Task 3's own torn-tail fixture
+surfaced: a prior crash can leave the file NOT ending in a newline (JOUR-04
+— a torn write). Appending blindly onto that tail would concatenate this
+NEW record onto the old garbage, corrupting BOTH into one unparseable
+line, making the new record unrecoverable too. A read-only pre-check (a
+separate, ordinary file open — the O_WRONLY write fd cannot itself be
+read from) inspects the current last byte; if it is not already a newline
+(or the file does not exist yet), a leading "\n" is folded into the SAME
+single os.write() payload, so the whole thing — separator plus record —
+still lands in one atomic syscall.
 cairn-migrate.py's Applier.journal() uses exactly this open(path, "a")
 recipe — it is the precedent for the JOURNAL IDIOM in this codebase (a
 resumable JSONL journal is already production-proven here), but NOT for
@@ -216,19 +226,47 @@ def _journal_path(root):
 # --------------------------------------------------------------------------- #
 def _append_record(journal_path, record):
     """Build the complete line in memory, then a single os.open(O_APPEND)
-    plus a single os.write() of the whole line, verifying the byte count.
-    Never open(path, "a") — see the module docstring for why. Never split
-    the line and its trailing newline into two writes."""
+    plus a single os.write() of the whole payload, verifying the byte
+    count. Never open(path, "a") — see the module docstring for why.
+    Never split a record's own line and its trailing newline into two
+    writes.
+
+    One additional guard, discovered by Task 3's own torn-tail fixture: a
+    prior crash can leave the file NOT ending in a newline (a torn write,
+    JOUR-04). Appending straight onto that tail would silently
+    concatenate this NEW record onto the old torn fragment, corrupting
+    both into one unparseable line — making the new record unrecoverable
+    too, not just the old one. So this function checks the current
+    end-of-file byte and, if it is not already a newline (file empty/new
+    counts as "no separator needed"), prepends one — still inside this
+    SAME os.write() call, so the whole payload (leading separator
+    included) lands in one atomic syscall, never a second write."""
     line = json.dumps(record, sort_keys=True).encode("utf-8") + b"\n"
     journal_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Read-only pre-check, entirely separate from the write fd below (the
+    # write fd is O_WRONLY per the STACK.md recipe and cannot be read
+    # from). Missing file counts as "no separator needed" — the very
+    # first record never gets a leading blank line.
+    needs_separator = False
+    try:
+        with open(journal_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell() > 0:
+                f.seek(-1, os.SEEK_END)
+                needs_separator = f.read(1) != b"\n"
+    except FileNotFoundError:
+        pass
+
+    payload = (b"\n" if needs_separator else b"") + line
     fd = os.open(str(journal_path),
                  os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     try:
-        n = os.write(fd, line)
+        n = os.write(fd, payload)
     finally:
         os.close(fd)
-    if n != len(line):
-        die(f"short write to {journal_path}: wrote {n} of {len(line)} "
+    if n != len(payload):
+        die(f"short write to {journal_path}: wrote {n} of {len(payload)} "
             "bytes", EXIT_WRITE_FAILED)
 
 

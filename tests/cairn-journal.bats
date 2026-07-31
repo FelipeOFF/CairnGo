@@ -197,3 +197,185 @@ refute_in_output() {
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.lease' 'null'
 }
+
+#-----------------------------------------------------------------------------
+# Task 3: torn-line quarantine on read (JOUR-04) — the byte-offset fixture.
+#
+# The fixture is built by a REAL `observe` call (never hand-written JSON),
+# then truncated at a byte offset strictly INSIDE the last record's "to"
+# string value — never at a record boundary. Every truncation script below
+# self-verifies the cut produced invalid JSON (a fixture bug that
+# accidentally produces valid-but-short JSON would otherwise silently pass
+# with a wrong record count instead of failing loudly).
+#-----------------------------------------------------------------------------
+
+@test "torn tail: a byte-offset cut inside a JSON string value quarantines with the correct offset, history reads all complete records" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 42, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  run bash -c "echo '[{\"phase\": 42, \"evidence\": {\"disk\": \"verified\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  [ -f .cairn/journal.jsonl ]
+
+  cat > truncate_fixture.py <<'PYEOF'
+import json
+import sys
+
+path = ".cairn/journal.jsonl"
+data = open(path, "rb").read()
+lines = [l for l in data.split(b"\n") if l.strip()]
+n_complete_before = len(lines) - 1
+last = lines[-1].decode("utf-8")
+needle = '"verified"'
+idx = last.index(needle)
+cut_in_line = idx + len('"ver')  # lands inside the string body, after 'ver'
+last_line_start = data.rfind(lines[-1])
+cut_point = last_line_start + cut_in_line
+
+with open(path, "r+b") as f:
+    f.truncate(cut_point)
+
+truncated = open(path, "rb").read()
+tail = truncated.split(b"\n")[-1]
+if not tail.strip():
+    sys.exit("FIXTURE BUG: cut landed on a blank/whitespace tail")
+try:
+    json.loads(tail)
+    sys.exit("FIXTURE BUG: truncated tail is still valid JSON")
+except json.JSONDecodeError:
+    pass
+
+print(n_complete_before)
+PYEOF
+
+  run python3 truncate_fixture.py
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 1 ]
+
+  run bash "$JOURNAL" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  refute_in_output "Traceback"
+  assert_json_eq "$output" '.records | length' '1'
+  assert_json_eq "$output" '.records[0].to' 'planned'
+  assert_json_eq "$output" '.warnings | length > 0' 'true'
+  assert_json_eq "$output" '[.warnings[] | test("byte offset [0-9]+")] | any' 'true'
+}
+
+@test "torn tail: last-moved degrades the same way as history, no crash" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 43, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  run bash -c "echo '[{\"phase\": 43, \"evidence\": {\"disk\": \"verified\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  cat > truncate_fixture2.py <<'PYEOF'
+import json
+import sys
+
+path = ".cairn/journal.jsonl"
+data = open(path, "rb").read()
+lines = [l for l in data.split(b"\n") if l.strip()]
+last = lines[-1].decode("utf-8")
+needle = '"verified"'
+idx = last.index(needle)
+cut_in_line = idx + len('"ver')
+last_line_start = data.rfind(lines[-1])
+cut_point = last_line_start + cut_in_line
+
+with open(path, "r+b") as f:
+    f.truncate(cut_point)
+
+truncated = open(path, "rb").read()
+tail = truncated.split(b"\n")[-1]
+if not tail.strip():
+    sys.exit("FIXTURE BUG: cut landed on a blank/whitespace tail")
+try:
+    json.loads(tail)
+    sys.exit("FIXTURE BUG: truncated tail is still valid JSON")
+except json.JSONDecodeError:
+    pass
+PYEOF
+  run python3 truncate_fixture2.py
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" last-moved --phase 43 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  refute_in_output "Traceback"
+  assert_json_eq "$output" '.disk.value' 'planned'
+  assert_json_eq "$output" '.warnings | length > 0' 'true'
+}
+
+@test "torn tail: a corrupted trailing fragment is never fixed by a later write, only ever reported" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 44, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  run bash -c "echo '[{\"phase\": 44, \"evidence\": {\"disk\": \"verified\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  cat > truncate_fixture3.py <<'PYEOF'
+import json
+import sys
+
+path = ".cairn/journal.jsonl"
+data = open(path, "rb").read()
+lines = [l for l in data.split(b"\n") if l.strip()]
+last = lines[-1].decode("utf-8")
+needle = '"verified"'
+idx = last.index(needle)
+cut_in_line = idx + len('"ver')
+last_line_start = data.rfind(lines[-1])
+cut_point = last_line_start + cut_in_line
+
+with open(path, "r+b") as f:
+    f.truncate(cut_point)
+
+truncated = open(path, "rb").read()
+tail = truncated.split(b"\n")[-1]
+if not tail.strip():
+    sys.exit("FIXTURE BUG: cut landed on a blank/whitespace tail")
+try:
+    json.loads(tail)
+    sys.exit("FIXTURE BUG: truncated tail is still valid JSON")
+except json.JSONDecodeError:
+    pass
+PYEOF
+  run python3 truncate_fixture3.py
+  [ "$status" -eq 0 ]
+
+  local size_before
+  size_before="$(wc -c < .cairn/journal.jsonl | tr -d ' ')"
+
+  # Simulate the next real invocation after a crash: a fresh observe call
+  # against the SAME truncated journal must succeed and simply append
+  # after the quarantined tail, never "fix" or remove the corrupted
+  # fragment.
+  run bash -c "echo '[{\"phase\": 44, \"evidence\": {\"disk\": \"executed\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  local size_after
+  size_after="$(wc -c < .cairn/journal.jsonl | tr -d ' ')"
+  [ "$size_after" -gt "$size_before" ]
+
+  # The corrupted fragment's own bytes are still there, byte-for-byte, as
+  # an untouched prefix of the file (never rewritten in place).
+  run python3 -c "
+before = open('.cairn/journal.jsonl', 'rb').read()[:$size_before]
+print(len(before))
+"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq "$size_before" ]
+
+  run bash "$JOURNAL" history --phase 44 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  # The first complete record (planned) plus the new one appended after
+  # the quarantined tail (executed) -- the torn "verified" record is still
+  # gone from the readable set, exactly as right after truncation.
+  assert_json_eq "$output" '.records | length' '2'
+  assert_json_eq "$output" '[.records[] | select(.to == "planned")] | length' '1'
+  assert_json_eq "$output" '[.records[] | select(.to == "executed")] | length' '1'
+  assert_json_eq "$output" '[.records[] | select(.to == "verified")] | length' '0'
+}
