@@ -1221,3 +1221,116 @@ LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
   grep -qF 'wrote' <<<"$output"
   [ -f board.html ]
 }
+
+@test "an actively held, fresh lease renders the same holder path on the terminal board, --plain, and --html" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  local holder
+  holder="$(git rev-parse --show-toplevel)"
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF "◆ phase 2 in use by $holder" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'LEASE\t2\t%s' "$holder")" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run cat board.html
+  grep -qF "phase 2 in use by $holder" <<<"$output"
+}
+
+@test "a stale lease is not rendered as held on any surface" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_id acquired_at holder
+  lease_id="$(jq -r '.id' <<<"$output")"
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+  holder="$(jq -r '.holder' <<<"$output")"
+
+  # Hand-advance heartbeat_at more than 4h into the past via bd directly —
+  # same technique as tests/cairn-lease.bats and tests/hooks.bats.
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
+")"
+  run bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":2,\"holder\":\"$holder\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$holder"
+  refute_in_output 'in use by'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output 'LEASE'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run cat board.html
+  refute_in_output "$holder"
+}
+
+@test "no lease held: the pre-existing footer content is unchanged and no lease line appears" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+
+  # Byte-for-byte regression against "board at --width 100: lanes, glyphs,
+  # footer, next action"'s own assertions — this plan must not touch any
+  # of them.
+  grep -qF '┌─ READY (2)' <<<"$output"
+  grep -qF '┬─ DOING (1)' <<<"$output"
+  grep -qF '┬─ BLOCKED (1)' <<<"$output"
+  grep -qF '└─' <<<"$output"
+  grep -qF "$ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "$ST_READY2  Timeout tuning" <<<"$output"
+  grep -qF "$ST_DOING" <<<"$output"
+  grep -qF '◆ felipe' <<<"$output"
+  grep -qF "⧗ $ST_READY1" <<<"$output"
+  grep -qF 'phase 2/2' <<<"$output"
+  grep -qF 'done: 1' <<<"$output"
+  grep -qF "▶ next: continue $ST_DOING" <<<"$output"
+  refute_in_output "$ST_CLOSED"
+
+  # No lease was ever acquired for phase 2: no lease line anywhere.
+  refute_in_output 'in use by'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output 'LEASE'
+}
+
+@test "--ascii downgrades the lease line's glyph to @ like every other glyph" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
+  [ "$status" -eq 0 ]
+  grep -qF '@ phase 2 in use by' <<<"$output"
+  refute_in_output '◆'
+}
