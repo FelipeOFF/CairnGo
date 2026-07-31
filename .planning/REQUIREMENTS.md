@@ -109,11 +109,11 @@ Excluídos explicitamente.
 | LEASE-03 | Phase 15 | Complete |
 | LEASE-04 | Phase 15 | Complete |
 | LEASE-05 | Phase 15 | Complete |
-| JOUR-01 | Phase 16 | Pending |
-| JOUR-02 | Phase 16 | Pending |
-| JOUR-03 | Phase 16 | Pending |
-| JOUR-04 | Phase 16 | Pending |
-| JOUR-05 | Phase 16 | Pending |
+| JOUR-01 | Phase 16 | Complete |
+| JOUR-02 | Phase 16 | Complete |
+| JOUR-03 | Phase 16 | Complete |
+| JOUR-04 | Phase 16 | Complete |
+| JOUR-05 | Phase 16 | Complete |
 | ESC-01 | Phase 17 | Pending |
 | ESC-02 | Phase 17 | Pending |
 | ESC-03 | Phase 17 | Pending |

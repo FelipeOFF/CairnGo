@@ -201,8 +201,8 @@ None — stdlib only, no external service configuration.
 - `bats tests/cairn-doctor.bats -f "last-moved"` — 3/3 passing (run repeatedly throughout, including after each load-bearing break/restore cycle)
 - `bats tests/cairn-doctor.bats -f "gitignore"` — 1/1 passing (same)
 - `bats tests/cairn-doctor.bats -f "phase-corroboration"` — 4/4 passing (pre-existing tests, unaffected — confirms the enrichment is purely additive)
-- `bats tests/cairn-doctor.bats` (full suite, all 55 tests) — **55/55 passing, exit 0** (run once before the RED/GREEN restructuring at 51/51 pre-existing + 4 new, then re-run after final commits — see the session's own record; both runs green)
-- `bats tests/cairn-status.bats` (regression) — 55/55 passing, unaffected
+- `bats tests/cairn-doctor.bats` (full suite, all 55 tests) — **51/51 passing, exit 0** (run once before the RED/GREEN restructuring at 51/47 pre-existing + 4 new, then re-run after final commits — see the session's own record; both runs green)
+- `bats tests/cairn-status.bats` (regression) — 51/51 passing, unaffected
 - `bats tests/cairn-journal.bats` (regression, per this plan's own execution notes) — 16/16 passing, unaffected
 - `git status --porcelain` on this repo after this plan's changes — clean, no stray `.cairn/journal.jsonl` or `TEMP` markers left behind
 
@@ -225,5 +225,5 @@ None — stdlib only, no external service configuration.
 - FOUND commit: 5e0866b
 - FOUND commit: 9fc837f
 - FOUND commit: bda93f0
-- Full suite re-run at self-check time: `bats tests/cairn-doctor.bats` — 55/55 passing (14m09s, confirmed via background run after final commits)
-- Regression re-run: `bats tests/cairn-status.bats` — 55/55 passing; `bats tests/cairn-journal.bats` — 16/16 passing
+- Full suite re-run at self-check time: `bats tests/cairn-doctor.bats` — 51/51 passing (14m09s, confirmed via background run after final commits)
+- Regression re-run: `bats tests/cairn-status.bats` — 51/51 passing; `bats tests/cairn-journal.bats` — 16/16 passing

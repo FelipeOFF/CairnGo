@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Honest State
-current_phase: 16
-current_phase_name: Transition journal
+current_phase: 17
+current_phase_name: Semantic escalation
 status: planning
-stopped_at: Phases 14 and 15 built in parallel worktrees, merged, verified and closed
+stopped_at: Phase 16 verified and closed (5 plans, 5 issues)
 last_updated: "2026-07-30T19:47:35.873Z"
 last_activity: 2026-07-30
 last_activity_desc: Fases 14 e 15 mescladas de worktrees paralelas
 progress:
-  total_phases: 6
-  completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
-  percent: 50
+  total_phases: 7
+  completed_phases: 4
+  total_plans: 18
+  completed_plans: 18
+  percent: 57
 ---
 
 # Project State
@@ -24,13 +24,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-29)
 
 **Core value:** Workflow unificado plan→work→ship cujo estado é verificável — nenhuma superfície afirma que uma fase está pronta sem ter com o que corroborar.
-**Current focus:** Milestone v1.4 (Honest State) — 13, 14 e 15 fechadas; 16, 17 e 18 pendentes
+**Current focus:** Milestone v1.4 (Honest State) — 13, 14, 15 e 16 fechadas; 17, 18 e 19 pendentes
 
 ## Current Position
 
-Phase: 16 — Transition journal (não planejada)
+Phase: 17 — Semantic escalation (não planejada)
 Plan: —
-Status: Fases 13, 14 e 15 fechadas — próxima é a 16
+Status: Fases 13-16 fechadas — próxima é a 17
 Last activity: 2026-07-31 — Fases 14 e 15 em paralelo, mescladas e fechadas
 
 ## Performance Metrics
