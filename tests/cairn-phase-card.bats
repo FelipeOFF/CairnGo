@@ -110,3 +110,53 @@ for p in d["phases"]:
     assert "purpose" in p, p
 '
 }
+
+# ─── research_done ────────────────────────────────────────────────────────
+
+@test "research_done is true for a phase directory carrying an NN-RESEARCH.md file, false for one without" {
+  mkdir -p .planning/phases/01-card
+  touch .planning/phases/01-card/01-RESEARCH.md
+  # Phase 3's directory (.planning/phases/03-neither, from write_card_roadmap)
+  # already exists with no RESEARCH.md — the sibling "false" case, reused
+  # rather than invented.
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 1 research_done)" = "True" ]
+  [ "$(printf '%s' "$output" | phase_field 3 research_done)" = "False" ]
+}
+
+# ─── issues_done / issues_total: ANY-match, not bd_state()'s ALL-not-ANY ───
+
+@test "issues_done/issues_total count phase-N issues by ANY match, including one that also carries an undone other phase's label" {
+  bd create "phase 1 open work" -t task -l phase-1 --silent >/dev/null
+  CLOSED="$(bd create "phase 1 closed work" -t task -l phase-1 --silent)"
+  bd close "$CLOSED" >/dev/null
+  # Cross-phase: carries phase-1 AND phase-2 (phase 2 is not roadmap-complete
+  # here). bd_state()'s ALL-not-ANY corroboration filter would exclude this
+  # issue from phase 1's evidence; phase_issue_counts() must NOT — it counts
+  # by ANY match, and this is the proof.
+  bd create "cross-phase follow-up" -t task -l phase-1,phase-2 --silent >/dev/null
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 1 issues_done)" = "1" ]
+  [ "$(printf '%s' "$output" | phase_field 1 issues_total)" = "3" ]
+  # ...and the cross-phase issue counts for phase 2 too — the ANY-match tally
+  # is symmetric, not a one-sided exception carved out for phase 1.
+  [ "$(printf '%s' "$output" | phase_field 2 issues_done)" = "0" ]
+  [ "$(printf '%s' "$output" | phase_field 2 issues_total)" = "1" ]
+}
+
+# ─── verify_status ───────────────────────────────────────────────────────
+
+@test "verify_status carries the literal status: value from NN-VERIFICATION.md, null when the file is absent" {
+  make_gsd_fixture "$PWD"
+  # Phase 1 (01-auth) ships 01-VERIFICATION.md with `status: passed`; phase 2
+  # (02-api) has a PLAN but no VERIFICATION.md at all.
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 1 verify_status)" = "passed" ]
+  [ "$(printf '%s' "$output" | phase_field 2 verify_status)" = "" ]
+}

@@ -66,6 +66,15 @@ Behavior:
        "unknown" verdict, or a "blocks" conflict) is rerouted to
        `/cairn:doctor` instead of its disk-driven next command, both in
        `phases[].next_command` and in `next_commands[]`.
+    4d. Each `--json` phase row also carries four additive, purely
+       descriptive keys for the phase card: `purpose` (see step 3),
+       `research_done` (does the phase directory carry an `NN-RESEARCH.md`),
+       `issues_done`/`issues_total` (bd issues matching that phase's own
+       `phase-N` label by ANY match — a looser count than bd_state()'s
+       ALL-not-ANY corroboration filter, and never used for corroboration),
+       and `verify_status` (the literal `status:` value from the phase's
+       `NN-VERIFICATION.md` frontmatter, or `null` when absent/unreadable).
+       `disk_state` itself is still never widened by any of this.
     5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
        gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
        list (< 40 cols). Non-TTY without an output flag: --plain
@@ -523,6 +532,62 @@ def phase_plan_counts(pdir):
     return len(summaries & plans), len(plans)
 
 
+def phase_has_research(pdir):
+    """Whether this phase directory carries at least one `*-RESEARCH.md`
+    file — the same suffix-match shape phase_disk_state() already uses for
+    its own four suffixes: existence only, never mtime- or content-sensitive.
+    """
+    if pdir is None or not pdir.is_dir():
+        return False
+    return any(p.name.endswith("-RESEARCH.md") for p in pdir.iterdir()
+              if p.is_file())
+
+
+def phase_issue_counts(issues, n):
+    """(done, total) bd issues carrying phase n's own `phase-N` label, by ANY
+    match.
+
+    Deliberately looser than bd_state()'s ALL-not-ANY qualifying filter: an
+    issue that also carries an undone OTHER phase's label is still counted
+    here. This is a raw completion tally for the phase card, not a
+    corroboration read that must avoid fabricating a false conflict — do not
+    reuse this count for corroboration, and do not reuse bd_state()'s
+    qualifying list here. The two answer different questions.
+    """
+    done = total = 0
+    for iss in issues:
+        if n in issue_phase_ns(iss):
+            total += 1
+            if iss.get("status") == "closed":
+                done += 1
+    return done, total
+
+
+def verification_status(pdir):
+    """The literal `status:` value from a phase's `NN-VERIFICATION.md`
+    frontmatter, or None when the file is absent, unreadable, or the field
+    is missing/empty. Mirrors state_frontmatter()'s lenient
+    regex-and-strip shape rather than a YAML lib.
+    """
+    if pdir is None or not pdir.is_dir():
+        return None
+    candidates = sorted(p for p in pdir.iterdir()
+                        if p.is_file() and p.name.endswith("-VERIFICATION.md"))
+    if not candidates:
+        return None
+    lines = read_lines(candidates[0])
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^status\s*:\s*(.+?)\s*$", line)
+        if m:
+            val = m.group(1).split("#", 1)[0].strip().strip("'\"").strip()
+            return val or None
+    return None
+
+
 def plan_depends_on(pdir, dir_to_number):
     """Phase numbers this phase's plans declare in `depends_on:` frontmatter.
 
@@ -828,6 +893,10 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
         pdir = dirs.get(n)
         row["dir"] = str(pdir.relative_to(planning_dir.parent)) if pdir else None
         row["disk_state"] = phase_disk_state(pdir)
+        row["research_done"] = phase_has_research(pdir)
+        row["issues_done"], row["issues_total"] = phase_issue_counts(
+            issues or [], n)
+        row["verify_status"] = verification_status(pdir)
         bd_val = bd_state(issues or [], n, roadmap_done_set)
         verdict, evidence, conflicts = corroborate(
             n, row["disk_state"], row["complete"], bd_val, bd_ok,
