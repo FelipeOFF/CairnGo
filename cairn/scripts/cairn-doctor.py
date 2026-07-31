@@ -107,20 +107,30 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         phase whose corroboration != "ok": a "conflict"
                         verdict lists each entry in that phase's
                         conflicts[] as '<n>: <detail> (<severity>) —
-                        <recommendation>', the recommendation being the
-                        FIRST, most-likely fix (D-01) and differing by the
-                        conflict's source pair (disk/bd -> close the bd
-                        issue or run /cairn:work; roadmap/disk -> confirm
-                        before leaving the checkbox ticked; state_md/disk
-                        -> the pointer is merely stale, no action needed);
-                        an "unknown" verdict (bd unreadable for that
-                        phase) gets one item saying so. A "blocks"-
-                        severity conflict -> FAIL (reuses EXIT_FAILED, no
-                        new exit code); "informs"-only or "unknown" ->
-                        WARN, never fails the run (D-10 applied to
-                        doctor's own exit code). A subprocess/JSON
-                        failure degrades to WARN rather than crashing the
-                        whole doctor run over this one check.
+                        <recommendation> — <source> last moved <ts>, ...',
+                        the recommendation being the FIRST, most-likely
+                        fix (D-01) and differing by the conflict's source
+                        pair (disk/bd -> close the bd issue or run
+                        /cairn:work; roadmap/disk -> confirm before
+                        leaving the checkbox ticked; state_md/disk -> the
+                        pointer is merely stale, no action needed); the
+                        trailing "last moved" clause (Phase 16, JOUR-02)
+                        names when EACH of that conflict's cited sources
+                        last moved, pulled from 'cairn-journal.py
+                        last-moved --phase N --json' (called at most ONCE
+                        per phase, cached, never once per conflict item),
+                        "never observed" for a source the journal has
+                        never seen — a broken/missing journal degrades
+                        that one clause to nothing, never this check's
+                        own status. An "unknown" verdict (bd unreadable
+                        for that phase) gets one item saying so, no
+                        last-moved clause. A "blocks"-severity conflict ->
+                        FAIL (reuses EXIT_FAILED, no new exit code);
+                        "informs"-only or "unknown" -> WARN, never fails
+                        the run (D-10 applied to doctor's own exit code).
+                        A subprocess/JSON failure degrades to WARN rather
+                        than crashing the whole doctor run over this one
+                        check.
     12. phase-artifacts CARD-02/D-04: names which artifact is missing for a
                         phase whose board row would otherwise be a bare
                         dash. Reuses main()'s already-computed
@@ -225,6 +235,15 @@ EXIT_FAILED = 7
 SYMBOL = {"ok": "✓", "warn": "⚠", "fail": "✗"}
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
+
+# Test/override seam for check_phase_corroboration()'s journal_last_moved()
+# call (Phase 16, D-01/D-02) — the SAME env var name cairn-lease.py and
+# cairn-status.py already use for their own calls into this identical
+# script (CONVENTIONS.md's "Environment variable seams" note: CAIRN_*
+# prefix, upper case). Default: the sibling cairn-journal.py next to this
+# script.
+CAIRN_JOURNAL = os.environ.get(
+    "CAIRN_JOURNAL", str(SCRIPTS_DIR / "cairn-journal.py"))
 
 PHASE_LABEL = re.compile(r"^phase-(\d+)$")
 PHASE_HEAD = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\b")
@@ -932,6 +951,55 @@ def corroboration_recommendation(sources):
         tuple(sources), "see /cairn:doctor for details")
 
 
+def journal_last_moved(root, phase):
+    """cairn-journal.py's `last-moved --phase N --json` for one PHASE, or
+    None on ANY failure (missing/broken script, nonzero exit, unparsable
+    JSON) — mirroring check_lease_stale()'s shell-out-and-degrade shape
+    exactly, one level down: a failure HERE degrades only the calling
+    conflict item's enrichment text (see _last_moved_clause()), never
+    check_phase_corroboration()'s own status/severity computation (T-16-09
+    — that verdict is already fully decided by corroborate()'s own
+    "severity" field by the time this is ever called). Shells through the
+    CAIRN_JOURNAL env seam (default: the sibling cairn-journal.py), the
+    same test/override convention cairn-lease.py and cairn-status.py
+    already use for this identical script."""
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_JOURNAL, "last-moved",
+             "--phase", str(phase), "--json", "--project-dir", str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+
+
+def _last_moved_clause(last_moved, sources):
+    """'<source> last moved <ts>, ...' — one clause per SOURCES key
+    (a conflict's own ["disk","bd"]-shaped list), pulled from
+    journal_last_moved()'s per-axis {"value":..., "ts":...} dict. A
+    source with no prior record (the axis key is None/missing) renders
+    the literal phrase "never observed", per JOUR-02's own wording — never
+    a blank, never a fabricated timestamp. Returns "" (append nothing)
+    when LAST_MOVED itself is None — the journal call failed or was never
+    attempted, and the item's EXISTING (pre-Plan-16-05) text is left
+    completely untouched in that case."""
+    if last_moved is None:
+        return ""
+    clauses = []
+    for source in sources:
+        entry = last_moved.get(source)
+        if entry:
+            clauses.append(f"{source} last moved {entry.get('ts')}")
+        else:
+            clauses.append(f"{source} last moved never observed")
+    return ", ".join(clauses)
+
+
 def check_phase_corroboration(root, planning_dir):
     """Check 11, id "phase-corroboration" (CORR-06) — reads Plan 13-01's
     phase_model() corroboration verdict for every phase (shells to
@@ -948,6 +1016,18 @@ def check_phase_corroboration(root, planning_dir):
     degrades to WARN rather than crashing the whole doctor run over one
     check — corroboration is additive, never a new way for doctor itself to
     become unusable.
+
+    Each "conflict" item ALSO cites when each of that conflict's cited
+    sources last moved (Phase 16, JOUR-02 — D-04's "dentro do relatório de
+    conflito", the ONLY place this history surfaces by design), via
+    journal_last_moved(): one cairn-journal.py `last-moved` call per phase
+    that has at least one conflict — cached in last_moved_cache, never
+    once per conflict item, even when a phase carries several (e.g. both
+    a ["disk","bd"] and a ["roadmap","disk"] conflict at once). This is
+    PURELY additive text appended to an item whose status/severity was
+    already fully decided above — a broken or missing journal degrades
+    that one item's trailing clause to nothing (no clause at all), never
+    the item's severity, never this check's own status/exit code.
     """
     proc = subprocess.run(
         [sys.executable, str(SCRIPTS_DIR / "cairn-status.py"), "--json",
@@ -977,6 +1057,7 @@ def check_phase_corroboration(root, planning_dir):
     items = []
     any_blocks = False
     n_phases = 0
+    last_moved_cache = {}
     for p in data.get("phases") or []:
         verdict = p.get("corroboration")
         if verdict in (None, "ok"):
@@ -984,10 +1065,19 @@ def check_phase_corroboration(root, planning_dir):
         n_phases += 1
         n = p.get("number")
         if verdict == "conflict":
-            for c in p.get("conflicts") or []:
+            conflicts = p.get("conflicts") or []
+            if conflicts and n not in last_moved_cache:
+                last_moved_cache[n] = journal_last_moved(root, n)
+            last_moved = last_moved_cache.get(n)
+            for c in conflicts:
                 sev = c.get("severity")
-                rec = corroboration_recommendation(c.get("sources") or [])
-                items.append(f"{n}: {c.get('detail', '')} ({sev}) — {rec}")
+                sources = c.get("sources") or []
+                rec = corroboration_recommendation(sources)
+                line = f"{n}: {c.get('detail', '')} ({sev}) — {rec}"
+                clause = _last_moved_clause(last_moved, sources)
+                if clause:
+                    line = f"{line} — {clause}"
+                items.append(line)
                 if sev == "blocks":
                     any_blocks = True
         elif verdict == "unknown":

@@ -128,6 +128,17 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
      (`unknown`), is `informs` and only warns. Shells to `cairn-status.py
      --json`; a failure there degrades this check to a warn rather than
      crashing the doctor run.
+
+     Each **conflict** item also names when each of its cited sources
+     last moved (Plan 16-05, JOUR-02) — e.g. "disk last moved
+     2026-07-31T10:00:00+00:00, bd last moved never observed" — pulled
+     from `cairn-journal.py last-moved --phase N --json` (one call per
+     phase, cached, never one per conflict item). This is the only place
+     the transition journal's history surfaces (D-04): a "never observed"
+     source means the journal never saw that side move, not that nothing
+     happened. A missing, unreadable, or broken journal degrades the
+     clause to nothing — the conflict itself, its severity, and this
+     check's exit code are completely unaffected either way.
    - **phase-artifacts** (⚠) — names which artifact is missing for a phase
      whose board row would otherwise be a bare dash (CARD-02/D-04): a
      `PLAN.md` still lacking its own `SUMMARY.md` in a phase that has
