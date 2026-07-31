@@ -109,7 +109,7 @@ EOF
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '13'
+  assert_json_eq "$output" '.checks | length' '14'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
@@ -900,7 +900,240 @@ PY
 }
 
 # --------------------------------------------------------------------------- #
-# external-ref (check 12, CORR-08/D-11) — 13-03
+# phase-artifacts (check 12, CARD-02/D-04) — 14-03
+# --------------------------------------------------------------------------- #
+
+# Give phase 2's existing 02-01-PLAN.md a SUMMARY.md (so it stops being the
+# ordinary mid-flight gap the healthy fixture ships with) and add a second
+# plan, 02-02-PLAN.md, deliberately left without one — the "two plans, only
+# one summarized" shape check_phase_artifacts' missing-SUMMARY half looks
+# for. ROADMAP.md's phase-2 checkbox is left unticked throughout (the
+# fixture never ticks it), so any item here is coming from disk_state, not
+# from check 5's ROADMAP-complete gate.
+make_phase2_two_plans_one_summary() {
+  cat > .planning/phases/02-api/02-01-SUMMARY.md <<'EOF'
+---
+phase: 02-api
+plan: "01"
+subsystem: api
+tags: [python, api]
+provides:
+  - rate limiting middleware in src/api.py
+key-files:
+  created: [src/api.py]
+  modified: []
+key-decisions: []
+duration: 8min
+completed: 2026-07-21
+status: complete
+---
+
+# Phase 2: API Summary (Minimal)
+
+**Rate limiting middleware implemented and tested.**
+EOF
+  cat > .planning/phases/02-api/02-02-PLAN.md <<'EOF'
+---
+phase: 02-api
+plan: "02"
+type: execute
+wave: 1
+depends_on: []
+files_modified: [src/api_extra.py]
+autonomous: true
+requirements: []
+must_haves:
+  truths: []
+  artifacts: []
+  key_links: []
+---
+
+<objective>
+Second plan in phase 2, deliberately left without a SUMMARY.md — the
+missing-SUMMARY fixture for phase-artifacts.
+
+Purpose: exercise check_phase_artifacts' missing-SUMMARY half.
+Output: src/api_extra.py
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: placeholder</name>
+  <files>src/api_extra.py</files>
+  <action>placeholder</action>
+  <verify>true</verify>
+  <done>placeholder</done>
+</task>
+
+</tasks>
+EOF
+}
+
+# NN-VERIFICATION.md with a readable status: field — pushes phase 2's
+# disk_state to "verified" without itself triggering the unreadable-status
+# half.
+add_phase2_verification_passed() {
+  cat > .planning/phases/02-api/02-VERIFICATION.md <<'EOF'
+---
+phase: 02-api
+verified: 2026-07-25T10:00:00Z
+status: passed
+score: 1/1 must-haves verified
+behavior_unverified: 0
+---
+
+# Phase 2: API Verification Report
+
+**Status:** passed
+EOF
+}
+
+# NN-VERIFICATION.md with a readable frontmatter block but NO status:
+# field — the unreadable-verdict fixture.
+add_phase2_verification_no_status() {
+  cat > .planning/phases/02-api/02-VERIFICATION.md <<'EOF'
+---
+phase: 02-api
+verified: 2026-07-25T10:00:00Z
+---
+
+# Phase 2: API Verification Report (status field omitted)
+EOF
+}
+
+# Pushing phase 2 to disk_state "verified" without this would ALSO trip
+# phase-corroboration's own R1/R3 axes (DOC_P2, phase 2's bd issue, is
+# still open; STATE.md's active_phase fixture default is "2"), confounding
+# the assertions below with a second, unrelated check's findings. Closes
+# the issue, regenerates its map (closing changes the map's status column,
+# see maps-fresh), and points active_phase somewhere that collides with no
+# real phase — isolating these tests to phase-artifacts' own behavior, the
+# same way the phase-corroboration tests above build single-conflict
+# fixtures on purpose.
+neutralize_phase2_corroboration() {
+  bd close "$DOC_P2" >/dev/null
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+  set_state_active_phase 99
+}
+
+@test "phase-artifacts: clean fixture reports ok with no items" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-artifacts") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-artifacts") | .items | length' '0'
+}
+
+@test "phase-artifacts: verified phase with an unsummarized plan warns, names the file, never fails the run" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 2's checkbox stays unticked throughout
+  make_doctor_fixture
+  make_phase2_two_plans_one_summary
+  add_phase2_verification_passed
+  neutralize_phase2_corroboration
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]   # a phase-artifacts warn never turns the run exit 7
+  assert_json_eq "$output" '.ok' 'true'
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-artifacts") | .status' 'warn'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-artifacts") | .items[] | select(. == "phase 2: 02-02-PLAN.md lacks its SUMMARY")] | length' '1'
+}
+
+@test "phase-artifacts: same two-plan/one-summary phase with NO VERIFICATION.md produces zero items (mid-flight regression)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # Identical to the warn case above MINUS add_phase2_verification_passed —
+  # this is the exact false positive an earlier, ungated draft produced and
+  # a plan-checker caught: a phase between waves, with some plans still
+  # unsummarized, disk_state never having reached "verified". It must stay
+  # green forever, not just today.
+  make_phase2_two_plans_one_summary
+  # Adding 02-01-SUMMARY.md alone (with no VERIFICATION.md) already moves
+  # phase 2's disk_state from "planned" to "executed" — still short of
+  # "verified", so phase-artifacts' own gate is unaffected, but it is
+  # ALSO enough to trip phase-corroboration's disk-vs-bd axis against the
+  # still-open DOC_P2 (an unrelated confound this test isn't about).
+  neutralize_phase2_corroboration
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-artifacts") | .status' 'ok'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-artifacts") | .items[] | select(startswith("phase 2:"))] | length' '0'
+}
+
+@test "phase-artifacts: verified phase with an unreadable VERIFICATION status warns, never fails the run" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # Give 02-01 its summary so this scenario isolates the unreadable-status
+  # half — no missing-SUMMARY noise mixed into the same item set.
+  cat > .planning/phases/02-api/02-01-SUMMARY.md <<'EOF'
+---
+phase: 02-api
+plan: "01"
+subsystem: api
+tags: [python, api]
+provides:
+  - rate limiting middleware in src/api.py
+key-files:
+  created: [src/api.py]
+  modified: []
+key-decisions: []
+duration: 8min
+completed: 2026-07-21
+status: complete
+---
+
+# Phase 2: API Summary (Minimal)
+
+**Rate limiting middleware implemented and tested.**
+EOF
+  add_phase2_verification_no_status
+  neutralize_phase2_corroboration
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-artifacts") | .status' 'warn'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="phase-artifacts") | .items[] | select(. == "phase 2: has a VERIFICATION.md but no readable '"'"'status:'"'"' field in its frontmatter")] | length' '1'
+}
+
+@test "phase-artifacts: a lone phase-artifacts warn never turns an otherwise-clean run into a failure" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  make_phase2_two_plans_one_summary
+  add_phase2_verification_passed
+  neutralize_phase2_corroboration
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.ok' 'true'
+  assert_json_eq "$output" '[.checks[] | select(.status=="fail")] | length' '0'
+  assert_json_eq "$output" '[.checks[] | select(.status=="warn")] | .[0].id' 'phase-artifacts'
+  assert_json_eq "$output" '[.checks[] | select(.status=="warn")] | length' '1'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "⚠ phase-artifacts" <<<"$output"
+  refute_in_output "✗"
+  grep -qF "[cairn-doctor] ok" <<<"$output"
+}
+
+# --------------------------------------------------------------------------- #
+# external-ref (check 13, CORR-08/D-11) — 13-03
 # --------------------------------------------------------------------------- #
 
 @test "external-ref: unambiguous git match reported by default, --link-refs backfills, idempotent" {
