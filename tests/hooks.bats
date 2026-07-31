@@ -573,3 +573,59 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   [ "$status" -eq 0 ]
   refute_in_output "Traceback"
 }
+
+#-----------------------------------------------------------------------------
+# the hook-never-ran risk (D-03): staleness must be visible, never silent
+#-----------------------------------------------------------------------------
+# D-03's mechanism only works if the hooks actually run. This test never
+# invokes session-start.sh or session-stop.sh anywhere — a lease acquired
+# and then simply left alone, with a hand-advanced heartbeat_at, IS the
+# "hook never ran" scenario. The load-bearing assertions are on CONTENT
+# (the `stale`/`status` fields), never on a bare exit-code check alone —
+# both hooks exit 0 unconditionally by contract, so an exit-0 assertion
+# here would prove nothing, the same trap post-bd-write.sh's own
+# external-ref test already documents.
+
+@test "the hook-never-ran risk: a lease whose heartbeat was never renewed is independently reported stale by both cairn-lease status and cairn-doctor, without either hook ever running" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix hnr --non-interactive >/dev/null 2>&1
+
+  # Acquire a real lease for phase 2 (make_gsd_fixture's active phase) from
+  # this real worktree fixture.
+  run bash "$CAIRN_LEASE_SH" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_id acquired_at holder
+  lease_id="$(jq -r '.id' <<<"$output")"
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+  holder="$(jq -r '.holder' <<<"$output")"
+
+  # Hand-advance heartbeat_at more than 4h into the past via bd directly,
+  # bypassing both hooks entirely — never a real 4-hour sleep (same
+  # technique as tests/cairn-lease.bats and tests/cairn-doctor.bats' own
+  # lease-stale fixtures).
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
+")"
+  run bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":2,\"holder\":\"$holder\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}"
+  [ "$status" -eq 0 ]
+
+  # Load-bearing assertion #1: cairn-lease status — run completely
+  # independently of either hook — reports the staleness on its own, a
+  # content-based check on a real field.
+  run bash "$CAIRN_LEASE_SH" status 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+  assert_json_eq "$output" '.stale' 'true'
+
+  # Load-bearing assertion #2: cairn-doctor — a second, independent
+  # surface — also reports it, itemized by phase and holder.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json --project-dir "$PWD"
+  assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .status' 'warn'
+  grep -qF "phase 2" <<<"$output"
+  grep -qF "$holder" <<<"$output"
+}
