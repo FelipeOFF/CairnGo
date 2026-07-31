@@ -31,20 +31,23 @@ refute_in_output() {
 
   run bash -c "echo '[{\"phase\": 5, \"evidence\": {\"disk\": \"planned\", \"bd\": \"none\", \"roadmap\": \"incomplete\", \"state_md\": null}, \"verdict\": \"ok\"}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.written | length' '4'
+  # 4 evidence axes + 1 verdict, all never-observed-before, all appended.
+  assert_json_eq "$output" '.written | length' '5'
+  assert_json_eq "$output" '[.written[] | select(.event == "state_changed")] | length' '4'
+  assert_json_eq "$output" '[.written[] | select(.event == "verdict_changed")] | length' '1'
   assert_json_eq "$output" '[.written[] | select(.ts == "" or .ts == null)] | length' '0'
   assert_json_eq "$output" '[.written[] | select(.nonce == "" or .nonce == null)] | length' '0'
   assert_json_eq "$output" '[.written[] | select(.actor == "" or .actor == null)] | length' '0'
   assert_json_eq "$output" '[.written[] | select(.phase != 5)] | length' '0'
-  assert_json_eq "$output" '[.written[] | select(.event != "state_changed")] | length' '0'
   assert_json_eq "$output" '[.written[] | select(.source == "disk") | .to][0]' 'planned'
   assert_json_eq "$output" '[.written[] | select(.source == "bd") | .to][0]' 'none'
   assert_json_eq "$output" '[.written[] | select(.source == "roadmap") | .to][0]' 'incomplete'
   assert_json_eq "$output" '[.written[] | select(.source == "state_md") | .to][0]' 'null'
+  assert_json_eq "$output" '[.written[] | select(.event == "verdict_changed") | .to][0]' 'ok'
 
   run bash "$JOURNAL" history --phase 5 --json --project-dir "$PWD"
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.records | length' '4'
+  assert_json_eq "$output" '.records | length' '5'
   assert_json_eq "$output" '[.records[] | select(.source == "disk") | .to][0]' 'planned'
 
   [ -f .cairn/journal.jsonl ]
@@ -144,13 +147,21 @@ refute_in_output() {
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.records | length' '2'
 
-  # released with a --prev-holder given round-trips correctly too.
-  run bash "$JOURNAL" lease 9 released --holder "" --prev-holder /path/A --actor felipe --project-dir "$PWD"
+  # released with no --prev-holder given still appends (prev_holder null
+  # is valid) -- the caller (Plan 16-03/16-04) decides when to pass it.
+  run bash "$JOURNAL" lease 9 released --holder /path/A --actor felipe --project-dir "$PWD"
   [ "$status" -eq 0 ]
   run bash "$JOURNAL" history --phase 9 --json --project-dir "$PWD"
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.records | length' '3'
-  assert_json_eq "$output" '[.records[] | select(.action == "released") | .prev_holder][0]' '/path/A'
+  assert_json_eq "$output" '[.records[] | select(.action == "released") | .prev_holder][0]' 'null'
+
+  # A released call WITH --prev-holder round-trips it verbatim too.
+  run bash "$JOURNAL" lease 10 released --holder /path/B --prev-holder /path/A --actor felipe --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  run bash "$JOURNAL" history --phase 10 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records[0].prev_holder' '/path/A'
 }
 
 @test "last-moved: reports last value+ts per axis, or null when never observed" {

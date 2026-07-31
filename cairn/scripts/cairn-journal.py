@@ -380,24 +380,48 @@ def _load_observe_payload():
 # subcommands
 # --------------------------------------------------------------------------- #
 def cmd_observe(args, root):
-    """Task 1 scope: straight-through append — one state_changed record
-    per evidence axis present in each payload element, `from` always the
-    "never observed" sentinel (resolved to null). No dedup yet; that lands
-    in Task 2 on top of this same CLI contract."""
+    """Diff-then-append: for each phase in the batch, each evidence axis
+    (and the verdict) whose incoming value differs from what
+    _last_known() reports for that phase+axis appends exactly one record;
+    axes/verdicts that match the last known value append nothing. This IS
+    JOUR-01's "every transition, no non-transition" guarantee. `known` is
+    recomputed per item against `existing_records`, which is itself
+    appended to as records are written — so two elements in the SAME
+    batch for the same phase also dedup against each other, not just
+    against what was already on disk before this call."""
     payload = _load_observe_payload()
     journal_path = _journal_path(root)
+    existing_records, _warnings = _read_records(journal_path)
     written = []
 
     for item in payload:
         phase = item["phase"]
         evidence = item.get("evidence") or {}
+        verdict = item.get("verdict")
+        known = _last_known(existing_records, phase)
+
         for axis in EVIDENCE_AXES:
             if axis not in evidence:
                 continue
-            rec = _state_changed_record(root, phase, axis, _NEVER_OBSERVED,
-                                         evidence[axis])
-            _append_record(journal_path, rec)
-            written.append(rec)
+            to_value = evidence[axis]
+            from_value = _resolve_last_value(known[axis])
+            if from_value is _NEVER_OBSERVED or from_value != to_value:
+                rec = _state_changed_record(root, phase, axis, from_value,
+                                             to_value)
+                _append_record(journal_path, rec)
+                existing_records.append(rec)
+                written.append(rec)
+                known[axis] = {"value": to_value, "ts": rec["ts"]}
+
+        if verdict is not None:
+            from_value = _resolve_last_value(known["verdict"])
+            if from_value is _NEVER_OBSERVED or from_value != verdict:
+                rec = _verdict_changed_record(root, phase, from_value,
+                                               verdict)
+                _append_record(journal_path, rec)
+                existing_records.append(rec)
+                written.append(rec)
+                known["verdict"] = {"value": verdict, "ts": rec["ts"]}
 
     if args.json:
         print(json.dumps({"written": written}))
@@ -405,8 +429,48 @@ def cmd_observe(args, root):
         print("[cairn-journal] no changes")
     else:
         for rec in written:
-            print(f"[cairn-journal] phase {rec['phase']}: "
-                  f"{rec['source']} -> {rec['to']}")
+            if rec["event"] == "state_changed":
+                print(f"[cairn-journal] phase {rec['phase']}: "
+                      f"{rec['source']} -> {rec['to']}")
+            else:
+                print(f"[cairn-journal] phase {rec['phase']}: verdict -> "
+                      f"{rec['to']}")
+    sys.exit(EXIT_OK)
+
+
+def cmd_lease(args, root):
+    """Unconditional append of one lease_changed record — no dedup here;
+    see the module docstring's `lease` behavior entry for why."""
+    journal_path = _journal_path(root)
+    rec = _lease_changed_record(root, args.phase, args.action, args.holder,
+                                 args.prev_holder, args.actor)
+    _append_record(journal_path, rec)
+    if args.json:
+        print(json.dumps({"written": [rec]}))
+    else:
+        print(f"[cairn-journal] phase {args.phase}: lease {args.action} "
+              f"by {args.holder}")
+    sys.exit(EXIT_OK)
+
+
+def cmd_last_moved(args, root):
+    journal_path = _journal_path(root)
+    records, warnings = _read_records(journal_path)
+    known = _last_known(records, args.phase)
+    if args.json:
+        out = dict(known)
+        out["warnings"] = warnings
+        print(json.dumps(out))
+    else:
+        for w in warnings:
+            print(f"[cairn-journal] warning: {w}", file=sys.stderr)
+        for axis, val in known.items():
+            if val is None:
+                print(f"[cairn-journal] phase {args.phase}: {axis} never "
+                      "observed")
+            else:
+                print(f"[cairn-journal] phase {args.phase}: {axis} = "
+                      f"{val.get('value')} (last moved {val['ts']})")
     sys.exit(EXIT_OK)
 
 
@@ -443,12 +507,31 @@ def build_parser():
                               "phase observations read from stdin")
     observe.set_defaults(func=cmd_observe)
 
+    lease = sub.add_parser("lease", help="unconditionally append one "
+                            "lease_changed record — no dedup, that is the "
+                            "caller's job")
+    lease.add_argument("phase", type=int, help="phase number")
+    lease.add_argument("action", choices=["acquired", "released"])
+    lease.add_argument("--holder", required=True,
+                        help="worktree identity involved in this event")
+    lease.add_argument("--prev-holder", default=None,
+                        help="previous holder, when relevant (optional)")
+    lease.add_argument("--actor", required=True,
+                        help="display-only actor name (caller-supplied — "
+                             "not re-resolved here)")
+    lease.set_defaults(func=cmd_lease)
+
     history = sub.add_parser("history", help="read journaled records, "
                               "optionally filtered by phase")
     history.add_argument("--phase", type=int, default=None)
     history.set_defaults(func=cmd_history)
 
-    for p in (observe, history):
+    last_moved = sub.add_parser("last-moved", help="report each axis's "
+                                 "last known value+timestamp for a phase")
+    last_moved.add_argument("--phase", type=int, required=True)
+    last_moved.set_defaults(func=cmd_last_moved)
+
+    for p in (observe, lease, history, last_moved):
         p.add_argument("--project-dir", metavar="DIR",
                         help="project root (default: $CLAUDE_PROJECT_DIR "
                              "or cwd)")
