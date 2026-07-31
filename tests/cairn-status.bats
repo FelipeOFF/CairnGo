@@ -1104,3 +1104,120 @@ board_inside() {
   run file_mode board.html
   [ "$output" = "640" ]
 }
+
+# ------------------------------------------------------------------- lease
+# Plan 15-05: the phase lease (Plan 15-01) is visible on the status board's
+# footer only (D-05) and its own bookkeeping bd issue must never leak into
+# a lane, a count, or the terrain. LEASE_SH is the cairn-lease.sh wrapper —
+# acquiring for phase 2 targets make_gsd_fixture's own active_phase.
+
+LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
+
+@test "the lease-labeled bookkeeping issue never appears in any lane in open, in_progress, or closed status, and never inflates counts" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # An "open" lease issue — the shape bd_create_lease_issue() produces
+  # just after `bd create`, before acquire's own --claim runs.
+  local lease_open
+  lease_open="$(bd create "phase-9 lease" -t chore -l lease --silent)"
+
+  # An "in_progress" lease issue, acquired exactly as Plan 15-01 shapes
+  # it: title "phase-N lease", type chore, single label "lease", claimed
+  # in_progress by acquire's own --claim.
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_doing
+  lease_doing="$(jq -r '.id' <<<"$output")"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$lease_open"
+  refute_in_output "$lease_doing"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output "$lease_open"
+  refute_in_output "$lease_doing"
+
+  # The exclusion reaches the counts themselves, not just the card render:
+  # without it .counts.doing would read 2 (ST_DOING + the lease issue).
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.counts.doing' '1'
+  assert_json_eq "$output" '.counts.blocked' '1'
+  assert_json_eq "$output" '.counts.closed' '1'
+
+  # Closing both lease issues (bookkeeping churn, not real completed work)
+  # must never inflate the done count either. (The closed array itself is
+  # never exposed via --json — only counts.closed is — so the count is the
+  # whole proof here; the additive "lease" key legitimately still carries
+  # the lease issue's own id via cairn-lease.py status, which is not a
+  # lane leak and must not be asserted away.)
+  run bd close "$lease_doing"
+  [ "$status" -eq 0 ]
+  run bd close "$lease_open"
+  [ "$status" -eq 0 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counts.closed' '1'
+}
+
+@test "--json's lease key is additive: every pre-existing top-level key keeps its exact name and shape" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  # Exhaustive top-level key set: the pre-15-05 keys, unchanged, plus the
+  # one new additive "lease" key — nothing renamed, nothing dropped.
+  local keys
+  keys="$(jq -c 'keys' <<<"$output")"
+  [ "$keys" = '["blocked","counts","doing","lease","milestone","next","next_commands","note","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+
+  # Shape of the pre-existing keys is untouched.
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.counts.doing' '1'
+  assert_json_eq "$output" '.counts.blocked' '1'
+  assert_json_eq "$output" '.counts.closed' '1'
+  assert_json_eq "$output" '.phase.active' '2'
+  assert_json_eq "$output" '.next.kind' 'continue'
+  assert_json_eq "$output" '.ready[0].id' "$ST_READY1"
+
+  # The new key itself: no lease was ever acquired for phase 2 here.
+  assert_json_eq "$output" '.lease.held' 'false'
+}
+
+@test "--json: lease is null when no active_phase is resolvable, with no traceback" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "Some issue" -t task --silent >/dev/null
+  # No .planning/ at all -> no STATE.md -> active_phase can never resolve.
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.lease' 'null'
+  refute_in_output 'Traceback'
+}
+
+@test "--html composes cleanly with a held, fresh lease for the active phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  grep -qF 'wrote' <<<"$output"
+  [ -f board.html ]
+}
