@@ -56,6 +56,13 @@ Requisitos deste milestone. Cada um mapeia para exatamente uma fase do roadmap.
 - [ ] **PAR-04**: A reconciliação relata o que cada fase produziu, e conflito de merge é reportado, nunca resolvido em silêncio
 - [ ] **PAR-05**: Falha ou interrupção de uma fase não corrompe as outras nem deixa lease órfão
 
+### Release do milestone (REL)
+
+- [ ] **REL-01**: O CHANGELOG descreve o que o milestone entregou em termos do que mudou para quem usa o plugin, não como lista de commits ou de nomes de função
+- [ ] **REL-02**: A versão é bumpada em todo arquivo que a carrega, e um comando verifica que eles combinam em vez de alguém conferir de olho
+- [ ] **REL-03**: A tag é anotada e a release publicada com notas derivadas do CHANGELOG, nunca reescritas em paralelo
+- [ ] **REL-04**: A release diz o que quem já tem o plugin instalado precisa fazer, ou diz explicitamente que não precisa fazer nada
+
 ## v2 Requirements
 
 Reconhecidos e adiados. Não entram neste roadmap.
@@ -116,10 +123,14 @@ Excluídos explicitamente.
 | PAR-03 | Phase 18 | Pending |
 | PAR-04 | Phase 18 | Pending |
 | PAR-05 | Phase 18 | Pending |
+| REL-01 | Phase 19 | Pending |
+| REL-02 | Phase 19 | Pending |
+| REL-03 | Phase 19 | Pending |
+| REL-04 | Phase 19 | Pending |
 
 **Coverage:**
-- v1 requirements: 31 total
-- Mapped to phases: 31
+- v1 requirements: 35 total
+- Mapped to phases: 35
 - Unmapped: 0 ✓
 
 ## Decisões travadas antes do roadmap

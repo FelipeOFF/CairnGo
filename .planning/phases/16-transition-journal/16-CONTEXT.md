@@ -38,8 +38,9 @@ atomicidade por POSIX; `cairn-migrate.py` já tem o idioma como precedente na ca
 
 ### Quem escreve
 
-- **D-02: um `cairn-journal.py`, com par `.sh` e bats próprio, chamado pelos
-  demais scripts.** Uma implementação de append atômico, num lugar só.
+- **D-02: um `cairn-journal.py` como escritor único.** Par `.sh` e bats
+  próprio, chamado pelos demais scripts — uma implementação de append atômico,
+  num lugar só.
 
   A alternativa — cada script abrindo o arquivo e dando append — produziria três
   cópias da receita `O_APPEND`, que é exatamente o problema que a fase 15 evitou
@@ -49,8 +50,8 @@ atomicidade por POSIX; `cairn-migrate.py` já tem o idioma como precedente na ca
 
 ### Compactação
 
-- **D-03: automática por tamanho, escrevendo um arquivo novo e trocando por
-  `os.rename`.** Passou do limiar, o journal compactado é escrito num temporário
+- **D-03: automática por tamanho, com troca por `os.rename`.** O journal
+  compactado é escrito num temporário
   irmão e o rename troca os dois — operação atômica no POSIX.
 
   A resposta inicial foi compactar em linha, dentro do append. Isso foi

@@ -5,7 +5,7 @@
 - ✅ **v1.1 Metrics & Benchmarks** — Phases 1-6, shipped 2026-07-27 · [archive](./milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 GSD Core** — Phases 7-9, shipped 2026-07-28 · [archive](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Status Panel** — Phases 10-12, shipped 2026-07-28 · [archive](./milestones/v1.3-ROADMAP.md)
-- 🚧 **v1.4 Honest State** — Phases 13-18, em andamento
+- 🚧 **v1.4 Honest State** — Phases 13-19, em andamento
 
 ## Milestone: v1.4 Honest State 🚧
 
@@ -23,7 +23,7 @@ reporta sucesso sem provar sucesso não conta como pronto.
 
 ## Phases
 
-### 🚧 v1.4 Honest State — um estado que prova o que afirma (Phases 13-18)
+### 🚧 v1.4 Honest State — um estado que prova o que afirma (Phases 13-19)
 
 - [x] Phase 13: State corroboration (CORR-01, CORR-02, CORR-03, CORR-04, CORR-05, CORR-06, CORR-07, CORR-08) — completed 2026-07-30
 - [x] Phase 14: Phase card (CARD-01, CARD-02, CARD-03, CARD-04) — completed 2026-07-31
@@ -31,6 +31,7 @@ reporta sucesso sem provar sucesso não conta como pronto.
 - [ ] Phase 16: Transition journal (JOUR-01, JOUR-02, JOUR-03, JOUR-04, JOUR-05)
 - [ ] Phase 17: Semantic escalation (ESC-01, ESC-02, ESC-03, ESC-04)
 - [ ] Phase 18: Parallel phase execution (PAR-01, PAR-02, PAR-03, PAR-04, PAR-05)
+- [ ] Phase 19: Ship v1.4 (REL-01, REL-02, REL-03, REL-04)
 
 ## Detalhe das fases
 
@@ -220,9 +221,46 @@ resultado paralelo só é confiável se as fontes puderem ser corroboradas.
 
 ---
 
+### Phase 19: Ship v1.4
+
+**Card:** o milestone vira release: CHANGELOG que diz o que mudou para quem usa,
+versão bumpada onde ela vive, tag anotada e release publicada.
+
+**Goal:** o trabalho das seis fases anteriores chega a quem instalou o plugin.
+Hoje o CHANGELOG para na 1.4.2 e a versão vive em dois arquivos que ninguém
+garante estarem em lockstep. Esta fase fecha o ciclo — e é a única do milestone
+cujo produto é lido por quem não abriu este repositório.
+
+**Requirements**: REL-01, REL-02, REL-03, REL-04
+
+**Success criteria:**
+
+1. O CHANGELOG descreve o milestone em termos do que mudou **para quem usa o
+   plugin** — não uma lista de commits nem de nomes de função. Uma pessoa que
+   nunca leu este roadmap entende o que ganhou.
+2. A versão é bumpada em todo arquivo que a carrega, verificado por um comando que
+   os compara — hoje são `cairn/.claude-plugin/plugin.json` e
+   `cairn/capability/capability.json`, versionados de forma independente e sem
+   nada que prove que combinam.
+3. A tag é anotada e a release publicada, com notas derivadas do CHANGELOG em vez
+   de reescritas à mão — duas fontes divergem, e as notas publicadas são a que o
+   usuário lê.
+4. A release diz o que quem já tem o plugin instalado precisa fazer, ou diz
+   explicitamente que não precisa fazer nada. As três releases 1.4.x desta semana
+   existiram porque essa pergunta ficou sem resposta.
+
+**Research durante o planejamento:** não precisa. O procedimento está estabelecido
+pelas releases 1.4.0, 1.4.1 e 1.4.2, e o formato do CHANGELOG segue Keep a
+Changelog, já em uso no arquivo.
+
+**Depende de:** Phase 18 — é a última, por construção: uma release não pode
+descrever trabalho que ainda não existe.
+
+---
+
 ## Cobertura
 
-31 requisitos v1, 31 mapeados, 0 sem fase. Cada requisito pertence a exatamente uma
+35 requisitos v1, 35 mapeados, 0 sem fase. Cada requisito pertence a exatamente uma
 fase — ver a tabela de rastreabilidade em `REQUIREMENTS.md`.
 
 ## Ordem de dependência
@@ -231,7 +269,7 @@ fase — ver a tabela de rastreabilidade em `REQUIREMENTS.md`.
 13 ──┬──> 14
      ├──> 15 ──> 16 ──┬──> 17
      └────────────────┘
-             15, 16 ──> 18
+             15, 16 ──> 18 ──> 19
 ```
 
 13 primeiro porque não exige I/O novo (a lista de issues do bd já é buscada antes de
