@@ -172,9 +172,10 @@ gravar estado por construção, não por instrução.
 4. Aplicar é comando separado, invocado por humano, que enumera cada mudança antes de
    fazer qualquer uma.
 
-**Research durante o planejamento:** precisa. O esquema de verificação de citação
-(confirmar mecanicamente que a evidência citada existe no arquivo apontado) não tem
-precedente neste código.
+**Research durante o planejamento:** não precisa mais. O item que estava em aberto
+— o esquema de verificação de citação — foi fechado no discuss desta fase (D-03):
+arquivo, linha e o texto literal, relido e comparado, com uma citação que não bate
+invalidando a proposta inteira.
 
 **Depende de:** Phase 13 (precisa de conflito real para disparar) e Phase 16
 (idealmente cita histórico ao propor).
