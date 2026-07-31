@@ -652,10 +652,17 @@ time.sleep(2)
 
   # The load-bearing property: never a spot-check of one field on one
   # phase -- the FULL last-moved answer, for every touched phase, must be
-  # byte-identical before and after.
-  [ "$before_101" = "$after_101" ]
-  [ "$before_102" = "$after_102" ]
-  [ "$before_103" = "$after_103" ]
+  # structurally identical before and after. A jq -S (recursive key sort)
+  # normalization is used rather than raw string equality: compact()
+  # writes the snapshot record via json.dumps(..., sort_keys=True), so a
+  # nested {"value":...,"ts":...} sub-object round-trips as
+  # {"ts":...,"value":...} post-compaction -- same values, different key
+  # order, which a raw string diff would wrongly flag as a real
+  # mismatch. jq -S . is exactly the "jq structural equality check"
+  # option named in this test's own acceptance criteria.
+  [ "$(jq -S . <<<"$before_101")" = "$(jq -S . <<<"$after_101")" ]
+  [ "$(jq -S . <<<"$before_102")" = "$(jq -S . <<<"$after_102")" ]
+  [ "$(jq -S . <<<"$before_103")" = "$(jq -S . <<<"$after_103")" ]
 
   # Secondary check: the file was actually rewritten to the smaller form,
   # not merely that the answers happen to still be correct against an
