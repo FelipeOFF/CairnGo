@@ -52,6 +52,25 @@ phase-complete-open check, and work.md's own
 `bd list -l phase-<N> --status open` done-check, all three of which treat a
 non-closed phase-<N>-labelled issue as unfinished phase work.
 
+Journal wiring (Phase 16, D-01/D-02): a GENUINE transition — acquire's
+fresh-create branch, acquire's reclaimed-from-stale branch, and every
+actual release (release <N>'s real-release branch, and each phase
+release --mine actually releases) — calls out to cairn-journal.py's
+`lease` subcommand, exactly once per transition. acquire's already_mine
+branch (a heartbeat renewal reached via `acquire`) and every call to
+`renew` NEVER journal — both are explicitly heartbeat-only, and D-01
+scopes the journal to real state changes, not routine heartbeats.
+cairn-lease.py never opens the journal file itself and never reimplements
+its append recipe (D-02: cairn-journal.py is the one writer; this script
+only shells out to it). A broken or missing journal — nonzero exit,
+missing script, any subprocess failure — NEVER changes this script's own
+exit code or written bd state: it is caught, a single
+`[cairn-lease] warning: ...` line is printed to stderr, and the lease
+operation's own documented contract proceeds exactly as if the journal
+call had never been made. Test/override seam: CAIRN_JOURNAL (default:
+the sibling cairn-journal.py next to this script), mirroring the existing
+CAIRN_GBSYNC/CAIRN_MAP/CAIRN_GATE env-seam convention.
+
 Usage:
     cairn-lease.py acquire <N>            [--project-dir DIR] [--json]
     cairn-lease.py release <N>            [--project-dir DIR] [--json]
@@ -69,16 +88,24 @@ Behavior:
     acquire <N>    Vacant, already held by this worktree, or stale
                    (heartbeat older than the TTL) -> acquire/renew: one `bd
                    update --claim --metadata` call carrying the FULL
-                   replacement lease object, exit 0. Held by another
-                   worktree with a fresh heartbeat -> write NOTHING, report
-                   who holds it and since when, exit EXIT_HELD (3) — a
-                   report, never an error that should stop the caller
-                   (D-04).
+                   replacement lease object, exit 0. A fresh acquire (no
+                   prior holder) or a reclaim (stale prior holder) also
+                   journals exactly one lease_changed "acquired" record
+                   (prev_holder set only when reclaimed); already_mine
+                   (this worktree renewing its own lease via acquire)
+                   journals NOTHING — it is a heartbeat, not a transition
+                   (D-01). Held by another worktree with a fresh heartbeat
+                   -> write NOTHING (to bd OR the journal), report who
+                   holds it and since when, exit EXIT_HELD (3) — a report,
+                   never an error that should stop the caller (D-04).
     release <N>    Unconditionally clears the lease
                    ({"cairn": {"lease": {"phase": N}}} plus `--assignee ""
                    --status open`), regardless of who currently holds it.
                    No-op, exit 0, when no lease issue exists yet for N or it
-                   is already vacant. Different from `release --mine`
+                   is already vacant — in both no-op cases, nothing is
+                   journaled either. When a real release happens (the
+                   lease WAS held), journals exactly one lease_changed
+                   "released" record. Different from `release --mine`
                    below: this verb releases phase N's lease REGARDLESS of
                    who holds it — verify-post.md calls it once per phase,
                    asserting the phase's cycle is over regardless of who
@@ -86,16 +113,20 @@ Behavior:
     release --mine Releases every lease THIS worktree (by holder identity)
                    currently holds, and only those — a lease held by a
                    DIFFERENT worktree, even on the same machine, is left
-                   untouched. Zero matches is a no-op, exit 0.
+                   untouched. Zero matches is a no-op, exit 0. One
+                   lease_changed "released" record is journaled per lease
+                   actually released.
     renew [<N>]    Heartbeats a lease this worktree ALREADY holds:
-                   heartbeat_at -> now, acquired_at unchanged, exit 0. When
-                   this worktree is NOT the recorded holder (including
-                   "nobody holds it"), a SILENT no-op, exit 0, writes
-                   nothing. With no <N>, N is read from
-                   <project-dir>/.planning/STATE.md's `active_phase:`
-                   frontmatter key (lenient parse, same pattern as
-                   cairn-doctor.py's state_frontmatter); no STATE.md, or no
-                   active_phase key, is also a silent no-op, exit 0.
+                   heartbeat_at -> now, acquired_at unchanged, exit 0. NEVER
+                   journals, in any branch — this subcommand is
+                   heartbeat-only by contract, always (D-01). When this
+                   worktree is NOT the recorded holder (including "nobody
+                   holds it"), a SILENT no-op, exit 0, writes nothing. With
+                   no <N>, N is read from <project-dir>/.planning/STATE.md's
+                   `active_phase:` frontmatter key (lenient parse, same
+                   pattern as cairn-doctor.py's state_frontmatter); no
+                   STATE.md, or no active_phase key, is also a silent
+                   no-op, exit 0.
     status  <N>    Read-only, NEVER creates the lease issue. Reports phase,
                    id (null if never created), held (true whenever a holder
                    is recorded, stale or not), holder, actor, host,
@@ -135,6 +166,14 @@ EXIT_HELD = 3
 EXIT_NO_BD = 5
 
 LEASE_TTL_SECONDS = 4 * 60 * 60
+
+# Test/override seam for the journal companion script (mirrors the existing
+# CAIRN_GBSYNC/CAIRN_MAP/CAIRN_GATE env-seam convention — see
+# CONVENTIONS.md's "Environment variable seams" note). Default: the sibling
+# cairn-journal.py next to this script.
+CAIRN_JOURNAL = os.environ.get(
+    "CAIRN_JOURNAL",
+    str(Path(__file__).resolve().parent / "cairn-journal.py"))
 
 USAGE = ("usage: cairn-lease.py {acquire N|release N|release --mine|"
          "renew [N]|status N|status --all} [--project-dir DIR] [--json]")
@@ -263,6 +302,40 @@ def write_lease(root, issue_id, payload, claim=False, vacate=False):
     if vacate:
         args += ["--assignee", "", "--status", "open"]
     run_bd(args, root)
+
+
+# --------------------------------------------------------------------------- #
+# journal wiring (Phase 16, D-01/D-02) — best-effort, never blocking
+# --------------------------------------------------------------------------- #
+def journal_lease_event(root, phase, action, holder, actor=None,
+                         prev_holder=None):
+    """Best-effort append of one lease_changed record to cairn-journal.py's
+    `lease` subcommand, for a GENUINE acquire/reclaim/release transition
+    ONLY — this function does no dedup itself and trusts the caller to
+    invoke it exactly once per real transition, never for a heartbeat
+    (D-01). Shells out through the CAIRN_JOURNAL env seam. On ANY failure
+    — a nonzero exit, a missing script (FileNotFoundError), or any other
+    subprocess.SubprocessError — prints a single
+    `[cairn-lease] warning: ...` line to stderr and returns. NEVER raises,
+    NEVER calls die(), NEVER changes the caller's own exit code: acquiring
+    or releasing a lease is the real work here; recording it is
+    bookkeeping, and a broken or missing cairn-journal.py (D-02: the one
+    writer) must never block cairn-lease.py's own documented contract."""
+    cmd = [sys.executable, CAIRN_JOURNAL, "lease", str(phase), action,
+           "--holder", holder, "--actor", actor,
+           "--project-dir", str(root)]
+    if prev_holder:
+        cmd += ["--prev-holder", prev_holder]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except (FileNotFoundError, subprocess.SubprocessError) as e:
+        print(f"[cairn-lease] warning: could not record journal event: {e}",
+              file=sys.stderr)
+        return
+    if proc.returncode != 0:
+        detail = proc.stderr.strip() or f"exit {proc.returncode}"
+        print(f"[cairn-lease] warning: could not record journal event: "
+              f"{detail}", file=sys.stderr)
 
 
 # --------------------------------------------------------------------------- #
@@ -426,6 +499,15 @@ def cmd_acquire(args, root):
                              acquired_at=acquired_at, heartbeat_at=now)
     write_lease(root, issue_id, payload, claim=True)
 
+    if not already_mine:
+        # Fresh acquire (current_holder was None) or reclaimed (stale prior
+        # holder) — both are genuine transitions (D-01). already_mine (a
+        # heartbeat renewal reached via acquire) is excluded by this same
+        # condition — see the module docstring's "Journal wiring" note.
+        journal_lease_event(root, phase, "acquired", holder, actor=actor,
+                             prev_holder=current_holder if reclaimed
+                             else None)
+
     entry = status_entry(phase, issue_id, payload["cairn"]["lease"])
     if args.json:
         print(json.dumps(entry))
@@ -443,7 +525,7 @@ def cmd_acquire(args, root):
 
 
 def release_one(args, root, phase):
-    issue_id, _lease = find_lease_issue(root, phase)
+    issue_id, lease = find_lease_issue(root, phase)
     if issue_id is None:
         if args.json:
             print(json.dumps(status_entry(phase, None, None)))
@@ -452,7 +534,15 @@ def release_one(args, root, phase):
                   f"(no lease issue exists)")
         return
 
+    held_holder = lease.get("holder") if lease else None
+
     write_lease(root, issue_id, lease_payload(phase), vacate=True)
+    if held_holder:
+        # A real release — the lease existed AND was held (D-01). No-op
+        # branches (no lease issue at all, above, or an already-vacant
+        # lease issue whose held_holder is falsy here) never journal.
+        journal_lease_event(root, phase, "released", held_holder,
+                             actor=resolve_actor(root))
     if args.json:
         print(json.dumps(status_entry(phase, issue_id, None)))
     else:
@@ -462,11 +552,17 @@ def release_one(args, root, phase):
 def cmd_release(args, root):
     if args.mine:
         holder = resolve_holder(root)
+        actor = resolve_actor(root)
         mine = [e for e in collect_all_statuses(root)
                 if e["held"] and e["holder"] == holder]
         for entry in mine:
             write_lease(root, entry["id"], lease_payload(entry["phase"]),
                         vacate=True)
+            # Every entry in `mine` was already filtered to held=True
+            # above, so this loop only ever runs for real releases — one
+            # lease_changed record per phase actually released (D-01).
+            journal_lease_event(root, entry["phase"], "released", holder,
+                                 actor=actor)
         if args.json:
             print(json.dumps({"released": len(mine), "holder": holder,
                                "phases": [e["phase"] for e in mine]}))
