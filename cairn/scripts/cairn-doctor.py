@@ -10,6 +10,7 @@ via 'bd update'.
 Usage:
     cairn-doctor.py [--project-dir <dir>] [--json] [--fix-labels]
                     [--close-completed] [--link-refs]
+                    [--apply-reconciliation N]
 
 Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
@@ -200,6 +201,44 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         doctor run over this one check (same degrade
                         shape as check_phase_corroboration()).
 
+--apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
+                    separate command that APPLIES a verified semantic-
+                    escalation reconciliation proposal for phase N. Not one
+                    of the 15 checks above — a fixer, the same category as
+                    --close-completed/--fix-labels/--link-refs, but the only
+                    one of the four that always exits on its own rather
+                    than falling through to the ordinary report, since its
+                    own exit-code contract (below) does not track check
+                    pass/fail. Reads .cairn/conflicts.json (written by
+                    /cairn:reconcile's own deterministic step, Plan 17-02)
+                    and refuses the WHOLE apply, fail-closed, on any of:
+                    no proposal for phase N (or its own 'phase' field
+                    doesn't match N); phase N's corroboration verdict is no
+                    longer "conflict" at apply-time (a real 're-collect',
+                    never the proposal's own stale self-claim) — not a
+                    failure, nothing to apply; the freshly re-collected
+                    evidence_hash no longer matches the proposal's own
+                    stored one (the tree moved between proposal and apply,
+                    D-04's cache key re-validated); any citation fails a
+                    real re-verification run (D-03); any
+                    recommended_action.type falls outside the closed
+                    {bd_close, bd_reopen, manual_review} vocabulary; or any
+                    bd_close/bd_reopen claim's recommended_action.issue
+                    names a bd id that carries no phase-N label (the
+                    issue-provenance check — correct citations elsewhere in
+                    the same proposal never excuse a claim that targets an
+                    unrelated issue). Only once every one of those passes
+                    does anything print: EVERY claim is enumerated
+                    (statement, recommended_action, what will happen —
+                    manual_review claims listed as skipped) BEFORE the
+                    first bd subprocess call ever runs, then bd_close/
+                    bd_reopen claims are applied one at a time; manual_review
+                    claims never touch bd. A close/reopen bd itself refuses
+                    is reported by id and reason and fails the run — never
+                    silent, the same "asked for it and did not get it"
+                    discipline check_phase_complete_open's close_failures
+                    already applies one level up.
+
 Active milestone is resolved leniently like cairn-gate: STATE.md
 frontmatter 'milestone:' first, else the ROADMAP.md milestone marked in
 progress, else None (single-milestone / legacy repo — milestone scoping is
@@ -209,13 +248,20 @@ Exit codes:
     0  all checks ok, or ok + warnings (warnings are printed but never
        change the exit code), or doctor NOT APPLICABLE: .planning/ or
        .beads/ absent — the doctor is for wired repos. When exactly one
-       side exists the note suggests /cairn:migrate.
-    2  usage error, or --fix-labels refused (milestone unresolvable).
+       side exists the note suggests /cairn:migrate. ALSO:
+       --apply-reconciliation's own "phase N is no longer in conflict"
+       refusal — nothing left to apply is not a failure.
+    2  usage error, or --fix-labels refused (milestone unresolvable), or
+       --apply-reconciliation found no proposal for phase N (missing
+       .cairn/conflicts.json, or its own 'phase' field doesn't match N).
     5  bd unavailable (not on PATH, or bd list failed).
     7  at least one check FAILED — including --close-completed leaving a
        target unclosed (bd refused it and the fixpoint could not drain it),
        which fails check 5 rather than exiting silently 0, and including a
-       "blocks"-severity phase-corroboration conflict (check 11).
+       "blocks"-severity phase-corroboration conflict (check 11). ALSO:
+       --apply-reconciliation refusing a stale proposal, a bad citation, an
+       unrecognized recommended_action.type, an issue-provenance mismatch,
+       or bd itself refusing a close/reopen it was asked to apply.
 """
 import argparse
 import json
@@ -1449,6 +1495,209 @@ def check_lease_stale(root):
 
 
 # --------------------------------------------------------------------------- #
+# --apply-reconciliation (ESC-03, Phase 17 Plan 3) — the human-invoked,
+# separate apply command for a verified semantic-escalation reconciliation
+# proposal. See the module docstring's own --apply-reconciliation entry for
+# the full refusal-path rationale.
+# --------------------------------------------------------------------------- #
+RECONCILE_SCRIPT = SCRIPTS_DIR / "cairn-reconcile.py"
+RECONCILE_ACTION_VOCAB = ("bd_close", "bd_reopen", "manual_review")
+
+
+def run_apply_reconciliation(root, n, issues, as_json):
+    """--apply-reconciliation N — reads .cairn/conflicts.json (written by
+    /cairn:reconcile's own deterministic step, Plan 17-02), re-verifies it
+    is STILL trustworthy at apply-time (never trusting anything about the
+    proposal's own self-description), enumerates every change it is about
+    to make, and only then executes the closed bd_close/bd_reopen action
+    vocabulary. This is the ONLY place in the whole phase 17 pipeline where
+    a real bd write happens, and it always runs because a human explicitly
+    asked it to — never automatically.
+
+    Fail-closed refusal paths, each refusing the WHOLE apply (never a
+    per-claim partial result) — a proposal is only ever as trustworthy as
+    its LAST verification, and time may have passed since /cairn:reconcile
+    wrote it:
+      1. no .cairn/conflicts.json for phase N, or its own 'phase' field
+         does not match N -> EXIT_USAGE, nothing written.
+      2. phase N's corroboration verdict is no longer "conflict", re-read
+         via a REAL 'cairn-reconcile.py collect N --json' run at
+         apply-time -> EXIT_OK, nothing to apply, not a failure.
+      3. the freshly re-collected evidence_hash no longer matches the
+         proposal's own stored one (D-04's cache key re-validated) ->
+         EXIT_FAILED.
+      4. any citation fails a real 'cairn-reconcile.py verify N' run
+         (D-03) -> EXIT_FAILED.
+      5. any recommended_action.type falls outside the closed
+         {bd_close, bd_reopen, manual_review} vocabulary -> EXIT_FAILED,
+         checked over EVERY claim in one pre-flight pass, before anything
+         is even enumerated.
+      6. any bd_close/bd_reopen claim's recommended_action.issue names a bd
+         id carrying no phase-N label (issue provenance — correct
+         citations elsewhere in the same proposal never excuse a claim
+         that targets an unrelated issue) -> EXIT_FAILED, checked in the
+         SAME pre-flight pass as 5, also before any enumeration prints.
+
+    Only once every one of those passes does anything print: EVERY claim
+    is enumerated (statement, recommended_action, what will happen —
+    manual_review claims listed as "skipped") BEFORE the first bd
+    subprocess call ever runs — the operator sees the full plan while it
+    can still be stopped. bd_close/bd_reopen claims are then applied one
+    at a time; a close/reopen bd itself refuses is reported by id and
+    reason and fails the run (EXIT_FAILED) — never silent, the same
+    "asked for it and did not get it" discipline
+    check_phase_complete_open's close_failures already applies one level
+    up.
+    """
+    proposal_path = root / ".cairn" / "conflicts.json"
+    proposal = None
+    if proposal_path.is_file():
+        try:
+            proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            proposal = None
+    if not isinstance(proposal, dict) or proposal.get("phase") != n:
+        die(f"no proposal for phase {n} — run /cairn:reconcile {n} first",
+            EXIT_USAGE)
+
+    # Step 2 (freshness, re-validating D-04's cache key at apply-time): a
+    # REAL, current 'collect' run — the tree may have moved between
+    # proposal generation and this invocation, so the proposal's own
+    # evidence_hash is never trusted on its own say-so.
+    proc = subprocess.run(
+        [sys.executable, str(RECONCILE_SCRIPT), "collect", str(n), "--json",
+         "--project-dir", str(root)],
+        capture_output=True, text=True, cwd=str(root))
+    if proc.returncode == 3:  # cairn-reconcile.py's EXIT_NOT_CONFLICTED
+        msg = f"phase {n} is no longer in conflict; this proposal is moot"
+        if as_json:
+            print(json.dumps({"phase": n, "applied": False,
+                              "reason": "not_conflicted", "detail": msg}))
+        else:
+            print(f"[cairn-doctor] {msg}")
+        sys.exit(EXIT_OK)
+    if proc.returncode != 0:
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        die(f"could not re-collect evidence for phase {n}: {first}",
+            EXIT_FAILED)
+    try:
+        fresh = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        die(f"could not re-collect evidence for phase {n}: cairn-reconcile "
+            f"collect returned invalid JSON: {e}", EXIT_FAILED)
+    if fresh.get("evidence_hash") != proposal.get("evidence_hash"):
+        die("proposal is stale (evidence has changed since it was "
+            f"generated) — re-run /cairn:reconcile {n}", EXIT_FAILED)
+
+    # Step 3 (citation re-check, D-03): a single bad citation invalidates
+    # the WHOLE proposal, never per-claim partial credit.
+    vproc = subprocess.run(
+        [sys.executable, str(RECONCILE_SCRIPT), "verify", str(n),
+         "--project-dir", str(root)],
+        capture_output=True, text=True, cwd=str(root))
+    if vproc.returncode != 0:
+        text = (vproc.stdout.strip() or vproc.stderr.strip()
+                or "(no output)")
+        die(f"proposal failed citation verification: {text}", EXIT_FAILED)
+
+    claims = proposal.get("claims") or []
+
+    # Step 4 (pre-flight, BEFORE any enumeration is even printed): the
+    # closed action vocabulary AND issue provenance, checked over EVERY
+    # claim. Either failure refuses the ENTIRE apply, fail-closed, the same
+    # posture as a stale hash or a bad citation above — a rejected
+    # proposal never gets as far as looking plausible on screen.
+    phase_n_ids = {iss.get("id") for iss in issues if n in phase_nums(iss)}
+    for claim in claims:
+        action = claim.get("recommended_action") or {}
+        atype = action.get("type")
+        if atype not in RECONCILE_ACTION_VOCAB:
+            die("proposal names an unrecognized recommended_action.type "
+                f"{atype!r} — refusing the whole apply (closed vocabulary: "
+                "bd_close, bd_reopen, manual_review)", EXIT_FAILED)
+        if atype in ("bd_close", "bd_reopen"):
+            iid = action.get("issue")
+            if iid not in phase_n_ids:
+                die(f"proposal's claim targets {iid!r}, which carries no "
+                    f"phase-{n} label — refusing the whole apply "
+                    "(issue-provenance check: correct citations elsewhere "
+                    "in the proposal do not excuse a claim targeting an "
+                    "unrelated issue)", EXIT_FAILED)
+
+    # Step 5 (enumerate): the FULL plan, printed before anything executes.
+    header = (f"[cairn-doctor] apply-reconciliation: phase {n} — "
+              f"{len(claims)} claim(s)")
+    enum_lines = [header]
+    for i, claim in enumerate(claims, 1):
+        action = claim.get("recommended_action") or {}
+        atype = action.get("type")
+        stmt = claim.get("statement", "")
+        if atype == "manual_review":
+            what = "skipped (manual review, no automated action)"
+        elif atype == "bd_close":
+            what = f"will close {action.get('issue')}"
+        else:
+            what = f"will reopen {action.get('issue')}"
+        enum_lines.append(f"  {i}. {stmt} -> {what}")
+    if not as_json:
+        for line in enum_lines:
+            print(line)
+
+    # Step 6 (apply): only bd_close/bd_reopen ever touch bd — manual_review
+    # was already enumerated above and is never executed.
+    results = []
+    any_refused = False
+    for claim in claims:
+        action = claim.get("recommended_action") or {}
+        atype = action.get("type")
+        iid = action.get("issue")
+        stmt = claim.get("statement", "")
+        if atype == "manual_review":
+            results.append({"statement": stmt, "issue": iid, "type": atype,
+                            "outcome": "skipped-manual-review"})
+            continue
+        if atype == "bd_close":
+            reason = (action.get("reason") or action.get("note")
+                      or f"cairn-doctor: apply-reconciliation phase {n}")
+            cmd = ["bd", "-C", str(root), "close", iid, "--reason", reason]
+        else:  # bd_reopen
+            cmd = ["bd", "-C", str(root), "update", iid, "--status", "open",
+                   "--assignee", ""]
+        bproc = subprocess.run(cmd, capture_output=True, text=True)
+        if bproc.returncode == 0:
+            results.append({"statement": stmt, "issue": iid, "type": atype,
+                            "outcome": "applied"})
+            verb = "closed" if atype == "bd_close" else "reopened"
+            if not as_json:
+                print(f"[cairn-doctor] {verb} {iid} — applied via "
+                      "--apply-reconciliation")
+        else:
+            any_refused = True
+            why = (bproc.stderr.strip() or bproc.stdout.strip()
+                   or f"bd exited {bproc.returncode}")
+            results.append({"statement": stmt, "issue": iid, "type": atype,
+                            "outcome": "refused-by-bd", "detail": why})
+            if not as_json:
+                print(f"[cairn-doctor] {iid}: {atype} refused by bd — {why}")
+
+    n_applied = sum(1 for r in results if r["outcome"] == "applied")
+    n_skipped = sum(1 for r in results
+                    if r["outcome"] == "skipped-manual-review")
+    n_refused = sum(1 for r in results if r["outcome"] == "refused-by-bd")
+    if as_json:
+        print(json.dumps({"phase": n, "applied": not any_refused,
+                          "claims": len(claims), "applied_n": n_applied,
+                          "skipped_n": n_skipped, "refused_n": n_refused,
+                          "results": results}))
+    else:
+        print(f"[cairn-doctor] apply-reconciliation phase {n}: "
+              f"{n_applied} applied, {n_skipped} skipped (manual review), "
+              f"{n_refused} refused by bd")
+    sys.exit(EXIT_FAILED if any_refused else EXIT_OK)
+
+
+# --------------------------------------------------------------------------- #
 # output + main
 # --------------------------------------------------------------------------- #
 def emit(as_json, summary, human_lines):
@@ -1481,6 +1730,17 @@ def main():
                              "external_ref field from an unambiguous git "
                              "match (bd update --external-ref), read-only "
                              "without this flag")
+    parser.add_argument("--apply-reconciliation", metavar="N", type=int,
+                        default=None,
+                        help="apply a verified semantic-escalation "
+                             "reconciliation proposal for phase N "
+                             "(.cairn/conflicts.json): re-verifies "
+                             "freshness and citations, enumerates every "
+                             "change before making any of them, then "
+                             "executes only the closed bd_close/bd_reopen "
+                             "vocabulary — refuses the whole apply on any "
+                             "staleness, bad citation, unrecognized action "
+                             "type, or an issue lacking a phase-N label")
     args = parser.parse_args()
 
     root = Path(args.project_dir
@@ -1618,6 +1878,15 @@ def main():
             else:
                 fixed = len(candidates)
             issues = bd_all_issues(root)
+
+    # --apply-reconciliation (ESC-03) is mutually orthogonal to the two
+    # fixers above (no shared state) — simple sequencing after them is
+    # enough. Unlike them it is a distinct, human-invoked command whose own
+    # exit-code contract does not track check pass/fail, so it always exits
+    # on its own rather than falling through to the report below.
+    if args.apply_reconciliation is not None:
+        run_apply_reconciliation(root, args.apply_reconciliation, issues,
+                                 args.json)
 
     checks = [
         check_bd_version(),

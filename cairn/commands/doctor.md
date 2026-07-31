@@ -1,6 +1,6 @@
 ---
 description: Health-check the GSD↔beads wiring — run cairn-doctor, explain the report, route each finding to its fix
-argument-hint: "[--fix-labels] [--close-completed] [--json]"
+argument-hint: "[--fix-labels] [--close-completed] [--json] [--apply-reconciliation N]"
 ---
 
 Audit the repo's cairn wiring and walk the user through fixing what it finds.
@@ -99,3 +99,36 @@ push hook fires: when `.cairn/sync.json` exists the run reminds you to run
 - **bd-doctor** (✗) — follow bd's own advice: run `bd doctor` directly.
 
 Re-run the doctor after the fixes to confirm a clean `ok` footer.
+
+## 6. Apply a verified reconciliation proposal (`--apply-reconciliation N`)
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --apply-reconciliation "$N"
+```
+
+This is a separate, human-invoked command (ESC-03) — not something this
+routine health check offers reactively like steps 3-4 above. It is the next
+step `/cairn:reconcile N` itself names once it has written a citation-checked
+proposal to `.cairn/conflicts.json`; run it only when the user has reviewed
+that proposal and actually wants it applied.
+
+Before touching anything it re-verifies the proposal is still trustworthy —
+never trusting what the proposal says about itself: a fresh `collect N`
+compares today's `evidence_hash` against the one stamped in the proposal
+(mismatch -> refused, stale, tell the user to re-run `/cairn:reconcile N`); a
+fresh `verify N` re-checks every citation (one bad citation refuses the whole
+proposal, D-03); and every `bd_close`/`bd_reopen` claim's target bd id must
+actually carry a `phase-N` label (correct citations elsewhere never excuse a
+claim naming an unrelated issue). Any one of these refusals is fail-closed
+and all-or-nothing — nothing is written. If the phase's conflict has already
+resolved some other way since the proposal was written, it says so and exits
+clean (exit `0`) — nothing left to apply is not a failure.
+
+Only once all of that passes does it print anything: EVERY claim —
+statement, recommended action, what will happen, `manual_review` claims
+listed as "skipped" — BEFORE touching bd at all, so the user sees the full
+plan while it can still be stopped. It then applies only the closed
+vocabulary: `bd_close`/`bd_reopen` claims change bd state one at a time
+(`bd close --reason` / `bd update --status open --assignee ""`);
+`manual_review` claims never touch bd. A close/reopen bd itself refuses is
+reported by id and reason and fails the run (exit `7`) — never silent.
