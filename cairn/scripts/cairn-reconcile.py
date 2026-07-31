@@ -24,10 +24,8 @@ working tree — not merely that the source text looks clean today.
 Usage:
     cairn-reconcile.py collect <N> [--json] [--out PATH]
                                     [--project-dir DIR]
-
-    (a `verify` subcommand — citation re-checking against a reconciliation
-    proposal, D-03 — lands in Plan 17-01's Task 2; the argparse structure
-    below already uses subparsers so that addition needs no restructure.)
+    cairn-reconcile.py verify <N>  [--file PATH] [--json]
+                                    [--project-dir DIR]
 
     --project-dir DIR   project root (default: $CLAUDE_PROJECT_DIR or cwd)
     --json              machine-readable output instead of human lines
@@ -68,6 +66,32 @@ Behavior:
               hashed, which is what makes two immediate, unchanged re-runs
               produce an identical hash.
 
+    verify    Mechanically re-checks a proposal's citations (schema below)
+              against the files they claim to quote — D-03. Reads the
+              proposal from `.cairn/conflicts.json` by default (`--file`
+              overrides, making this testable without a real subagent ever
+              running) and asserts its own `phase` field matches N.
+              Flattens every claims[].citations[] entry across the whole
+              proposal and, for each one, re-opens citation["file"]
+              (resolved against --project-dir/cwd) and compares its
+              1-indexed citation["line"] against citation["text"] EXACTLY
+              — no whitespace normalization, no hashing (D-03 rejected
+              both: a hash is unreadable to the human who reads the
+              proposal, and normalization is blind to the exact thing a
+              citation exists to prove). A missing file, an out-of-range
+              line, or a text mismatch are all "this citation failed" —
+              no partial credit. The proposal is empty of anything to
+              verify when its own claims list is missing, empty, or
+              carries zero citations across every claim — that, too, is
+              treated as invalid, never as vacuously valid (an empty
+              proposal is not evidence of agreement).
+
+              The moment ANY single citation fails, the WHOLE proposal is
+              rejected — never "N of M claims verified". This is D-03's
+              explicit rule: a proposal with one false citation is not a
+              proposal with an error, it is a proposal that cannot be
+              trusted.
+
 Evidence bundle schema (written to .cairn/reconcile-evidence.json, or
 --out PATH):
     {
@@ -83,17 +107,36 @@ Evidence bundle schema (written to .cairn/reconcile-evidence.json, or
       "context_excerpt": <str> | null
     }
 
-    (the proposal schema `verify` will read/check in Task 2 is fixed in
-    17-01-PLAN.md's own <context> block, so this file and Plan 17-02's
-    subagent agree on one shape; documented here once Task 2 adds the
-    subcommand that actually reads it.)
+Proposal schema (read from .cairn/conflicts.json by verify; written by
+Plan 17-02's subagent, fixed here so both plans agree on one shape):
+    {
+      "phase": <int>,
+      "generated_at": <iso8601>,
+      "evidence_hash": "sha256:<hex>",
+      "claims": [
+        {
+          "statement": <str>,
+          "citations": [{"file": <repo-relative path>, "line": <int>,
+                          "text": <exact literal line text>}],
+          "recommended_action": {"type": "bd_close"|"bd_reopen"|
+                                  "manual_review", "issue": <bd id>|null,
+                                  "reason"|"note": <str>}
+        }
+      ]
+    }
+    verify only ever reads `phase` and `claims[].citations[]` — it never
+    needs recommended_action to run its own check.
 
 Exit codes:
-    0  ok — collect wrote a bundle.
+    0  ok — collect wrote a bundle, or verify's proposal is valid.
     2  usage error (bad flags, project directory does not exist, phase not
-       in the model).
+       in the model, proposal's own phase field does not match the
+       requested N, proposal file unreadable or not valid JSON).
     3  EXIT_NOT_CONFLICTED — collect's own ESC-04 gate: phase N's
        corroboration verdict was not "conflict" at read time.
+    4  EXIT_INVALID_PROPOSAL — verify rejected the proposal: at least one
+       citation failed, or the proposal carried no claims/citations to
+       check at all.
 """
 import argparse
 import hashlib
@@ -109,6 +152,7 @@ from pathlib import Path
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_NOT_CONFLICTED = 3
+EXIT_INVALID_PROPOSAL = 4
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -501,6 +545,122 @@ def cmd_collect(args, root):
 
 
 # --------------------------------------------------------------------------- #
+# verify
+# --------------------------------------------------------------------------- #
+def _load_proposal(path, n):
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as e:
+        die(f"cannot read proposal {path}: {e}", EXIT_USAGE)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        die(f"{path} is not valid JSON: {e}", EXIT_USAGE)
+    if not isinstance(data, dict):
+        die(f"{path} must be a JSON object", EXIT_USAGE)
+    if data.get("phase") != n:
+        die(f"proposal's phase ({data.get('phase')!r}) does not match "
+            f"the requested phase {n}", EXIT_USAGE)
+    return data
+
+
+def _check_one_citation(project_dir, file_field, line_no, expected):
+    """A single citation -> a failure dict, or None when it passes. A
+    missing file, an out-of-range line, or a text mismatch are all
+    treated identically — one failure entry, no partial credit."""
+    if not file_field or not isinstance(line_no, int) or isinstance(
+            line_no, bool):
+        return {"file": file_field, "line": line_no, "expected": expected,
+                "error": "malformed citation (missing file or "
+                         "non-integer line)"}
+    path = Path(file_field)
+    if not path.is_absolute():
+        path = project_dir / path
+    try:
+        # splitlines() already excludes the line terminator (\n, \r\n, or
+        # \r) — the comparison below needs no further stripping to land on
+        # the exact literal text D-03 requires.
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as e:
+        return {"file": file_field, "line": line_no, "expected": expected,
+                "error": f"cannot read file: {e}"}
+    if line_no < 1 or line_no > len(lines):
+        return {"file": file_field, "line": line_no, "expected": expected,
+                "error": f"line {line_no} out of range "
+                         f"({len(lines)} lines)"}
+    actual = lines[line_no - 1]
+    if actual != expected:
+        return {"file": file_field, "line": line_no, "expected": expected,
+                "actual": actual, "error": "text mismatch"}
+    return None
+
+
+def _verify_citations(project_dir, claims):
+    """Flattened per-citation check across every claims[].citations[]
+    entry. Returns a list of failure dicts (empty when every citation
+    passes) — never partial credit, D-03."""
+    failures = []
+    for claim in claims:
+        statement = claim.get("statement")
+        for citation in claim.get("citations") or []:
+            failure = _check_one_citation(
+                project_dir, citation.get("file"), citation.get("line"),
+                citation.get("text"))
+            if failure is not None:
+                failure["statement"] = statement
+                failures.append(failure)
+    return failures
+
+
+def cmd_verify(args, root):
+    if not root.is_dir():
+        die(f"project directory does not exist: {root}", EXIT_USAGE)
+    n = args.phase
+    if args.file:
+        proposal_path = Path(args.file)
+        if not proposal_path.is_absolute():
+            proposal_path = Path.cwd() / proposal_path
+    else:
+        proposal_path = root / ".cairn" / "conflicts.json"
+    proposal = _load_proposal(proposal_path, n)
+
+    claims = proposal.get("claims")
+    if not isinstance(claims, list) or not claims:
+        failures = [{"error": "proposal has no claims to verify"}]
+    else:
+        failures = _verify_citations(root, claims)
+        if not failures:
+            total_citations = sum(len(c.get("citations") or [])
+                                   for c in claims)
+            if total_citations == 0:
+                failures = [{"error": "proposal has no citations to "
+                                       "verify"}]
+
+    valid = not failures
+    if args.json:
+        print(json.dumps({"valid": valid, "phase": n,
+                           "failed_citations": failures}))
+    elif valid:
+        total_citations = sum(len(c.get("citations") or []) for c in claims)
+        print(f"[cairn-reconcile] {total_citations} citation(s) verified, "
+              f"proposal valid")
+    else:
+        for f in failures:
+            loc = f"{f.get('file')}:{f.get('line')}" if f.get("file") \
+                else "(no citations)"
+            if f.get("error") == "text mismatch":
+                print(f"[cairn-reconcile] citation failed ({loc}): "
+                      f"expected {f.get('expected')!r}, found "
+                      f"{f.get('actual')!r}")
+            else:
+                print(f"[cairn-reconcile] citation failed ({loc}): "
+                      f"{f.get('error')}")
+        print(f"[cairn-reconcile] {len(failures)} citation(s) failed — "
+              f"proposal rejected")
+    sys.exit(EXIT_OK if valid else EXIT_INVALID_PROPOSAL)
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def build_parser():
@@ -519,11 +679,17 @@ def build_parser():
                                "<project>/.cairn/reconcile-evidence.json)")
     collect.set_defaults(func=cmd_collect)
 
-    # A `verify` subcommand lands in Task 2 (citation re-checking, D-03).
-    # Subparsers are used from the start specifically so that addition
-    # needs no restructure here.
+    verify = sub.add_parser("verify", help="mechanically re-check a "
+                             "proposal's citations against the files they "
+                             "claim to quote — one bad citation invalidates "
+                             "the whole proposal")
+    verify.add_argument("phase", type=int, help="phase number")
+    verify.add_argument("--file", metavar="PATH", default=None,
+                         help="proposal file (default: "
+                              "<project>/.cairn/conflicts.json)")
+    verify.set_defaults(func=cmd_verify)
 
-    for p in (collect,):
+    for p in (collect, verify):
         p.add_argument("--project-dir", metavar="DIR",
                         help="project root (default: $CLAUDE_PROJECT_DIR "
                              "or cwd)")
