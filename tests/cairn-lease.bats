@@ -10,7 +10,12 @@
 
 load 'helpers'
 
+# The journal-failure tests use `run --separate-stderr` (bats-core >= 1.5.0)
+# to assert on stdout and stderr independently.
+bats_require_minimum_version 1.5.0
+
 LEASE="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
+JOURNAL="$CAIRN_SCRIPTS_DIR/cairn-journal.sh"
 
 refute_in_output() {
   if grep -qF -- "$1" <<<"$output"; then
@@ -420,4 +425,218 @@ EOF
   run env PATH="$stub" "$stub/bash" "$LEASE" status 1 --project-dir "$PWD"
   [ "$status" -eq 5 ]
   refute_in_output "Traceback"
+}
+
+#-----------------------------------------------------------------------------
+# Phase 16 Plan 03 Task 1: journal wiring — genuine transitions only (D-01).
+# The journal is per-worktree local storage (<project-dir>/.cairn/
+# journal.jsonl, never shared across worktrees — see cairn-journal.py's
+# module docstring), so these tests always read history back through the
+# SAME --project-dir the write went through.
+#-----------------------------------------------------------------------------
+
+@test "journal: fresh acquire writes one lease_changed record; a same-worktree renewal via acquire, and renew, write zero" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  local root
+  root="$(git rev-parse --show-toplevel)"
+
+  run bash "$LEASE" acquire 20 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" history --phase 20 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+  assert_json_eq "$output" '.records[0].event' 'lease_changed'
+  assert_json_eq "$output" '.records[0].action' 'acquired'
+  assert_json_eq "$output" '.records[0].holder' "$root"
+  assert_json_eq "$output" '.records[0].prev_holder' 'null'
+
+  # Same-worktree heartbeat renewal via acquire (already_mine): zero new
+  # records — a heartbeat is not a transition (D-01).
+  run bash "$LEASE" acquire 20 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "already yours" <<<"$output"
+  run bash "$JOURNAL" history --phase 20 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+
+  # renew: also zero new records, always.
+  run bash "$LEASE" renew 20 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  run bash "$JOURNAL" history --phase 20 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+}
+
+@test "journal: a reclaim from a stale lease writes one lease_changed record naming the previous holder" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  local wt_a
+  wt_a="$(git rev-parse --show-toplevel)"
+  local wt_b="$BATS_TEST_TMPDIR/wt-b"
+  git worktree add -q "$wt_b" -b wt-b-branch
+  wt_b="$(git -C "$wt_b" rev-parse --show-toplevel)"
+
+  run bash "$LEASE" acquire 23 --project-dir "$wt_a" --json
+  [ "$status" -eq 0 ]
+  local lease_id old_acquired_at
+  lease_id="$(jq -r '.id' <<<"$output")"
+  old_acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+
+  # wt_a's own journal has exactly the acquire record so far.
+  run bash "$JOURNAL" history --phase 23 --json --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+  assert_json_eq "$output" '.records[0].holder' "$wt_a"
+  assert_json_eq "$output" '.records[0].prev_holder' 'null'
+
+  # Simulate the passage of time by hand-setting heartbeat_at via bd
+  # directly (bypassing cairn-lease.py, hence never touching either
+  # worktree's journal), rather than sleeping 4+ hours.
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
+")"
+  run bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":23,\"holder\":\"$wt_a\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$old_acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}"
+  [ "$status" -eq 0 ]
+
+  run bash "$LEASE" acquire 23 --project-dir "$wt_b"
+  [ "$status" -eq 0 ]
+  grep -qF "reclaimed" <<<"$output"
+
+  # wt_a's own journal is UNCHANGED by wt_b's reclaim — the journal is
+  # per-worktree, never a cross-worktree coordination primitive.
+  run bash "$JOURNAL" history --phase 23 --json --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+
+  # wt_b's own journal has exactly one record: the reclaim, naming wt_a as
+  # prev_holder.
+  run bash "$JOURNAL" history --phase 23 --json --project-dir "$wt_b"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+  assert_json_eq "$output" '.records[0].event' 'lease_changed'
+  assert_json_eq "$output" '.records[0].action' 'acquired'
+  assert_json_eq "$output" '.records[0].holder' "$wt_b"
+  assert_json_eq "$output" '.records[0].prev_holder' "$wt_a"
+}
+
+@test "journal: acquire held-by-another (EXIT_HELD) writes nothing to either worktree's journal" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  local wt_a
+  wt_a="$(git rev-parse --show-toplevel)"
+  local wt_b="$BATS_TEST_TMPDIR/wt-b"
+  git worktree add -q "$wt_b" -b wt-b-branch
+  wt_b="$(git -C "$wt_b" rev-parse --show-toplevel)"
+
+  run bash "$LEASE" acquire 24 --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+
+  run bash "$LEASE" acquire 24 --project-dir "$wt_b"
+  [ "$status" -eq 3 ]
+
+  run bash "$JOURNAL" history --phase 24 --json --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+
+  # wt_b never wrote — held-by-another writes NOTHING to bd or the journal
+  # (D-04) — so wt_b's own journal for this phase does not even exist.
+  run bash "$JOURNAL" history --phase 24 --json --project-dir "$wt_b"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '0'
+}
+
+@test "journal: release writes one lease_changed record; a second release on the now-vacant lease writes zero" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  run bash "$LEASE" acquire 25 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$LEASE" release 25 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" history --phase 25 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '2'
+  assert_json_eq "$output" '.records[1].event' 'lease_changed'
+  assert_json_eq "$output" '.records[1].action' 'released'
+
+  # A second release on the now-vacant lease: no-op, zero new records.
+  run bash "$LEASE" release 25 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  run bash "$JOURNAL" history --phase 25 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '2'
+}
+
+@test "journal: release on a phase whose lease issue was never created writes zero records" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  run bash "$LEASE" release 998 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" history --phase 998 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '0'
+}
+
+@test "journal: release --mine writes one lease_changed record per phase actually released, zero for a phase held by a different worktree" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  local wt_a
+  wt_a="$(git rev-parse --show-toplevel)"
+  local wt_b="$BATS_TEST_TMPDIR/wt-b"
+  git worktree add -q "$wt_b" -b wt-b-branch
+  wt_b="$(git -C "$wt_b" rev-parse --show-toplevel)"
+
+  run bash "$LEASE" acquire 26 --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+  run bash "$LEASE" acquire 27 --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+  run bash "$LEASE" acquire 28 --project-dir "$wt_b"
+  [ "$status" -eq 0 ]
+
+  run bash "$LEASE" release --mine --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" history --phase 26 --json --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '2'
+  assert_json_eq "$output" '.records[1].action' 'released'
+  assert_json_eq "$output" '.records[1].holder' "$wt_a"
+
+  run bash "$JOURNAL" history --phase 27 --json --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '2'
+  assert_json_eq "$output" '.records[1].action' 'released'
+
+  # phase 28 was acquired by wt_b, not wt_a — release --mine from wt_a
+  # never touches it. wt_a's OWN journal never even sees phase 28 (the
+  # acquire itself was written into wt_b's journal, per-worktree, not
+  # shared) — a release --mine call that wrongly matched it would show up
+  # here as an unexpected extra record.
+  run bash "$JOURNAL" history --phase 28 --json --project-dir "$wt_a"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '0'
+
+  run bash "$JOURNAL" history --phase 28 --json --project-dir "$wt_b"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+  assert_json_eq "$output" '.records[0].action' 'acquired'
 }
