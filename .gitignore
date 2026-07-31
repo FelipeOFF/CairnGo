@@ -3,6 +3,7 @@ __pycache__/
 .cairn/id-map.json
 .cairn/state.json
 .cairn/conflicts.json
+.cairn/reconcile-evidence.json
 .cairn/hook.log
 .cairn/journal.jsonl*
 .DS_Store
