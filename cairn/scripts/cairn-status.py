@@ -2472,11 +2472,18 @@ def html_next(data):
 
 def html_phases(data):
     """The two blocks that turn the page from a snapshot into something to act
-    on: what is still pending and what it is, and which commands come next in
-    which order, with the reason for that order.
+    on: what is still pending, what it is (purpose, research, plans, issues,
+    verify), and which commands come next in which order, with the reason for
+    that order.
 
-    Same model as the terminal panel and the same wording, so a page open on a
-    second screen cannot quietly disagree with the shell that produced it.
+    Same `phase_purpose_text()`/`phase_research_text()`/`phase_issues_text()`/
+    `phase_verify_text()` helpers the terminal table calls (CARD-03), and the
+    same wording, so a page open on a second screen cannot quietly disagree
+    with the shell that produced it. The HTML side does not mirror the
+    terminal's table-plus-PURPOSE-list split (D-01 leaves that layout choice
+    to the terminal only) — this column stays a single per-phase list, with
+    the purpose paragraph and the research/issues/verify meta spans folded
+    into the same `<li>`.
     """
     phases = data.get("phases") or []
     pending = pending_phases(phases)
@@ -2511,6 +2518,12 @@ def html_phases(data):
             prog = phase_progress_text(p)
             if prog:
                 meta.append(f'<span class="n">{esc(prog)}</span>')
+            # Same D-04 helpers as the terminal table's rsch/issues/verify
+            # columns — never re-derived here, so the two surfaces cannot
+            # independently summarize the same phase differently (CARD-03).
+            meta.append(f'<span class="n">{esc(phase_research_text(p))}</span>')
+            meta.append(f'<span class="n">{esc(phase_issues_text(p))}</span>')
+            meta.append(f'<span class="n">{esc(phase_verify_text(p))}</span>')
             if p["blocked_by"]:
                 meta.append('waits on phase '
                             f'<span class="n">'
@@ -2525,7 +2538,10 @@ def html_phases(data):
                 f'<span class="phase-n">{p["number"]}</span>'
                 '<span class="phase-body">'
                 f'<span class="phase-title">{esc(p["title"] or "(untitled)")}'
-                f'</span>{reqs}'
+                '</span>'
+                f'<span class="phase-purpose">{esc(phase_purpose_text(p))}'
+                '</span>'
+                f'{reqs}'
                 f'<span class="phase-meta">{" &middot; ".join(meta)}</span>'
                 '</span></li>')
         out.append("</ol></div>")

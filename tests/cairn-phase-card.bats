@@ -160,3 +160,96 @@ for p in d["phases"]:
   [ "$(printf '%s' "$output" | phase_field 1 verify_status)" = "passed" ]
   [ "$(printf '%s' "$output" | phase_field 2 verify_status)" = "" ]
 }
+
+# ─── Cross-surface parity: terminal ≡ HTML (Plan 14-02, CARD-03) ───────────
+#
+# The terminal table and the HTML page must render `purpose`/research/
+# issues/verify from the SAME phase_*_text() helpers — never re-derive their
+# own wording. Proven by extracting the raw --json scalars and recomputing
+# the expected display strings in THIS test, then grepping both rendered
+# surfaces for them — never by calling the shared functions under test to
+# build the expectation (that could only ever agree with itself).
+
+write_parity_roadmap() {
+  mkdir -p .planning .planning/phases/07-parity
+  cat > .planning/ROADMAP.md <<'EOF'
+# Roadmap: Parity Fixture
+
+## Phases
+
+- [ ] Phase 7: Parity check
+
+## Detalhe das fases
+
+### Phase 7: Parity check
+
+**Card:** cross-surface fields must read identically from one model.
+
+---
+EOF
+}
+
+@test "purpose/research/issues/verify render identically across --json, the terminal panel and the HTML page" {
+  write_parity_roadmap
+  touch .planning/phases/07-parity/07-RESEARCH.md
+  cat > .planning/phases/07-parity/07-VERIFICATION.md <<'EOF'
+---
+phase: 07-parity
+verified: 2026-07-31T00:00:00Z
+status: needs-revision
+---
+
+# Phase 7 Verification Report
+EOF
+  # bd is already initialized by setup() (prefix "pc") — no second bd init.
+  bd create "parity open 1" -t task -l phase-7 --silent >/dev/null
+  bd create "parity open 2" -t task -l phase-7 --silent >/dev/null
+  CLOSED="$(bd create "parity closed" -t task -l phase-7 --silent)"
+  bd close "$CLOSED" >/dev/null
+
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" > "$BATS_TEST_TMPDIR/j.json"
+
+  # A wide render so nothing this test cares about is a truncation casualty
+  # — the terminal table's own column-width budgeting is Task 1's concern,
+  # not this test's.
+  run bash "$STATUS_SH" --width 200
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/term.txt"
+
+  run bash "$STATUS_SH" --html board.html
+  [ "$status" -eq 0 ]
+
+  python3 - "$BATS_TEST_TMPDIR/j.json" "$BATS_TEST_TMPDIR/term.txt" board.html <<'PY'
+import json, sys, pathlib
+doc = json.loads(pathlib.Path(sys.argv[1]).read_text())
+term = pathlib.Path(sys.argv[2]).read_text()
+html = pathlib.Path(sys.argv[3]).read_text()
+p = [x for x in doc["phases"] if x["number"] == 7][0]
+
+# Sanity on the fixture itself, so a broken fixture fails loudly here
+# instead of the parity assertions below silently passing on garbage.
+assert p["research_done"] is True, p
+assert p["issues_done"] == 1 and p["issues_total"] == 3, p
+assert p["verify_status"] == "needs-revision", p
+assert p["purpose"], p
+
+# Every expected string is built HERE, from the raw --json scalars, by
+# literal string formatting — this script never imports cairn-status.py,
+# so there is no way to call phase_research_text()/phase_issues_text()/
+# phase_verify_text() even by accident. A bug inside one of those shared
+# functions would make both surfaces agree on the same wrong value;
+# recomputing independently is what actually catches that.
+expected = {
+    "purpose": p["purpose"],
+    "research": "yes" if p["research_done"] else "—",
+    "issues": f"{p['issues_done']}/{p['issues_total']}",
+    "verify": p["verify_status"],
+}
+for label, text in expected.items():
+    for surface, blob in (("terminal", term), ("html", html)):
+        assert text in blob, (label, surface, text)
+PY
+  grep -qF 'class="phase-purpose"' board.html
+}
