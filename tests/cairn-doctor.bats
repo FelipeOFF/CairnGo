@@ -1027,6 +1027,45 @@ PYEOF
 }
 
 # --------------------------------------------------------------------------- #
+# .gitignore — the journal entry and its compaction siblings (Plan 16-05)
+# --------------------------------------------------------------------------- #
+
+@test "gitignore: journal.jsonl and its compaction temp siblings are never staged by git add -A" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The .gitignore under test is the REPO'S OWN — copied into the fixture
+  # so this proves the actual entry takes effect, not a fixture stand-in.
+  cp "$CAIRN_REPO_ROOT/.gitignore" .gitignore
+
+  # Seed a real conflict (same fixture shape as the last-moved tests
+  # above) so the journal carries genuine content, not an empty stub.
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  [ -f .cairn/journal.jsonl ]
+
+  # A leftover compaction temp sibling and its lock file — the exact
+  # shape compact()'s sibling-write-then-rename recipe (Plan 16-02) can
+  # leave behind after a crash, and the flock file it holds during a live
+  # compaction.
+  : > .cairn/journal.jsonl.tmp-abc123
+  : > .cairn/journal.jsonl.compact.lock
+
+  git add -A
+
+  run git status --porcelain
+  refute_in_output "journal.jsonl"
+
+  run git diff --cached --name-only
+  refute_in_output "journal.jsonl"
+}
+
+# --------------------------------------------------------------------------- #
 # phase-artifacts (check 12, CARD-02/D-04) — 14-03
 # --------------------------------------------------------------------------- #
 
