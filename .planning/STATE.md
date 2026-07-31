@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Honest State
-current_phase: 14
-current_phase_name: Phase card
+current_phase: 16
+current_phase_name: Transition journal
 status: planning
-stopped_at: Phase 13 verified and closed (5 plans, 8 issues)
+stopped_at: Phases 14 and 15 built in parallel worktrees, merged, verified and closed
 last_updated: "2026-07-30T19:47:35.873Z"
 last_activity: 2026-07-30
-last_activity_desc: Fase 13 executada, verificada e fechada
+last_activity_desc: Fases 14 e 15 mescladas de worktrees paralelas
 progress:
-  total_phases: 5
-  completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
-  percent: 20
+  total_phases: 6
+  completed_phases: 3
+  total_plans: 13
+  completed_plans: 13
+  percent: 50
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-29)
 
 **Core value:** Workflow unificado plan→work→ship cujo estado é verificável — nenhuma superfície afirma que uma fase está pronta sem ter com o que corroborar.
-**Current focus:** Milestone v1.4 (Honest State) — fase 13 fechada; 14, 15, 16 e 17 pendentes
+**Current focus:** Milestone v1.4 (Honest State) — 13, 14 e 15 fechadas; 16, 17 e 18 pendentes
 
 ## Current Position
 
-Phase: 14 — Phase card (não planejada)
+Phase: 16 — Transition journal (não planejada)
 Plan: —
-Status: Fase 13 verificada (5/5 critérios, 8/8 requisitos) — próxima é a 14
-Last activity: 2026-07-30 — Fase 13 executada, verificada e fechada
+Status: Fases 13, 14 e 15 fechadas — próxima é a 16
+Last activity: 2026-07-31 — Fases 14 e 15 em paralelo, mescladas e fechadas
 
 ## Performance Metrics
 

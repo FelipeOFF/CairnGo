@@ -5,7 +5,7 @@
 - ✅ **v1.1 Metrics & Benchmarks** — Phases 1-6, shipped 2026-07-27 · [archive](./milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 GSD Core** — Phases 7-9, shipped 2026-07-28 · [archive](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Status Panel** — Phases 10-12, shipped 2026-07-28 · [archive](./milestones/v1.3-ROADMAP.md)
-- 🚧 **v1.4 Honest State** — Phases 13-17, em andamento
+- 🚧 **v1.4 Honest State** — Phases 13-18, em andamento
 
 ## Milestone: v1.4 Honest State 🚧
 
@@ -23,11 +23,11 @@ reporta sucesso sem provar sucesso não conta como pronto.
 
 ## Phases
 
-### 🚧 v1.4 Honest State — um estado que prova o que afirma (Phases 13-17)
+### 🚧 v1.4 Honest State — um estado que prova o que afirma (Phases 13-18)
 
 - [x] Phase 13: State corroboration (CORR-01, CORR-02, CORR-03, CORR-04, CORR-05, CORR-06, CORR-07, CORR-08) — completed 2026-07-30
-- [ ] Phase 14: Phase card (CARD-01, CARD-02, CARD-03, CARD-04)
-- [ ] Phase 15: Phase lease (LEASE-01, LEASE-02, LEASE-03, LEASE-04, LEASE-05)
+- [x] Phase 14: Phase card (CARD-01, CARD-02, CARD-03, CARD-04) — completed 2026-07-31
+- [x] Phase 15: Phase lease (LEASE-01, LEASE-02, LEASE-03, LEASE-04, LEASE-05) — completed 2026-07-31
 - [ ] Phase 16: Transition journal (JOUR-01, JOUR-02, JOUR-03, JOUR-04, JOUR-05)
 - [ ] Phase 17: Semantic escalation (ESC-01, ESC-02, ESC-03, ESC-04)
 - [ ] Phase 18: Parallel phase execution (PAR-01, PAR-02, PAR-03, PAR-04, PAR-05)
