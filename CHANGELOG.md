@@ -40,10 +40,11 @@ sources actually claims — including when they disagree with one another.
   another live session reports who holds it and since when, and stops. The hold
   is identified by the worktree that took it, so it is visible from a second
   worktree of the same repository — the exact case it exists for — and
-  `/cairn:status` shows it. A hold whose session died is reported as stale by
-  `/cairn:doctor` and can be released: it never becomes a permanent block, and a
-  holder that is no longer a live worktree is visible within a minute of the
-  crash rather than after a timeout expires.
+  `/cairn:status` shows it. A hold whose session died never becomes a permanent
+  block, and there are two ways it comes back: `/cairn:doctor` reports it stale
+  once its four-hour heartbeat lapses, and the cleanup that runs alongside
+  concurrent phases spots it without waiting at all, by checking the holder
+  against the worktrees that actually exist. Either way it can be released.
 
 - **A local, append-only record of what actually happened, which survives a
   crash.** Every phase transition, hold and verdict is written down with who,
