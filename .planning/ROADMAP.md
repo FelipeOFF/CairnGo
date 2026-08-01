@@ -211,10 +211,12 @@ reporta divergência em vez de escolher um vencedor.
    teste mata uma execução no meio e prova que a outra termina e que o lease morto
    é liberável.
 
-**Research durante o planejamento:** precisa. Duas perguntas em aberto: se
-`bd update` (caminho de **escrita**) a partir de uma segunda worktree cai no mesmo
-banco — as leituras já foram medidas e caem — e qual estratégia de reconciliação
-usar quando duas fases tocam o mesmo arquivo.
+**Research durante o planejamento:** não precisa mais. As duas perguntas foram
+fechadas: `bd create`/`bd update` a partir de uma segunda worktree caem no banco do
+repo principal (medido ao vivo nesta sessão, como as leituras já haviam sido); e a
+estratégia de reconciliação foi decidida no discuss desta fase (D-02) — relatar
+conflito de merge **e** a edição convergente, a linha que as duas branches mudaram
+para o mesmo valor e que o git resolve em silêncio, nunca escolher um vencedor.
 
 **Depende de:** Phase 15 (o lease é o mecanismo de exclusão) e Phase 16 (o journal
 é o registro que sobrevive a duas escritas concorrentes). Transitivamente a 13: um
