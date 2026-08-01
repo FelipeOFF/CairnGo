@@ -2,8 +2,10 @@
 # cairn-parallel.bats — exercises the parallel-phase driver's CLI contract
 # (cairn-parallel.py / the cairn-parallel.sh wrapper): `prepare N` (create
 # phase N's deterministically named worktree and take its lease pointing AT
-# that worktree) and `batch` (consume cairn-status.py's parallelism block and
-# announce what can run, with each phase's branch and worktree resolved).
+# that worktree), `batch` (consume cairn-status.py's parallelism block and
+# announce what can run, with each phase's branch and worktree resolved), and
+# `reconcile` (report, without merging anything, what each phase produced and
+# which lines both branches changed to the SAME value).
 #
 # Assertion style note: a failing `[[ ]]` or `! cmd` mid-test does NOT fail a
 # bats test on this bash, so every check is a plain `[ ]` against a
@@ -530,7 +532,7 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   assert_json_eq "$output" '.lease.holder' "$wt_real"
 }
 
-@test "cairn-parallel.sh with no subcommand exits 2; --help lists batch and prepare" {
+@test "cairn-parallel.sh with no subcommand exits 2; --help lists batch, prepare and reconcile" {
   run bash "$PARALLEL"
   [ "$status" -eq 2 ]
   refute_in_output "Traceback"
@@ -539,4 +541,485 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   [ "$status" -eq 0 ]
   grep -qF "batch" <<<"$output"
   grep -qF "prepare" <<<"$output"
+  grep -qF "reconcile" <<<"$output"
 }
+
+#=============================================================================
+# Plan 18-02 — reconcile.
+#
+# These tests need `git` and nothing else: no bd, no lease, no worktree. They
+# build ordinary phase/* branches by hand, which is the only thing reconcile
+# looks at (it discovers work by the name prepare gave it, never by asking).
+#
+# TWO RULES HOLD IN EVERY TEST BELOW, and both are about not measuring the
+# measurement:
+#   - `reconcile` runs BEFORE any verification merge. A `git merge` in the
+#     fixture's own tree moves a branch, and the next `merge-base` then
+#     includes the other side — the detection would be measured against a
+#     base that already contains what it is looking for.
+#   - every verification merge happens in a THROWAWAY CLONE, so the fixture
+#     the report was built from is never disturbed at all.
+#=============================================================================
+
+# Rewrite checks.txt: bump the count on line 1 to 14 (the convergent edit,
+# byte-identical on both branches) and insert TEXT right after MARKER (the
+# distinct block, in a different place on each branch). python3 rather than
+# `sed -i`, whose in-place flag takes an argument on BSD and none on GNU.
+bump_count_and_insert() {
+  python3 - "$1" "$2" <<'PYEOF'
+import sys
+marker, text = sys.argv[1], sys.argv[2]
+lines = open("checks.txt").read().splitlines()
+lines[0] = "checks = 14"
+lines.insert(lines.index(marker) + 1, text)
+open("checks.txt", "w").write("\n".join(lines) + "\n")
+PYEOF
+}
+
+# FIXTURE 1 — the REAL shape of the 14/15 incident (18-CONTEXT.md D-02).
+# One file carrying both the convergence (the count on line 1, changed to the
+# same value by both branches) and the divergence (each branch adds its own
+# distinct block, at its own marker). The markers sit ~40 lines from the count
+# and from each other, which is what keeps `-U0` from coalescing the two
+# changes into one hunk — and what kept git from conflicting in the real
+# incident. Leaves HEAD on the base branch, so `merge-base HEAD <branch>` is
+# the base commit.
+make_incident_fixture() {
+  make_tmp_repo
+  {
+    echo "checks = 13"
+    for i in $(seq 2 40); do echo "body line $i"; done
+    echo "# MARKER-A"
+    for i in $(seq 42 80); do echo "body line $i"; done
+    echo "# MARKER-B"
+    for i in $(seq 82 120); do echo "body line $i"; done
+  } > checks.txt
+  git add checks.txt >/dev/null
+  git commit -qm "base: 13 checks"
+  MAIN_ROOT="$(git rev-parse --show-toplevel)"
+  BASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+  git checkout -qb phase/7-alpha
+  bump_count_and_insert "# MARKER-A" "check 13: alpha added this one"
+  git commit -qam "phase 7: one more check"
+
+  git checkout -q "$BASE_BRANCH"
+  git checkout -qb phase/9-beta
+  bump_count_and_insert "# MARKER-B" "check 13: beta added this one"
+  git commit -qam "phase 9: one more check"
+
+  git checkout -q "$BASE_BRANCH"
+}
+
+# FIXTURE 2 — the PURE silent class: the convergent line is the ONLY change
+# the two branches have in common, and each touches one more file of its own.
+make_silent_fixture() {
+  make_tmp_repo
+  {
+    echo "checks = 13"
+    for i in $(seq 2 30); do echo "body line $i"; done
+  } > shared.txt
+  git add shared.txt >/dev/null
+  git commit -qm "base: 13 checks"
+  MAIN_ROOT="$(git rev-parse --show-toplevel)"
+  BASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+  git checkout -qb phase/7-alpha
+  python3 -c "
+lines = open('shared.txt').read().splitlines()
+lines[0] = 'checks = 14'
+open('shared.txt', 'w').write('\n'.join(lines) + '\n')"
+  echo "alpha only" > a.txt
+  git add a.txt >/dev/null
+  git commit -qam "phase 7"
+
+  git checkout -q "$BASE_BRANCH"
+  git checkout -qb phase/9-beta
+  python3 -c "
+lines = open('shared.txt').read().splitlines()
+lines[0] = 'checks = 14'
+open('shared.txt', 'w').write('\n'.join(lines) + '\n')"
+  echo "beta only" > b.txt
+  git add b.txt >/dev/null
+  git commit -qam "phase 9"
+
+  git checkout -q "$BASE_BRANCH"
+}
+
+# FIXTURE 3 — a real conflict: both branches add DIFFERENT lines at the SAME
+# insertion point. This is the half git already handles well.
+make_conflict_fixture() {
+  make_tmp_repo
+  { for i in $(seq 1 20); do echo "body line $i"; done; } > code.txt
+  git add code.txt >/dev/null
+  git commit -qm base
+  MAIN_ROOT="$(git rev-parse --show-toplevel)"
+  BASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+  git checkout -qb phase/7-alpha
+  python3 -c "
+lines = open('code.txt').read().splitlines()
+lines.insert(10, 'alpha wrote this line')
+open('code.txt', 'w').write('\n'.join(lines) + '\n')"
+  git commit -qam "phase 7"
+
+  git checkout -q "$BASE_BRANCH"
+  git checkout -qb phase/9-beta
+  python3 -c "
+lines = open('code.txt').read().splitlines()
+lines.insert(10, 'beta wrote a DIFFERENT line')
+open('code.txt', 'w').write('\n'.join(lines) + '\n')"
+  git commit -qam "phase 9"
+
+  git checkout -q "$BASE_BRANCH"
+}
+
+# FIXTURE 4 — the false-positive guard: both branches edit the SAME file, far
+# apart, with no line in common and no converging count. Nothing here is a
+# finding of any kind.
+make_disjoint_fixture() {
+  make_tmp_repo
+  { for i in $(seq 1 60); do echo "body line $i"; done; } > code.txt
+  mkdir -p .planning
+  printf 'status: executing\n' > .planning/STATE.md
+  git add code.txt .planning >/dev/null
+  git commit -qm base
+  MAIN_ROOT="$(git rev-parse --show-toplevel)"
+  BASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+  git checkout -qb phase/7-alpha
+  python3 -c "
+lines = open('code.txt').read().splitlines()
+lines[4] = 'alpha rewrote line 5'
+open('code.txt', 'w').write('\n'.join(lines) + '\n')"
+  git commit -qam "phase 7"
+
+  git checkout -q "$BASE_BRANCH"
+  git checkout -qb phase/9-beta
+  python3 -c "
+lines = open('code.txt').read().splitlines()
+lines[49] = 'beta rewrote line 50'
+open('code.txt', 'w').write('\n'.join(lines) + '\n')"
+  git commit -qam "phase 9"
+
+  git checkout -q "$BASE_BRANCH"
+}
+
+# A throwaway clone of the fixture. Every verification merge happens in here:
+# merging in the fixture's own tree would move a branch and poison the
+# `merge-base` of anything measured afterwards.
+clone_fixture() {
+  CLONE="$BATS_TEST_TMPDIR/verify-clone-$$-${BATS_TEST_NUMBER:-0}"
+  rm -rf "$CLONE"
+  git clone -q "$MAIN_ROOT" "$CLONE"
+  git -C "$CLONE" config user.email "cairn-tests@example.com"
+  git -C "$CLONE" config user.name "Cairn Tests"
+}
+
+# A `git` shim on PATH that fails `merge-tree` the way a pre-2.38 git does —
+# an "unknown option --write-tree" on stderr and exit 129 — and delegates
+# everything else to the real binary, captured by absolute path so the shim
+# cannot recurse into itself.
+write_old_git_stub() {
+  OLD_GIT_DIR="$BATS_TEST_TMPDIR/old-git"
+  mkdir -p "$OLD_GIT_DIR"
+  local real
+  real="$(command -v git)"
+  cat > "$OLD_GIT_DIR/git" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [ "\$a" = "merge-tree" ]; then
+    echo "error: unknown option --write-tree" >&2
+    exit 129
+  fi
+done
+exec "$real" "\$@"
+EOF
+  chmod +x "$OLD_GIT_DIR/git"
+}
+
+#-----------------------------------------------------------------------------
+# Task 2, fixture 1: the incident itself. The two measurements live in ONE
+# test, side by side, because it is the PAIR that documents why the command
+# exists — a merge git is satisfied with, and a report that names the damage.
+#
+# How to break it, measured rather than assumed: replace the strict base-range
+# equality in convergent_edits() with anything looser, or stop comparing the
+# range at all, and the reported base_line stops being 1. Skipping the
+# `-U0` and taking git's default context coalesces the count hunk with the
+# nearby body and the file drops out entirely. (Deleting the CONTENT
+# comparison does NOT redden this test — in this fixture the only co-located
+# hunk is the convergent one. That mutation is caught by fixture 3, where the
+# same base range carries different text; the note there explains why.)
+# Moving the inserted block ADJACENT to the count makes the convergence stop
+# being declared: that is the MEASURED LIMIT written into the docstring, not a
+# bug — in that arrangement `-U0` coalesces the hunks and git conflicts on its
+# own, so the operator is stopped either way.
+#-----------------------------------------------------------------------------
+
+@test "reconcile names the convergent edit in the incident's real shape — the same file where the git merge succeeds without reporting a single conflict" {
+  make_incident_fixture
+
+  # (a) reconcile FIRST, before any merge exists anywhere.
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 6 ]
+  local report="$output"
+  assert_json_eq "$report" '.pairs | length' '1'
+  assert_json_eq "$report" '.pairs[0].convergent_edits | length' '1'
+  assert_json_eq "$report" '.pairs[0].convergent_edits[0].file' 'checks.txt'
+  assert_json_eq "$report" '.pairs[0].convergent_edits[0].base_line' '1'
+  assert_json_eq "$report" '.pairs[0].convergent_edits[0].new_lines | join("")' 'checks = 14'
+  assert_json_eq "$report" '.pairs[0].convergent_edits[0].branches | join(",")' 'phase/7-alpha,phase/9-beta'
+  # git has nothing to say about this pair — that is the entire point.
+  assert_json_eq "$report" '.pairs[0].conflicts | length' '0'
+  assert_json_eq "$report" '.findings_total' '1'
+  # PAR-04's other half: what each phase produced.
+  assert_json_eq "$report" '.branches | length' '2'
+  assert_json_eq "$report" '[.branches[] | select(.phase == 7) | .commits][0]' '1'
+  assert_json_eq "$report" '[.branches[] | select(.phase == 9) | .files][0]' '1'
+
+  # (b) and now the real merge, in a throwaway clone, on the very same file.
+  clone_fixture
+  run git -C "$CLONE" merge --no-edit origin/phase/7-alpha
+  [ "$status" -eq 0 ]
+  run git -C "$CLONE" merge --no-edit origin/phase/9-beta
+  [ "$status" -eq 0 ]
+  refute_in_output "CONFLICT"
+  # git is not silent about the FILE here — both branches touched it in
+  # different places, so it says `Auto-merging checks.txt`. What it never says
+  # is that anything about it needs a human. `Auto-merging` is git reporting
+  # success.
+  grep -qF "Auto-merging checks.txt" <<<"$output"
+
+  # (c) the damage, concretely: one count, two blocks numbered the same.
+  run head -1 "$CLONE/checks.txt"
+  [ "$output" = "checks = 14" ]
+  run grep -c "^check 13" "$CLONE/checks.txt"
+  [ "$output" -eq 2 ]
+}
+
+#-----------------------------------------------------------------------------
+# Task 2, fixture 2: the pure silent class, where git does not mention the
+# shared file AT ALL.
+#
+# The literal assertion is MERGE-ORDER DEPENDENT, and it is pinned here rather
+# than discovered at run time. Measured:
+#   merge 1 (phase/7-alpha):  a.txt | 1 +   shared.txt | 2 +-
+#   merge 2 (phase/9-beta):   b.txt | 1 +
+# The first merge still lists the shared file, because the count really did
+# change against the base. Only after the count is already 14 in HEAD does the
+# other side stop changing anything in it and the file vanish completely.
+# Merging just ONE branch here writes a red test, and the tempting repair —
+# weakening to `refute_in_output CONFLICT` — would pass with the feature
+# removed and would erase the mutest end of the class.
+#
+# How to break it: loosen the base-range equality in convergent_edits(), or
+# drop the shared-file intersection, and the report stops naming shared.txt
+# line 1.
+#-----------------------------------------------------------------------------
+
+@test "reconcile names the convergent edit in the pure silent class, where the SECOND merge does not mention the shared file at all" {
+  make_silent_fixture
+
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 6 ]
+  assert_json_eq "$output" '.pairs[0].convergent_edits | length' '1'
+  assert_json_eq "$output" '.pairs[0].convergent_edits[0].file' 'shared.txt'
+  assert_json_eq "$output" '.pairs[0].convergent_edits[0].base_line' '1'
+  assert_json_eq "$output" '.pairs[0].convergent_edits[0].new_lines | join("")' 'checks = 14'
+  assert_json_eq "$output" '.pairs[0].conflicts | length' '0'
+
+  clone_fixture
+  # Merge 1 — the shared file IS still listed here, and that is why the
+  # assertion below is about merge 2.
+  run git -C "$CLONE" merge --no-edit origin/phase/7-alpha
+  [ "$status" -eq 0 ]
+  grep -qF "shared.txt" <<<"$output"
+
+  # Merge 2 — the strongest form of the claim: git says nothing whatsoever
+  # about the file both branches changed.
+  run git -C "$CLONE" merge --no-edit origin/phase/9-beta
+  [ "$status" -eq 0 ]
+  refute_in_output "shared.txt"
+  refute_in_output "CONFLICT"
+  grep -qF "b.txt" <<<"$output"
+
+  run head -1 "$CLONE/shared.txt"
+  [ "$output" = "checks = 14" ]
+}
+
+#-----------------------------------------------------------------------------
+# Task 2, fixture 3: a real conflict is reported with its file — and reconcile
+# still merges nothing, which is why the fixture is byte-identical afterwards.
+#
+# This fixture is ALSO where the content half of the detection rule is proven,
+# and it is the only place in this suite where it can be. Measured: both
+# branches insert at the same point, so both sides produce `@@ -10,0 +11 @@` —
+# the SAME base range carrying DIFFERENT text. Deleting the
+# `by_range_a[key] != by_range_b[key]` comparison in convergent_edits() turns
+# this conflict into a reported "convergent edit", and the assertion below
+# goes red. (The plan expected that mutation to redden fixtures 1 and 2
+# instead; measured, it does not — in those two the only co-located hunk IS
+# the convergent one, so dropping the comparison changes nothing there. The
+# check has to live here or it is not covered at all.)
+#-----------------------------------------------------------------------------
+
+@test "reconcile reports a real merge conflict by file, never as a convergent edit, exits 6, and leaves the fixture's own tree untouched" {
+  make_conflict_fixture
+  local head_before
+  head_before="$(git -C "$MAIN_ROOT" rev-parse "$BASE_BRANCH")"
+
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 6 ]
+  # Same base range, different text: a conflict, and emphatically NOT an
+  # accidental agreement. Reporting it as one would tell the operator that
+  # git had already silently taken a side, which is the opposite of true.
+  assert_json_eq "$output" '.pairs[0].convergent_edits | length' '0'
+  assert_json_eq "$output" '.pairs[0].conflicts | length' '1'
+  assert_json_eq "$output" '.pairs[0].conflicts[0].path' 'code.txt'
+  assert_json_eq "$output" '.pairs[0].conflicts[0].messages | length' '1'
+  assert_json_eq "$output" '.pairs[0].conflicts[0].messages[0] | startswith("CONFLICT (content)")' 'true'
+  assert_json_eq "$output" '.pairs[0].conflicts_note' 'null'
+  # Reported, never resolved: no merge happened, so no MERGE_HEAD, no moved
+  # branch, no conflict markers on disk.
+  [ ! -f "$MAIN_ROOT/.git/MERGE_HEAD" ]
+  [ "$(git -C "$MAIN_ROOT" rev-parse "$BASE_BRANCH")" = "$head_before" ]
+  run git -C "$MAIN_ROOT" status --porcelain
+  [ -z "$output" ]
+  refute_in_output "<<<<<<<"
+
+  # And git agrees it is a conflict, in a clone that is allowed to try.
+  clone_fixture
+  run git -C "$CLONE" merge --no-edit origin/phase/7-alpha
+  [ "$status" -eq 0 ]
+  run git -C "$CLONE" merge --no-edit origin/phase/9-beta
+  [ "$status" -ne 0 ]
+  grep -qF "CONFLICT" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# Task 2, fixture 4: the false-positive guard.
+#
+# How to break it: replace the strict base-range equality in
+# convergent_edits() with an overlap test, or drop the range comparison
+# entirely, and this goes red — both branches DID edit the same file, just
+# nowhere near each other.
+#-----------------------------------------------------------------------------
+
+@test "reconcile does NOT call two disjoint edits to the same file a convergent edit, and exits 0" {
+  make_disjoint_fixture
+
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  # Both branches really did touch code.txt — the guard is about WHERE.
+  assert_json_eq "$output" '[.branches[] | select(.phase == 7) | .files][0]' '1'
+  assert_json_eq "$output" '[.branches[] | select(.phase == 9) | .files][0]' '1'
+  assert_json_eq "$output" '.pairs | length' '1'
+  assert_json_eq "$output" '.pairs[0].convergent_edits | length' '0'
+  assert_json_eq "$output" '.pairs[0].conflicts | length' '0'
+  assert_json_eq "$output" '.findings_total' '0'
+
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "no convergent edit and no conflict" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# Task 2, fixture 5: a phase branch that wrote to a planning file is a NAMED
+# finding and, on its own, changes nothing about the exit code (D-03's
+# reporting half; the failing variant is parked in 18-CONTEXT.md's <deferred>,
+# and reporting is not failing).
+#-----------------------------------------------------------------------------
+
+@test "reconcile names a phase branch that wrote to .planning/STATE.md, and that alone does not move the exit code off 0" {
+  make_disjoint_fixture
+  git checkout -q phase/7-alpha
+  printf 'status: executing\nactive_phase: "7"\n' > .planning/STATE.md
+  git commit -qam "phase 7 wrote a planning file it was told not to"
+  git checkout -q "$BASE_BRANCH"
+
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.planning_writes | length' '1'
+  assert_json_eq "$output" '.planning_writes[0].branch' 'phase/7-alpha'
+  assert_json_eq "$output" '.planning_writes[0].phase' '7'
+  assert_json_eq "$output" '.planning_writes[0].files | join(",")' '.planning/STATE.md'
+  # The finding exists and the exit code is still 0 — that is the assertion.
+  assert_json_eq "$output" '.findings_total' '0'
+
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF ".planning/STATE.md" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# Task 2, fixture 6: a git that cannot pre-compute conflicts produces UNKNOWN,
+# never agreement (Pitfall 3).
+#
+# The fixture is the disjoint one on purpose: it has no convergent edit and no
+# conflict, so findings_total is 0 and the ONLY thing that can push the exit
+# to 6 is not-knowing. On any other fixture this test would pass for the wrong
+# reason.
+#-----------------------------------------------------------------------------
+
+@test "reconcile reports conflicts as null with a note, and still exits 6, when git cannot run merge-tree --write-tree" {
+  make_disjoint_fixture
+  write_old_git_stub
+
+  run env PATH="$OLD_GIT_DIR:$PATH" \
+    bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 6 ]
+  refute_in_output "Traceback"
+  assert_json_eq "$output" '.pairs[0].conflicts' 'null'
+  assert_json_eq "$output" '.pairs[0].conflicts_note | contains("UNKNOWN")' 'true'
+  assert_json_eq "$output" '.pairs[0].conflicts_note | contains("not clean")' 'true'
+  # Nothing else is a finding here: the 6 is bought entirely by not-knowing.
+  assert_json_eq "$output" '.findings_total' '0'
+  assert_json_eq "$output" '.pairs[0].convergent_edits | length' '0'
+  assert_json_eq "$output" '.git_version != null' 'true'
+
+  run env PATH="$OLD_GIT_DIR:$PATH" \
+    bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 6 ]
+  grep -qF "UNKNOWN" <<<"$output"
+  # The same fixture on a git that CAN run it exits 0 — so the 6 above is the
+  # degradation and not the fixture.
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 0 ]
+}
+
+@test "reconcile in a repo with no phase/* branch exits 0, with empty lists and a line saying there is nothing to reconcile" {
+  make_tmp_repo
+  echo "nothing to see" > file.txt
+  git add file.txt >/dev/null
+  git commit -qm base
+  MAIN_ROOT="$(git rev-parse --show-toplevel)"
+
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.branches | length' '0'
+  assert_json_eq "$output" '.pairs | length' '0'
+  assert_json_eq "$output" '.planning_writes | length' '0'
+  assert_json_eq "$output" '.findings_total' '0'
+
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "nothing to reconcile" <<<"$output"
+}
+
+@test "reconcile --phases restricts the report to the phases named, and a non-numeric value is a usage error rather than a quietly empty report" {
+  make_incident_fixture
+
+  run bash "$PARALLEL" reconcile --phases 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.branches | length' '1'
+  assert_json_eq "$output" '[.branches[].phase] | join(",")' '7'
+  # One branch is no pair, so the convergence cannot be seen at all — which
+  # is exactly why the filter must never be applied silently.
+  assert_json_eq "$output" '.pairs | length' '0'
+
+  run bash "$PARALLEL" reconcile --phases 7,nine --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 2 ]
+  refute_in_output "Traceback"
+}
+

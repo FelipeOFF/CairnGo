@@ -224,11 +224,11 @@ confidently wrong (Pitfall 15).
 conflict — silently or otherwise — because resolving is not among the things
 it is able to do. That is a property of the code, not a promise of prose, and
 it is proven twice, the way phase 17 proved the same thing for
-cairn-reconcile.py. First, a grep over the region delimited by the
-`reconcile: read-only region BEGIN` / `END` markers, with comment lines
-filtered out (the comments in there DISCUSS the verbs they forbid, so a grep
-over the raw text would invalidate itself), finds no bd write verb, no
-cairn-journal write subcommand, and no writing git verb. Second, a bats test
+cairn-reconcile.py. First, a grep over the region delimited by this file's
+RECONCILE-READ-ONLY-REGION markers, with comment lines filtered out (the
+comments in there DISCUSS the verbs they forbid, so a grep over the raw text
+would invalidate itself), finds no bd write verb, no cairn-journal write
+subcommand, and no writing git subcommand. Second, a bats test
 runs the command against a real fixture and shows `git status --porcelain`,
 every `phase/*` branch head, and a hash of every file in the tree unchanged
 afterwards. One proof is about what the code says; the other is about what it
@@ -847,16 +847,28 @@ def cmd_batch(args, top):
 # --------------------------------------------------------------------------- #
 # reconcile
 #
-# === reconcile: read-only region BEGIN ===
+# === RECONCILE-READ-ONLY-REGION-BEGIN ===
 #
 # Everything between this marker and the END one speaks to git in read
-# invocations only. tests/cairn-parallel.bats greps this exact region — with
-# comment lines filtered out, because the comments in here NAME the verbs they
-# forbid and a grep over the raw text would invalidate itself — for bd write
-# verbs (create / update / close / reopen), cairn-journal write subcommands
-# (observe / lease / append) and writing git verbs (merge, checkout, commit,
-# reset, clean, stash, branch, worktree, apply), and asserts there are none.
-# Adding one here without noticing is exactly what that test exists to stop.
+# invocations only. tests/cairn-parallel.bats extracts exactly this region and
+# asserts none of the following appears in it: the bd write verbs "create",
+# "update", "close", "reopen"; the cairn-journal write subcommands "observe",
+# "lease", "append"; or a writing git subcommand at the head of an argument
+# list — ["merge", ["checkout", ["commit", ["reset", ["clean", ["stash",
+# ["branch", ["worktree", ["apply", ["push", ["rebase". Adding one here
+# without noticing is exactly what that test exists to stop.
+#
+# (Head-of-list is how the git ones are matched because "branch" and
+# "worktree" are also legitimate KEYS in this script's own JSON output, while
+# ["branch" can only ever be an invocation of `git branch`. Read subcommands
+# survive it for free: ["merge-base" and ["merge-tree" do not match ["merge".)
+#
+# That test filters `^#` comment lines FIRST, and this banner is why: it has
+# to name the forbidden tokens in the very shape the grep looks for, or it
+# would be stating a rule in words the check cannot see. A grep over the
+# unfiltered text therefore matches this comment — which the test also
+# asserts, so the filter cannot be quietly dropped and turned into a check
+# that only ever reads comments. The filter is load-bearing, not decoration.
 # The companion proof is the mutation test: reconcile runs against a real
 # fixture and the tree, the branch heads and every file hash come out
 # unchanged. See the module docstring for why both proofs, not one.
@@ -1194,7 +1206,7 @@ def cmd_reconcile(args, top):
 
 
 # --------------------------------------------------------------------------- #
-# === reconcile: read-only region END ===
+# === RECONCILE-READ-ONLY-REGION-END ===
 # --------------------------------------------------------------------------- #
 
 
