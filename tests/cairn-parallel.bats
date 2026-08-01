@@ -51,6 +51,16 @@ realpath_of() {
 # Exports MAIN_ROOT (git's PHYSICAL toplevel — on macOS TMPDIR resolves
 # through a /var -> /private/var symlink, so bash's $PWD is not the same
 # string the scripts see).
+#
+# The .gitignore is not decoration, and it was added by measurement rather
+# than by taste. `prepare` acquires the phase lease from inside the new
+# worktree, cairn-lease.py journals that acquisition, and the journal lands in
+# `<worktree>/.cairn/journal.jsonl` — the split cairn-parallel.py's own
+# docstring records. Without an ignore rule, `git status --porcelain` in every
+# freshly prepared worktree reports `?? .cairn/`, so the tree is permanently
+# "dirty" and `cleanup` could never call any of them removable. cairn's own
+# repo ignores exactly that path (`.gitignore:8: .cairn/journal.jsonl*`), so a
+# fixture without the rule is the unfaithful one.
 make_parallel_fixture() {
   make_tmp_repo
   bd init -q --prefix par --non-interactive >/dev/null 2>&1
@@ -60,7 +70,8 @@ make_parallel_fixture() {
   echo "phase 3" > .planning/phases/03-gamma/03-01-PLAN.md
   echo "phase 7" > .planning/phases/07-alpha/07-01-PLAN.md
   echo "phase 9" > .planning/phases/09-beta/09-01-PLAN.md
-  git add .planning >/dev/null
+  printf '.cairn/journal.jsonl*\n' > .gitignore
+  git add .planning .gitignore >/dev/null
   git commit -qm "fixture: planning tree"
   MAIN_ROOT="$(git rev-parse --show-toplevel)"
 }
@@ -532,7 +543,7 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   assert_json_eq "$output" '.lease.holder' "$wt_real"
 }
 
-@test "cairn-parallel.sh with no subcommand exits 2; --help lists batch, prepare and reconcile" {
+@test "cairn-parallel.sh with no subcommand exits 2; --help lists batch, prepare, reconcile and cleanup" {
   run bash "$PARALLEL"
   [ "$status" -eq 2 ]
   refute_in_output "Traceback"
@@ -542,6 +553,7 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   grep -qF "batch" <<<"$output"
   grep -qF "prepare" <<<"$output"
   grep -qF "reconcile" <<<"$output"
+  grep -qF "cleanup" <<<"$output"
 }
 
 #=============================================================================
@@ -1116,4 +1128,444 @@ PYEOF
   # check into one that only ever reads comments.
   run bash -c "grep -Ec '\[\"(merge|checkout|commit|reset|clean|stash|branch|worktree|apply|push|rebase)\"' '$BATS_TEST_TMPDIR/region-raw.py'"
   [ "$output" -gt 0 ]
+}
+
+#=============================================================================
+# Plan 18-03 — cleanup.
+#
+# WHAT THESE TESTS PROVE, AND WHAT THEY DO NOT, said once here rather than
+# implied: NOTHING below proves that two LLM agents ran at the same time. No
+# bats file can prove that, because what spawns an agent is prose read by a
+# model. What they prove, with real processes and real signals, is the
+# mechanical half PAR-05 actually asks for — killing one writer mid-flight
+# does not corrupt the other tree, the other run reaches its end, and the
+# dead run's lease is detectable and releasable.
+#
+# The detection claim under test is MECHANICAL, not temporal: the holder is a
+# worktree path, so a holder outside `git worktree list` is an owner that does
+# not exist. The SIGKILL test asserts `.orphan_leases[0].stale == false` for
+# exactly that reason — the lease it names was acquired seconds earlier and,
+# at a 4h TTL, would not be stale for another four hours. Swap the rule for
+# "release every stale lease" and that test finds nothing at all.
+#=============================================================================
+
+# Poll for a file to appear, the way tests/hooks.bats waits for a background
+# side effect. Never a fixed `sleep`: the point is to observe the effect, not
+# to guess how long producing it takes.
+wait_for_file() {
+  local i
+  for i in $(seq 1 100); do
+    [ -e "$1" ] && return 0
+    sleep 0.1
+  done
+  echo "timed out waiting for $1" >&2
+  return 1
+}
+
+# The writer that gets killed. Writes one file, then blocks in a loop on a
+# stop file that never appears, then would write a second file. The loop is
+# deliberately NOT `sleep 300`: a SIGKILL to this script cannot kill a child
+# it is already blocked in, and a 300-second orphan holding the inherited
+# pipe would outlive the whole suite. A 0.2s sleep orphan is gone before the
+# next assertion.
+write_writer_a() {
+  cat > "$BATS_TEST_TMPDIR/writer-a.sh" <<'EOF'
+#!/usr/bin/env bash
+# $1 = worktree, $2 = a stop file that is never created
+set -eu
+echo "alpha wrote this much before it was killed" > "$1/a-step-1.txt"
+while [ ! -f "$2" ]; do sleep 0.2; done
+echo "alpha never reaches this line" > "$1/a-step-2.txt"
+EOF
+}
+
+# The writer that survives. Announces it is mid-flight, waits until the test
+# has actually killed the other one, and only THEN finishes: writes, commits
+# on its own branch, and releases its own lease. The wait is what makes the
+# kill happen while this one is genuinely in flight rather than after it.
+write_writer_b() {
+  cat > "$BATS_TEST_TMPDIR/writer-b.sh" <<'EOF'
+#!/usr/bin/env bash
+# $1 = worktree, $2 = ready marker, $3 = go marker, $4 = done marker,
+# $5 = cairn-lease.sh, $6 = main root
+set -eu
+echo "beta step one" > "$1/b-step-1.txt"
+: > "$2"
+while [ ! -f "$3" ]; do sleep 0.05; done
+echo "beta step two" > "$1/b-step-2.txt"
+git -C "$1" add -A
+git -C "$1" commit -qm "phase 9 finished after phase 7 was killed"
+bash "$5" release 9 --project-dir "$6" >/dev/null
+: > "$4"
+EOF
+}
+
+#-----------------------------------------------------------------------------
+# Task 2, the one PAR-05 is about: a real SIGKILL, mid-flight.
+#
+# How to break it, and what each break costs:
+#   - replace the inventory comparison with a TTL check ("release every stale
+#     lease") and the orphan lease is not found at all: it was acquired
+#     seconds ago and the TTL is four hours. That is the assertion
+#     `.orphan_leases[0].stale == false` pins down.
+#   - drop the `prunable`/isdir filter from the live-worktree set and the dead
+#     holder still counts as live, so the lease is never named either.
+#-----------------------------------------------------------------------------
+
+@test "cleanup: a SIGKILLed run corrupts nothing, the other run finishes, and the dead lease is named an orphan while it is still far from stale" {
+  require_bd
+  make_parallel_fixture
+  write_writer_a
+  write_writer_b
+
+  run bash "$PARALLEL" prepare 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  local wt_a
+  wt_a="$(jq -r '.worktree' <<<"$output")"
+  local holder_a
+  holder_a="$(jq -r '.lease.holder' <<<"$output")"
+
+  run bash "$PARALLEL" prepare 9 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  local wt_b
+  wt_b="$(jq -r '.worktree' <<<"$output")"
+
+  local never="$BATS_TEST_TMPDIR/never-created"
+  local ready="$BATS_TEST_TMPDIR/b-ready"
+  local go="$BATS_TEST_TMPDIR/a-is-dead"
+  local done_marker="$BATS_TEST_TMPDIR/b-done"
+
+  # stdout/stderr go to /dev/null so no background child holds the pipe bats
+  # is reading the test's own output through.
+  bash "$BATS_TEST_TMPDIR/writer-a.sh" "$wt_a" "$never" >/dev/null 2>&1 &
+  local pid_a=$!
+  bash "$BATS_TEST_TMPDIR/writer-b.sh" "$wt_b" "$ready" "$go" "$done_marker" \
+    "$LEASE" "$MAIN_ROOT" >/dev/null 2>&1 &
+  local pid_b=$!
+
+  # Both are provably mid-flight before anything is killed.
+  wait_for_file "$wt_a/a-step-1.txt"
+  wait_for_file "$ready"
+
+  kill -9 "$pid_a"
+  local a_status=0
+  wait "$pid_a" || a_status=$?
+  # 128+9. This is the assertion that the kill was real: a simulated one
+  # cannot produce it.
+  [ "$a_status" -eq 137 ]
+  : > "$go"
+
+  wait_for_file "$done_marker"
+  local b_status=0
+  wait "$pid_b" || b_status=$?
+  [ "$b_status" -eq 0 ]
+
+  # (1) the survivor reached its end.
+  [ -f "$wt_b/b-step-1.txt" ]
+  [ -f "$wt_b/b-step-2.txt" ]
+  run git -C "$wt_b" log -1 --format=%s
+  [ "$output" = "phase 9 finished after phase 7 was killed" ]
+  run bash "$LEASE" status 9 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'false'
+
+  # (2) nothing crossed a tree boundary. The half-written run's file exists
+  # ONLY where it was written, and its second write never happened anywhere.
+  [ -f "$wt_a/a-step-1.txt" ]
+  [ ! -f "$wt_a/a-step-2.txt" ]
+  [ ! -f "$MAIN_ROOT/a-step-1.txt" ]
+  [ ! -f "$wt_b/a-step-1.txt" ]
+  [ ! -f "$MAIN_ROOT/b-step-1.txt" ]
+
+  # (3) the dead run's lease is still held, and is NOT stale — a TTL-based
+  # sweep would look at this and see nothing wrong.
+  run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+  assert_json_eq "$output" '.stale' 'false'
+
+  # (4) what a dead run leaves behind once nobody cleans up after it.
+  rm -rf "$wt_a"
+  local list_before
+  list_before="$(git -C "$MAIN_ROOT" worktree list)"
+
+  run bash "$PARALLEL" cleanup --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  local report
+  report="$output"
+  assert_json_eq "$report" '.orphan_registrations | length' '1'
+  assert_json_eq "$report" '.orphan_registrations[0].branch' 'phase/7-alpha'
+  assert_json_eq "$report" '.orphan_leases | length' '1'
+  assert_json_eq "$report" '.orphan_leases[0].phase' '7'
+  assert_json_eq "$report" '.orphan_leases[0].holder' "$holder_a"
+  # THE assertion of this plan: named by mechanism, while the clock still
+  # says everything is fine.
+  assert_json_eq "$report" '.orphan_leases[0].stale' 'false'
+  assert_json_eq "$report" '.stale_but_live | length' '0'
+  # The survivor's tree is retained, not removed: it carries a commit HEAD
+  # does not have.
+  assert_json_eq "$report" '.removable | length' '0'
+  assert_json_eq "$report" '.retained | length' '1'
+  assert_json_eq "$report" '.retained[0].branch' 'phase/9-beta'
+  assert_json_eq "$report" '.retained[0].reasons | join(";") | contains("not merged into HEAD")' 'true'
+  # Read-only by default, in every branch of the code: nothing moved.
+  assert_json_eq "$report" '.applied | length' '0'
+  [ "$(git -C "$MAIN_ROOT" worktree list)" = "$list_before" ]
+  run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
+  assert_json_eq "$output" '.held' 'true'
+
+  # (5) and now the repair, which is the other half of "leaves no
+  # unreleasable lease".
+  run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.applied[] | select(.action == "worktree_prune")] | length' '1'
+  assert_json_eq "$output" '[.applied[] | select(.action == "lease_release")] | length' '1'
+  assert_json_eq "$output" '[.applied[] | select(.action == "worktree_remove")] | length' '0'
+
+  run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'false'
+  # The registration is gone from git's inventory, and the survivor is not.
+  run git -C "$MAIN_ROOT" worktree list
+  refute_in_output "$wt_a"
+  grep -qF "$wt_b" <<<"$output"
+  [ -d "$wt_b" ]
+  [ -f "$wt_b/b-step-2.txt" ]
+}
+
+#-----------------------------------------------------------------------------
+# Task 2: the counter-proof. A stale lease whose holder is STILL a live
+# worktree is reported and never released, and the tree it owns is never
+# removed.
+#
+# How to break it: make the orphan rule "release every stale lease" — the
+# thing a TTL-shaped implementation would naturally do — and this test goes
+# red twice over, because the entry moves out of stale_but_live and phase 7's
+# lease comes back held=false. A live agent that merely stopped heartbeating
+# would have been evicted (T-18-11).
+#-----------------------------------------------------------------------------
+
+@test "cleanup reports a stale lease whose holder is a live worktree and, even with --apply, neither releases it nor removes its tree" {
+  require_bd
+  make_parallel_fixture
+
+  run bash "$PARALLEL" prepare 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  local wt holder
+  wt="$(jq -r '.worktree' <<<"$output")"
+  holder="$(jq -r '.lease.holder' <<<"$output")"
+
+  run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  local lease_id acquired_at
+  lease_id="$(jq -r '.id' <<<"$output")"
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+
+  # Age the heartbeat past the 4h TTL through bd directly — no sleeping, and
+  # no cairn script involved in producing the state under test.
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
+")"
+  run bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":7,\"holder\":\"$holder\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}"
+  [ "$status" -eq 0 ]
+  run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
+  assert_json_eq "$output" '.stale' 'true'
+
+  run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.stale_but_live | length' '1'
+  assert_json_eq "$output" '.stale_but_live[0].phase' '7'
+  assert_json_eq "$output" '.stale_but_live[0].holder' "$holder"
+  assert_json_eq "$output" '.orphan_leases | length' '0'
+  assert_json_eq "$output" '[.applied[] | select(.action == "lease_release")] | length' '0'
+  # The tree is clean and carries no commit HEAD lacks, so the ONLY thing
+  # keeping it out of `removable` is the lease it still holds.
+  assert_json_eq "$output" '.removable | length' '0'
+  assert_json_eq "$output" '.retained | length' '1'
+  assert_json_eq "$output" '.retained[0].reasons | length' '1'
+  assert_json_eq "$output" '.retained[0].reasons | join(";") | contains("still held by this worktree")' 'true'
+
+  # Still held, still there.
+  run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+  assert_json_eq "$output" '.holder' "$holder"
+  [ -d "$wt" ]
+}
+
+#-----------------------------------------------------------------------------
+# Task 2: the ordinary end of a phase, and the line between the two verdicts.
+#
+# The setup merges phase/7-alpha in the fixture's own tree ON PURPOSE, which
+# the 18-02 rule about throwaway clones does not forbid: that rule exists
+# because a merge moves a branch and poisons a later `merge-base`, and nothing
+# here measures a merge-base afterwards. `HEAD..<branch>` is precisely the
+# measurement this merge is supposed to change.
+#
+# How to break it: drop the `rev-list --count HEAD..<branch>` check and phase
+# 9's worktree — carrying a commit that exists nowhere else — moves into
+# `removable`, so --apply deletes the tree AND the only branch holding that
+# commit.
+#-----------------------------------------------------------------------------
+
+@test "cleanup calls a clean, wholly merged phase worktree removable and an unmerged one retained; --apply removes only the first" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  ( cd "$MAIN_ROOT-phase-7" && echo "alpha work" > alpha.txt \
+    && git add alpha.txt && git commit -qm "phase 7 work" )
+  git -C "$MAIN_ROOT" merge -q --no-edit phase/7-alpha
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-9" -b phase/9-beta
+  ( cd "$MAIN_ROOT-phase-9" && echo "beta work" > beta.txt \
+    && git add beta.txt && git commit -qm "phase 9 work" )
+
+  local list_before digest_7
+  list_before="$(git -C "$MAIN_ROOT" worktree list)"
+  digest_7="$(cat "$MAIN_ROOT-phase-7/alpha.txt")"
+
+  run bash "$PARALLEL" cleanup --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.apply' 'false'
+  assert_json_eq "$output" '.removable | length' '1'
+  assert_json_eq "$output" '.removable[0].phase' '7'
+  assert_json_eq "$output" '.removable[0].branch' 'phase/7-alpha'
+  assert_json_eq "$output" '.retained | length' '1'
+  assert_json_eq "$output" '.retained[0].phase' '9'
+  assert_json_eq "$output" '.retained[0].reasons | join(";") | contains("1 commit(s) not merged into HEAD")' 'true'
+  assert_json_eq "$output" '.retained[0].manual_command | contains("merge phase/9-beta")' 'true'
+  assert_json_eq "$output" '.applied | length' '0'
+
+  # Reporting wrote nothing: both trees are still registered and still there.
+  [ "$(git -C "$MAIN_ROOT" worktree list)" = "$list_before" ]
+  [ -d "$MAIN_ROOT-phase-7" ]
+  [ -d "$MAIN_ROOT-phase-9" ]
+  [ "$(cat "$MAIN_ROOT-phase-7/alpha.txt")" = "$digest_7" ]
+
+  run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.applied | length' '1'
+  assert_json_eq "$output" '.applied[0].action' 'worktree_remove'
+  assert_json_eq "$output" '.applied[0].ok' 'true'
+  assert_json_eq "$output" '.applied[0].branch_deleted' 'true'
+
+  [ ! -d "$MAIN_ROOT-phase-7" ]
+  run git -C "$MAIN_ROOT" rev-parse --verify --quiet refs/heads/phase/7-alpha
+  [ "$status" -ne 0 ]
+  # Costly, not one-way: the commit itself survives in HEAD, which is the
+  # whole reason deleting the branch was allowed at all.
+  [ -f "$MAIN_ROOT/alpha.txt" ]
+
+  # The unmerged one is untouched, branch and commit included.
+  [ -d "$MAIN_ROOT-phase-9" ]
+  [ -f "$MAIN_ROOT-phase-9/beta.txt" ]
+  run git -C "$MAIN_ROOT" rev-parse --verify --quiet refs/heads/phase/9-beta
+  [ "$status" -eq 0 ]
+}
+
+#-----------------------------------------------------------------------------
+# Task 2: uncommitted work is the one state git cannot recreate, so it is the
+# one state --apply must never reach — and the stash it must never reach for.
+#
+# `refs/stash` is SHARED across every worktree of a repo, so a "helpful" stash
+# here would push a sibling agent's unsaved work onto a stack every other tree
+# can see and pop. Asserting the ref does not exist is what makes that a
+# checked property instead of a promise in a docstring.
+#
+# How to break it: drop the `git status --porcelain` check from the retained
+# rule and this worktree — clean by every other measure, since its branch is
+# level with HEAD — is removed with its unsaved file inside it.
+#-----------------------------------------------------------------------------
+
+@test "cleanup --apply never removes a worktree with uncommitted work, and never creates a stash entry" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  # Both shapes of unsaved work: an untracked file and a modified tracked one.
+  echo "unsaved work nobody else has a copy of" \
+    > "$MAIN_ROOT-phase-7/wip.txt"
+  echo "edited in place" \
+    >> "$MAIN_ROOT-phase-7/.planning/phases/07-alpha/07-01-PLAN.md"
+
+  run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.retained | length' '1'
+  assert_json_eq "$output" '.retained[0].branch' 'phase/7-alpha'
+  assert_json_eq "$output" '.retained[0].reasons | join(";") | contains("uncommitted changes")' 'true'
+  assert_json_eq "$output" '.retained[0].manual_command | contains("status --short")' 'true'
+  assert_json_eq "$output" '.removable | length' '0'
+  assert_json_eq "$output" '.applied | length' '0'
+
+  # Exactly where it was, byte for byte.
+  [ -d "$MAIN_ROOT-phase-7" ]
+  [ "$(cat "$MAIN_ROOT-phase-7/wip.txt")" = "unsaved work nobody else has a copy of" ]
+  run git -C "$MAIN_ROOT-phase-7" status --porcelain
+  grep -qF "wip.txt" <<<"$output"
+
+  # Nothing was pushed onto the shared stash stack — not here, and therefore
+  # not into any sibling worktree either.
+  run git -C "$MAIN_ROOT" rev-parse --verify --quiet refs/stash
+  [ "$status" -ne 0 ]
+  run git -C "$MAIN_ROOT" stash list
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+#-----------------------------------------------------------------------------
+# Task 2: an inventory that cannot be trusted stops the sweep instead of
+# emptying it.
+#
+# This is the T-18-11 guard at its sharpest: with an empty `git worktree
+# list`, EVERY holder in the repo is "not a live worktree", so a version
+# without this check would report every lease in the repo as an orphan and
+# release the lot under --apply.
+#-----------------------------------------------------------------------------
+
+@test "cleanup exits 4, deciding nothing, when git worktree list comes back without the main checkout in it" {
+  require_bd
+  make_parallel_fixture
+
+  run bash "$PARALLEL" prepare 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+
+  local blind="$BATS_TEST_TMPDIR/blind-git"
+  mkdir -p "$blind"
+  local real
+  real="$(command -v git)"
+  cat > "$blind/git" <<EOF
+#!/usr/bin/env bash
+# \`git worktree list\` answers with nothing at all; everything else is the
+# real binary, captured by absolute path so the shim cannot recurse.
+seen_worktree=0
+for a in "\$@"; do
+  [ "\$a" = "worktree" ] && seen_worktree=1
+  if [ "\$seen_worktree" = "1" ] && [ "\$a" = "list" ]; then
+    exit 0
+  fi
+done
+exec "$real" "\$@"
+EOF
+  chmod +x "$blind/git"
+
+  run env PATH="$blind:$PATH" \
+    bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 4 ]
+  refute_in_output "Traceback"
+  grep -qF "refusing" <<<"$output"
+
+  # It decided nothing: the lease it would otherwise have called an orphan is
+  # exactly as it was.
+  run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+
+  # And on the real git the same repo is a perfectly ordinary sweep.
+  run bash "$PARALLEL" cleanup --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.orphan_leases | length' '0'
 }
