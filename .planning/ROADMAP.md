@@ -230,9 +230,14 @@ resultado paralelo só é confiável se as fontes puderem ser corroboradas.
 versão bumpada onde ela vive, tag anotada e release publicada.
 
 **Goal:** o trabalho das seis fases anteriores chega a quem instalou o plugin.
-Hoje o CHANGELOG para na 1.4.2 e a versão vive em dois arquivos que ninguém
+Hoje o CHANGELOG para na 1.4.2 e a versão vive em **três** arquivos que ninguém
 garante estarem em lockstep. Esta fase fecha o ciclo — e é a única do milestone
 cujo produto é lido por quem não abriu este repositório.
+
+*Corrigido no planejamento (2026-08-01): esta linha dizia "dois arquivos". O
+`.claude-plugin/marketplace.json` também carrega a versão, em `metadata.version`,
+e passou despercebido por três releases seguidas — o que é o argumento do REL-02,
+não uma objeção a ele.*
 
 **Requirements**: REL-01, REL-02, REL-03, REL-04
 
@@ -242,15 +247,25 @@ cujo produto é lido por quem não abriu este repositório.
    plugin** — não uma lista de commits nem de nomes de função. Uma pessoa que
    nunca leu este roadmap entende o que ganhou.
 2. A versão é bumpada em todo arquivo que a carrega, verificado por um comando que
-   os compara — hoje são `cairn/.claude-plugin/plugin.json` e
-   `cairn/capability/capability.json`, versionados de forma independente e sem
-   nada que prove que combinam.
+   os compara — são `cairn/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`
+   (em `metadata.version`) e o topo do `CHANGELOG.md`, hoje versionados de forma
+   independente e sem nada que prove que combinam. O
+   `cairn/capability/capability.json` é eixo próprio e só precisa ser semver válido
+   (D-02): a capability é instalada dentro do gsd-core e tem ciclo próprio.
 3. A tag é anotada e a release publicada, com notas derivadas do CHANGELOG em vez
    de reescritas à mão — duas fontes divergem, e as notas publicadas são a que o
    usuário lê.
 4. A release diz o que quem já tem o plugin instalado precisa fazer, ou diz
    explicitamente que não precisa fazer nada. As três releases 1.4.x desta semana
    existiram porque essa pergunta ficou sem resposta.
+
+**Plans**: 4 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — Comando que verifica as versões (3 portadores + tag), com a checagem no doctor (REL-02)
+- [ ] 19-02-PLAN.md — Seção 1.5.0 do CHANGELOG em termos de usuário + bump dos portadores (REL-01)
+- [ ] 19-03-PLAN.md — cairn-init passa a ignorar todo arquivo gerado sob `.cairn/`, que é a resposta de migração (REL-04)
+- [ ] 19-04-PLAN.md — Notas derivadas do CHANGELOG, tag anotada local, publicação entregue ao humano (REL-03)
 
 **Research durante o planejamento:** não precisa. O procedimento está estabelecido
 pelas releases 1.4.0, 1.4.1 e 1.4.2, e o formato do CHANGELOG segue Keep a
