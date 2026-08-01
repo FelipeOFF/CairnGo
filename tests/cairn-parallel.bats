@@ -1023,3 +1023,97 @@ EOF
   refute_in_output "Traceback"
 }
 
+#-----------------------------------------------------------------------------
+# Task 3: the non-write guarantee, proven twice — by mutation against a real
+# fixture, and statically over the source. Phase 17 used both for
+# cairn-reconcile.py for the same reason: one proof is about what the code
+# does, the other about what it says, and neither substitutes for the other.
+#-----------------------------------------------------------------------------
+
+# sha256 of every file in DIR outside .git, path-sorted. The `.git` exclusion
+# is deliberate and named in the test: `merge-tree --write-tree` DOES add
+# loose objects to the object database — that is what lets it compute a merge
+# with no working tree — while moving no ref and touching no file. Branch
+# heads are snapshotted separately, which is the part that would actually
+# matter.
+tree_digest() {
+  python3 - "$1" <<'PYEOF'
+import hashlib, os, sys
+root = sys.argv[1]
+rows = []
+for dirpath, dirnames, filenames in os.walk(root):
+    dirnames[:] = sorted(d for d in dirnames if d != ".git")
+    for name in sorted(filenames):
+        path = os.path.join(dirpath, name)
+        with open(path, "rb") as fh:
+            rows.append(os.path.relpath(path, root) + "  "
+                        + hashlib.sha256(fh.read()).hexdigest())
+print("\n".join(sorted(rows)))
+PYEOF
+}
+
+@test "read-only, by mutation: reconcile leaves the working tree, every phase/* head and every file hash exactly as it found them" {
+  make_incident_fixture
+
+  local status_before heads_before digest_before
+  status_before="$(git -C "$MAIN_ROOT" status --porcelain)"
+  heads_before="$(git -C "$MAIN_ROOT" for-each-ref \
+    --format='%(refname:short) %(objectname)' refs/heads/)"
+  digest_before="$(tree_digest "$MAIN_ROOT")"
+
+  # The run that has the most to do: it finds something, so every code path
+  # that could have written is exercised.
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 6 ]
+  assert_json_eq "$output" '.pairs[0].convergent_edits | length' '1'
+
+  [ "$(git -C "$MAIN_ROOT" status --porcelain)" = "$status_before" ]
+  [ "$(git -C "$MAIN_ROOT" for-each-ref \
+       --format='%(refname:short) %(objectname)' refs/heads/)" = "$heads_before" ]
+  [ "$(tree_digest "$MAIN_ROOT")" = "$digest_before" ]
+  # A merge, a checkout or a commit would have left one of these behind.
+  [ ! -f "$MAIN_ROOT/.git/MERGE_HEAD" ]
+  [ "$(git -C "$MAIN_ROOT" rev-parse --abbrev-ref HEAD)" = "$BASE_BRANCH" ]
+}
+
+@test "read-only, statically: the reconcile region of the source carries no bd write verb, no journal write subcommand and no writing git verb" {
+  local src="$CAIRN_SCRIPTS_DIR/cairn-parallel.py"
+  [ -f "$src" ]
+
+  # The region is delimited by markers in the source itself, because the
+  # claim is about `reconcile` — `prepare` legitimately creates worktrees and
+  # takes leases a few hundred lines above.
+  local region="$BATS_TEST_TMPDIR/reconcile-region.py"
+  awk '/RECONCILE-READ-ONLY-REGION-BEGIN/,/RECONCILE-READ-ONLY-REGION-END/' \
+    "$src" > "$BATS_TEST_TMPDIR/region-raw.py"
+  grep -v '^#' "$BATS_TEST_TMPDIR/region-raw.py" > "$region"
+
+  # The extraction found the real thing, and ONLY the real thing. Without
+  # these three, every count below would be a vacuous zero — and a range that
+  # over-matched into `prepare` (which legitimately creates worktrees and
+  # deletes branches) would fail for the opposite reason.
+  grep -qF "def cmd_reconcile" "$region"
+  grep -qF "def convergent_edits" "$region"
+  [ "$(grep -c . "$region")" -gt 100 ]
+  run bash -c "grep -cF 'def cmd_prepare' '$region'"
+  [ "$output" -eq 0 ]
+
+  run bash -c "grep -Ec '\"(create|update|close|reopen)\"' '$region'"
+  [ "$output" -eq 0 ]
+  run bash -c "grep -Ec '\"(observe|lease|append)\"' '$region'"
+  [ "$output" -eq 0 ]
+  # Head-of-argument-list, because "branch" and "worktree" are also honest
+  # JSON keys in this script's own output while `["branch"` can only be an
+  # invocation of `git branch`. Read subcommands survive for free:
+  # `["merge-base"` and `["merge-tree"` do not match `["merge"`.
+  run bash -c "grep -Ec '\[\"(merge|checkout|commit|reset|clean|stash|branch|worktree|apply|push|rebase)\"' '$region'"
+  [ "$output" -eq 0 ]
+
+  # The comment filter is load-bearing, not decoration: the region's own
+  # banner NAMES those tokens in the shape the grep looks for, so the same
+  # check over the UNFILTERED text finds them. Asserting that here is what
+  # keeps someone from "simplifying" the filter away and quietly turning the
+  # check into one that only ever reads comments.
+  run bash -c "grep -Ec '\[\"(merge|checkout|commit|reset|clean|stash|branch|worktree|apply|push|rebase)\"' '$BATS_TEST_TMPDIR/region-raw.py'"
+  [ "$output" -gt 0 ]
+}
