@@ -8,15 +8,18 @@ until this script nobody consumed that answer: the loop announced parallelism
 and then ran in single file. That gap is the dishonesty this milestone exists
 to remove, and this file is the missing consumer.
 
-Two verbs ship here; `reconcile` (plan 18-02) and `cleanup` (18-03) land in
-this SAME file later, which is why argparse arrives with subparsers from the
-first commit.
+Three verbs ship now; `cleanup` (18-03) lands in this SAME file later, which
+is why argparse arrived with subparsers from the first commit.
 
     batch      what can run at once, with each phase's branch name and
                worktree path already resolved — the text /cairn:autonomous
                step 0.4 announces before it spawns anything.
     prepare N  create that named worktree for phase N and take phase N's
                lease pointing AT it.
+    reconcile  read-only report over the branches `prepare` named: what each
+               phase produced, the merge conflicts git will raise, and — the
+               part nobody else does — the CONVERGENT EDIT git resolves in
+               silence.
 
 
 WHY CAIRN NAMES THE WORKTREE, NOT THE HARNESS (D-01)
@@ -132,14 +135,141 @@ what `batch` announces as `branch`/`worktree` has to be byte-for-byte what
 two phases and compares by realpath is what makes it PROVEN.
 
 
+WHAT `reconcile` IS FOR: THE EDIT GIT RESOLVES IN SILENCE (D-02)
+-----------------------------------------------------------------
+The division of labour is the whole design. git reports merge conflicts, and
+it reports them well; nobody needs cairn for that. What only cairn can report
+is the ACCIDENTAL AGREEMENT — the line both branches changed to the SAME
+value, which git merges without a word precisely because the two sides are
+byte-identical. `reconcile` reports both, but only the second is a claim git
+does not already make.
+
+It exists because it happened, here. Phases 14 and 15 of this milestone were
+executed in parallel, in two worktrees, and merged. Each had added one check,
+so each changed the same count from 13 to 14, for its own reason. git saw two
+identical changes and took one. The merged tree carried 15 checks, a docstring
+saying 14, and TWO items numbered 13.
+
+Measured on the two REAL parents of that merge (b9c608f / b0466aa of 672e754),
+not reconstructed from memory:
+
+    $ git merge-tree --write-tree b9c608f b0466aa        # exit 1
+    CONFLICT (content): Merge conflict in cairn/docs/commands/doctor.md
+    Auto-merging cairn/scripts/cairn-doctor.py
+    Auto-merging tests/cairn-doctor.bats
+
+One conflict, and in a DIFFERENT file. The two files carrying the damage —
+each holding the convergent count AND the distinct block its own phase had
+added — merged clean. `Auto-merging <path>` is not a warning about anything:
+it is git saying it joined that file with no trouble at all.
+
+The same shape, rebuilt as this plan's fixture and measured again: the count
+on line 1 convergent on both sides, each branch adding its own block at its
+own distant marker. `merge-tree --write-tree` exits 0 with no CONFLICT line at
+all; the real `git merge` exits 0 printing `Auto-merging checks.txt` and
+`1 file changed, 1 insertion(+)`; and the merged file reads `checks = 14` with
+two items numbered `check 13`. The entire incident, duplicate numbering
+included, inside a merge git called clean.
+
+Distance is what decides, not same-file-ness. The convergence and the
+divergence can live in one file without conflicting, as long as they are far
+enough apart — which is exactly what made the real merge look fine.
+
+
+HOW THE CONVERGENT EDIT IS DETECTED, AND EXACTLY WHAT THAT CLAIM COVERS
+------------------------------------------------------------------------
+For every unordered pair of phase branches: base = `git merge-base X Y`. Each
+side's `git diff -U0 <base>..<side>` is parsed into, per file, a list of
+`(start in the base, how many base lines are replaced, the new lines
+verbatim)`. A CONVERGENT EDIT is declared when a file appears on BOTH sides
+carrying a hunk whose base range is EQUAL on both sides and whose new block of
+lines is byte-for-byte identical. Nothing looser than that.
+
+The measured hunks of the fixture above are what strict equality catches:
+
+    base..X    @@ -1 +1 @@    -checks = 13    +checks = 14
+    base..Y    @@ -1 +1 @@    -checks = 13    +checks = 14
+
+An identical-and-empty new block (both sides deleting the same base range) is
+convergent by the same rule and for the same reason: two silent agreements
+about what should go away is still an agreement nobody reviewed.
+
+What the claim does NOT cover, said out loud so nobody reads more into it:
+partial overlap with different content is a CONFLICT, and conflicts are git's
+job. This script asserts exactly what it measured and no more.
+
+MEASURED LIMIT, with the arrangement that produces it. When a branch's added
+block sits ADJACENT to the convergent line, `-U0` coalesces the two changes
+into a single hunk:
+
+    base..A    @@ -1 +1,2 @@        base..B    @@ -1 +1,2 @@
+
+The base ranges now match while the new blocks differ, so convergence is NOT
+declared. In that same arrangement git itself conflicts (`merge-tree` exits 1,
+`CONFLICT (content)`), so the operator is stopped anyway: the detector's gap
+coincides with git's catch. This is recorded as a measured limit rather than
+discovered later as a bug, which is the difference between "does not cover"
+and "covers and stays quiet".
+
+
+WHY `reconcile` ONLY READS COMMITTED REFS, AND WRITES NOTHING
+--------------------------------------------------------------
+Every fact in the report comes from `git for-each-ref`, `git rev-list`,
+`git diff`, `git merge-base` and `git merge-tree` over committed refs. No path
+inside a live phase worktree is ever opened. A parallel agent is still editing
+those files while this runs, and a report built from a half-written file is
+confidently wrong (Pitfall 15).
+
+`reconcile` performs no merge, no checkout and no write. It cannot resolve a
+conflict — silently or otherwise — because resolving is not among the things
+it is able to do. That is a property of the code, not a promise of prose, and
+it is proven twice, the way phase 17 proved the same thing for
+cairn-reconcile.py. First, a grep over the region delimited by the
+`reconcile: read-only region BEGIN` / `END` markers, with comment lines
+filtered out (the comments in there DISCUSS the verbs they forbid, so a grep
+over the raw text would invalidate itself), finds no bd write verb, no
+cairn-journal write subcommand, and no writing git verb. Second, a bats test
+runs the command against a real fixture and shows `git status --porcelain`,
+every `phase/*` branch head, and a hash of every file in the tree unchanged
+afterwards. One proof is about what the code says; the other is about what it
+does, and neither substitutes for the other.
+
+`merge-tree --write-tree` does add loose objects to the object database — that
+is precisely what lets it compute a merge without a working tree. It moves no
+ref and touches no file, which is why the mutation test above is the right
+shape of proof for it.
+
+
+WHY A CLEAN REPORT AND AN UNKNOWN ONE ARE NOT THE SAME EXIT (Pitfall 3)
+------------------------------------------------------------------------
+`git merge-tree --write-tree` needs git 2.38+. On an older git the option does
+not exist, and the honest answer there is not an empty conflict list: an empty
+list reads as "clean", and failing open into a false all-clear reproduces the
+exact bug this milestone exists to kill. So `conflicts` becomes null,
+`conflicts_note` says why and says git will report them at merge time, and the
+exit is 6 all the same — the script cannot say the merge is clean, so it does
+not say it. Every report carries `git_version` for the same reason.
+
+Exit 6 (EXIT_FINDINGS) is a report, not a verdict: it fires on a convergent
+edit, on a conflict, and on not-knowing. A planning write does NOT change it —
+D-03's reporting half is a named finding, and "fail the reconciliation when a
+phase branch touched a planning file" is deliberately parked in
+18-CONTEXT.md's <deferred>. Reporting is not failing. What 6 buys is that a
+caller running under `set -e` cannot mistake a silently-convergent merge for
+success, which is the entire mechanism; it resolves nothing.
+
+
 Usage:
     cairn-parallel.py batch     [--max N] [--project-dir DIR] [--json]
     cairn-parallel.py prepare N [--project-dir DIR] [--json]
+    cairn-parallel.py reconcile [--phases 7,9] [--project-dir DIR] [--json]
 
     --project-dir DIR   project root for git/bd discovery (default:
                         $CLAUDE_PROJECT_DIR or cwd)
     --max N             ceiling on how many phases `batch` selects
                         (default: 3)
+    --phases LIST       comma-separated phase numbers `reconcile` restricts
+                        itself to (default: every phase/* branch)
     --json              machine-readable output instead of the
                         `[cairn-parallel] ...` human lines
 
@@ -168,10 +298,30 @@ Behavior:
                exists with no worktree at the expected path, is EXIT_GIT with
                nothing touched.
 
+    reconcile  Discovers the work by scanning `refs/heads/phase/*` — the
+               names `prepare` gave it, never an agent's testimony (D-01) —
+               and reports, writing nothing anywhere:
+                 {git_version, branches[], pairs[], planning_writes[],
+                  findings_total}
+               `branches[]` entries carry {phase, branch, base, commits,
+               files, insertions, deletions}: what that phase produced,
+               measured against `git merge-base HEAD <branch>` (PAR-04).
+               `pairs[]` entries carry {branches, base, convergent_edits,
+               conflicts, conflicts_note}; a convergent edit is
+               {file, base_line, base_count, new_lines, branches}, its text
+               truncated to 200 characters per line. `planning_writes[]`
+               names any branch whose diff touches .planning/STATE.md,
+               .planning/ROADMAP.md or .planning/REQUIREMENTS.md — a named
+               finding with no effect on the exit code (D-03).
+               A repo with no phase/* branch exits 0 with empty lists and
+               says there is nothing to reconcile.
+
 Exit codes:
-    0  ok (including `created: false` — reusing an existing tree is success)
+    0  ok (including `created: false` — reusing an existing tree is success,
+       and a `reconcile` that found neither a conflict nor a convergent edit)
     2  usage error (bad/missing phase, `prepare` run from a linked worktree,
-       unusable --max, or a downstream script that could not be driven)
+       unusable --max or --phases, or a downstream script that could not be
+       driven)
     3  the phase's lease is held by another live holder — nothing was
        created, or everything this invocation created was rolled back. A
        report, not an error, exactly as cairn-lease.py reads its own 3
@@ -180,6 +330,9 @@ Exit codes:
        itself failed
     5  bd unavailable, or a companion script (cairn-lease.py /
        cairn-status.py) is missing
+    6  `reconcile` has findings: a convergent edit, a merge conflict, or a
+       git too old to pre-compute conflicts at all. A report the caller
+       cannot mistake for success, never a resolution
 
 Test/override seams (CONVENTIONS.md's CAIRN_* env-seam note, same shape as
 CAIRN_GBSYNC / CAIRN_MAP / CAIRN_GATE / CAIRN_JOURNAL):
@@ -199,6 +352,10 @@ EXIT_USAGE = 2
 EXIT_HELD = 3
 EXIT_GIT = 4
 EXIT_NO_BD = 5
+# `reconcile` found something, or could not rule something out. Follows the
+# house reading of 6 as "gate failed" (cairn-gate.py); it is the mechanism
+# that stops a silent pass, and it resolves nothing.
+EXIT_FINDINGS = 6
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -225,8 +382,8 @@ SLUG_OK = re.compile(r"^[A-Za-z0-9._-]+$")
 PLANNING_FILES_FORBIDDEN = [".planning/STATE.md", ".planning/ROADMAP.md",
                             ".planning/REQUIREMENTS.md"]
 
-USAGE = ("usage: cairn-parallel.py {batch [--max N]|prepare N} "
-         "[--project-dir DIR] [--json]")
+USAGE = ("usage: cairn-parallel.py {batch [--max N]|prepare N|"
+         "reconcile [--phases 7,9]} [--project-dir DIR] [--json]")
 
 
 def die(msg, code):
@@ -246,6 +403,20 @@ def run_git(cwd, args):
     except FileNotFoundError:
         die("'git' not found on PATH", EXIT_GIT)
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
+
+
+def run_git_raw(cwd, args):
+    """run_git without the .strip() on stdout. Diff parsing needs the bytes
+    exactly as git emitted them: a trailing space on an added line is part of
+    that line's content, and byte-for-byte content equality is the entire
+    convergent-edit detector. Stripping here would let two lines that differ
+    only in trailing whitespace be reported as identical."""
+    try:
+        proc = subprocess.run(["git", "-C", str(cwd)] + args,
+                              capture_output=True, text=True)
+    except FileNotFoundError:
+        die("'git' not found on PATH", EXIT_GIT)
+    return proc.returncode, proc.stdout, proc.stderr
 
 
 def git_toplevel(project_dir):
@@ -674,6 +845,360 @@ def cmd_batch(args, top):
 
 
 # --------------------------------------------------------------------------- #
+# reconcile
+#
+# === reconcile: read-only region BEGIN ===
+#
+# Everything between this marker and the END one speaks to git in read
+# invocations only. tests/cairn-parallel.bats greps this exact region — with
+# comment lines filtered out, because the comments in here NAME the verbs they
+# forbid and a grep over the raw text would invalidate itself — for bd write
+# verbs (create / update / close / reopen), cairn-journal write subcommands
+# (observe / lease / append) and writing git verbs (merge, checkout, commit,
+# reset, clean, stash, branch, worktree, apply), and asserts there are none.
+# Adding one here without noticing is exactly what that test exists to stop.
+# The companion proof is the mutation test: reconcile runs against a real
+# fixture and the tree, the branch heads and every file hash come out
+# unchanged. See the module docstring for why both proofs, not one.
+# --------------------------------------------------------------------------- #
+
+# Phase number out of a branch name, by the SAME rule prepare used to build
+# it: `phase/<N>-<slug>`, or `phase/<N>` for a phase with no directory. These
+# constants live beside the code they serve rather than with the module-level
+# block above, so the greppable region is self-contained.
+PHASE_BRANCH = re.compile(r"^phase/0*(\d+)(?:-|$)")
+
+# `@@ -a[,b] +c[,d] @@` — the raw material of the detector. `b` defaults to 1
+# when absent (`@@ -1 +1 @@` replaces exactly one base line); `b == 0` is a
+# pure insertion after base line a (`@@ -41,0 +42 @@`).
+HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+# `100644 <oid> 1\t<path>` — merge-tree's conflicted-entry lines, which name
+# the paths reliably. The prose `CONFLICT (...)` lines are carried through as
+# messages but never parsed for a path: their shape varies by conflict kind
+# (`Merge conflict in <path>` puts it last, `modify/delete` puts it first).
+MERGE_TREE_STAGE = re.compile(r"^\d{6} [0-9a-f]{40,} [123]\t(.+)$")
+
+# Cap on one reported line of a convergent edit (T-18-07). The COMPARISON is
+# always over the full lines; truncation happens at report time only.
+TRUNCATE_AT = 200
+
+
+def truncate(line):
+    if len(line) <= TRUNCATE_AT:
+        return line
+    return line[:TRUNCATE_AT - 1] + "…"
+
+
+def git_version(top):
+    """The version string of the git this report was produced with. Carried
+    in every report because what the report can ASSERT depends on it: below
+    2.38 there is no `merge-tree --write-tree` and conflicts are unknown."""
+    rc, out, _ = run_git(top, ["--version"])
+    if rc != 0 or not out:
+        return None
+    parts = out.split()
+    return parts[2] if len(parts) >= 3 else out
+
+
+def phase_branches(top):
+    """[(phase, branch)] for every refs/heads/phase/* ref, sorted by phase.
+
+    This is the ONLY discovery mechanism (D-01): the work is found by the
+    name prepare gave it, and no agent is ever asked where it worked."""
+    rc, out, _ = run_git(top, ["for-each-ref", "--format=%(refname:short)",
+                               "refs/heads/phase/*"])
+    if rc != 0 or not out:
+        return []
+    found = []
+    for name in out.splitlines():
+        name = name.strip()
+        m = PHASE_BRANCH.match(name)
+        if not m:
+            continue
+        found.append((int(m.group(1)), name))
+    found.sort()
+    return found
+
+
+def common_ancestor(top, a, b):
+    rc, out, _ = run_git(top, ["merge-base", a, b])
+    return out if rc == 0 and out else None
+
+
+def numstat(top, base, ref):
+    """{files, insertions, deletions, paths} of `git diff --numstat
+    base..ref`. Binary files count as a changed file with no line counts,
+    which is what git's own `-` means there."""
+    rc, out, _ = run_git(top, ["diff", "--numstat", f"{base}..{ref}"])
+    if rc != 0:
+        return {"files": None, "insertions": None, "deletions": None,
+                "paths": []}
+    files = 0
+    insertions = 0
+    deletions = 0
+    paths = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        files += 1
+        paths.append(parts[2])
+        for raw, key in ((parts[0], "ins"), (parts[1], "del")):
+            if not raw.isdigit():
+                continue
+            if key == "ins":
+                insertions += int(raw)
+            else:
+                deletions += int(raw)
+    return {"files": files, "insertions": insertions, "deletions": deletions,
+            "paths": paths}
+
+
+def diff_hunks(top, base, ref):
+    """{path: [(base_start, base_count, tuple_of_new_lines)]} from
+    `git diff -U0 base..ref`.
+
+    -U0 is deliberate: with zero context every hunk's base range is the
+    changed range and nothing else, which is what makes range equality a
+    meaningful comparison between two independent branches. The measured
+    cost of that choice is in the docstring — an added block ADJACENT to the
+    changed line coalesces into one hunk, and convergence stops being
+    declared there."""
+    rc, out, _ = run_git_raw(top, ["diff", "-U0", f"{base}..{ref}"])
+    if rc != 0:
+        return {}
+    per_path = {}
+    path = None
+    current = None
+    for line in out.split("\n"):
+        if line.startswith("diff --git "):
+            path = None
+            current = None
+        elif line.startswith("+++ "):
+            target = line[4:]
+            path = None if target == "/dev/null" else target[2:] \
+                if target.startswith("b/") else target
+            current = None
+        elif line.startswith("--- "):
+            current = None
+        elif line.startswith("@@ "):
+            m = HUNK_HEADER.match(line)
+            if not m or path is None:
+                current = None
+                continue
+            start = int(m.group(1))
+            count = 1 if m.group(2) is None else int(m.group(2))
+            current = []
+            per_path.setdefault(path, []).append([start, count, current])
+        elif current is not None and line.startswith("+"):
+            current.append(line[1:])
+    return {p: [(s, c, tuple(lines)) for s, c, lines in hunks]
+            for p, hunks in per_path.items()}
+
+
+def convergent_edits(hunks_a, hunks_b, branch_a, branch_b):
+    """The finding this whole subcommand exists for.
+
+    A convergent edit is a file present on BOTH sides carrying a hunk whose
+    base range (start AND count) is equal on the two sides and whose new
+    block of lines is byte-for-byte identical. That is the entire rule; it is
+    strict on purpose, so what is reported is what was measured. Two sides
+    deleting the very same base range (both new blocks empty) satisfies it
+    for the same reason: an agreement nobody reviewed is still an agreement
+    nobody reviewed.
+
+    git resolves precisely this case without a word — the two sides are
+    identical, so there is nothing for it to ask about — which is why it can
+    only ever be found here."""
+    found = []
+    for path in sorted(set(hunks_a) & set(hunks_b)):
+        by_range_a = {(s, c): lines for s, c, lines in hunks_a[path]}
+        by_range_b = {(s, c): lines for s, c, lines in hunks_b[path]}
+        for key in sorted(set(by_range_a) & set(by_range_b)):
+            if by_range_a[key] != by_range_b[key]:
+                continue
+            found.append({
+                "file": path,
+                "base_line": key[0],
+                "base_count": key[1],
+                "new_lines": [truncate(x) for x in by_range_a[key]],
+                "branches": [branch_a, branch_b],
+            })
+    return found
+
+
+def merge_tree_conflicts(top, ref_a, ref_b, version):
+    """(conflicts, note) for one pair, computed WITHOUT a working tree.
+
+    `git merge-tree --write-tree` exits 0 clean and 1 with conflicts. Any
+    other code, or a stderr complaining about the option, means this git
+    cannot pre-compute the answer — and the honest report of that is
+    (None, note), never an empty list. An empty list reads as "clean", and
+    failing open into a false all-clear is the bug this milestone exists to
+    kill (Pitfall 3)."""
+    rc, out, err = run_git(top, ["merge-tree", "--write-tree", ref_a, ref_b])
+    unknown_option = "unknown option" in err.lower() or "usage:" in err.lower()
+    if rc not in (EXIT_OK, 1) or unknown_option:
+        detail = err.splitlines()[0] if err else f"exit {rc}"
+        return None, (f"git {version or 'unknown'} cannot pre-compute merge "
+                      f"conflicts ({detail}) — conflicts are UNKNOWN here, "
+                      f"not clean; git will report them at merge time")
+    if rc == EXIT_OK:
+        return [], None
+    paths = []
+    messages = []
+    for line in out.split("\n"):
+        m = MERGE_TREE_STAGE.match(line)
+        if m:
+            if m.group(1) not in paths:
+                paths.append(m.group(1))
+        elif line.startswith("CONFLICT "):
+            messages.append(line)
+    conflicts = []
+    for path in paths:
+        conflicts.append({"path": path,
+                          "messages": [m for m in messages if path in m]})
+    if not conflicts and messages:
+        conflicts.append({"path": None, "messages": messages})
+    return conflicts, None
+
+
+def parse_phases(raw):
+    """`--phases 7,9` -> [7, 9]. A non-numeric entry is a usage error rather
+    than a silently ignored filter: a filter that quietly matched nothing
+    would produce an empty, reassuring report."""
+    if raw is None:
+        return None
+    wanted = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            wanted.append(int(chunk))
+        except ValueError:
+            die(f"--phases takes comma-separated phase numbers (got "
+                f"'{chunk}')\n" + USAGE, EXIT_USAGE)
+    return wanted
+
+
+def print_report(result):
+    """The human report: one section per category, every finding as
+    file:line, and a closing total."""
+    def say(line):
+        print(f"[cairn-parallel] {line}")
+
+    if not result["branches"]:
+        say("no phase/* branch found — nothing to reconcile")
+        return
+    for b in result["branches"]:
+        counts = (f"{b['commits']} commit(s), {b['files']} file(s), "
+                  f"+{b['insertions']} -{b['deletions']}"
+                  if b["commits"] is not None and b["files"] is not None
+                  else "unmeasurable (no common ancestor with HEAD)")
+        say(f"phase {b['phase']} ({b['branch']}): {counts}")
+
+    edits = [(p, e) for p in result["pairs"] for e in p["convergent_edits"]]
+    if edits:
+        say("convergent edits — both branches changed these to the SAME "
+            "value, and git took one without asking:")
+        for pair, e in edits:
+            say(f"  {e['file']}:{e['base_line']}  "
+                f"{' + '.join(e['branches'])}")
+            for line in e["new_lines"]:
+                say(f"    {line}")
+    for pair in result["pairs"]:
+        if pair["conflicts"] is None:
+            say(f"conflicts between {' + '.join(pair['branches'])}: UNKNOWN — "
+                f"{pair['conflicts_note']}")
+        elif pair["conflicts"]:
+            say(f"merge conflicts between {' + '.join(pair['branches'])} "
+                f"(git reports these too, at merge time):")
+            for c in pair["conflicts"]:
+                say(f"  {c['path']}")
+    if result["planning_writes"]:
+        say("planning writes (D-03) — reported, and deliberately NOT a "
+            "failure:")
+        for w in result["planning_writes"]:
+            say(f"  {w['branch']}: {', '.join(w['files'])}")
+    if result["findings_total"]:
+        say(f"{result['findings_total']} finding(s) — reported, none "
+            f"resolved; reconcile does not merge")
+    else:
+        say("no convergent edit and no conflict between these branches")
+
+
+def cmd_reconcile(args, top):
+    wanted = parse_phases(args.phases)
+    version = git_version(top)
+
+    pairs_input = [(n, b) for n, b in phase_branches(top)
+                   if wanted is None or n in wanted]
+
+    branches = []
+    planning_writes = []
+    for phase, branch in pairs_input:
+        base = common_ancestor(top, "HEAD", branch)
+        entry = {"phase": phase, "branch": branch, "base": base,
+                 "commits": None, "files": None, "insertions": None,
+                 "deletions": None}
+        if base:
+            rc, out, _ = run_git(top, ["rev-list", "--count",
+                                       f"{base}..{branch}"])
+            entry["commits"] = int(out) if rc == 0 and out.isdigit() else None
+            stat = numstat(top, base, branch)
+            entry["files"] = stat["files"]
+            entry["insertions"] = stat["insertions"]
+            entry["deletions"] = stat["deletions"]
+            touched = [p for p in stat["paths"]
+                       if p in PLANNING_FILES_FORBIDDEN]
+            if touched:
+                planning_writes.append({"phase": phase, "branch": branch,
+                                        "files": touched})
+        branches.append(entry)
+
+    pairs = []
+    findings = 0
+    unknown = False
+    for i in range(len(pairs_input)):
+        for j in range(i + 1, len(pairs_input)):
+            branch_a = pairs_input[i][1]
+            branch_b = pairs_input[j][1]
+            base = common_ancestor(top, branch_a, branch_b)
+            edits = []
+            if base:
+                edits = convergent_edits(diff_hunks(top, base, branch_a),
+                                         diff_hunks(top, base, branch_b),
+                                         branch_a, branch_b)
+            conflicts, note = merge_tree_conflicts(top, branch_a, branch_b,
+                                                   version)
+            if conflicts is None:
+                unknown = True
+            findings += len(edits) + (len(conflicts) if conflicts else 0)
+            pairs.append({"branches": [branch_a, branch_b], "base": base,
+                          "convergent_edits": edits, "conflicts": conflicts,
+                          "conflicts_note": note})
+
+    result = {"git_version": version, "branches": branches, "pairs": pairs,
+              "planning_writes": planning_writes, "findings_total": findings}
+
+    if args.json:
+        print(json.dumps(result))
+    else:
+        print_report(result)
+    # A planning write on its own does NOT reach here (D-03 / <deferred>):
+    # reporting is not failing. An unknown conflict list DOES, because the
+    # script cannot say the merge is clean and will not pretend to.
+    sys.exit(EXIT_FINDINGS if (findings or unknown) else EXIT_OK)
+
+
+# --------------------------------------------------------------------------- #
+# === reconcile: read-only region END ===
+# --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def build_parser():
@@ -697,7 +1222,17 @@ def build_parser():
     prepare.add_argument("phase", type=int, help="phase number")
     prepare.set_defaults(func=cmd_prepare)
 
-    for p in (batch, prepare):
+    reconcile = sub.add_parser("reconcile",
+                               help="read-only report over the phase/* "
+                                    "branches: what each phase produced, the "
+                                    "merge conflicts, and the convergent "
+                                    "edits git resolves in silence")
+    reconcile.add_argument("--phases", metavar="LIST",
+                           help="comma-separated phase numbers to restrict "
+                                "to (default: every phase/* branch)")
+    reconcile.set_defaults(func=cmd_reconcile)
+
+    for p in (batch, prepare, reconcile):
         p.add_argument("--project-dir", metavar="DIR",
                        help="project root for git/bd discovery (default: "
                             "$CLAUDE_PROJECT_DIR or cwd)")
