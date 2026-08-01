@@ -31,6 +31,15 @@ refute_in_output() {
   fi
 }
 
+# The physical path of an argument, symlinks and all. Used on BOTH sides of
+# every path comparison: macOS TMPDIR resolves through a /var -> /private/var
+# symlink and git reports the physical path, so comparing a raw string
+# against a git-reported one proves nothing (the same lesson
+# tests/cairn-lease.bats:35-41 records).
+realpath_of() {
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
 # A throwaway repo with bd initialized, the shared GSD fixture (.planning with
 # phases 01-auth and 02-api), plus two extra phase directories (07-alpha,
 # 09-beta) whose numbers the CAIRN_STATUS stubs below hand back as runnable.
@@ -183,6 +192,153 @@ PYEOF
   [ "$status" -eq 4 ]
   refute_in_output "Traceback"
   [ ! -d "$MAIN_ROOT-phase-2" ]
+}
+
+#-----------------------------------------------------------------------------
+# Task 2: batch — a CONSUMER of cairn-status.py's parallelism block, and the
+# bridge to prepare.
+#-----------------------------------------------------------------------------
+
+@test "batch consumes parallelism.runnable and never recomputes it: the stub says 7 and 9 while the fixture ROADMAP says otherwise, and batch follows the stub" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  # The fixture's own ROADMAP describes phases 1 (complete) and 2 (pending),
+  # so any implementation that derived independence from the roadmap would
+  # select 2 — or nothing — instead of 7 and 9.
+  grep -qF "Phase 2: API" "$MAIN_ROOT/.planning/ROADMAP.md"
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.runnable | join(",")' '7,9'
+  assert_json_eq "$output" '.selected | length' '2'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.deferred | length' '0'
+  # blocked / declared / note are passed through verbatim — they belong to
+  # whoever computed independence, not to this script.
+  assert_json_eq "$output" '.blocked | join(",")' '11'
+  assert_json_eq "$output" '.declared' 'true'
+  assert_json_eq "$output" '.note' 'Phases 7 and 9 are independent — stub note.'
+  # next_command and reason come from next_commands[], also verbatim.
+  assert_json_eq "$output" '[.selected[] | select(.phase == 7) | .next_command][0]' '/cairn:plan 7'
+  assert_json_eq "$output" '[.selected[] | select(.phase == 7) | .reason][0]' 'nothing blocks it'
+  assert_json_eq "$output" '[.selected[] | select(.phase == 9) | .title][0]' 'Beta'
+}
+
+@test "batch drops a runnable phase whose lease is held by a live holder, names the holder, and keeps the other one" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  local wt_b="$BATS_TEST_TMPDIR/holder"
+  git worktree add -q "$wt_b" -b holder-branch
+  wt_b="$(git -C "$wt_b" rev-parse --show-toplevel)"
+
+  run bash "$LEASE" acquire 7 --project-dir "$wt_b"
+  [ "$status" -eq 0 ]
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '9'
+  assert_json_eq "$output" '[.deferred[].phase] | join(",")' '7'
+  assert_json_eq "$output" '[.deferred[] | select(.phase == 7) | .reason][0] | startswith("lease held by ")' 'true'
+  grep -qF "$wt_b" <<<"$output"
+  # The announcement the operator reads names the exclusion too.
+  assert_json_eq "$output" '.announcement | contains("phase 7 stays out")' 'true'
+}
+
+@test "batch defers everything past --max with the ceiling named as the reason" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --max 1 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '1'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7'
+  assert_json_eq "$output" '[.deferred[].phase] | join(",")' '9'
+  assert_json_eq "$output" '[.deferred[] | select(.phase == 9) | .reason][0]' 'above the --max 1 ceiling'
+}
+
+@test "the bridge: for TWO phases, the branch and worktree batch announces are byte-for-byte the ones prepare creates, and the two trees are isolated" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  local announced_branch_7 announced_branch_9 announced_wt_7 announced_wt_9
+  announced_branch_7="$(jq -r '[.selected[] | select(.phase == 7) | .branch][0]' <<<"$output")"
+  announced_branch_9="$(jq -r '[.selected[] | select(.phase == 9) | .branch][0]' <<<"$output")"
+  announced_wt_7="$(jq -r '[.selected[] | select(.phase == 7) | .worktree][0]' <<<"$output")"
+  announced_wt_9="$(jq -r '[.selected[] | select(.phase == 9) | .worktree][0]' <<<"$output")"
+
+  # The slugs come from the 07-/09- phase directories, leading zero and all.
+  [ "$announced_branch_7" = "phase/7-alpha" ]
+  [ "$announced_branch_9" = "phase/9-beta" ]
+
+  run bash "$PARALLEL" prepare 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  local created_branch_7 created_wt_7
+  created_branch_7="$(jq -r '.branch' <<<"$output")"
+  created_wt_7="$(jq -r '.worktree' <<<"$output")"
+
+  run bash "$PARALLEL" prepare 9 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  local created_branch_9 created_wt_9
+  created_branch_9="$(jq -r '.branch' <<<"$output")"
+  created_wt_9="$(jq -r '.worktree' <<<"$output")"
+
+  [ "$created_branch_7" = "$announced_branch_7" ]
+  [ "$created_branch_9" = "$announced_branch_9" ]
+  # Compared through realpath on BOTH sides: on macOS TMPDIR resolves via a
+  # /var -> /private/var symlink, so a raw string compare could pass or fail
+  # for reasons that have nothing to do with the bridge.
+  [ "$(realpath_of "$created_wt_7")" = "$(realpath_of "$announced_wt_7")" ]
+  [ "$(realpath_of "$created_wt_9")" = "$(realpath_of "$announced_wt_9")" ]
+
+  [ -d "$created_wt_7" ]
+  [ -d "$created_wt_9" ]
+  [ "$created_wt_7" != "$created_wt_9" ]
+
+  run git -C "$created_wt_7" rev-parse --abbrev-ref HEAD
+  [ "$output" = "phase/7-alpha" ]
+  run git -C "$created_wt_9" rev-parse --abbrev-ref HEAD
+  [ "$output" = "phase/9-beta" ]
+
+  # Two phases running at once means two trees that cannot see each other.
+  echo "seven" > "$created_wt_7/from-phase-7.txt"
+  echo "nine" > "$created_wt_9/from-phase-9.txt"
+  [ ! -f "$created_wt_9/from-phase-7.txt" ]
+  [ ! -f "$created_wt_7/from-phase-9.txt" ]
+  [ ! -f "$MAIN_ROOT/from-phase-7.txt" ]
+  [ ! -f "$MAIN_ROOT/from-phase-9.txt" ]
+}
+
+@test "batch refuses to invent a lot when cairn-status.py cannot be driven" {
+  require_bd
+  make_parallel_fixture
+
+  local broken="$BATS_TEST_TMPDIR/nowhere/cairn-status.py"
+  run env CAIRN_STATUS="$broken" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 5 ]
+  refute_in_output "Traceback"
+
+  local garbage="$BATS_TEST_TMPDIR/garbage-status.py"
+  cat > "$garbage" <<'PYEOF'
+#!/usr/bin/env python3
+print("this is not json")
+PYEOF
+  run env CAIRN_STATUS="$garbage" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 2 ]
+  refute_in_output "Traceback"
 }
 
 @test "cairn-parallel.sh with no subcommand exits 2; --help lists batch and prepare" {
