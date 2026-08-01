@@ -31,16 +31,17 @@ decisions:
   - "O comando de detecção é `git status --porcelain -uall .cairn`, e o `-uall` é explicado no texto: sem ele o git colapsa o diretório inteiro numa linha e a resposta some"
   - "Acrescentado ao texto de migração o passo que a D-03 não previa: `git rm --cached` para quem já commitou um arquivo gerado — o gitignore sozinho não destrackeia"
   - "Uma frase de tema abre a seção, coisa que as três seções 1.4.x não têm — seis entradas sem orientação inicial obrigam o leitor a montar o tema sozinho"
-  - "ACHADO não corrigido: o campo `status` por portador no `--json` da verificação é 'concorda com o primeiro portador legível', não 'está certo' (ver Deviations)"
+  - "ACHADO não corrigido: o campo `status` por portador no `--json` da verificação é 'concorda com o primeiro portador legível', não 'está certo' (ver Deviations) — virou issue de backlog no checkpoint"
+  - "CORREÇÃO no checkpoint (commit do Felipe): a latência de detecção de holder morto que eu escrevi não existia no código; a entrada passa a nomear os dois caminhos reais (ver 'A correção do checkpoint')"
 metrics:
-  duration: ~75min
+  duration: ~95min
   completed: 2026-08-01
-  tasks: 2 de 3 (a 3ª é o checkpoint humano, pendente)
-  commits: 3
+  tasks: 3
+  commits: 4 meus + 1 de correção do Felipe
 actuals:
   tokens: 1700
-  tasks: 2
-  commits: 3
+  tasks: 3
+  commits: 4
 status: complete
 ---
 
@@ -116,6 +117,25 @@ A tag ausente aparece como `pending`, não como falha — é o estado correto an
 | `bats tests/cairn-doctor.bats` | 60/60 |
 | largura de linha ≤ 80 (a casa) | max 80, nenhuma trailing whitespace |
 
+Todas as verificações de texto e o `check` foram **repetidos depois** da correção do checkpoint (seção abaixo): 119 linhas, max 80 caracteres, os quatro greps limpos, `check` em 0.
+
+## A correção do checkpoint — a frase que afirmava mais do que o código faz
+
+**Task 3 aprovada com uma correção, aplicada e commitada pelo Felipe (`baa961e`).** A entrada do hold terminava assim, escrita por mim:
+
+> *a holder that is no longer a live worktree is visible **within a minute of the crash** rather than after a timeout expires*
+
+Nenhuma das duas metades sobrevive à medição, e eu confirmei as duas de forma independente antes de fechar:
+
+| alegação | medição |
+|---|---|
+| "after a timeout expires" para o doctor | `cairn-lease.py:168` — `LEASE_TTL_SECONDS = 4 * 60 * 60`; `check_lease_stale` (`cairn-doctor.py:1463`) faz shell em `cairn-lease.py status --all --json` e **não re-deriva nenhuma matemática de TTL**. O caminho do doctor espera 4 horas. |
+| "within a minute" para o outro caminho | o caminho que não espera **não é temporal**: o `cleanup` do `cairn-parallel` classifica `orphan_lease` comparando o holder, realpath'd, com `git worktree list` (`cairn-parallel.py:338, 355`). Ele vê o holder morto no instante em que é chamado. |
+
+Texto novo, que nomeia os dois caminhos pelo que cada um faz: *"`/cairn:doctor` reports it stale once its four-hour heartbeat lapses, and the cleanup that runs alongside concurrent phases spots it without waiting at all, by checking the holder against the worktrees that actually exist."*
+
+**De onde veio o erro, porque isso importa mais que o erro:** peguei "no minuto seguinte à morte" da frase de abertura do `18-03-SUMMARY.md` e traduzi sem medir. O SUMMARY de outra fase é laudo, não medição — e a regra é reproduzir a medição antes de repetir o número, principalmente quando ele vai para texto público. Numa release cujo assunto inteiro é sinal que afirma mais do que prova, publicar uma latência que ninguém cronometrou seria a própria mentira verde do milestone, dentro do artefato que a anuncia.
+
 ## Deviations from Plan
 
 ### 1. [Rule 2 — instrução de migração incompleta] o gitignore sozinho não destrackeia
@@ -145,6 +165,8 @@ O `marketplace` recebeu `ok` **carregando a versão velha**, e o `changelog` —
 
 Não corrigi: está fora do escopo deste plano, os testes do 19-01 fixam o comportamento atual, e a decisão de anexar em `present[0]` foi tomada com razão declarada. Fica como candidato — um `status` derivado do valor majoritário, ou renomeado para `agrees_with_reference`, resolveria sem tocar no texto dos findings.
 
+**Destino:** registrado como issue de backlog no checkpoint, com a medição inteira. Não é bloqueio para o 19-04.
+
 ## O que o plano acertou e vale citar
 
 - **Mandar escrever a seção antes do bump.** É o único jeito de a divergência intermediária existir para ser detectada; se as duas tasks fossem um commit só, o `exit 6` nunca teria sido observado e a metade "verificada" do REL-02 seria afirmação, não medição.
@@ -157,20 +179,23 @@ Nenhum.
 
 ## Threat Flags
 
-Nenhuma superfície nova. Do registro do plano: T-19-06 mitigada pelos `jq -e` e pelo `numstat` (4, sem reformat); T-19-08 pelos dois greps negativos; T-19-09 pela verificação saindo 0 com os três portadores concordando. T-19-07 depende do checkpoint humano da Task 3, **ainda pendente**.
+Nenhuma superfície nova. Do registro do plano: T-19-06 mitigada pelos `jq -e` e pelo `numstat` (4, sem reformat); T-19-08 pelos dois greps negativos; T-19-09 pela verificação saindo 0 com os três portadores concordando.
+
+**T-19-07 (a seção divergindo do que foi entregue) foi a que pagou.** É a ameaça que o checkpoint humano bloqueante existe para pegar, e ela pegou: a leitura a frio derrubou uma latência de detecção que nenhum grep, nenhum teste e nenhum `jq` teria questionado, porque a frase era gramatical, plausível e sobre código que existe. Registro isso como evidência a favor do gate, não como nota de rodapé — um checkpoint que nunca reprova nada não é um checkpoint.
 
 ## Estado do plano
 
-Tasks 1 e 2 completas e commitadas. **Task 3 é um `checkpoint:human-verify` bloqueante e continua aberto** — a qualidade da prosa não é testável por comando, e auto-aprová-lo seria a mentira verde que este milestone existe para remover. Nada foi feito de `.planning/STATE.md`, `ROADMAP.md` ou `REQUIREMENTS.md` por instrução explícita, nenhuma tag foi criada e nada saiu da máquina.
+As três tasks fechadas. **Task 3 aprovada pelo Felipe na leitura a frio, com uma correção que ele aplicou e commitou (`baa961e`)** antes da aprovação — a qualidade da prosa não é testável por comando, e o que o comando não pega foi exatamente o que o gate pegou. Nada foi feito de `.planning/STATE.md`, `ROADMAP.md` ou `REQUIREMENTS.md` por instrução explícita (o Felipe reconcilia no fim da fase), nenhuma tag foi criada e nada saiu da máquina. O 19-04 pode extrair a seção como está.
 
 ## Self-Check: PASSED
 
-- `CHANGELOG.md` — FOUND (seção 1.5.0 com `### Added`, `### Fixed`, `### Upgrading`, 118 linhas)
+- `CHANGELOG.md` — FOUND (seção 1.5.0 com `### Added`, `### Fixed`, `### Upgrading`, 119 linhas após a correção)
 - `cairn/.claude-plugin/plugin.json` — FOUND (1.5.0)
 - `.claude-plugin/marketplace.json` — FOUND (`metadata.version` 1.5.0)
 - `cairn/capability/capability.json` — FOUND (1.0.0, intocado)
-- commit `f0e9a5a` — FOUND
-- commit `1ca8e03` — FOUND
-- commit `daedd81` — FOUND
-</content>
-</invoke>
+- commit `f0e9a5a` — FOUND (a seção)
+- commit `1ca8e03` — FOUND (o bump)
+- commit `daedd81` — FOUND (o reflow)
+- commit `a0f3370` — FOUND (este SUMMARY, primeira versão)
+- commit `baa961e` — FOUND (a correção da latência, pelo Felipe no checkpoint)
+- verificações repetidas após `baa961e`: 4 greps limpos, `check` em 0, max 80 colunas
