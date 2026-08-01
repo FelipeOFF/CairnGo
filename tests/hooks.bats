@@ -61,42 +61,51 @@ post_bd_write() {
           bash "$CAIRN_HOOKS_DIR/post-bd-write.sh"
 }
 
-# $PATH with every directory containing a NAME executable removed, PLUS a
-# sandbox directory in front holding the interpreters the hook itself runs
-# under. A deny-list (strip NAME's dir(s)) rather than a hand-picked
-# allow-list that would have to know about every transitive tool a shim
-# might invoke — but a pure deny-list is not enough, and CI proved it.
+# $PATH with NAME made unresolvable, and NOTHING ELSE changed. A directory
+# that holds NAME is replaced, in place and in order, by a sandbox mirror of
+# that same directory with NAME left out.
 #
-# MEASURED, on the GitHub runner: `gh` ships at /usr/bin/gh there, and /bin
-# is a symlink to /usr/bin, so stripping gh's directories takes /usr/bin AND
-# /bin with them. The surviving PATH held /usr/local/bin, /usr/sbin, /sbin,
-# /snap/bin and /usr/games — and no bash. `env PATH=… bash <hook>` then died
-# with 127 before the hook ran a single line, so the test reported "gh is
-# absent" while actually measuring "bash is absent". Reproduced locally by
-# putting gh in the same directory as bash:
+# The obvious implementation — drop the directory — is what used to be here,
+# and CI proved it wrong twice. MEASURED on the GitHub runner: `gh` ships at
+# /usr/bin/gh, and /bin is a symlink to /usr/bin, so dropping gh's
+# directories takes /usr/bin AND /bin with them.
 #
-#   PATH depois do strip: [/usr/sbin:/sbin]
-#   env: bash: No such file or directory     exit=127
+#   1st failure: no bash survived, so `env PATH=… bash <hook>` died with 127
+#      before the hook ran a line. The test asserts that a `command -v gh`
+#      guard fails closed; it was reporting on whether bash exists.
+#   2nd failure: linking bash/python3/git into a keep-dir fixed the 127 and
+#      uncovered the next one — the hook calls `dirname` twice at startup
+#      (lines 40-41), that is /usr/bin/dirname, and two `command not found`
+#      lines on stderr broke the "at most one line of output" assertion.
 #
-# On macOS gh lives in Homebrew's bin, alone, so the same helper passed here
-# for months. The fix resolves the essentials BEFORE the strip and links them
-# into a sandbox dir that goes in front. NAME is deliberately never linked,
-# so `command -v gh` still fails closed — which is the whole assertion.
+# The second failure is the argument against a keep-list: it has to know
+# every transitive tool the hook touches, and it silently grows wrong. The
+# mirror needs to know nothing. Cost measured here: one `ln -s dir/* mirror/`
+# for 924 entries takes 0.18s (a per-file loop takes 7s — do not write one).
+#
+# On macOS gh sits alone in Homebrew's bin, which is why the dropped-directory
+# version passed locally for months while failing on every CI run.
+#
+# Only NAME is removed from the mirror, so `command -v gh` still fails closed
+# — that is the whole assertion, and it is preserved rather than relaxed.
+# Dotfiles are not mirrored (`*` skips them); PATH entries are not dotfiles.
 path_without_bin() {  # $1 = binary name
-  local dir out="" name="$1" keep tool resolved
-  keep="$BATS_TEST_TMPDIR/keepbin-$name"
-  mkdir -p "$keep"
-  for tool in bash python3 git; do
-    [ "$tool" = "$name" ] && continue
-    resolved="$(command -v "$tool" 2>/dev/null)" || continue
-    ln -sf "$resolved" "$keep/$tool"
-  done
+  local dir out="" name="$1" sandbox idx=0
   IFS=':' read -ra dirs <<< "$PATH"
   for dir in "${dirs[@]}"; do
-    [ -x "$dir/$name" ] && continue
-    out="${out:+$out:}$dir"
+    [ -n "$dir" ] || continue
+    if [ -x "$dir/$name" ]; then
+      idx=$((idx + 1))
+      sandbox="$BATS_TEST_TMPDIR/nobin-$name-$idx"
+      mkdir -p "$sandbox"
+      ln -s "$dir"/* "$sandbox/" 2>/dev/null || true
+      rm -f "$sandbox/$name"
+      out="${out:+$out:}$sandbox"
+    else
+      out="${out:+$out:}$dir"
+    fi
   done
-  printf '%s' "${keep}${out:+:$out}"
+  printf '%s' "$out"
 }
 
 # Used only by the "gh genuinely absent" test below.
