@@ -339,6 +339,17 @@ The five categories, and what `--apply` does to each:
                        script's reading was wrong. This is the ordinary end of
                        a phase, after reconciliation.
 
+MEASURED CONSEQUENCE OF THE JOURNAL SPLIT, worth knowing before `removable`
+is ever expected to fire: `prepare` takes the lease from inside the new
+worktree, cairn-lease.py journals that acquisition, and the record lands in
+`<worktree>/.cairn/journal.jsonl` (the split this file's docstring records
+above). If a project does not ignore that path, every prepared worktree
+reports `?? .cairn/` and is therefore RETAINED forever — safe, but it means
+`removable` never fires at all. cairn's own repo ignores it
+(`.gitignore`: `.cairn/journal.jsonl*`), and a project adopting cairn should
+do the same. Retaining is the right failure direction either way, which is
+why this is a note and not a special case in the code.
+
 An inventory this script cannot trust is a hard stop, not an empty list: if
 `git worktree list` comes back without the main checkout itself in it, every
 lease in the repo would suddenly look orphaned and --apply would evict live
