@@ -222,10 +222,68 @@ discovered later as a bug, which is the difference between "does not cover"
 and "covers and stays quiet".
 
 
+WHERE A CONFLICT IS, NOT MERELY WHICH FILE (D-02)
+---------------------------------------------------
+D-02 asks the report to name file AND line on both sides of the split, and a
+convergent edit gets that for free — the diff hunk header carries the base
+line. A conflict does not: `merge-tree`'s prose (`CONFLICT (content): Merge
+conflict in code.txt`) names the file and stops there, and its stage lines
+carry OIDs, not positions. Naming only the file would leave the shipped prose
+in cairn/commands/autonomous.md promising the operator something no shipped
+line of this script produced.
+
+The line is recoverable, and here is the measurement it rests on. The FIRST
+line of `git merge-tree --write-tree A B` is the OID of the tree it just
+wrote, and in that tree the conflicted path's blob carries the standard
+markers — the same ones a real merge would leave in the working tree:
+
+    $ git merge-tree --write-tree phase/7-alpha phase/9-beta   # exit 1
+    2f2bcd14c1bf1c89ade97d540c2e895e7c3fbee5
+    100644 c3c3aa5f… 1  code.txt
+    ...
+    CONFLICT (content): Merge conflict in code.txt
+
+    $ git grep -n -I -e '^<<<<<<<' 2f2bcd14… -- ':(literal)code.txt'
+    2f2bcd14…:code.txt:11:<<<<<<< phase/7-alpha
+
+And 11 is git's own answer, not this script's approximation: cloning that
+fixture and letting the merge actually happen puts `<<<<<<<` on line 11 of
+the working file too. The bats test asserts both numbers against each other
+for exactly that reason.
+
+So `conflicts[]` entries carry `lines`: EVERY `<<<<<<<` in the merged blob,
+1-based, in file order — a file with two conflicting hunks reports both
+(measured: markers at 5 and 34 of the same file, one CONFLICT message). The
+line is where the merged blob's conflict region BEGINS, which is the marker
+line itself, one line above the first contested line of the A side.
+
+Two shapes cannot produce a line, and both say so instead of guessing:
+
+  - modify/delete, rename/*, and binary. Measured: a modify/delete conflict
+    leaves the surviving side's content WHOLE in the tree, with no marker
+    anywhere in it; `-I` skips binary outright. There is a file, there is no
+    position.
+  - a CONFLICT message git attached to no path at all.
+
+In both, `lines` is null and `lines_note` says why — never 0, never 1.
+Null is the same choice `conflicts` itself makes for a git too old to
+pre-compute anything (Pitfall 3): an empty list reads as "no conflicting
+lines" and a 1 reads as "the top of the file", and both are answers this
+script did not measure.
+
+`git grep` over a tree object is a read, and one call per conflicted path
+rather than a blob pulled into memory and scanned here. It is not in the
+static check's forbidden-token list and the list was NOT widened to admit it:
+`["grep"` is a read verb in the same family as `["merge-base"` and
+`["merge-tree"`, and it writes nothing.
+
+
 WHY `reconcile` ONLY READS COMMITTED REFS, AND WRITES NOTHING
 --------------------------------------------------------------
 Every fact in the report comes from `git for-each-ref`, `git rev-list`,
-`git diff`, `git merge-base` and `git merge-tree` over committed refs. No path
+`git diff`, `git merge-base`, `git merge-tree` and `git grep` over committed
+refs (and, for the conflict lines, over the tree `merge-tree` itself wrote —
+reading back an object git had already been asked to produce). No path
 inside a live phase worktree is ever opened. A parallel agent is still editing
 those files while this runs, and a report built from a half-written file is
 confidently wrong (Pitfall 15).
@@ -434,7 +492,12 @@ Behavior:
                `pairs[]` entries carry {branches, base, convergent_edits,
                conflicts, conflicts_note}; a convergent edit is
                {file, base_line, base_count, new_lines, branches}, its text
-               truncated to 200 characters per line. `planning_writes[]`
+               truncated to 200 characters per line. A conflict is
+               {path, lines, lines_note, messages}, where `lines` holds every
+               `<<<<<<<` marker line of the merged blob — file AND line on
+               both sides of the split (D-02) — and is null with a
+               `lines_note` when no marker exists to point at (modify/delete,
+               rename, binary), never 0 and never 1. `planning_writes[]`
                names any branch whose diff touches .planning/STATE.md,
                .planning/ROADMAP.md or .planning/REQUIREMENTS.md — a named
                finding with no effect on the exit code (D-03).
@@ -1015,6 +1078,13 @@ def cmd_batch(args, top):
 # ["branch" can only ever be an invocation of `git branch`. Read subcommands
 # survive it for free: ["merge-base" and ["merge-tree" do not match ["merge".)
 #
+# The conflict-line lookup added here calls `git grep` over the tree
+# merge-tree wrote. That is a read, and the forbidden list above was NOT
+# widened to let it through — ["grep" was never on it, for the same reason
+# ["merge-base" is not: it produces no object, moves no ref and touches no
+# file. Said out loud because "the check went quiet after I edited it" and
+# "the check never had anything to say" are different sentences.
+#
 # That test filters `^#` comment lines FIRST, and this banner is why: it has
 # to name the forbidden tokens in the very shape the grep looks for, or it
 # would be stating a rule in words the check cannot see. A grep over the
@@ -1042,6 +1112,16 @@ HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 # messages but never parsed for a path: their shape varies by conflict kind
 # (`Merge conflict in <path>` puts it last, `modify/delete` puts it first).
 MERGE_TREE_STAGE = re.compile(r"^\d{6} [0-9a-f]{40,} [123]\t(.+)$")
+
+# The FIRST line of `merge-tree --write-tree` output is the OID of the tree it
+# wrote, and that tree is where the conflicted blobs — markers and all — can
+# be read back from. Matched rather than assumed: an unexpected first line
+# yields "line unknown" with a note, not a lookup against a bogus rev.
+MERGE_TREE_OID = re.compile(r"^[0-9a-f]{40,}$")
+
+# The opening marker of a conflict region in a merged blob, anchored at
+# column 1. `git grep` reads this as a basic regular expression.
+CONFLICT_MARKER = "^<<<<<<<"
 
 # Cap on one reported line of a convergent edit (T-18-07). The COMPARISON is
 # always over the full lines; truncation happens at report time only.
@@ -1192,6 +1272,51 @@ def convergent_edits(hunks_a, hunks_b, branch_a, branch_b):
     return found
 
 
+def conflict_lines(top, tree, path):
+    """(lines, note) — WHERE the conflict is, not merely which file.
+
+    `tree` is the tree `merge-tree --write-tree` just wrote; in it the
+    conflicted path's blob carries the same `<<<<<<<` markers a real merge
+    would leave on disk. Every marker line is returned, 1-based and in file
+    order, so a file with two conflicting hunks reports both.
+
+    Reading it back is a read: `git grep` over an existing object produces
+    nothing and moves nothing. `-I` skips binary, which is also why a binary
+    conflict lands in the (None, note) branch rather than reporting a match
+    against bytes nobody can read.
+
+    (None, note) is the answer whenever no marker exists to point at — a
+    modify/delete conflict leaves the surviving side's content whole, with
+    no marker in it at all. Naming line 0 or line 1 there would be an
+    invented position dressed as a measured one."""
+    if tree is None:
+        return None, ("git did not name the tree it wrote, so its merged "
+                      "blobs cannot be read back — the conflicting lines are "
+                      "UNKNOWN here; git will point at them at merge time")
+    rc, out, err = run_git(top, ["grep", "-n", "-I", "--no-color",
+                                 "-e", CONFLICT_MARKER, tree,
+                                 "--", f":(literal){path}"])
+    # `git grep` exits 1 on "no match", which is a finding, not a failure.
+    if rc not in (EXIT_OK, 1):
+        detail = err.splitlines()[0] if err else f"exit {rc}"
+        return None, (f"the merged blob could not be read ({detail}) — the "
+                      f"conflicting lines are UNKNOWN here, not absent")
+    prefix = f"{tree}:{path}:"
+    found = []
+    for line in out.split("\n"):
+        if not line.startswith(prefix):
+            continue
+        number = line[len(prefix):].split(":", 1)[0]
+        if number.isdigit():
+            found.append(int(number))
+    if not found:
+        return None, ("no conflict marker in the merged blob — a "
+                      "modify/delete or rename conflict leaves one side's "
+                      "content whole and a binary one is never marked, so "
+                      "the file is named and the line is not knowable here")
+    return found, None
+
+
 def merge_tree_conflicts(top, ref_a, ref_b, version):
     """(conflicts, note) for one pair, computed WITHOUT a working tree.
 
@@ -1210,9 +1335,12 @@ def merge_tree_conflicts(top, ref_a, ref_b, version):
                       f"not clean; git will report them at merge time")
     if rc == EXIT_OK:
         return [], None
+    emitted = out.split("\n")
+    head = emitted[0].strip() if emitted else ""
+    tree = head if MERGE_TREE_OID.match(head) else None
     paths = []
     messages = []
-    for line in out.split("\n"):
+    for line in emitted:
         m = MERGE_TREE_STAGE.match(line)
         if m:
             if m.group(1) not in paths:
@@ -1221,10 +1349,15 @@ def merge_tree_conflicts(top, ref_a, ref_b, version):
             messages.append(line)
     conflicts = []
     for path in paths:
-        conflicts.append({"path": path,
+        lines, note = conflict_lines(top, tree, path)
+        conflicts.append({"path": path, "lines": lines, "lines_note": note,
                           "messages": [m for m in messages if path in m]})
     if not conflicts and messages:
-        conflicts.append({"path": None, "messages": messages})
+        conflicts.append({"path": None, "lines": None,
+                          "lines_note": ("git named no file for this "
+                                         "conflict, so there is nothing to "
+                                         "locate a line inside of"),
+                          "messages": messages})
     return conflicts, None
 
 
@@ -1280,7 +1413,12 @@ def print_report(result):
             say(f"merge conflicts between {' + '.join(pair['branches'])} "
                 f"(git reports these too, at merge time):")
             for c in pair["conflicts"]:
-                say(f"  {c['path']}")
+                where = c["path"] or "(git named no file)"
+                if c["lines"]:
+                    say(f"  {where}:"
+                        f"{','.join(str(n) for n in c['lines'])}")
+                else:
+                    say(f"  {where}  (line unknown: {c['lines_note']})")
     if result["planning_writes"]:
         say("planning writes (D-03) — reported, and deliberately NOT a "
             "failure:")

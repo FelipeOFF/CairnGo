@@ -892,6 +892,18 @@ EOF
   assert_json_eq "$output" '.pairs[0].conflicts[0].messages | length' '1'
   assert_json_eq "$output" '.pairs[0].conflicts[0].messages[0] | startswith("CONFLICT (content)")' 'true'
   assert_json_eq "$output" '.pairs[0].conflicts_note' 'null'
+  # D-02: file AND line, on BOTH sides of the split. The fixture inserts at
+  # base index 10 on both branches, so the merged blob opens its conflict
+  # region at line 11 — pinned to that number, not to "a lines key exists",
+  # because a key holding 0 or 1 would satisfy the looser assertion while
+  # telling the operator to look in the wrong place.
+  assert_json_eq "$output" '.pairs[0].conflicts[0].lines | length' '1'
+  assert_json_eq "$output" '.pairs[0].conflicts[0].lines[0]' '11'
+  assert_json_eq "$output" '.pairs[0].conflicts[0].lines_note' 'null'
+  # And the human report carries it, not just the JSON.
+  run bash "$PARALLEL" reconcile --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 6 ]
+  grep -qF "code.txt:11" <<<"$output"
   # Reported, never resolved: no merge happened, so no MERGE_HEAD, no moved
   # branch, no conflict markers on disk.
   [ ! -f "$MAIN_ROOT/.git/MERGE_HEAD" ]
@@ -907,6 +919,12 @@ EOF
   run git -C "$CLONE" merge --no-edit origin/phase/9-beta
   [ "$status" -ne 0 ]
   grep -qF "CONFLICT" <<<"$output"
+  # 11 is git's own answer, independently obtained: the merge that was allowed
+  # to happen writes its marker on exactly the line reconcile named without
+  # merging anything. If the two ever disagree, the report is the one lying.
+  run bash -c "grep -n '^<<<<<<<' '$CLONE/code.txt' | head -1"
+  [ "$status" -eq 0 ]
+  [ "${output%%:*}" = "11" ]
 }
 
 #-----------------------------------------------------------------------------
