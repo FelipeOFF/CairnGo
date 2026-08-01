@@ -109,7 +109,7 @@ EOF
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '15'
+  assert_json_eq "$output" '.checks | length' '16'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
@@ -1784,3 +1784,84 @@ PY
   assert_json_eq "$output" '.[0].status' 'open'
 }
 
+
+#-----------------------------------------------------------------------------
+# release-versions (check 15, REL-02) — 19-01
+#-----------------------------------------------------------------------------
+
+# Write cairn's own version carriers into the fixture at their REAL paths and
+# REAL key paths — plugin.json's top-level `version`, marketplace.json's
+# NESTED `metadata.version`, the CHANGELOG's first released heading,
+# capability.json's own axis. $1 = lockstep version, $2 = the marketplace
+# version (default: the same, i.e. agreement).
+write_release_carriers() {
+  local version="$1" market="${2:-$1}"
+  mkdir -p cairn/.claude-plugin .claude-plugin cairn/capability
+  printf '{"name": "cairn", "version": "%s"}\n' "$version" \
+    > cairn/.claude-plugin/plugin.json
+  printf '{"name": "cairngo", "metadata": {"version": "%s"}, "plugins": []}\n' \
+    "$market" > .claude-plugin/marketplace.json
+  printf '{"id": "cairn", "version": "1.0.0"}\n' \
+    > cairn/capability/capability.json
+  cat > CHANGELOG.md <<EOF
+# Changelog
+
+## [$version] - 2026-08-01
+
+### Added
+
+- fixture entry
+EOF
+}
+
+# Break: make the absence of the plugin manifests a failure. Red here — and it
+# would have turned every user's doctor red too, since no wired repo carries
+# cairn's own manifests.
+@test "release-versions: a repo without cairn's plugin manifests reads ok and never fails the doctor" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="release-versions") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="release-versions") | .items | length' '0'
+  grep -qF "not applicable" <<<"$output"
+}
+
+# Break: register the check as `warn`, or forget to add it to the `checks`
+# list at all — red in both cases (warn never reaches exit 7; an absent check
+# never appears in the report).
+@test "release-versions: a diverging carrier fails the check and takes the doctor to exit 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  # First: the carriers agree, so the check is ok and the doctor still exits 0.
+  write_release_carriers 1.5.0
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="release-versions") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="release-versions") | .detail' \
+    'every version carrier agrees on 1.5.0, git tag v1.5.0 pending'
+
+  # Then the third carrier drifts — the exact drift that shipped three times.
+  write_release_carriers 1.5.0 1.4.2
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="release-versions") | .status' 'fail'
+  assert_json_eq "$output" '.ok' 'false'
+  grep -qF "metadata.version" <<<"$output"
+  grep -qF "1.4.2" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "✗ release-versions" <<<"$output"
+}

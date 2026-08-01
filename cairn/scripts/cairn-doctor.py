@@ -16,7 +16,7 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — fifteen
+                        version output -> WARN. Runs first — sixteen
                         checks in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
@@ -200,11 +200,36 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         explanatory detail rather than crashing the whole
                         doctor run over this one check (same degrade
                         shape as check_phase_corroboration()).
+    15. release-versions  cairn-release.py check --json (Plan 19-01,
+                        REL-02) run through the CAIRN_RELEASE env seam:
+                        the plugin version's carriers must agree —
+                        cairn/.claude-plugin/plugin.json's `version`,
+                        .claude-plugin/marketplace.json's NESTED
+                        `metadata.version`, the first released CHANGELOG
+                        heading, and the v<version> git tag — while
+                        cairn/capability/capability.json keeps its own
+                        axis and need only be valid semver (D-02). A
+                        finding -> FAIL (exit 7): a version inconsistency
+                        blocks a release, and the marketplace carrier went
+                        unnoticed across three of them precisely because
+                        nothing failed. APPLIES ONLY when
+                        cairn/.claude-plugin/plugin.json exists under the
+                        project root — the doctor runs in USERS' repos,
+                        which carry none of these manifests, and a naive
+                        version of this check would report `missing` and
+                        drive every one of them to exit 7. Elsewhere it
+                        reports ok with a "not applicable" detail, the
+                        same "0 = ok, or not applicable" semantics the
+                        exit-code table below already documents. A
+                        non-zero-and-not-6 cairn-release.py exit or
+                        unparsable JSON degrades to WARN rather than
+                        crashing the whole doctor run over this one check
+                        (same degrade shape as check_lease_stale()).
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-
                     escalation reconciliation proposal for phase N. Not one
-                    of the 15 checks above — a fixer, the same category as
+                    of the 16 checks above — a fixer, the same category as
                     --close-completed/--fix-labels/--link-refs, but the only
                     one of the four that always exits on its own rather
                     than falling through to the ordinary report, since its
@@ -290,6 +315,15 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 # script.
 CAIRN_JOURNAL = os.environ.get(
     "CAIRN_JOURNAL", str(SCRIPTS_DIR / "cairn-journal.py"))
+
+# Test/override seam for check_release_versions() (Phase 19, Plan 19-01) —
+# the same CAIRN_* convention as CAIRN_JOURNAL above and CAIRN_GBSYNC/
+# CAIRN_MAP/CAIRN_GATE elsewhere (CONVENTIONS.md's "Environment variable
+# seams" note). Default: the sibling cairn-release.py next to this script.
+# The doctor never reimplements the manifest reads; it calls the script that
+# owns them.
+CAIRN_RELEASE = os.environ.get(
+    "CAIRN_RELEASE", str(SCRIPTS_DIR / "cairn-release.py"))
 
 PHASE_LABEL = re.compile(r"^phase-(\d+)$")
 PHASE_HEAD = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\b")
@@ -1495,6 +1529,97 @@ def check_lease_stale(root):
 
 
 # --------------------------------------------------------------------------- #
+# check 15 — release-versions (REL-02)
+# --------------------------------------------------------------------------- #
+RELEASE_PLUGIN_MANIFEST = Path("cairn") / ".claude-plugin" / "plugin.json"
+
+
+def check_release_versions(root):
+    """Check 15, id "release-versions" (REL-02) — the plugin version's
+    carriers must agree, verified by shelling out to cairn-release.py
+    through the CAIRN_RELEASE env seam, the same
+    shell-out-to-a-sibling-script pattern check_maps_fresh() uses for
+    cairn-map.py --check and check_lease_stale() uses for cairn-lease.py.
+    No manifest reading is re-derived here: cairn-release.py owns the three
+    (different!) JSON key paths and the CHANGELOG heading, and this check
+    only routes its verdict.
+
+    A command nobody remembers to run would not have caught the third
+    carrier. That is why this lives in the doctor at all:
+    .claude-plugin/marketplace.json carries the version at
+    `metadata.version` and drifted unnoticed across three releases while
+    every human check said "the two files match".
+
+    APPLICABILITY — the trap this check has to dodge. The doctor runs in
+    USERS' repos, which have a .planning/ and a .beads/ but none of cairn's
+    own plugin manifests. A naive version of this check would report
+    `missing: cairn/.claude-plugin/plugin.json does not exist` and drive
+    every user's doctor to exit 7 over a file that has no business being
+    there. So it applies ONLY when cairn/.claude-plugin/plugin.json exists
+    under the project root; everywhere else it reports "ok" with a "not
+    applicable" detail — the same "0 = ok, or not applicable" semantics the
+    module docstring's exit-code table already documents for the doctor as
+    a whole.
+
+    Inside THIS repo a divergence is "fail", not "warn": it is an
+    inconsistency that blocks a release, and only "fail" reaches exit 7.
+    An unexpected cairn-release.py exit (anything but its documented 0/6)
+    or unparsable JSON degrades to WARN rather than crashing the whole
+    doctor run over this one check.
+    """
+    if not (root / RELEASE_PLUGIN_MANIFEST).is_file():
+        return {"id": "release-versions", "status": "ok",
+                "detail": f"not applicable — no {RELEASE_PLUGIN_MANIFEST} "
+                          "under this root (the version carriers are "
+                          "cairn's own, not a wired repo's)",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_RELEASE, "check", "--json",
+             "--project-dir", str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"id": "release-versions", "status": "warn",
+                "detail": f"could not run cairn-release.py: {exc}",
+                "items": []}
+    # 0 (every carrier agrees) and 6 (findings) are the two exit codes
+    # cairn-release.py check --json is documented to pair with real output;
+    # anything else is unexpected and degrades rather than failing.
+    if proc.returncode not in (0, 6):
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return {"id": "release-versions", "status": "warn",
+                "detail": f"cairn-release.py check exited "
+                          f"{proc.returncode}, version consistency could "
+                          f"not be computed: {first}",
+                "items": []}
+    try:
+        report = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        return {"id": "release-versions", "status": "warn",
+                "detail": "cairn-release.py check returned invalid JSON, "
+                          f"version consistency could not be computed: {e}",
+                "items": []}
+
+    findings = report.get("findings") or []
+    if findings:
+        return {"id": "release-versions", "status": "fail",
+                "detail": f"{len(findings)} version carrier finding(s) — "
+                          "run cairn-release.sh check",
+                "items": list(findings)}
+    version = report.get("version")
+    tag = next((c for c in report.get("carriers") or []
+                if c.get("name") == "tag"), {})
+    tag_note = {"ok": f", git tag {tag.get('key')} present",
+                "pending": f", git tag {tag.get('key')} pending"}.get(
+                    tag.get("status"), "")
+    return {"id": "release-versions", "status": "ok",
+            "detail": f"every version carrier agrees on {version}"
+                      f"{tag_note}",
+            "items": []}
+
+
+# --------------------------------------------------------------------------- #
 # --apply-reconciliation (ESC-03, Phase 17 Plan 3) — the human-invoked,
 # separate apply command for a verified semantic-escalation reconciliation
 # proposal. See the module docstring's own --apply-reconciliation entry for
@@ -1906,6 +2031,7 @@ def main():
         check_phase_artifacts(root, planning_dir, disk_reasons),
         check_external_ref(root, planning_dir, issues, args.link_refs),
         check_lease_stale(root),
+        check_release_versions(root),
     ]
     summary["checks"] = checks
     n_fail = sum(1 for c in checks if c["status"] == "fail")
