@@ -102,7 +102,7 @@ no configuration change, no breaking change. `.planning/` and `.beads/` are
 untouched, and every command keeps the arguments it had.
 
 The one thing to check is whether your ignore rules predate the generated files
-described just above. Run this in the repository:
+cairn now writes under `.cairn/`. Run this in the repository:
 
 ```
 git status --porcelain -uall .cairn
