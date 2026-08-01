@@ -61,19 +61,42 @@ post_bd_write() {
           bash "$CAIRN_HOOKS_DIR/post-bd-write.sh"
 }
 
-# $PATH with every directory containing a NAME executable removed. A
-# deny-list (strip NAME's dir(s)), not a hand-picked allow-list that would
-# have to know about every transitive tool a shim might invoke — everything
-# else the hook needs (bash, python3, possibly via an asdf/pyenv shim chain)
-# stays resolvable.
+# $PATH with every directory containing a NAME executable removed, PLUS a
+# sandbox directory in front holding the interpreters the hook itself runs
+# under. A deny-list (strip NAME's dir(s)) rather than a hand-picked
+# allow-list that would have to know about every transitive tool a shim
+# might invoke — but a pure deny-list is not enough, and CI proved it.
+#
+# MEASURED, on the GitHub runner: `gh` ships at /usr/bin/gh there, and /bin
+# is a symlink to /usr/bin, so stripping gh's directories takes /usr/bin AND
+# /bin with them. The surviving PATH held /usr/local/bin, /usr/sbin, /sbin,
+# /snap/bin and /usr/games — and no bash. `env PATH=… bash <hook>` then died
+# with 127 before the hook ran a single line, so the test reported "gh is
+# absent" while actually measuring "bash is absent". Reproduced locally by
+# putting gh in the same directory as bash:
+#
+#   PATH depois do strip: [/usr/sbin:/sbin]
+#   env: bash: No such file or directory     exit=127
+#
+# On macOS gh lives in Homebrew's bin, alone, so the same helper passed here
+# for months. The fix resolves the essentials BEFORE the strip and links them
+# into a sandbox dir that goes in front. NAME is deliberately never linked,
+# so `command -v gh` still fails closed — which is the whole assertion.
 path_without_bin() {  # $1 = binary name
-  local dir out="" name="$1"
+  local dir out="" name="$1" keep tool resolved
+  keep="$BATS_TEST_TMPDIR/keepbin-$name"
+  mkdir -p "$keep"
+  for tool in bash python3 git; do
+    [ "$tool" = "$name" ] && continue
+    resolved="$(command -v "$tool" 2>/dev/null)" || continue
+    ln -sf "$resolved" "$keep/$tool"
+  done
   IFS=':' read -ra dirs <<< "$PATH"
   for dir in "${dirs[@]}"; do
     [ -x "$dir/$name" ] && continue
     out="${out:+$out:}$dir"
   done
-  printf '%s' "$out"
+  printf '%s' "${keep}${out:+:$out}"
 }
 
 # Used only by the "gh genuinely absent" test below.
