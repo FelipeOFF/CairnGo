@@ -50,11 +50,11 @@ Requisitos deste milestone. Cada um mapeia para exatamente uma fase do roadmap.
 
 ### Execução paralela de fases (PAR)
 
-- [ ] **PAR-01**: O `/cairn:autonomous` executa concorrentemente as fases que ele já identifica como independentes, em vez de anunciar o paralelismo e rodar em fila
-- [ ] **PAR-02**: Cada fase paralela roda numa worktree própria, e edições de uma não aparecem na árvore da outra antes da reconciliação
-- [ ] **PAR-03**: Duas execuções na mesma fase são impedidas pelo lease, com quem segura e desde quando — por mecanismo, não por convenção
-- [ ] **PAR-04**: A reconciliação relata o que cada fase produziu, e conflito de merge é reportado, nunca resolvido em silêncio
-- [ ] **PAR-05**: Falha ou interrupção de uma fase não corrompe as outras nem deixa lease órfão
+- [x] **PAR-01**: O `/cairn:autonomous` executa concorrentemente as fases que ele já identifica como independentes, em vez de anunciar o paralelismo e rodar em fila
+- [x] **PAR-02**: Cada fase paralela roda numa worktree própria, e edições de uma não aparecem na árvore da outra antes da reconciliação
+- [x] **PAR-03**: Duas execuções na mesma fase são impedidas pelo lease, com quem segura e desde quando — por mecanismo, não por convenção
+- [x] **PAR-04**: A reconciliação relata o que cada fase produziu, e conflito de merge é reportado, nunca resolvido em silêncio
+- [x] **PAR-05**: Falha ou interrupção de uma fase não corrompe as outras nem deixa lease órfão
 
 ### Release do milestone (REL)
 
@@ -118,11 +118,11 @@ Excluídos explicitamente.
 | ESC-02 | Phase 17 | Complete |
 | ESC-03 | Phase 17 | Complete |
 | ESC-04 | Phase 17 | Complete |
-| PAR-01 | Phase 18 | Pending |
-| PAR-02 | Phase 18 | Pending |
-| PAR-03 | Phase 18 | Pending |
-| PAR-04 | Phase 18 | Pending |
-| PAR-05 | Phase 18 | Pending |
+| PAR-01 | Phase 18 | Complete |
+| PAR-02 | Phase 18 | Complete |
+| PAR-03 | Phase 18 | Complete |
+| PAR-04 | Phase 18 | Complete |
+| PAR-05 | Phase 18 | Complete |
 | REL-01 | Phase 19 | Pending |
 | REL-02 | Phase 19 | Pending |
 | REL-03 | Phase 19 | Pending |

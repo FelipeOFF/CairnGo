@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Honest State
-current_phase: 18
-current_phase_name: Parallel phase execution
+current_phase: 19
+current_phase_name: Ship v1.4
 status: planning
-stopped_at: Phase 17 verified and closed (3 plans, 4 issues)
-last_updated: "2026-07-30T19:47:35.873Z"
-last_activity: 2026-07-30
-last_activity_desc: Fases 14 e 15 mescladas de worktrees paralelas
+stopped_at: Phase 18 verified and closed (4 plans + 1 gap closure, 5 issues)
+last_updated: "2026-08-01T01:20:00.000Z"
+last_activity: 2026-08-01
+last_activity_desc: Fase 18 fechada — o ensaio manual das 14/15 virou mecanismo
 progress:
   total_phases: 7
-  completed_phases: 5
-  total_plans: 21
-  completed_plans: 21
-  percent: 71
+  completed_phases: 6
+  total_plans: 25
+  completed_plans: 25
+  percent: 86
 ---
 
 # Project State

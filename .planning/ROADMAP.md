@@ -30,7 +30,7 @@ reporta sucesso sem provar sucesso não conta como pronto.
 - [x] Phase 15: Phase lease (LEASE-01, LEASE-02, LEASE-03, LEASE-04, LEASE-05) — completed 2026-07-31
 - [x] Phase 16: Transition journal (JOUR-01, JOUR-02, JOUR-03, JOUR-04, JOUR-05) — completed 2026-07-31
 - [x] Phase 17: Semantic escalation (ESC-01, ESC-02, ESC-03, ESC-04) — completed 2026-07-31
-- [ ] Phase 18: Parallel phase execution (PAR-01, PAR-02, PAR-03, PAR-04, PAR-05)
+- [x] Phase 18: Parallel phase execution (PAR-01, PAR-02, PAR-03, PAR-04, PAR-05) — completed 2026-08-01
 - [ ] Phase 19: Ship v1.4 (REL-01, REL-02, REL-03, REL-04)
 
 ## Detalhe das fases
