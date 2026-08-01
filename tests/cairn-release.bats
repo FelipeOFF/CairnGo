@@ -1,8 +1,15 @@
 #!/usr/bin/env bats
-# cairn-release.bats — exercises the version-carrier check's CLI contract
-# (cairn-release.py / the cairn-release.sh wrapper):
-#   0 every lockstep carrier agrees and every carrier is valid semver,
+# cairn-release.bats — exercises the CLI contract of cairn-release.py (through
+# the cairn-release.sh wrapper): the version-carrier `check` and the release-
+# notes derivation `notes`.
+#   0 check: every lockstep carrier agrees and every carrier is valid semver;
+#     notes: the section was found and printed with its migration answer,
 #   2 usage, 6 findings.
+#
+# `notes` is pinned by a GOLDEN test that compares the whole derived output
+# byte for byte. That is deliberate: the point of deriving the notes from the
+# CHANGELOG is that no sentence about this release is written twice, and any
+# normalisation or rewrite slipped onto that path turns the golden red.
 #
 # The two rules under test are NOT the same rule (Phase 19, D-02):
 #   plugin.json == marketplace.json == CHANGELOG head == git tag
@@ -330,4 +337,223 @@ EOF
   run bash "$RELEASE" check --help
   [ "$status" -eq 0 ]
   grep -qF -- "--require-tag" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# Task 3: notes — derived from the CHANGELOG, never written a second time
+#-----------------------------------------------------------------------------
+
+# A CHANGELOG with THREE version sections around the one under test, so both
+# neighbours can be proven not to leak. Every section carries a marker string
+# that exists nowhere else in the file, which is what makes "did not leak" an
+# assertion instead of a hope. The middle section is shaped like the real
+# [1.5.0]: a preamble, two change subsections, and the migration subsection
+# last — Keep a Changelog's order, which is NOT the published order.
+#
+# Entries WRAP onto indented continuation lines on purpose. A first draft of
+# this fixture was one flat line per entry, and under the reflow break — the
+# very break the golden test exists to catch — it stayed GREEN, because
+# collapsing whitespace on a line that has none changes no bytes. The
+# indentation is what gives the golden something to lose.
+make_notes_fixture() {
+  make_tmp_repo
+  cat > CHANGELOG.md <<'EOF'
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+## [1.6.0] - 2026-09-01
+
+### Added
+
+- **an entry that says NEWERONLY** and wraps onto a second
+  line, indented.
+
+## [1.5.0] - 2026-08-01
+
+a section preamble that says PREAMBLEONLY and wraps onto a
+second line
+
+### Added
+
+- **an entry that says ADDEDONLY** and wraps onto a second
+  line, indented, the way the real entries do.
+
+### Fixed
+
+- **an entry that says FIXEDONLY** and wraps onto a second
+  line, indented too.
+
+### Upgrading
+
+a migration answer that says MIGRATIONONLY, wrapping onto a
+second line as well
+
+```
+   run this to find out
+```
+
+## [1.4.2] - 2026-07-28
+
+### Added
+
+- **an entry that says OLDERONLY** and wraps onto a second
+  line, indented.
+EOF
+}
+
+# 1-based line number of the first line of $output containing $1.
+line_of() {
+  grep -nF -- "$1" <<<"$output" | head -1 | cut -d: -f1
+}
+
+# Break: ANY normalisation, reflow, re-wrap or rewrite on the derivation path.
+# This is the test that turns "derived, never written a second time" from an
+# intention into something a machine checks: the whole output, byte for byte,
+# against the CHANGELOG's own bytes relabelled and reordered.
+@test "notes: the derived output matches the golden text byte for byte" {
+  make_notes_fixture
+
+  run bash "$RELEASE" notes 1.5.0 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  expected="$(cat <<'EOF'
+## Am I affected?
+
+a migration answer that says MIGRATIONONLY, wrapping onto a
+second line as well
+
+```
+   run this to find out
+```
+
+## What changed
+
+a section preamble that says PREAMBLEONLY and wraps onto a
+second line
+
+### Added
+
+- **an entry that says ADDEDONLY** and wraps onto a second
+  line, indented, the way the real entries do.
+
+### Fixed
+
+- **an entry that says FIXEDONLY** and wraps onto a second
+  line, indented too.
+EOF
+)"
+  [ "$output" = "$expected" ]
+}
+
+# Break: cut to end of file instead of to the next version heading. Every
+# older release would then be republished as part of this one's notes.
+@test "notes: neither neighbouring version section leaks into the output" {
+  make_notes_fixture
+
+  run bash "$RELEASE" notes 1.5.0 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  refute_in_output "OLDERONLY"
+  refute_in_output "NEWERONLY"
+  refute_in_output "## [1.4.2]"
+  refute_in_output "## [1.6.0]"
+}
+
+# Break: invert the mapping, or stop the cut at the first subsection heading.
+# The published order is the users' question first — that is what the three
+# 1.4.x releases established, and it is the opposite of the file's order.
+@test "notes: the migration answer sits under the user's question, the rest under the changes" {
+  make_notes_fixture
+
+  run bash "$RELEASE" notes 1.5.0 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  local question changes migration added fixed
+  question="$(line_of '## Am I affected?')"
+  changes="$(line_of '## What changed')"
+  migration="$(line_of 'MIGRATIONONLY')"
+  added="$(line_of 'ADDEDONLY')"
+  fixed="$(line_of 'FIXEDONLY')"
+
+  [ "$question" -lt "$migration" ]
+  [ "$migration" -lt "$changes" ]
+  [ "$changes" -lt "$added" ]
+  [ "$added" -lt "$fixed" ]
+  # The migration subsection's own heading is replaced by the question, not
+  # printed twice.
+  refute_in_output "### Upgrading"
+}
+
+# Break: derive the notes anyway. The published release then goes out unable
+# to answer "what do I have to do?" — which is literally why three consecutive
+# 1.4.x releases existed.
+@test "notes: a section with no migration subsection exits 6, never publishable output" {
+  make_notes_fixture
+
+  run bash "$RELEASE" notes 1.4.2 --project-dir "$PWD"
+  [ "$status" -eq 6 ]
+  grep -qF "1.4.2" <<<"$output"
+  grep -qF "Upgrading" <<<"$output"
+  refute_in_output "## What changed"
+  refute_in_output "OLDERONLY"
+}
+
+# The same failure from the other side: a heading with nothing under it must
+# not pass as an answer.
+@test "notes: an empty migration subsection exits 6 too" {
+  make_notes_fixture
+  cat > CHANGELOG.md <<'EOF'
+# Changelog
+
+## [1.5.0] - 2026-08-01
+
+### Added
+
+- an entry that says ADDEDONLY
+
+### Upgrading
+
+EOF
+
+  run bash "$RELEASE" notes 1.5.0 --project-dir "$PWD"
+  [ "$status" -eq 6 ]
+  grep -qF "Upgrading" <<<"$output"
+  refute_in_output "## Am I affected?"
+}
+
+# Break: print nothing and exit 0. A silent empty release note is the same
+# green-without-proof this milestone is named after.
+#
+# The message is asserted, not just the code: a first draft only grepped the
+# version string, and a break that cut an EMPTY section still exited 6 —
+# through the no-migration path, whose message also names the version. Two
+# different failures reported identically is the class of thing this phase is
+# about, so the finding must say which one happened.
+@test "notes: a version absent from the CHANGELOG exits 6 naming the version" {
+  make_notes_fixture
+
+  run bash "$RELEASE" notes 9.9.9 --project-dir "$PWD"
+  [ "$status" -eq 6 ]
+  grep -qF "## [9.9.9]" <<<"$output"
+  grep -qF "CHANGELOG.md" <<<"$output"
+  refute_in_output "Upgrading"
+  refute_in_output "## Am I affected?"
+  refute_in_output "Traceback"
+}
+
+# Break: default the version to the CHANGELOG head, which would silently
+# derive a release nobody asked for.
+@test "notes without a version exits 2, and its --help answers" {
+  make_notes_fixture
+
+  run bash "$RELEASE" notes --project-dir "$PWD"
+  [ "$status" -eq 2 ]
+
+  run bash "$RELEASE" notes --help
+  [ "$status" -eq 0 ]
+  grep -qF -- "--project-dir" <<<"$output"
+
+  run bash "$RELEASE" --help
+  [ "$status" -eq 0 ]
+  grep -qF "notes" <<<"$output"
 }

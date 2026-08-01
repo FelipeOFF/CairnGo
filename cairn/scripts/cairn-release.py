@@ -56,12 +56,64 @@ tag is reported `pending` and is NOT a failure by default — creating it is a
 later plan's step. `--require-tag` promotes that absence to a finding, which is
 how the plan that DOES create the tag proves the fourth equality.
 
+notes: derived, never written a second time (REL-03)
+-----------------------------------------------------
+`notes <version>` prints the release notes for one CHANGELOG section on
+stdout. It exists because this repository used to carry THREE texts for one
+release — the CHANGELOG section, the annotated tag's message, and the body of
+the published release — and keeping them in agreement was manual discipline.
+Two sources of truth for what shipped diverge, and the published one is the
+one users read. Here there is one derivation with three consumers.
+
+The rule is fixed and deliberately dumb. The command never writes prose; it
+cuts and labels:
+
+    1. Find `## [<version>] - <date>`, cut to the next version heading,
+       exclusive (end of file also ends the cut, for the oldest section).
+    2. Print `## Am I affected?` and then the migration subsection's body,
+       LITERAL.
+    3. Print `## What changed` and then the rest of the section — the section
+       preamble first, then every other subsection in the order it appears,
+       LITERAL, with its own `###` heading preserved.
+
+Step 2 before step 3 is the order of the three published releases: they open
+with the user's question and leave the change list for last. Keep a Changelog's
+order is the other one, and it is the right one for the FILE — which is why the
+derivation reorders instead of demanding the CHANGELOG be written in release
+order. Reordering and labelling is deterministic; rewriting would not be, and
+`tests/cairn-release.bats` pins the whole output byte for byte so any
+normalisation, reflow or rewrite on this path turns red.
+
+A section with NO migration subsection exits 6. That is what makes publishing
+a release that cannot answer "what do I have to do?" mechanically impossible
+instead of a reminder — the three 1.4.x releases exist precisely because that
+question went unanswered.
+
+MEASURED on this repo's CHANGELOG.md when `notes` was written (`awk` over the
+real file, not assumed):
+
+    ## [1.5.0]  ->  ### Added, ### Fixed, ### Upgrading
+    ## [1.4.2]  ->  ### Added
+    ## [1.4.1]  ->  ### Fixed
+    ## [1.4.0]  ->  ### Added, ### Changed, ### Added, ### Removed
+
+So 1.5.0 is the only section `notes` can currently derive; `notes 1.4.2` exits
+6, which is correct behaviour and not a bug. Note also that 1.4.0 repeats
+`### Added`: duplicate headings are kept, in order, untouched.
+
+ASSUMED, and deliberately so: that the migration subsection is spelled
+`### Upgrading`. One spelling, no alias list — an alias nobody tested is a
+second way to be wrong. Rename it in the CHANGELOG and this constant moves
+with it.
+
 Usage:
     cairn-release.py check [--project-dir DIR] [--json] [--require-tag]
+    cairn-release.py notes VERSION [--project-dir DIR]
 
     --project-dir DIR   project root the carriers are resolved against
                         (default: $CLAUDE_PROJECT_DIR or cwd)
     --json              machine-readable report instead of the human lines
+                        (check only)
     --require-tag       an absent `v<version>` git tag becomes a finding
                         instead of the default `pending`
 
@@ -70,17 +122,23 @@ Finding tokens (stable — the tests grep these, so they are contract):
                     paths, both keys and both values
     invalid semver  a carrier's value is not valid semver
     missing         a carrier's file, its key, or (with --require-tag) the git
-                    tag is absent; the finding names the file AND the key
+                    tag is absent; the finding names the file AND the key.
+                    `notes` reuses this token for a CHANGELOG section that does
+                    not exist and for one with no migration subsection — both
+                    name the version they were asked for
     invalid json    a carrier's file exists but does not parse
     pending         the `v<version>` git tag does not exist yet; reported, not
                     a finding, unless --require-tag was passed
 
 Exit codes:
-    0  every lockstep carrier agrees, every carrier is valid semver, and the
-       tag is either present or (without --require-tag) merely pending
-    2  usage error (unknown subcommand, bad flag)
+    0  check: every lockstep carrier agrees, every carrier is valid semver,
+       and the tag is either present or (without --require-tag) merely
+       pending. notes: the section was found and printed with its migration
+       answer.
+    2  usage error (unknown subcommand, bad flag, `notes` with no version)
     6  at least one finding — a mismatch, an invalid semver, a missing/
-       unparsable carrier, or an absent tag under --require-tag
+       unparsable carrier, an absent tag under --require-tag, or (notes) a
+       CHANGELOG section that does not exist or carries no migration answer
 """
 import argparse
 import json
@@ -106,6 +164,23 @@ SEMVER = re.compile(
 # SKIPPED by read_changelog_version — it is not a released version.
 CHANGELOG_HEADING = re.compile(r"^##\s+\[([^\]]+)\]")
 
+# A Keep a Changelog subsection inside one version's section.
+SUBSECTION_HEADING = re.compile(r"^###\s+(.*\S)\s*$")
+
+# A fenced code block's delimiter. Both heading scans honour fences, so a
+# CHANGELOG entry that quotes a markdown heading inside ``` cannot cut a
+# section in half.
+FENCE = re.compile(r"^\s*(?:```|~~~)")
+
+# The one spelling of the migration subsection (see the docstring: one
+# spelling, no alias list). Compared case-insensitively.
+MIGRATION_HEADING = "Upgrading"
+
+# The two labels the derivation adds. They are the ONLY text `notes` writes;
+# everything else is cut from the CHANGELOG unchanged.
+NOTES_MIGRATION_TITLE = "## Am I affected?"
+NOTES_CHANGES_TITLE = "## What changed"
+
 PLUGIN_MANIFEST = "cairn/.claude-plugin/plugin.json"
 
 # (name, path relative to the project root, key path, rule). The key paths
@@ -121,7 +196,10 @@ CARRIERS = (
 )
 
 USAGE = ("usage: cairn-release.py check [--project-dir DIR] [--json] "
-         "[--require-tag]")
+         "[--require-tag] | cairn-release.py notes VERSION "
+         "[--project-dir DIR]")
+
+CHANGELOG = "CHANGELOG.md"
 
 
 def die(msg, code):
@@ -322,6 +400,120 @@ def cmd_check(args, root):
 
 
 # --------------------------------------------------------------------------- #
+# notes — one derivation, three consumers (REL-03)
+# --------------------------------------------------------------------------- #
+def cut_section(text, version):
+    """(section body lines, finding) for one `## [version] - date` section.
+
+    The cut ends at the NEXT version heading, exclusive — not at end of file,
+    which would let every older release leak into the notes. End of file ends
+    the cut only for the oldest section. Headings inside a fenced code block
+    are not headings."""
+    lines = text.splitlines()
+    start = None
+    end = len(lines)
+    in_fence = False
+    for i, line in enumerate(lines):
+        if FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = CHANGELOG_HEADING.match(line)
+        if not m:
+            continue
+        if start is None:
+            if m.group(1).strip() == version:
+                start = i
+            continue
+        end = i
+        break
+    if start is None:
+        return None, (f"missing: {CHANGELOG} has no '## [{version}]' section "
+                      f"— nothing to derive release notes from")
+    return lines[start + 1:end], None
+
+
+def split_subsections(section):
+    """(preamble lines, [[heading line, title, body lines], ...]).
+
+    Everything before the first `###` is the preamble; each `###` opens a
+    subsection that runs to the next one. Duplicate titles are kept, in order
+    — this repo's [1.4.0] section carries `### Added` twice."""
+    preamble = []
+    subs = []
+    body = preamble
+    in_fence = False
+    for line in section:
+        if FENCE.match(line):
+            in_fence = not in_fence
+        elif not in_fence:
+            m = SUBSECTION_HEADING.match(line)
+            if m:
+                subs.append([line, m.group(1).strip(), []])
+                body = subs[-1][2]
+                continue
+        body.append(line)
+    return preamble, subs
+
+
+def trim_blank(lines):
+    """The lines with leading and trailing blank lines dropped. Interior lines
+    are untouched — indentation, code fences and blank lines inside a block
+    all survive, because the notes are cut, never reflowed."""
+    out = list(lines)
+    while out and not out[0].strip():
+        out.pop(0)
+    while out and not out[-1].strip():
+        out.pop()
+    return out
+
+
+def block(lines):
+    """One output block: the trimmed lines, joined, and NOTHING else. Every
+    block in the notes goes through here, so this is the single place a
+    normalisation could be slipped in — and the golden test in
+    tests/cairn-release.bats is what stops it."""
+    return "\n".join(trim_blank(lines))
+
+
+def cmd_notes(args, root):
+    path = root / CHANGELOG
+    if not path.is_file():
+        die(f"missing: {CHANGELOG} does not exist under {root}", EXIT_FINDINGS)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as e:
+        die(f"missing: {CHANGELOG} could not be read: {e}", EXIT_FINDINGS)
+
+    section, finding = cut_section(text, args.version)
+    if finding:
+        die(finding, EXIT_FINDINGS)
+
+    preamble, subs = split_subsections(section)
+    wanted = MIGRATION_HEADING.lower()
+    migration = next((s for s in subs if s[1].lower() == wanted), None)
+    # An absent OR empty migration subsection is the same failure: the release
+    # would go out unable to answer what the reader has to do, which is the
+    # question the whole 1.4.x line existed to answer (REL-04).
+    if migration is None or not trim_blank(migration[2]):
+        die(f"missing: the [{args.version}] section of {CHANGELOG} has no "
+            f"'### {MIGRATION_HEADING}' content — a release that cannot say "
+            f"what the reader must do is not publishable", EXIT_FINDINGS)
+
+    blocks = [NOTES_MIGRATION_TITLE, block(migration[2]), NOTES_CHANGES_TITLE]
+    if trim_blank(preamble):
+        blocks.append(block(preamble))
+    for heading, title, body in subs:
+        if title.lower() == wanted:
+            continue
+        kept = block(body)
+        blocks.append(heading if not kept else heading + "\n\n" + kept)
+    print("\n\n".join(blocks))
+    sys.exit(EXIT_OK)
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def build_parser():
@@ -337,14 +529,22 @@ def build_parser():
     check.add_argument("--require-tag", action="store_true",
                        help="an absent v<version> git tag becomes a finding "
                             "instead of the default 'pending'")
+    check.add_argument("--json", action="store_true",
+                       help="machine-readable JSON report")
     check.set_defaults(func=cmd_check)
 
-    for p in (check,):
+    notes = sub.add_parser(
+        "notes",
+        help="derive one release's notes from its CHANGELOG section")
+    notes.add_argument("version",
+                       help="the version whose '## [x.y.z]' section is "
+                            "derived (exit 6 if it does not exist)")
+    notes.set_defaults(func=cmd_notes)
+
+    for p in (check, notes):
         p.add_argument("--project-dir", metavar="DIR",
                        help="project root the carriers are resolved against "
                             "(default: $CLAUDE_PROJECT_DIR or cwd)")
-        p.add_argument("--json", action="store_true",
-                       help="machine-readable JSON report")
 
     return parser
 
