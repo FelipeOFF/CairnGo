@@ -98,13 +98,26 @@ All state lives under `<project>/.cairn/`:
 | File | Committed? | Purpose |
 |---|---|---|
 | `sync.json` | **yes** | Backend config. Holds ENV VAR *names*, never secrets. |
-| `id-map.json` | no (gitignored by default) | `{ bd_id: { backend: external_id } }` — the identity link. |
+| `context.json` | **yes** (optional) | Team-wide context-budget tuning. Absent = defaults. |
+| `id-map.json` | no (gitignored) | `{ bd_id: { backend: external_id } }` — the identity link. |
 | `state.json` | no (gitignored) | Pull watermarks: `{ last_pull: { backend: iso8601 } }`. |
 | `conflicts.json` | no (gitignored) | Append-only log of both-sides-changed reconciliations. |
+| `journal.jsonl` | no (gitignored) | Append-only lease/observation journal. Carries absolute worktree paths and actor names. Compaction writes `journal.jsonl.tmp-*` siblings and holds `journal.jsonl.compact.lock` next to it, so the ignore rule is the wildcard `journal.jsonl*`, not the bare name. |
+| `reconcile-evidence.json` | no (gitignored) | Evidence bundle from the last milestone reconcile. |
+| `hook.log` | no (gitignored) | Local hook diagnostics. |
+| `migrate-plan.json` | no (gitignored) | Dry-run plan of `/cairn:migrate`, per checkout. |
+| `migrate-state.json` | no (gitignored) | Resume journal of `/cairn:migrate`, per checkout. |
+| `plugin-root` | no (gitignored) | `${CLAUDE_PLUGIN_ROOT}` pointer written by `/cairn:init` — an absolute path, valid only on the machine that wrote it. |
 
-`cairn-init.sh` appends the generated three to the target repo's `.gitignore`,
-so they are excluded by default. `sync.json` is meant to be committed so the whole team
-shares the same backend config.
+`cairn-init.sh` appends every gitignored row above to the target repo's
+`.gitignore`, one entry each, so they are excluded by default. It is a list and
+not a blanket `.cairn/` rule on purpose: `sync.json` and `context.json` are meant
+to be committed so the whole team shares one backend config and one context
+budget, and a directory-wide ignore would silently hide both.
+
+Upgrading from an install that predates one of these rows? Re-run `/cairn:init`.
+The append loop is idempotent — it adds only what is missing and never rewrites
+or duplicates an existing line.
 
 ### Identity mapping
 

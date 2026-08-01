@@ -62,9 +62,10 @@ tools never sync to each other.
    vars from step 5 to be exported first, and only runs on the user's yes.
 7. **Explains the generated files:** `.cairn/id-map.json`, `.cairn/state.json`,
    and `.cairn/conflicts.json` are created automatically at sync time — never
-   by hand. `sync.json` is meant to be **committed**; the generated three are
-   gitignored by default (`cairn-init.sh` adds the entries). A team that wants
-   to commit one of them can remove its `.gitignore` line.
+   by hand. `sync.json` and `context.json` are meant to be **committed**; every
+   generated file under `.cairn/` is gitignored by default (`cairn-init.sh`
+   adds one entry per file — see [the sync guide](../sync.md) §4). A team that
+   wants to commit one of them can remove its `.gitignore` line.
 8. **Tells the user how to drive it:** PUSH happens automatically during the
    `cairn-sync` lifecycle, or manually with
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/gbsync.sh" update <bd_id>`; PULL is

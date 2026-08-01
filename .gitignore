@@ -6,6 +6,9 @@ __pycache__/
 .cairn/reconcile-evidence.json
 .cairn/hook.log
 .cairn/journal.jsonl*
+.cairn/migrate-plan.json
+.cairn/migrate-state.json
+.cairn/plugin-root
 .DS_Store
 
 # cairn 2.0 per-machine state (never commit)
