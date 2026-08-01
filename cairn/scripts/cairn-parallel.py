@@ -52,8 +52,12 @@ there" a checkable fact rather than a claim.
 ORDER OF ACQUISITION IN `prepare`, AND WHY THE PRE-CHECK IS ONLY ECONOMY
 ------------------------------------------------------------------------
 1. `cairn-lease.py status <N> --json` (read-only; it NEVER creates the lease
-   issue). Held by someone else with a live heartbeat -> refuse right here,
-   naming the holder and acquired_at, EXIT_HELD, having created nothing.
+   issue). Held by someone ELSE with a live heartbeat -> refuse right here,
+   naming the holder and acquired_at, EXIT_HELD, having created nothing. A
+   live lease whose holder IS the worktree this call would use is not a
+   refusal — that is the idempotent re-prepare, and acquire reads it as
+   already_mine. The comparison goes through realpath on both sides, never a
+   string compare, for the /var -> /private/var reason below.
 2. `git worktree add -b <branch> <path> HEAD`.
 3. `cairn-lease.py acquire <N> --project-dir <the new worktree>`.
 4. If THAT returns 3 — someone won the race inside the window between 1 and 3
@@ -293,6 +297,16 @@ def worktree_entries(top):
     return entries
 
 
+def same_path(a, b):
+    """Whether two paths name the same place, compared through realpath on
+    BOTH sides. Never a string compare: on macOS TMPDIR resolves through a
+    /var -> /private/var symlink and git (which is where every holder
+    identity in this codebase comes from) reports the PHYSICAL path."""
+    if not a or not b:
+        return False
+    return os.path.realpath(str(a)) == os.path.realpath(str(b))
+
+
 def worktree_entry_at(top, path):
     """The `git worktree list` entry registered at `path`, or None."""
     target = os.path.realpath(str(path))
@@ -480,9 +494,13 @@ def cmd_prepare(args, top):
     worktree = Path(layout["worktree"])
     branch = layout["branch"]
 
-    # (1) read-only pre-check — cheap refusal, writes nothing anywhere.
+    # (1) read-only pre-check — cheap refusal, writes nothing anywhere. A
+    # live lease already held BY THE VERY WORKTREE this call would use is not
+    # a refusal: that is the idempotent re-prepare, and cairn-lease.py's
+    # acquire will read it as already_mine and just heartbeat it.
     pre = lease_status(top, phase)
-    if pre.get("held") and not pre.get("stale"):
+    if (pre.get("held") and not pre.get("stale")
+            and not same_path(pre.get("holder"), worktree)):
         refuse_held(phase, pre, False, args.json)
 
     created_worktree = False

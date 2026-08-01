@@ -53,7 +53,9 @@ make_parallel_fixture() {
   make_tmp_repo
   bd init -q --prefix par --non-interactive >/dev/null 2>&1
   make_gsd_fixture "$PWD"
-  mkdir -p .planning/phases/07-alpha .planning/phases/09-beta
+  mkdir -p .planning/phases/03-gamma .planning/phases/07-alpha \
+           .planning/phases/09-beta
+  echo "phase 3" > .planning/phases/03-gamma/03-01-PLAN.md
   echo "phase 7" > .planning/phases/07-alpha/07-01-PLAN.md
   echo "phase 9" > .planning/phases/09-beta/09-01-PLAN.md
   git add .planning >/dev/null
@@ -339,6 +341,193 @@ PYEOF
     bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
   [ "$status" -eq 2 ]
   refute_in_output "Traceback"
+}
+
+#-----------------------------------------------------------------------------
+# Task 3: the refusal by lease leaves no trace, and the rollback only ever
+# undoes what the refusing invocation itself created.
+#
+# Two distinct paths reach EXIT_HELD and they need two distinct tests:
+#   - the read-only PRE-CHECK, reachable with a real second worktree, which
+#     refuses before anything is created;
+#   - the post-acquire RACE branch, only reachable when the lease is taken
+#     inside the window between the pre-check and the acquire, which is what
+#     the CAIRN_LEASE seam simulates. That is the only path where a rollback
+#     has anything to undo, so it is the only test that can prove one.
+#-----------------------------------------------------------------------------
+
+@test "prepare on a phase held by a live holder exits 3 naming the holder and since-when, and leaves no worktree and no branch behind" {
+  require_bd
+  make_parallel_fixture
+
+  local wt_b="$BATS_TEST_TMPDIR/holder"
+  git worktree add -q "$wt_b" -b holder-branch
+  wt_b="$(git -C "$wt_b" rev-parse --show-toplevel)"
+
+  run bash "$LEASE" acquire 3 --project-dir "$wt_b"
+  [ "$status" -eq 0 ]
+  run bash "$LEASE" status 3 --project-dir "$wt_b" --json
+  local acquired_at
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+
+  run bash "$PARALLEL" prepare 3 --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 3 ]
+  grep -qF "$wt_b" <<<"$output"
+  grep -qF "$acquired_at" <<<"$output"
+
+  # The two assertions that carry the weight.
+  [ ! -d "$MAIN_ROOT-phase-3" ]
+  run git -C "$MAIN_ROOT" rev-parse --verify --quiet refs/heads/phase/3-gamma
+  [ "$status" -ne 0 ]
+
+  # And the lease itself was not disturbed: still the other worktree's.
+  run bash "$LEASE" status 3 --project-dir "$MAIN_ROOT" --json
+  assert_json_eq "$output" '.holder' "$wt_b"
+  assert_json_eq "$output" '.acquired_at' "$acquired_at"
+}
+
+@test "prepare rolls back its own worktree and branch when the lease is lost in the race window between the pre-check and the acquire" {
+  require_bd
+  make_parallel_fixture
+
+  # A cairn-lease.py stand-in that reports the phase VACANT on the read-only
+  # pre-check and then refuses the acquire with EXIT_HELD — precisely the
+  # race the four-step order exists to survive, and unreachable with a real
+  # lease because a real one is already held by the time the pre-check runs.
+  local racing="$BATS_TEST_TMPDIR/racing-lease.py"
+  cat > "$racing" <<'PYEOF'
+#!/usr/bin/env python3
+import json
+import sys
+
+VACANT = {"phase": 3, "id": None, "held": False, "holder": None,
+          "actor": None, "host": None, "acquired_at": None,
+          "heartbeat_at": None, "stale": False, "ttl_hours": 4}
+TAKEN = {"phase": 3, "id": "stub-lease-1", "held": True,
+         "holder": "/somewhere/else-phase-3", "actor": "the rival",
+         "host": "elsewhere", "acquired_at": "2026-07-31T09:15:00+00:00",
+         "heartbeat_at": "2026-07-31T09:15:00+00:00", "stale": False,
+         "ttl_hours": 4}
+
+verb = sys.argv[1] if len(sys.argv) > 1 else ""
+if verb == "acquire":
+    print(json.dumps(TAKEN))
+    sys.exit(3)
+print(json.dumps(VACANT))
+sys.exit(0)
+PYEOF
+
+  run env CAIRN_LEASE="$racing" \
+    bash "$PARALLEL" prepare 3 --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 3 ]
+  grep -qF "/somewhere/else-phase-3" <<<"$output"
+  grep -qF "2026-07-31T09:15:00+00:00" <<<"$output"
+
+  # The rollback's whole job: the worktree this invocation created is gone,
+  # and so is the branch it created with it.
+  [ ! -d "$MAIN_ROOT-phase-3" ]
+  run git -C "$MAIN_ROOT" rev-parse --verify --quiet refs/heads/phase/3-gamma
+  [ "$status" -ne 0 ]
+  run git -C "$MAIN_ROOT" worktree list --porcelain
+  refute_in_output "$MAIN_ROOT-phase-3"
+}
+
+@test "prepare never removes a worktree it did not create, even when the acquire refuses" {
+  require_bd
+  make_parallel_fixture
+
+  # Pre-create the phase-3 worktree by hand, exactly where and how prepare
+  # would — so the refusing invocation finds it already there and creates
+  # nothing of its own.
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-3" -b phase/3-gamma
+  echo "work already done here" > "$MAIN_ROOT-phase-3/precious.txt"
+
+  local racing="$BATS_TEST_TMPDIR/racing-lease.py"
+  cat > "$racing" <<'PYEOF'
+#!/usr/bin/env python3
+import json
+import sys
+
+verb = sys.argv[1] if len(sys.argv) > 1 else ""
+if verb == "acquire":
+    print(json.dumps({"phase": 3, "id": "stub-lease-1", "held": True,
+                      "holder": "/somewhere/else-phase-3",
+                      "actor": "the rival", "host": "elsewhere",
+                      "acquired_at": "2026-07-31T09:15:00+00:00",
+                      "heartbeat_at": "2026-07-31T09:15:00+00:00",
+                      "stale": False, "ttl_hours": 4}))
+    sys.exit(3)
+print(json.dumps({"phase": 3, "id": None, "held": False, "holder": None,
+                  "actor": None, "host": None, "acquired_at": None,
+                  "heartbeat_at": None, "stale": False, "ttl_hours": 4}))
+sys.exit(0)
+PYEOF
+
+  run env CAIRN_LEASE="$racing" \
+    bash "$PARALLEL" prepare 3 --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 3 ]
+
+  # Untouched: the pre-existing worktree, its content, and its branch.
+  [ -d "$MAIN_ROOT-phase-3" ]
+  [ -f "$MAIN_ROOT-phase-3/precious.txt" ]
+  run git -C "$MAIN_ROOT" rev-parse --verify --quiet refs/heads/phase/3-gamma
+  [ "$status" -eq 0 ]
+}
+
+@test "prepare repeated on the same phase from the same worktree exits 0 with created=false and creates no second branch" {
+  require_bd
+  make_parallel_fixture
+
+  run bash "$PARALLEL" prepare 3 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.created' 'true'
+  assert_json_eq "$output" '.branch' 'phase/3-gamma'
+  local first_holder
+  first_holder="$(jq -r '.lease.holder' <<<"$output")"
+
+  run bash "$PARALLEL" prepare 3 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.created' 'false'
+  assert_json_eq "$output" '.branch' 'phase/3-gamma'
+  assert_json_eq "$output" '.lease.holder' "$first_holder"
+
+  run git -C "$MAIN_ROOT" branch --list "phase/*"
+  [ "$(grep -c . <<<"$output")" -eq 1 ]
+}
+
+@test "prepare on a phase whose lease is STALE proceeds and reclaims it, naming who it was reclaimed from" {
+  require_bd
+  make_parallel_fixture
+
+  local wt_b="$BATS_TEST_TMPDIR/holder"
+  git worktree add -q "$wt_b" -b holder-branch
+  wt_b="$(git -C "$wt_b" rev-parse --show-toplevel)"
+
+  run bash "$LEASE" acquire 3 --project-dir "$wt_b" --json
+  [ "$status" -eq 0 ]
+  local lease_id acquired_at
+  lease_id="$(jq -r '.id' <<<"$output")"
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+
+  # Age the heartbeat past the 4h TTL through bd directly, bypassing every
+  # cairn script, rather than sleeping.
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
+")"
+  run bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":3,\"holder\":\"$wt_b\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}"
+  [ "$status" -eq 0 ]
+
+  run bash "$PARALLEL" prepare 3 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.created' 'true'
+  local wt
+  wt="$(jq -r '.worktree' <<<"$output")"
+  local wt_real
+  wt_real="$(git -C "$wt" rev-parse --show-toplevel)"
+  assert_json_eq "$output" '.lease.holder' "$wt_real"
 }
 
 @test "cairn-parallel.sh with no subcommand exits 2; --help lists batch and prepare" {
