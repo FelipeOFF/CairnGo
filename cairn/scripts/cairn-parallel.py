@@ -8,8 +8,8 @@ until this script nobody consumed that answer: the loop announced parallelism
 and then ran in single file. That gap is the dishonesty this milestone exists
 to remove, and this file is the missing consumer.
 
-Three verbs ship now; `cleanup` (18-03) lands in this SAME file later, which
-is why argparse arrived with subparsers from the first commit.
+Four verbs, all in this ONE file — which is why argparse arrived with
+subparsers from the first commit.
 
     batch      what can run at once, with each phase's branch name and
                worktree path already resolved — the text /cairn:autonomous
@@ -20,6 +20,10 @@ is why argparse arrived with subparsers from the first commit.
                phase produced, the merge conflicts git will raise, and — the
                part nobody else does — the CONVERGENT EDIT git resolves in
                silence.
+    cleanup    what a dead run left behind — a worktree registration whose
+               directory is gone, and a lease nobody will ever renew or
+               release — and, behind `--apply`, exactly those two and nothing
+               else.
 
 
 WHY CAIRN NAMES THE WORKTREE, NOT THE HARNESS (D-01)
@@ -103,8 +107,14 @@ Measured: `refs/stash` is SHARED across every worktree of a repo — it lives in
 the common git dir, so a stash pushed in one tree is visible, and poppable, in
 all of them. A script that stashed to make room for a checkout would silently
 reach into a sibling agent's working state. Every git operation in this file is
-therefore additive (`worktree add`) or scoped to a path this invocation itself
-created (`worktree remove`, `branch -D`).
+therefore additive (`worktree add`), scoped to a path this invocation itself
+created (`prepare`'s rollback: `worktree remove`, `branch -D`), or — in
+`cleanup --apply` — scoped to a path git itself has already certified as safe
+to touch: a registration whose directory is gone, or a worktree with nothing
+uncommitted and nothing unmerged. Uncommitted work is the one thing in this
+whole file that cannot be recreated from git, so it is reported and left
+exactly where it is; there is no flag that stashes it and no flag that forces
+past it.
 
 
 WHY `batch` CONSUMES parallelism() AND NEVER RECOMPUTES IT
@@ -259,10 +269,110 @@ caller running under `set -e` cannot mistake a silently-convergent merge for
 success, which is the entire mechanism; it resolves nothing.
 
 
+WHAT `cleanup` DETECTS, AND WHY IT IS A MECHANISM AND NOT A CLOCK
+------------------------------------------------------------------
+A run that dies mid-flight leaves two marks. A worktree registration whose
+directory is gone, which git will drop the moment anyone asks it to. And a
+lease nobody will ever renew or release, which would otherwise hold the phase
+for the whole 4-hour TTL.
+
+The second one is detectable AT ALL because of the identity phase 15 chose:
+THE HOLDER IS A WORKTREE PATH. So a holder that is not in `git worktree list`
+is, by construction, an owner that does not exist — a fact about the machine,
+not an inference from elapsed time. That distinction is the entire design, and
+it is worth stating in the sharpest form: a lease killed ONE MINUTE ago is not
+stale, and never will be for another four hours. A TTL check would call it
+healthy and walk past it. This one names it dead immediately, because the
+directory its holder points at is not there.
+
+The five categories, and what `--apply` does to each:
+
+  orphan_registration  a worktree entry git marks `prunable` (its gitdir file
+                       points nowhere), or whose directory is simply missing.
+                       --apply: `git worktree prune`. Reported repo-wide, not
+                       just for phase/* worktrees, because `prune` itself is
+                       repo-wide — a report narrower than the action it
+                       triggers would understate what --apply is about to do.
+
+  orphan_lease         a HELD lease whose holder, realpath'd, is not among
+                       this repo's live worktrees. --apply: `cairn-lease.py
+                       release <N>`, which is also what writes the `released`
+                       record to the journal. This script never writes lease
+                       metadata itself — cairn-lease.py owns that object
+                       WHOLE (a partial bd --metadata patch erases sibling
+                       fields), so the release goes through the verb, always.
+
+  stale_but_live       a lease marked `stale` whose holder IS still a live
+                       worktree. REPORTED, NEVER RELEASED. Staleness means one
+                       thing: nobody has heartbeated in four hours. It does
+                       not mean nobody is there — the tree is right there on
+                       disk. cairn-lease.py's own `acquire` already knows how
+                       to reclaim a stale lease, and it does so at the moment
+                       somebody actually wants the phase, which is the only
+                       moment where the reclaim is worth its risk. Releasing
+                       here would race that reclaim on behalf of an agent that
+                       may merely be slow. The gap between THIS category and
+                       orphan_lease is the whole point of the design: same
+                       staleness, opposite verdict, decided by whether the
+                       owner exists.
+
+  retained             a live phase worktree that must not be removed, with
+                       the reason named and a manual command printed. Three
+                       reasons, and any one is enough: `git status
+                       --porcelain` is non-empty (uncommitted work — the only
+                       state here that git cannot reconstruct); `git rev-list
+                       --count HEAD..<branch>` is above zero (commits not yet
+                       in HEAD, so removing the branch would strand them); or
+                       the phase's lease is still held BY THAT VERY WORKTREE,
+                       stale or not (an agent is plausibly still working in
+                       it, and a freshly prepared empty tree is otherwise
+                       indistinguishable from finished work). Retained is the
+                       default verdict, not the exception: everything that is
+                       not provably safe lands here.
+
+  removable            a live phase worktree that is clean AND wholly merged
+                       into HEAD AND not holding its own lease. --apply:
+                       `git worktree remove` (never `--force`) followed by
+                       `git branch -d` (never `-D`). Both are the SAFE forms
+                       on purpose, so git re-checks the same claim
+                       independently a second time and refuses if this
+                       script's reading was wrong. This is the ordinary end of
+                       a phase, after reconciliation.
+
+An inventory this script cannot trust is a hard stop, not an empty list: if
+`git worktree list` comes back without the main checkout itself in it, every
+lease in the repo would suddenly look orphaned and --apply would evict live
+owners wholesale (T-18-11). So that case exits EXIT_GIT having decided
+nothing.
+
+Every path comparison — holder against worktree, worktree against worktree —
+goes through `os.path.realpath` on BOTH sides. macOS resolves TMPDIR through a
+/var -> /private/var symlink and git reports the PHYSICAL path, and a string
+compare there would silently classify a live holder as an orphan (T-18-12).
+
+
+WHY `cleanup` EXITS 0 WHERE `reconcile` EXITS 6
+------------------------------------------------
+`reconcile` exits 6 on a finding because its findings are JUDGEMENTS a person
+has to make: which of two convergent intentions was meant, how a conflict
+resolves. Nobody can automate that, so the exit code exists to stop a caller
+under `set -e` from reading silence as agreement.
+
+`cleanup`'s findings are the opposite kind of thing. An orphaned registration
+and a dead lease are conditions THIS COMMAND ITSELF repairs, completely, with
+one flag. There is no judgement left over, so there is nothing for a nonzero
+exit to protect. `cleanup` exits 0 with orphans, without orphans, with
+`--apply` and without it; `retained` is likewise a report and not a failure,
+because a worktree with unsaved work in it is a normal state of the world and
+not an error. What the exit code says here is "the sweep ran", and that is all
+it is asked to say.
+
+
 Usage:
     cairn-parallel.py batch     [--max N] [--project-dir DIR] [--json]
     cairn-parallel.py prepare N [--project-dir DIR] [--json]
     cairn-parallel.py reconcile [--phases 7,9] [--project-dir DIR] [--json]
+    cairn-parallel.py cleanup   [--apply] [--project-dir DIR] [--json]
 
     --project-dir DIR   project root for git/bd discovery (default:
                         $CLAUDE_PROJECT_DIR or cwd)
@@ -270,6 +380,10 @@ Usage:
                         (default: 3)
     --phases LIST       comma-separated phase numbers `reconcile` restricts
                         itself to (default: every phase/* branch)
+    --apply             `cleanup` writes. Without it nothing anywhere is
+                        touched, in any branch of the code — reading is the
+                        default and writing is behind a named flag, as
+                        everywhere else in this plugin
     --json              machine-readable output instead of the
                         `[cairn-parallel] ...` human lines
 
@@ -316,9 +430,23 @@ Behavior:
                A repo with no phase/* branch exits 0 with empty lists and
                says there is nothing to reconcile.
 
+    cleanup    Crosses `git worktree list --porcelain` with `cairn-lease.py
+               status --all --json` and reports the five categories above:
+                 {apply, orphan_registrations[], orphan_leases[],
+                  stale_but_live[], retained[], removable[], applied[]}
+               `orphan_registrations[]` entries carry {path, branch, reason};
+               `orphan_leases[]` and `stale_but_live[]` carry {phase, id,
+               holder, acquired_at, heartbeat_at, stale}; `retained[]` carries
+               {phase, path, branch, reasons[], manual_command}; `removable[]`
+               carries {phase, path, branch}. `applied[]` is empty without
+               `--apply` and otherwise lists, item by item, exactly what was
+               done: {action: worktree_prune|lease_release|worktree_remove,
+               ...}. Exit is 0 either way — see the asymmetry note above.
+
 Exit codes:
-    0  ok (including `created: false` — reusing an existing tree is success,
-       and a `reconcile` that found neither a conflict nor a convergent edit)
+    0  ok (including `created: false` — reusing an existing tree is success;
+       a `reconcile` that found neither a conflict nor a convergent edit; and
+       EVERY `cleanup`, orphans or not, applied or not)
     2  usage error (bad/missing phase, `prepare` run from a linked worktree,
        unusable --max or --phases, or a downstream script that could not be
        driven)
@@ -326,8 +454,10 @@ Exit codes:
        created, or everything this invocation created was rolled back. A
        report, not an error, exactly as cairn-lease.py reads its own 3
     4  git refused: the worktree path is occupied by something else, the
-       branch already exists without its worktree, or `git worktree add`
-       itself failed
+       branch already exists without its worktree, `git worktree add` itself
+       failed, or (`cleanup`) `git worktree list` came back without the main
+       checkout in it and is therefore not an inventory anything may be
+       declared orphaned against
     5  bd unavailable, or a companion script (cairn-lease.py /
        cairn-status.py) is missing
     6  `reconcile` has findings: a convergent edit, a merge conflict, or a
@@ -383,7 +513,8 @@ PLANNING_FILES_FORBIDDEN = [".planning/STATE.md", ".planning/ROADMAP.md",
                             ".planning/REQUIREMENTS.md"]
 
 USAGE = ("usage: cairn-parallel.py {batch [--max N]|prepare N|"
-         "reconcile [--phases 7,9]} [--project-dir DIR] [--json]")
+         "reconcile [--phases 7,9]|cleanup [--apply]} [--project-dir DIR] "
+         "[--json]")
 
 
 def die(msg, code):
@@ -446,11 +577,17 @@ def is_linked_worktree(top):
 
 
 def worktree_entries(top):
-    """[{path, branch}] for every worktree of this repo, parsed from
-    `git worktree list --porcelain`. `branch` is the short name, or None for
-    a detached/bare entry. Paths are realpath'd because macOS TMPDIR resolves
-    through a /var -> /private/var symlink and git reports the PHYSICAL
-    path."""
+    """[{path, branch, prunable, prunable_reason}] for every worktree of this
+    repo, parsed from `git worktree list --porcelain`. `branch` is the short
+    name, or None for a detached/bare entry. Paths are realpath'd because
+    macOS TMPDIR resolves through a /var -> /private/var symlink and git
+    reports the PHYSICAL path.
+
+    `prunable` is git's OWN verdict, measured rather than inferred: delete a
+    worktree's directory and the very next `git worktree list --porcelain`
+    carries `prunable gitdir file points to non-existent location` for it.
+    That line is what makes a dead run's leftover registration a fact this
+    script reads instead of a state it guesses at (`cleanup`)."""
     rc, out, _ = run_git(top, ["worktree", "list", "--porcelain"])
     if rc != 0:
         return []
@@ -459,12 +596,16 @@ def worktree_entries(top):
     for line in out.splitlines():
         if line.startswith("worktree "):
             current = {"path": os.path.realpath(line[len("worktree "):]),
-                       "branch": None}
+                       "branch": None, "prunable": False,
+                       "prunable_reason": None}
             entries.append(current)
         elif line.startswith("branch ") and current is not None:
             ref = line[len("branch "):]
             current["branch"] = ref[len("refs/heads/"):] \
                 if ref.startswith("refs/heads/") else ref
+        elif line.startswith("prunable") and current is not None:
+            current["prunable"] = True
+            current["prunable_reason"] = line[len("prunable"):].strip() or None
     return entries
 
 
@@ -1211,6 +1352,254 @@ def cmd_reconcile(args, top):
 
 
 # --------------------------------------------------------------------------- #
+# cleanup
+#
+# Deliberately BELOW the read-only region's END marker: this verb prunes
+# registrations, removes worktrees and deletes branches, and none of that
+# belongs inside a block whose whole claim is that it writes nothing.
+# --------------------------------------------------------------------------- #
+def lease_release(top, phase):
+    """`cairn-lease.py release <N>` through the CAIRN_LEASE seam. The verb
+    does the whole job — it vacates the metadata object WHOLE and writes the
+    `released` record to the journal itself — which is exactly why this
+    script calls it instead of touching bd metadata directly: a partial
+    `bd update --metadata` patch would erase the lease's sibling fields."""
+    _, data = lease_json(top, ["release", str(phase),
+                               "--project-dir", str(top)])
+    return data if isinstance(data, dict) else {}
+
+
+def worktree_dirty(path):
+    """`git status --porcelain` non-empty in that worktree — uncommitted
+    changes AND untracked files both count, because both are work git cannot
+    reconstruct from any ref. A worktree whose directory is gone reads as
+    'not dirty' here and never reaches this function anyway: it is an
+    orphan_registration before any of this is asked."""
+    rc, out, _ = run_git(path, ["status", "--porcelain"])
+    if rc != 0:
+        # Unreadable is not clean. Anything that cannot be measured is
+        # retained, never removed.
+        return True
+    return bool(out.strip())
+
+
+def commits_ahead(top, branch):
+    """How many commits `branch` carries that HEAD does not. None when the
+    count cannot be taken — which, like an unreadable status, retains."""
+    rc, out, _ = run_git(top, ["rev-list", "--count", f"HEAD..{branch}"])
+    if rc != 0 or not out.isdigit():
+        return None
+    return int(out)
+
+
+def held_lease_by_holder(leases):
+    """{realpath'd holder: entry} for every HELD lease, stale or not.
+
+    This keeps `cleanup --apply` from removing a worktree that still owns its
+    phase — a freshly prepared, still-empty tree is clean and wholly merged,
+    and would otherwise look exactly like finished work. Staleness is
+    deliberately NOT a discriminator here, for the same reason it is not one
+    in stale_but_live: a stale lease whose tree is right there on disk means
+    an agent that has not heartbeated, not an agent that is gone. Refusing to
+    release that lease while deleting the tree underneath it would be the
+    incoherent half-measure — so both halves retain."""
+    by_holder = {}
+    for entry in leases:
+        if not entry.get("held"):
+            continue
+        holder = entry.get("holder")
+        if holder:
+            by_holder[os.path.realpath(str(holder))] = entry
+    return by_holder
+
+
+def cleanup_scan(top):
+    """The whole report, computed without writing anything anywhere."""
+    entries = worktree_entries(top)
+
+    # The inventory has to contain the main checkout, or it is not an
+    # inventory. Without this, a failed/empty `git worktree list` would make
+    # every lease in the repo look orphaned and --apply would evict live
+    # owners wholesale (T-18-11).
+    if not any(same_path(e["path"], top) for e in entries):
+        die(f"`git worktree list` did not report {top} itself — refusing to "
+            f"call anything orphaned against an inventory this incomplete",
+            EXIT_GIT)
+
+    orphan_registrations = []
+    live = []
+    for entry in entries:
+        gone = entry["prunable"] or not os.path.isdir(entry["path"])
+        if gone:
+            orphan_registrations.append({
+                "path": entry["path"],
+                "branch": entry["branch"],
+                "reason": entry["prunable_reason"] or "directory is missing",
+            })
+        else:
+            live.append(entry)
+
+    live_paths = set(e["path"] for e in live)
+    leases = lease_status_all(top)
+
+    orphan_leases = []
+    stale_but_live = []
+    for entry in leases:
+        if not entry.get("held"):
+            continue
+        holder = entry.get("holder")
+        holder_real = os.path.realpath(str(holder)) if holder else None
+        row = {"phase": entry.get("phase"), "id": entry.get("id"),
+               "holder": holder, "acquired_at": entry.get("acquired_at"),
+               "heartbeat_at": entry.get("heartbeat_at"),
+               "stale": bool(entry.get("stale"))}
+        if holder_real in live_paths:
+            # The owner exists. Staleness alone is never grounds to release:
+            # cairn-lease.py's acquire reclaims a stale lease at the moment
+            # somebody actually wants the phase, and racing that reclaim from
+            # here would evict an agent that is merely slow.
+            if row["stale"]:
+                stale_but_live.append(row)
+            continue
+        # The holder is a worktree path that is not a worktree. By
+        # construction — phase 15's identity — that owner does not exist.
+        # This is the fact a TTL check cannot see: at four hours of TTL, a
+        # lease killed a minute ago is not stale and never looks it.
+        orphan_leases.append(row)
+
+    held_here = held_lease_by_holder(leases)
+
+    retained = []
+    removable = []
+    for entry in live:
+        m = PHASE_BRANCH.match(entry["branch"] or "")
+        if not m or same_path(entry["path"], top):
+            continue
+        phase = int(m.group(1))
+        reasons = []
+        manual = None
+        if worktree_dirty(entry["path"]):
+            reasons.append("uncommitted changes (git cannot recreate these)")
+            manual = f"git -C {entry['path']} status --short"
+        ahead = commits_ahead(top, entry["branch"])
+        if ahead is None:
+            reasons.append("could not count commits against HEAD")
+            manual = manual or f"git -C {top} log HEAD..{entry['branch']}"
+        elif ahead > 0:
+            reasons.append(f"{ahead} commit(s) not merged into HEAD")
+            manual = manual or f"git -C {top} merge {entry['branch']}"
+        lease = held_here.get(entry["path"])
+        if lease is not None:
+            note = " (stale, but the tree is right here)" \
+                if lease.get("stale") else ""
+            reasons.append(f"lease for phase {lease.get('phase')} still held "
+                           f"by this worktree since "
+                           f"{lease.get('acquired_at')}{note}")
+            manual = manual or (f"cairn-lease.sh status {lease.get('phase')} "
+                                f"--project-dir {top}")
+        row = {"phase": phase, "path": entry["path"],
+               "branch": entry["branch"]}
+        if reasons:
+            row["reasons"] = reasons
+            row["manual_command"] = manual
+            retained.append(row)
+        else:
+            removable.append(row)
+
+    return {"orphan_registrations": orphan_registrations,
+            "orphan_leases": orphan_leases,
+            "stale_but_live": stale_but_live,
+            "retained": retained,
+            "removable": removable}
+
+
+def cleanup_apply(top, scan):
+    """The ONLY writing path in this verb, and it resolves exactly the two
+    orphan categories plus the provably-safe removals. `stale_but_live` and
+    `retained` are never reached from here — they have no branch in this
+    function at all, which is a stronger statement than a promise about
+    them."""
+    applied = []
+    if scan["orphan_registrations"]:
+        rc, _, err = run_git(top, ["worktree", "prune"])
+        applied.append({
+            "action": "worktree_prune",
+            "paths": [r["path"] for r in scan["orphan_registrations"]],
+            "ok": rc == 0,
+            "error": err or None,
+        })
+    for row in scan["orphan_leases"]:
+        after = lease_release(top, row["phase"])
+        applied.append({"action": "lease_release", "phase": row["phase"],
+                        "holder": row["holder"],
+                        "held_after": bool(after.get("held"))})
+    for row in scan["removable"]:
+        # No --force, and `branch -d` rather than -D: git re-checks "clean"
+        # and "merged" on its own terms and refuses if this script read the
+        # tree wrong. Two independent verdicts for one irreversible act.
+        rc, _, err = run_git(top, ["worktree", "remove", row["path"]])
+        deleted = False
+        branch_error = None
+        if rc == 0:
+            rc_b, _, err_b = run_git(top, ["branch", "-d", row["branch"]])
+            deleted = rc_b == 0
+            branch_error = err_b or None
+        applied.append({"action": "worktree_remove", "path": row["path"],
+                        "branch": row["branch"], "ok": rc == 0,
+                        "error": err or None, "branch_deleted": deleted,
+                        "branch_error": branch_error})
+    return applied
+
+
+def print_cleanup(result):
+    def say(line):
+        print(f"[cairn-parallel] {line}")
+
+    for row in result["orphan_registrations"]:
+        say(f"orphan registration: {row['path']} ({row['branch']}) — "
+            f"{row['reason']}")
+    for row in result["orphan_leases"]:
+        say(f"orphan lease: phase {row['phase']} held by {row['holder']}, "
+            f"which is not a worktree of this repo — the owner does not "
+            f"exist (held since {row['acquired_at']})")
+    for row in result["stale_but_live"]:
+        say(f"stale lease, LIVE holder: phase {row['phase']} held by "
+            f"{row['holder']} — reported only; cairn-lease acquire reclaims "
+            f"a stale lease when somebody wants the phase")
+    for row in result["retained"]:
+        say(f"retained: {row['path']} ({row['branch']}) — "
+            f"{'; '.join(row['reasons'])}")
+        say(f"  manual: {row['manual_command']}")
+    for row in result["removable"]:
+        say(f"removable: {row['path']} ({row['branch']}) — clean and wholly "
+            f"merged into HEAD")
+    for row in result["applied"]:
+        say(f"applied: {json.dumps(row)}")
+    if not result["apply"]:
+        total = (len(result["orphan_registrations"])
+                 + len(result["orphan_leases"]) + len(result["removable"]))
+        if total:
+            say(f"{total} item(s) would be resolved by --apply; nothing was "
+                f"written")
+        else:
+            say("nothing to clean up")
+
+
+def cmd_cleanup(args, top):
+    result = cleanup_scan(top)
+    result["apply"] = bool(args.apply)
+    result["applied"] = cleanup_apply(top, result) if args.apply else []
+
+    if args.json:
+        print(json.dumps(result))
+    else:
+        print_cleanup(result)
+    # Always 0 — see the docstring's asymmetry note. An orphan is a condition
+    # this command repairs, not a judgement somebody has to make.
+    sys.exit(EXIT_OK)
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def build_parser():
@@ -1244,7 +1633,19 @@ def build_parser():
                                 "to (default: every phase/* branch)")
     reconcile.set_defaults(func=cmd_reconcile)
 
-    for p in (batch, prepare, reconcile):
+    cleanup = sub.add_parser("cleanup",
+                             help="what a dead run left behind: worktree "
+                                  "registrations whose directory is gone and "
+                                  "leases whose holder is not a worktree of "
+                                  "this repo")
+    cleanup.add_argument("--apply", action="store_true",
+                         help="write: prune orphaned registrations, release "
+                              "orphaned leases, and remove worktrees that "
+                              "are clean AND wholly merged (default: report "
+                              "only)")
+    cleanup.set_defaults(func=cmd_cleanup)
+
+    for p in (batch, prepare, reconcile, cleanup):
         p.add_argument("--project-dir", metavar="DIR",
                        help="project root for git/bd discovery (default: "
                             "$CLAUDE_PROJECT_DIR or cwd)")
