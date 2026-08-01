@@ -3,19 +3,21 @@
 
 Cross-checks the two sources of truth (.planning/ and the bd tracker) and
 reports drift. Read-only except for --fix-labels, which delegates to
-cairn-relabel.py pair, and --close-completed, which bulk-closes via
-'bd close'.
+cairn-relabel.py pair, --close-completed, which bulk-closes via
+'bd close', and --link-refs, which backfills bd's --external-ref field
+via 'bd update'.
 
 Usage:
     cairn-doctor.py [--project-dir <dir>] [--json] [--fix-labels]
-                    [--close-completed]
+                    [--close-completed] [--link-refs]
+                    [--apply-reconciliation N]
 
 Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — eleven checks
-                        in total.
+                        version output -> WARN. Runs first — sixteen
+                        checks in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
                         metadata.gsd.req matches, scoped to the phase's
@@ -91,6 +93,176 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     9. bd-doctor        run 'bd doctor'; first line captured as the
                         summary, pass/fail as bd reports it (exit 0 -> ok,
                         else FAIL).
+    10. gsd-capability  which GSD lineage is installed and whether the
+                        cairn capability actually registered against it
+                        (see check_gsd_capability()'s own docstring for
+                        the full routing — an unloadable manifest, two
+                        lineages at once, the 4.x lineage, or an
+                        unregistered/partly-staged bundle -> FAIL; no GSD
+                        binary found at all -> WARN, not evidence either
+                        way).
+    11. phase-corroboration  reads Plan 13-01's phase_model() verdict for
+                        every phase (shells to 'cairn-status.py --json',
+                        the same subprocess pattern check 3 already uses
+                        for cairn-map.py --check) and itemizes every
+                        phase whose corroboration != "ok": a "conflict"
+                        verdict lists each entry in that phase's
+                        conflicts[] as '<n>: <detail> (<severity>) —
+                        <recommendation> — <source> last moved <ts>, ...',
+                        the recommendation being the FIRST, most-likely
+                        fix (D-01) and differing by the conflict's source
+                        pair (disk/bd -> close the bd issue or run
+                        /cairn:work; roadmap/disk -> confirm before
+                        leaving the checkbox ticked; state_md/disk -> the
+                        pointer is merely stale, no action needed); the
+                        trailing "last moved" clause (Phase 16, JOUR-02)
+                        names when EACH of that conflict's cited sources
+                        last moved, pulled from 'cairn-journal.py
+                        last-moved --phase N --json' (called at most ONCE
+                        per phase, cached, never once per conflict item),
+                        "never observed" for a source the journal has
+                        never seen — a broken/missing journal degrades
+                        that one clause to nothing, never this check's
+                        own status. An "unknown" verdict (bd unreadable
+                        for that phase) gets one item saying so, no
+                        last-moved clause. A "blocks"-severity conflict ->
+                        FAIL (reuses EXIT_FAILED, no new exit code);
+                        "informs"-only or "unknown" -> WARN, never fails
+                        the run (D-10 applied to doctor's own exit code).
+                        A subprocess/JSON failure degrades to WARN rather
+                        than crashing the whole doctor run over this one
+                        check.
+    12. phase-artifacts CARD-02/D-04: names which artifact is missing for a
+                        phase whose board row would otherwise be a bare
+                        dash. Reuses main()'s already-computed
+                        disk_incomplete_reasons() (no duplicate frontmatter
+                        parser) plus 'cairn-status.py --json' (same
+                        subprocess pattern as check 11) for disk_state /
+                        verify_status. Two WARN-only shapes: a phase whose
+                        disk_state has already reached "verified" (an
+                        NN-VERIFICATION.md exists) while one of its
+                        PLAN.md files still lacks its own SUMMARY.md,
+                        named by filename; and a "verified" phase whose
+                        NN-VERIFICATION.md carries no readable 'status:'
+                        field. The missing-SUMMARY half is gated on
+                        disk_state == "verified" ON PURPOSE — an ungated
+                        version fired on every plans-without-summary gap,
+                        which is the state of any phase mid-flight between
+                        waves, and a plan-checker caught that as noise; a
+                        phase someone ran /cairn:verify on despite an
+                        unsummarized plan is a genuine anomaly, ordinary
+                        in-progress work is not. Known accepted gap: a
+                        phase stuck at "executed" that never reaches
+                        "verified" — its SUMMARY-less plan never gets
+                        flagged here either, the false negative the
+                        narrowed gate trades for removing the mid-flight
+                        false positive. NEVER fails the run (see
+                        check_phase_artifacts()'s own docstring for why);
+                        a subprocess/JSON failure against cairn-status.py
+                        degrades to a single WARN item rather than falling
+                        back to the ungated dump.
+    13. external-ref    CORR-08/D-11 backfill: every CLOSED issue lacking
+                        bd's own 'external_ref' field, resolved to its
+                        phase and that phase's plan(s) 'files_modified:',
+                        cross-referenced against 'git log' in a +/-2 day
+                        window around the issue's closed_at for a commit
+                        subject carrying a single, unambiguous '(#N)'
+                        token (zero or multiple distinct numbers found ->
+                        never a candidate, never guessed). Read-only by
+                        default: reports each unambiguous candidate as
+                        '<id> -> gh-N', writes nothing. --link-refs backs
+                        it: runs 'bd update <id> --external-ref gh-N' for
+                        each candidate, itemizes what it linked, and is
+                        idempotent (an issue already carrying an
+                        external_ref is excluded from consideration up
+                        front). A shallow clone's git match can be
+                        silently WRONG at the boundary commit, not merely
+                        incomplete (D-08, reproduced in STACK.md) — a
+                        single 'git rev-parse --is-shallow-repository'
+                        check skips the whole check for the run rather
+                        than trusting it. WARN only when an unambiguous,
+                        actionable candidate is waiting (never merely
+                        because history predates the convention — that is
+                        the expected, unremarkable case per STACK.md).
+    14. lease-stale     cairn-lease.py status --all --json (Plan 15-01)
+                        itemized for every phase whose lease is currently
+                        held AND stale (heartbeat older than the 4h TTL
+                        cairn-lease.py enforces): phase, holder, actor,
+                        acquired_at, heartbeat_at, and the reclaim path
+                        ("reclaimable — the next /cairn:work N takes it
+                        automatically, or run cairn-lease.sh release N to
+                        clear it now") -> WARN, one item per stale lease;
+                        no stale lease -> ok. Never FAIL — mirrors check 8
+                        (claims-stale)'s own discipline one level up
+                        (D-04/LEASE-05): a stale lease is reclaimable, not
+                        itself a doctor failure. A non-zero cairn-lease.py
+                        exit or unparsable JSON degrades to WARN with an
+                        explanatory detail rather than crashing the whole
+                        doctor run over this one check (same degrade
+                        shape as check_phase_corroboration()).
+    15. release-versions  cairn-release.py check --json (Plan 19-01,
+                        REL-02) run through the CAIRN_RELEASE env seam:
+                        the plugin version's carriers must agree —
+                        cairn/.claude-plugin/plugin.json's `version`,
+                        .claude-plugin/marketplace.json's NESTED
+                        `metadata.version`, the first released CHANGELOG
+                        heading, and the v<version> git tag — while
+                        cairn/capability/capability.json keeps its own
+                        axis and need only be valid semver (D-02). A
+                        finding -> FAIL (exit 7): a version inconsistency
+                        blocks a release, and the marketplace carrier went
+                        unnoticed across three of them precisely because
+                        nothing failed. APPLIES ONLY when
+                        cairn/.claude-plugin/plugin.json exists under the
+                        project root — the doctor runs in USERS' repos,
+                        which carry none of these manifests, and a naive
+                        version of this check would report `missing` and
+                        drive every one of them to exit 7. Elsewhere it
+                        reports ok with a "not applicable" detail, the
+                        same "0 = ok, or not applicable" semantics the
+                        exit-code table below already documents. A
+                        non-zero-and-not-6 cairn-release.py exit or
+                        unparsable JSON degrades to WARN rather than
+                        crashing the whole doctor run over this one check
+                        (same degrade shape as check_lease_stale()).
+
+--apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
+                    separate command that APPLIES a verified semantic-
+                    escalation reconciliation proposal for phase N. Not one
+                    of the 16 checks above — a fixer, the same category as
+                    --close-completed/--fix-labels/--link-refs, but the only
+                    one of the four that always exits on its own rather
+                    than falling through to the ordinary report, since its
+                    own exit-code contract (below) does not track check
+                    pass/fail. Reads .cairn/conflicts.json (written by
+                    /cairn:reconcile's own deterministic step, Plan 17-02)
+                    and refuses the WHOLE apply, fail-closed, on any of:
+                    no proposal for phase N (or its own 'phase' field
+                    doesn't match N); phase N's corroboration verdict is no
+                    longer "conflict" at apply-time (a real 're-collect',
+                    never the proposal's own stale self-claim) — not a
+                    failure, nothing to apply; the freshly re-collected
+                    evidence_hash no longer matches the proposal's own
+                    stored one (the tree moved between proposal and apply,
+                    D-04's cache key re-validated); any citation fails a
+                    real re-verification run (D-03); any
+                    recommended_action.type falls outside the closed
+                    {bd_close, bd_reopen, manual_review} vocabulary; or any
+                    bd_close/bd_reopen claim's recommended_action.issue
+                    names a bd id that carries no phase-N label (the
+                    issue-provenance check — correct citations elsewhere in
+                    the same proposal never excuse a claim that targets an
+                    unrelated issue). Only once every one of those passes
+                    does anything print: EVERY claim is enumerated
+                    (statement, recommended_action, what will happen —
+                    manual_review claims listed as skipped) BEFORE the
+                    first bd subprocess call ever runs, then bd_close/
+                    bd_reopen claims are applied one at a time; manual_review
+                    claims never touch bd. A close/reopen bd itself refuses
+                    is reported by id and reason and fails the run — never
+                    silent, the same "asked for it and did not get it"
+                    discipline check_phase_complete_open's close_failures
+                    already applies one level up.
 
 Active milestone is resolved leniently like cairn-gate: STATE.md
 frontmatter 'milestone:' first, else the ROADMAP.md milestone marked in
@@ -101,12 +273,20 @@ Exit codes:
     0  all checks ok, or ok + warnings (warnings are printed but never
        change the exit code), or doctor NOT APPLICABLE: .planning/ or
        .beads/ absent — the doctor is for wired repos. When exactly one
-       side exists the note suggests /cairn:migrate.
-    2  usage error, or --fix-labels refused (milestone unresolvable).
+       side exists the note suggests /cairn:migrate. ALSO:
+       --apply-reconciliation's own "phase N is no longer in conflict"
+       refusal — nothing left to apply is not a failure.
+    2  usage error, or --fix-labels refused (milestone unresolvable), or
+       --apply-reconciliation found no proposal for phase N (missing
+       .cairn/conflicts.json, or its own 'phase' field doesn't match N).
     5  bd unavailable (not on PATH, or bd list failed).
     7  at least one check FAILED — including --close-completed leaving a
        target unclosed (bd refused it and the fixpoint could not drain it),
-       which fails check 5 rather than exiting silently 0.
+       which fails check 5 rather than exiting silently 0, and including a
+       "blocks"-severity phase-corroboration conflict (check 11). ALSO:
+       --apply-reconciliation refusing a stale proposal, a bad citation, an
+       unrecognized recommended_action.type, an issue-provenance mismatch,
+       or bd itself refusing a close/reopen it was asked to apply.
 """
 import argparse
 import json
@@ -115,6 +295,7 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 EXIT_OK = 0
@@ -126,6 +307,24 @@ SYMBOL = {"ok": "✓", "warn": "⚠", "fail": "✗"}
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
+# Test/override seam for check_phase_corroboration()'s journal_last_moved()
+# call (Phase 16, D-01/D-02) — the SAME env var name cairn-lease.py and
+# cairn-status.py already use for their own calls into this identical
+# script (CONVENTIONS.md's "Environment variable seams" note: CAIRN_*
+# prefix, upper case). Default: the sibling cairn-journal.py next to this
+# script.
+CAIRN_JOURNAL = os.environ.get(
+    "CAIRN_JOURNAL", str(SCRIPTS_DIR / "cairn-journal.py"))
+
+# Test/override seam for check_release_versions() (Phase 19, Plan 19-01) —
+# the same CAIRN_* convention as CAIRN_JOURNAL above and CAIRN_GBSYNC/
+# CAIRN_MAP/CAIRN_GATE elsewhere (CONVENTIONS.md's "Environment variable
+# seams" note). Default: the sibling cairn-release.py next to this script.
+# The doctor never reimplements the manifest reads; it calls the script that
+# owns them.
+CAIRN_RELEASE = os.environ.get(
+    "CAIRN_RELEASE", str(SCRIPTS_DIR / "cairn-release.py"))
+
 PHASE_LABEL = re.compile(r"^phase-(\d+)$")
 PHASE_HEAD = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\b")
 ANY_HEAD = re.compile(r"^#{1,6}\s")
@@ -136,10 +335,15 @@ REQ_LINE = re.compile(r"^\*\*Requirements\*\*\s*:(.*)$")
 REQ_ID = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
 DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
+PR_NUMBER = re.compile(r"\(#(\d+)\)")
 
 # Labels that legitimately carry no phase-* label (migration parking lots,
-# plus unphased /cairn:quick side-quests).
-NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick"}
+# unphased /cairn:quick side-quests, plus the phase-lease bookkeeping issue
+# — cairn-lease.py's module docstring explains why it never carries a
+# phase-<N> label: it would make the lease look like real phase work to
+# this doctor's own phase-complete-open check, phase-corroboration, and
+# work.md's done-check).
+NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick", "lease"}
 
 
 def die(msg, code):
@@ -807,6 +1011,818 @@ def check_gsd_capability(root):
 
 
 # --------------------------------------------------------------------------- #
+# check 11 — phase-corroboration (CORR-06)
+# --------------------------------------------------------------------------- #
+CORROBORATION_RECOMMENDATION = {
+    ("disk", "bd"): "close the open bd issue(s) if the work is done, or "
+                    "run /cairn:work N if it is not",
+    ("roadmap", "disk"): "confirm the phase is really done before leaving "
+                         "the checkbox ticked, or re-plan it",
+    ("state_md", "disk"): "STATE.md's active_phase looks stale — no action "
+                          "needed unless you are actually still working "
+                          "phase N",
+}
+
+
+def corroboration_recommendation(sources):
+    """The first, most-likely fix for a conflict's source pair (D-01: the
+    likely-correct option presented first, never a bare list of options)."""
+    return CORROBORATION_RECOMMENDATION.get(
+        tuple(sources), "see /cairn:doctor for details")
+
+
+def journal_last_moved(root, phase):
+    """cairn-journal.py's `last-moved --phase N --json` for one PHASE, or
+    None on ANY failure (missing/broken script, nonzero exit, unparsable
+    JSON) — mirroring check_lease_stale()'s shell-out-and-degrade shape
+    exactly, one level down: a failure HERE degrades only the calling
+    conflict item's enrichment text (see _last_moved_clause()), never
+    check_phase_corroboration()'s own status/severity computation (T-16-09
+    — that verdict is already fully decided by corroborate()'s own
+    "severity" field by the time this is ever called). Shells through the
+    CAIRN_JOURNAL env seam (default: the sibling cairn-journal.py), the
+    same test/override convention cairn-lease.py and cairn-status.py
+    already use for this identical script."""
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_JOURNAL, "last-moved",
+             "--phase", str(phase), "--json", "--project-dir", str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+
+
+def _last_moved_clause(last_moved, sources):
+    """'<source> last moved <ts>, ...' — one clause per SOURCES key
+    (a conflict's own ["disk","bd"]-shaped list), pulled from
+    journal_last_moved()'s per-axis {"value":..., "ts":...} dict. A
+    source with no prior record (the axis key is None/missing) renders
+    the literal phrase "never observed", per JOUR-02's own wording — never
+    a blank, never a fabricated timestamp. Returns "" (append nothing)
+    when LAST_MOVED itself is None — the journal call failed or was never
+    attempted, and the item's EXISTING (pre-Plan-16-05) text is left
+    completely untouched in that case."""
+    if last_moved is None:
+        return ""
+    clauses = []
+    for source in sources:
+        entry = last_moved.get(source)
+        if entry:
+            clauses.append(f"{source} last moved {entry.get('ts')}")
+        else:
+            clauses.append(f"{source} last moved never observed")
+    return ", ".join(clauses)
+
+
+def check_phase_corroboration(root, planning_dir):
+    """Check 11, id "phase-corroboration" (CORR-06) — reads Plan 13-01's
+    phase_model() corroboration verdict for every phase (shells to
+    'cairn-status.py --json', the same subprocess pattern check_maps_fresh()
+    already uses for cairn-map.py --check) and routes each non-"ok" phase to
+    a recommended fix.
+
+    Two severities only (D-09), each carrying corroborate()'s own written
+    justification (see cairn-status.py): a "blocks" conflict FAILS the
+    doctor run (reuses EXIT_FAILED, no new exit code); an "informs"
+    conflict or an "unknown" verdict (bd unreadable for that phase) WARNs
+    without failing — D-10's "the ship gate bars only the blockers" posture,
+    applied here to doctor's own exit code too. A subprocess/parse failure
+    degrades to WARN rather than crashing the whole doctor run over one
+    check — corroboration is additive, never a new way for doctor itself to
+    become unusable.
+
+    Each "conflict" item ALSO cites when each of that conflict's cited
+    sources last moved (Phase 16, JOUR-02 — D-04's "dentro do relatório de
+    conflito", the ONLY place this history surfaces by design), via
+    journal_last_moved(): one cairn-journal.py `last-moved` call per phase
+    that has at least one conflict — cached in last_moved_cache, never
+    once per conflict item, even when a phase carries several (e.g. both
+    a ["disk","bd"] and a ["roadmap","disk"] conflict at once). This is
+    PURELY additive text appended to an item whose status/severity was
+    already fully decided above — a broken or missing journal degrades
+    that one item's trailing clause to nothing (no clause at all), never
+    the item's severity, never this check's own status/exit code.
+    """
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "cairn-status.py"), "--json",
+         "--planning-dir", str(planning_dir)],
+        capture_output=True, text=True, cwd=str(root))
+    # 0 (every phase corroborated) and 5 (cairn-status.py's own bd probe
+    # failed — a normal, documented degrade that still emits valid JSON
+    # with every affected phase's bd axis reading "unknown") are the two
+    # exit codes cairn-status.py --json is documented to pair with real
+    # output; anything else is unexpected.
+    if proc.returncode not in (0, 5):
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return {"id": "phase-corroboration", "status": "warn",
+                "detail": f"cairn-status.py --json exited "
+                          f"{proc.returncode}, corroboration could not be "
+                          f"computed: {first}",
+                "items": []}
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        return {"id": "phase-corroboration", "status": "warn",
+                "detail": "cairn-status.py --json returned invalid JSON, "
+                          f"corroboration could not be computed: {e}",
+                "items": []}
+
+    items = []
+    any_blocks = False
+    n_phases = 0
+    last_moved_cache = {}
+    for p in data.get("phases") or []:
+        verdict = p.get("corroboration")
+        if verdict in (None, "ok"):
+            continue
+        n_phases += 1
+        n = p.get("number")
+        if verdict == "conflict":
+            conflicts = p.get("conflicts") or []
+            if conflicts and n not in last_moved_cache:
+                last_moved_cache[n] = journal_last_moved(root, n)
+            last_moved = last_moved_cache.get(n)
+            for c in conflicts:
+                sev = c.get("severity")
+                sources = c.get("sources") or []
+                rec = corroboration_recommendation(sources)
+                line = f"{n}: {c.get('detail', '')} ({sev}) — {rec}"
+                clause = _last_moved_clause(last_moved, sources)
+                if clause:
+                    line = f"{line} — {clause}"
+                items.append(line)
+                if sev == "blocks":
+                    any_blocks = True
+        elif verdict == "unknown":
+            items.append(f"{n}: bd could not be read for this phase — "
+                         f"re-run once bd is reachable")
+    detail = (f"{len(items)} corroboration item(s) across {n_phases} "
+              "phase(s)" if items else "every phase's corroboration is ok")
+    status = "fail" if any_blocks else ("warn" if items else "ok")
+    return {"id": "phase-corroboration", "status": status,
+            "detail": detail, "items": items}
+
+
+# --------------------------------------------------------------------------- #
+# check 12 — phase-artifacts (CARD-02, D-04)
+# --------------------------------------------------------------------------- #
+def check_phase_artifacts(root, planning_dir, disk_reasons):
+    """Check 12, id "phase-artifacts" (CARD-02/D-04) — names which artifact
+    is missing when a phase's board row would otherwise show only a bare
+    dash: a PLAN.md still lacking its own SUMMARY.md in a phase that has
+    already reached disk_state "verified", or an NN-VERIFICATION.md with
+    no readable 'status:' verdict in its frontmatter. This is the doctor
+    half of D-04's narrowing of the phase card's missing-artifact story —
+    the board says "not planned" or renders a dash; naming the concrete
+    gap by filename is doctor's job, the same division of labor phase 13
+    already established for per-source conflict detail (check 11, above).
+
+    The missing-SUMMARY half is gated on disk_state == "verified"
+    DELIBERATELY, not on every plans/summary gap
+    disk_incomplete_reasons() (already computed once in main() as
+    disk_reasons, reused here rather than recomputed — no duplicate
+    frontmatter parser in this file) reports. An earlier draft fired on
+    ANY phase with an unsummarized plan regardless of state; a
+    plan-checker caught that this fires on completely ordinary mid-flight
+    work (a phase between waves always has some plans without summaries
+    yet) and is noise, not signal. A phase someone ran /cairn:verify on
+    despite one of its plans never having been summarized is a genuine
+    anomaly; a phase still being worked is not.
+
+    Known, accepted residual gap — written down rather than left as a
+    silent trap: a phase stuck at disk_state "executed" (its SUMMARY-less
+    plan sits there, nobody ever runs /cairn:verify on it, so it never
+    reaches "verified") never fires this check either. The narrowed gate
+    trades that false negative for the mid-flight false positive it was
+    built to remove; check 5 (phase-complete-open) independently covers
+    the ROADMAP-checkbox-complete flavor of the same on-disk gap.
+
+    Shells to 'cairn-status.py --json' exactly the way
+    check_phase_corroboration() already does, reading phase_model()'s
+    disk_state and verify_status for every phase in the same subprocess
+    call. On a returncode outside (0, 5) or a JSON-decode failure, this
+    check cannot determine disk_state for its gate, so it degrades to a
+    single WARN item rather than falling back to the ungated disk_reasons
+    dump — that fallback would silently reintroduce the exact mid-flight
+    noise this check's narrowed gate exists to remove.
+
+    Status is ALWAYS "warn" (items present) or "ok" (none), NEVER "fail" —
+    a deliberate choice distinct from phase-corroboration's blocks/fail
+    behavior, because a missing SUMMARY or an unreadable verdict is a
+    record-hygiene gap, not contradictory evidence about what actually
+    happened (D-01's "cairn never stops the flow", applied here to
+    hygiene rather than correctness findings).
+    """
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "cairn-status.py"), "--json",
+         "--planning-dir", str(planning_dir)],
+        capture_output=True, text=True, cwd=str(root))
+    if proc.returncode not in (0, 5):
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return {"id": "phase-artifacts", "status": "warn",
+                "detail": f"cairn-status.py --json exited "
+                          f"{proc.returncode}, phase-artifacts could not "
+                          f"run: {first}",
+                "items": []}
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        return {"id": "phase-artifacts", "status": "warn",
+                "detail": "cairn-status.py --json returned invalid JSON, "
+                          f"phase-artifacts could not run: {e}",
+                "items": []}
+
+    phases = data.get("phases") or []
+    state_by_n = {p.get("number"): p.get("disk_state") for p in phases}
+    verify_by_n = {p.get("number"): p.get("verify_status") for p in phases}
+
+    items = []
+    # First pass: a PLAN.md missing its SUMMARY.md, but ONLY for phases
+    # that have already reached disk_state "verified" — the narrowed gate
+    # this check exists to enforce (see docstring above).
+    for n, reason in sorted((disk_reasons or {}).items()):
+        if state_by_n.get(n) == "verified":
+            items.append(f"phase {n}: {reason}")
+    # Second pass: a "verified" phase whose NN-VERIFICATION.md carries no
+    # readable 'status:' field.
+    for n, ds in sorted(state_by_n.items()):
+        if ds == "verified" and not verify_by_n.get(n):
+            items.append(f"phase {n}: has a VERIFICATION.md but no "
+                         f"readable 'status:' field in its frontmatter")
+
+    detail = (f"{len(items)} phase(s) with an unexpected missing/unreadable "
+              "artifact" if items
+              else "every phase's artifacts are complete and readable")
+    return {"id": "phase-artifacts", "status": "warn" if items else "ok",
+            "detail": detail, "items": items}
+
+
+# --------------------------------------------------------------------------- #
+# check 13 — external-ref backfill (CORR-08, D-11)
+# --------------------------------------------------------------------------- #
+def parse_plan_files_modified(path):
+    """`files_modified:` paths from a PLAN.md's YAML frontmatter, the same
+    lenient flow-list-or-block-list shape parse_plan_frontmatter() already
+    reads for `beads:` — a sibling parser, so that function's (status,
+    beads) return contract never changes."""
+    lines = read_lines(path)
+    if not lines or lines[0].strip() != "---":
+        return []
+    body = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        body.append(line)
+    for i, line in enumerate(body):
+        m = re.match(r"^files_modified\s*:\s*(.*)$", line)
+        if not m:
+            continue
+        rest = m.group(1)
+        if "[" in rest:
+            inner = rest[rest.index("[") + 1:]
+            if "]" in inner:
+                inner = inner[:inner.index("]")]
+            return [t.strip().strip("'\"") for t in inner.split(",")
+                    if t.strip().strip("'\"")]
+        files = []
+        for cont in body[i + 1:]:
+            mi = re.match(r"^\s*-\s*(.+?)\s*$", cont)
+            if not mi:
+                break
+            files.append(mi.group(1).strip("'\""))
+        return files
+    return []
+
+
+def phase_files_modified(planning_dir, n):
+    """Every files_modified path across phase n's non-superseded plans,
+    de-duplicated in first-seen order — the pathspec link_ref_candidate()
+    narrows its git query to."""
+    files = []
+    for num, d in phase_dirs(planning_dir):
+        if num != n:
+            continue
+        for f in sorted(d.glob("*-PLAN.md")):
+            status, _ = parse_plan_frontmatter(f)
+            if status == "superseded":
+                continue
+            files.extend(parse_plan_files_modified(f))
+    seen, out = set(), []
+    for f in files:
+        if f not in seen:
+            seen.add(f)
+            out.append(f)
+    return out
+
+
+def git_is_shallow(root):
+    """True when root is a shallow git clone — verified live (STACK.md) to
+    make -S/-G/--grep results silently WRONG at the boundary commit, not
+    merely incomplete (D-08); check_external_ref must never trust a git
+    match from one."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--is-shallow-repository"],
+        capture_output=True, text=True)
+    return proc.returncode == 0 and proc.stdout.strip() == "true"
+
+
+def closed_window(closed_at, pad_days=2):
+    """(since, until) ISO8601 strings +/-pad_days around a bd closed_at
+    timestamp, or (None, None) when it is missing/unparsable."""
+    if not closed_at:
+        return None, None
+    s = str(closed_at).strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None, None
+    delta = timedelta(days=pad_days)
+    return (dt - delta).isoformat(), (dt + delta).isoformat()
+
+
+def link_ref_candidate(root, planning_dir, iss):
+    """The single unambiguous PR number for a closed issue, or None.
+
+    Resolves the issue's phase from its phase-<N> label(s) (the lowest
+    numbered one when it carries several), narrows a 'git log' query to
+    that phase's files_modified (falling back to the phase directory path
+    when no files_modified is known) within +/-2 days of the issue's
+    closed_at, and scans matching commit subjects for a '(#N)' token.
+    Exactly one distinct PR number among the matches is the candidate;
+    zero or multiple distinct numbers is never a candidate — this never
+    guesses (T-13-07: a crafted '(#N)' misattributing a PR is bounded to
+    'nothing written', never a wrong link silently accepted).
+    """
+    nums = phase_nums(iss)
+    if not nums:
+        return None
+    n = min(nums)
+    since, until = closed_window(iss.get("closed_at"))
+    if since is None:
+        return None
+    pathspec = phase_files_modified(planning_dir, n)
+    if not pathspec:
+        d = dict(phase_dirs(planning_dir)).get(n)
+        if d is None:
+            return None
+        pathspec = [str(d.relative_to(root))]
+    proc = subprocess.run(
+        ["git", "-C", str(root), "log", f"--since={since}",
+         f"--until={until}", "--format=%H|%s", "--", *pathspec],
+        capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    prs = set()
+    for line in proc.stdout.splitlines():
+        if "|" not in line:
+            continue
+        subject = line.split("|", 1)[1]
+        m = PR_NUMBER.search(subject)
+        if m:
+            prs.add(int(m.group(1)))
+    if len(prs) == 1:
+        return next(iter(prs))
+    return None
+
+
+def check_external_ref(root, planning_dir, issues, do_write):
+    """Check 12, id "external-ref" (CORR-08, D-11) — backfills the
+    bd-issue-to-PR linkage on already-closed issues from this repo's own
+    git history. See link_ref_candidate() for the exact match rule.
+
+    Read-only by default: reports each unambiguous candidate as
+    '<id> -> gh-N', writes nothing. do_write (--link-refs) writes 'bd
+    update <id> --external-ref gh-N' for each candidate and itemizes what
+    it linked — naturally idempotent, since an issue that already carries
+    an external_ref is excluded from `lacking` up front, so a second run
+    (a fresh process reading fresh bd state) has nothing left to
+    (re)write.
+
+    D-08: a shallow clone's git match can be silently WRONG at the
+    boundary commit, not merely incomplete (verified live in STACK.md) —
+    checked once before any query and reported as a single item rather
+    than trusted.
+
+    WARN only when an unambiguous, actionable candidate is waiting — never
+    merely because closed issues predate the --external-ref convention.
+    Per STACK.md, that is the expected, unremarkable state of this
+    repo's entire history today; flagging it unconditionally would be
+    exactly the vacuous-check failure mode this milestone exists to avoid.
+    """
+    if git_is_shallow(root):
+        return {"id": "external-ref", "status": "warn",
+                "detail": "shallow clone — git history cannot be trusted "
+                          "for --link-refs (D-08); run against a full "
+                          "clone (git fetch --unshallow)",
+                "items": ["shallow clone: --link-refs skipped entirely "
+                          "this run"]}
+
+    closed = [i for i in issues if i.get("status") == "closed"]
+    lacking = [i for i in closed
+               if not str(i.get("external_ref") or "").strip()]
+    candidates = []
+    for iss in lacking:
+        pr = link_ref_candidate(root, planning_dir, iss)
+        if pr is not None:
+            candidates.append((iss.get("id"), pr))
+
+    linked = []
+    if do_write:
+        for iid, pr in candidates:
+            proc = subprocess.run(
+                ["bd", "-C", str(root), "update", iid, "--external-ref",
+                 f"gh-{pr}"], capture_output=True, text=True)
+            if proc.returncode == 0:
+                linked.append(iid)
+
+    remaining_lacking = len(lacking) - len(linked)
+    remaining_candidates = len(candidates) - len(linked)
+    items = [f"linked {iid} -> gh-{pr}" if iid in linked
+             else f"{iid} -> gh-{pr}" for iid, pr in candidates]
+    detail = (f"{remaining_lacking} closed issue(s) lack an external ref, "
+              f"{remaining_candidates} have an unambiguous git match "
+              f"(run --link-refs to backfill)")
+    if linked:
+        detail += f" — linked {len(linked)} via --link-refs"
+    return {"id": "external-ref",
+            "status": "warn" if remaining_candidates else "ok",
+            "detail": detail, "items": items}
+
+
+# --------------------------------------------------------------------------- #
+# check 13 — lease-stale (LEASE-05)
+# --------------------------------------------------------------------------- #
+def check_lease_stale(root):
+    """Check 13, id "lease-stale" (LEASE-05) — a stale phase lease reported
+    with the same WARN-only discipline check 8 (claims-stale) already
+    applies to a stale issue claim, one level up: shells to
+    'cairn-lease.py status --all --json' (Plan 15-01), the same
+    shell-out-to-a-sibling-script pattern check_maps_fresh() already uses
+    for cairn-map.py --check and check_phase_corroboration() uses for
+    cairn-status.py --json — no TTL/staleness math is re-derived here.
+
+    Itemizes every phase whose lease is currently held AND stale (past the
+    4h TTL cairn-lease.py enforces) by phase, holder, actor, acquired_at,
+    heartbeat_at, and the reclaim path. Never FAILS: a stale lease is
+    reclaimable — the next acquire takes it automatically, or a human runs
+    'cairn-lease.sh release N' — exactly the "reclaimable, not a bug" case
+    D-03/LEASE-04 describe, matching claims-stale's own never-fails
+    posture exactly.
+
+    A non-zero cairn-lease.py exit or unparsable JSON degrades to WARN
+    with an explanatory detail rather than crashing the whole doctor run
+    over this one check (same degrade shape as
+    check_phase_corroboration()).
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / "cairn-lease.py"), "status",
+             "--all", "--json", "--project-dir", str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"id": "lease-stale", "status": "warn",
+                "detail": f"could not run cairn-lease.py: {exc}",
+                "items": []}
+    if proc.returncode != 0:
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return {"id": "lease-stale", "status": "warn",
+                "detail": f"cairn-lease.py status --all exited "
+                          f"{proc.returncode}, lease staleness could not "
+                          f"be computed: {first}",
+                "items": []}
+    try:
+        entries = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError as e:
+        return {"id": "lease-stale", "status": "warn",
+                "detail": "cairn-lease.py status --all returned invalid "
+                          f"JSON, lease staleness could not be computed: "
+                          f"{e}",
+                "items": []}
+    if not isinstance(entries, list):
+        entries = []
+
+    items = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("held") and entry.get("stale"):
+            phase = entry.get("phase")
+            items.append(
+                f"phase {phase}: held by {entry.get('holder')} (actor: "
+                f"{entry.get('actor')}) since {entry.get('acquired_at')}, "
+                f"last renewed {entry.get('heartbeat_at')} — reclaimable "
+                f"— the next /cairn:work {phase} takes it automatically, "
+                f"or run cairn-lease.sh release {phase} to clear it now")
+    detail = (f"{len(items)} stale phase lease(s)" if items
+              else "no stale phase leases")
+    return {"id": "lease-stale", "status": "warn" if items else "ok",
+            "detail": detail, "items": items}
+
+
+# --------------------------------------------------------------------------- #
+# check 15 — release-versions (REL-02)
+# --------------------------------------------------------------------------- #
+RELEASE_PLUGIN_MANIFEST = Path("cairn") / ".claude-plugin" / "plugin.json"
+
+
+def check_release_versions(root):
+    """Check 15, id "release-versions" (REL-02) — the plugin version's
+    carriers must agree, verified by shelling out to cairn-release.py
+    through the CAIRN_RELEASE env seam, the same
+    shell-out-to-a-sibling-script pattern check_maps_fresh() uses for
+    cairn-map.py --check and check_lease_stale() uses for cairn-lease.py.
+    No manifest reading is re-derived here: cairn-release.py owns the three
+    (different!) JSON key paths and the CHANGELOG heading, and this check
+    only routes its verdict.
+
+    A command nobody remembers to run would not have caught the third
+    carrier. That is why this lives in the doctor at all:
+    .claude-plugin/marketplace.json carries the version at
+    `metadata.version` and drifted unnoticed across three releases while
+    every human check said "the two files match".
+
+    APPLICABILITY — the trap this check has to dodge. The doctor runs in
+    USERS' repos, which have a .planning/ and a .beads/ but none of cairn's
+    own plugin manifests. A naive version of this check would report
+    `missing: cairn/.claude-plugin/plugin.json does not exist` and drive
+    every user's doctor to exit 7 over a file that has no business being
+    there. So it applies ONLY when cairn/.claude-plugin/plugin.json exists
+    under the project root; everywhere else it reports "ok" with a "not
+    applicable" detail — the same "0 = ok, or not applicable" semantics the
+    module docstring's exit-code table already documents for the doctor as
+    a whole.
+
+    Inside THIS repo a divergence is "fail", not "warn": it is an
+    inconsistency that blocks a release, and only "fail" reaches exit 7.
+    An unexpected cairn-release.py exit (anything but its documented 0/6)
+    or unparsable JSON degrades to WARN rather than crashing the whole
+    doctor run over this one check.
+    """
+    if not (root / RELEASE_PLUGIN_MANIFEST).is_file():
+        return {"id": "release-versions", "status": "ok",
+                "detail": f"not applicable — no {RELEASE_PLUGIN_MANIFEST} "
+                          "under this root (the version carriers are "
+                          "cairn's own, not a wired repo's)",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_RELEASE, "check", "--json",
+             "--project-dir", str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"id": "release-versions", "status": "warn",
+                "detail": f"could not run cairn-release.py: {exc}",
+                "items": []}
+    # 0 (every carrier agrees) and 6 (findings) are the two exit codes
+    # cairn-release.py check --json is documented to pair with real output;
+    # anything else is unexpected and degrades rather than failing.
+    if proc.returncode not in (0, 6):
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return {"id": "release-versions", "status": "warn",
+                "detail": f"cairn-release.py check exited "
+                          f"{proc.returncode}, version consistency could "
+                          f"not be computed: {first}",
+                "items": []}
+    try:
+        report = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        return {"id": "release-versions", "status": "warn",
+                "detail": "cairn-release.py check returned invalid JSON, "
+                          f"version consistency could not be computed: {e}",
+                "items": []}
+
+    findings = report.get("findings") or []
+    if findings:
+        return {"id": "release-versions", "status": "fail",
+                "detail": f"{len(findings)} version carrier finding(s) — "
+                          "run cairn-release.sh check",
+                "items": list(findings)}
+    version = report.get("version")
+    tag = next((c for c in report.get("carriers") or []
+                if c.get("name") == "tag"), {})
+    tag_note = {"ok": f", git tag {tag.get('key')} present",
+                "pending": f", git tag {tag.get('key')} pending"}.get(
+                    tag.get("status"), "")
+    return {"id": "release-versions", "status": "ok",
+            "detail": f"every version carrier agrees on {version}"
+                      f"{tag_note}",
+            "items": []}
+
+
+# --------------------------------------------------------------------------- #
+# --apply-reconciliation (ESC-03, Phase 17 Plan 3) — the human-invoked,
+# separate apply command for a verified semantic-escalation reconciliation
+# proposal. See the module docstring's own --apply-reconciliation entry for
+# the full refusal-path rationale.
+# --------------------------------------------------------------------------- #
+RECONCILE_SCRIPT = SCRIPTS_DIR / "cairn-reconcile.py"
+RECONCILE_ACTION_VOCAB = ("bd_close", "bd_reopen", "manual_review")
+
+
+def run_apply_reconciliation(root, n, issues, as_json):
+    """--apply-reconciliation N — reads .cairn/conflicts.json (written by
+    /cairn:reconcile's own deterministic step, Plan 17-02), re-verifies it
+    is STILL trustworthy at apply-time (never trusting anything about the
+    proposal's own self-description), enumerates every change it is about
+    to make, and only then executes the closed bd_close/bd_reopen action
+    vocabulary. This is the ONLY place in the whole phase 17 pipeline where
+    a real bd write happens, and it always runs because a human explicitly
+    asked it to — never automatically.
+
+    Fail-closed refusal paths, each refusing the WHOLE apply (never a
+    per-claim partial result) — a proposal is only ever as trustworthy as
+    its LAST verification, and time may have passed since /cairn:reconcile
+    wrote it:
+      1. no .cairn/conflicts.json for phase N, or its own 'phase' field
+         does not match N -> EXIT_USAGE, nothing written.
+      2. phase N's corroboration verdict is no longer "conflict", re-read
+         via a REAL 'cairn-reconcile.py collect N --json' run at
+         apply-time -> EXIT_OK, nothing to apply, not a failure.
+      3. the freshly re-collected evidence_hash no longer matches the
+         proposal's own stored one (D-04's cache key re-validated) ->
+         EXIT_FAILED.
+      4. any citation fails a real 'cairn-reconcile.py verify N' run
+         (D-03) -> EXIT_FAILED.
+      5. any recommended_action.type falls outside the closed
+         {bd_close, bd_reopen, manual_review} vocabulary -> EXIT_FAILED,
+         checked over EVERY claim in one pre-flight pass, before anything
+         is even enumerated.
+      6. any bd_close/bd_reopen claim's recommended_action.issue names a bd
+         id carrying no phase-N label (issue provenance — correct
+         citations elsewhere in the same proposal never excuse a claim
+         that targets an unrelated issue) -> EXIT_FAILED, checked in the
+         SAME pre-flight pass as 5, also before any enumeration prints.
+
+    Only once every one of those passes does anything print: EVERY claim
+    is enumerated (statement, recommended_action, what will happen —
+    manual_review claims listed as "skipped") BEFORE the first bd
+    subprocess call ever runs — the operator sees the full plan while it
+    can still be stopped. bd_close/bd_reopen claims are then applied one
+    at a time; a close/reopen bd itself refuses is reported by id and
+    reason and fails the run (EXIT_FAILED) — never silent, the same
+    "asked for it and did not get it" discipline
+    check_phase_complete_open's close_failures already applies one level
+    up.
+    """
+    proposal_path = root / ".cairn" / "conflicts.json"
+    proposal = None
+    if proposal_path.is_file():
+        try:
+            proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            proposal = None
+    if not isinstance(proposal, dict) or proposal.get("phase") != n:
+        die(f"no proposal for phase {n} — run /cairn:reconcile {n} first",
+            EXIT_USAGE)
+
+    # Step 2 (freshness, re-validating D-04's cache key at apply-time): a
+    # REAL, current 'collect' run — the tree may have moved between
+    # proposal generation and this invocation, so the proposal's own
+    # evidence_hash is never trusted on its own say-so.
+    proc = subprocess.run(
+        [sys.executable, str(RECONCILE_SCRIPT), "collect", str(n), "--json",
+         "--project-dir", str(root)],
+        capture_output=True, text=True, cwd=str(root))
+    if proc.returncode == 3:  # cairn-reconcile.py's EXIT_NOT_CONFLICTED
+        msg = f"phase {n} is no longer in conflict; this proposal is moot"
+        if as_json:
+            print(json.dumps({"phase": n, "applied": False,
+                              "reason": "not_conflicted", "detail": msg}))
+        else:
+            print(f"[cairn-doctor] {msg}")
+        sys.exit(EXIT_OK)
+    if proc.returncode != 0:
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        die(f"could not re-collect evidence for phase {n}: {first}",
+            EXIT_FAILED)
+    try:
+        fresh = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        die(f"could not re-collect evidence for phase {n}: cairn-reconcile "
+            f"collect returned invalid JSON: {e}", EXIT_FAILED)
+    if fresh.get("evidence_hash") != proposal.get("evidence_hash"):
+        die("proposal is stale (evidence has changed since it was "
+            f"generated) — re-run /cairn:reconcile {n}", EXIT_FAILED)
+
+    # Step 3 (citation re-check, D-03): a single bad citation invalidates
+    # the WHOLE proposal, never per-claim partial credit.
+    vproc = subprocess.run(
+        [sys.executable, str(RECONCILE_SCRIPT), "verify", str(n),
+         "--project-dir", str(root)],
+        capture_output=True, text=True, cwd=str(root))
+    if vproc.returncode != 0:
+        text = (vproc.stdout.strip() or vproc.stderr.strip()
+                or "(no output)")
+        die(f"proposal failed citation verification: {text}", EXIT_FAILED)
+
+    claims = proposal.get("claims") or []
+
+    # Step 4 (pre-flight, BEFORE any enumeration is even printed): the
+    # closed action vocabulary AND issue provenance, checked over EVERY
+    # claim. Either failure refuses the ENTIRE apply, fail-closed, the same
+    # posture as a stale hash or a bad citation above — a rejected
+    # proposal never gets as far as looking plausible on screen.
+    phase_n_ids = {iss.get("id") for iss in issues if n in phase_nums(iss)}
+    for claim in claims:
+        action = claim.get("recommended_action") or {}
+        atype = action.get("type")
+        if atype not in RECONCILE_ACTION_VOCAB:
+            die("proposal names an unrecognized recommended_action.type "
+                f"{atype!r} — refusing the whole apply (closed vocabulary: "
+                "bd_close, bd_reopen, manual_review)", EXIT_FAILED)
+        if atype in ("bd_close", "bd_reopen"):
+            iid = action.get("issue")
+            if iid not in phase_n_ids:
+                die(f"proposal's claim targets {iid!r}, which carries no "
+                    f"phase-{n} label — refusing the whole apply "
+                    "(issue-provenance check: correct citations elsewhere "
+                    "in the proposal do not excuse a claim targeting an "
+                    "unrelated issue)", EXIT_FAILED)
+
+    # Step 5 (enumerate): the FULL plan, printed before anything executes.
+    header = (f"[cairn-doctor] apply-reconciliation: phase {n} — "
+              f"{len(claims)} claim(s)")
+    enum_lines = [header]
+    for i, claim in enumerate(claims, 1):
+        action = claim.get("recommended_action") or {}
+        atype = action.get("type")
+        stmt = claim.get("statement", "")
+        if atype == "manual_review":
+            what = "skipped (manual review, no automated action)"
+        elif atype == "bd_close":
+            what = f"will close {action.get('issue')}"
+        else:
+            what = f"will reopen {action.get('issue')}"
+        enum_lines.append(f"  {i}. {stmt} -> {what}")
+    if not as_json:
+        for line in enum_lines:
+            print(line)
+
+    # Step 6 (apply): only bd_close/bd_reopen ever touch bd — manual_review
+    # was already enumerated above and is never executed.
+    results = []
+    any_refused = False
+    for claim in claims:
+        action = claim.get("recommended_action") or {}
+        atype = action.get("type")
+        iid = action.get("issue")
+        stmt = claim.get("statement", "")
+        if atype == "manual_review":
+            results.append({"statement": stmt, "issue": iid, "type": atype,
+                            "outcome": "skipped-manual-review"})
+            continue
+        if atype == "bd_close":
+            reason = (action.get("reason") or action.get("note")
+                      or f"cairn-doctor: apply-reconciliation phase {n}")
+            cmd = ["bd", "-C", str(root), "close", iid, "--reason", reason]
+        else:  # bd_reopen
+            cmd = ["bd", "-C", str(root), "update", iid, "--status", "open",
+                   "--assignee", ""]
+        bproc = subprocess.run(cmd, capture_output=True, text=True)
+        if bproc.returncode == 0:
+            results.append({"statement": stmt, "issue": iid, "type": atype,
+                            "outcome": "applied"})
+            verb = "closed" if atype == "bd_close" else "reopened"
+            if not as_json:
+                print(f"[cairn-doctor] {verb} {iid} — applied via "
+                      "--apply-reconciliation")
+        else:
+            any_refused = True
+            why = (bproc.stderr.strip() or bproc.stdout.strip()
+                   or f"bd exited {bproc.returncode}")
+            results.append({"statement": stmt, "issue": iid, "type": atype,
+                            "outcome": "refused-by-bd", "detail": why})
+            if not as_json:
+                print(f"[cairn-doctor] {iid}: {atype} refused by bd — {why}")
+
+    n_applied = sum(1 for r in results if r["outcome"] == "applied")
+    n_skipped = sum(1 for r in results
+                    if r["outcome"] == "skipped-manual-review")
+    n_refused = sum(1 for r in results if r["outcome"] == "refused-by-bd")
+    if as_json:
+        print(json.dumps({"phase": n, "applied": not any_refused,
+                          "claims": len(claims), "applied_n": n_applied,
+                          "skipped_n": n_skipped, "refused_n": n_refused,
+                          "results": results}))
+    else:
+        print(f"[cairn-doctor] apply-reconciliation phase {n}: "
+              f"{n_applied} applied, {n_skipped} skipped (manual review), "
+              f"{n_refused} refused by bd")
+    sys.exit(EXIT_FAILED if any_refused else EXIT_OK)
+
+
+# --------------------------------------------------------------------------- #
 # output + main
 # --------------------------------------------------------------------------- #
 def emit(as_json, summary, human_lines):
@@ -834,6 +1850,22 @@ def main():
                              "complete (bd close --reason), before the "
                              "checks run; a cross-phase issue with an open "
                              "phase is left alone")
+    parser.add_argument("--link-refs", action="store_true",
+                        help="backfill closed issues lacking bd's "
+                             "external_ref field from an unambiguous git "
+                             "match (bd update --external-ref), read-only "
+                             "without this flag")
+    parser.add_argument("--apply-reconciliation", metavar="N", type=int,
+                        default=None,
+                        help="apply a verified semantic-escalation "
+                             "reconciliation proposal for phase N "
+                             "(.cairn/conflicts.json): re-verifies "
+                             "freshness and citations, enumerates every "
+                             "change before making any of them, then "
+                             "executes only the closed bd_close/bd_reopen "
+                             "vocabulary — refuses the whole apply on any "
+                             "staleness, bad citation, unrecognized action "
+                             "type, or an issue lacking a phase-N label")
     args = parser.parse_args()
 
     root = Path(args.project_dir
@@ -972,6 +2004,15 @@ def main():
                 fixed = len(candidates)
             issues = bd_all_issues(root)
 
+    # --apply-reconciliation (ESC-03) is mutually orthogonal to the two
+    # fixers above (no shared state) — simple sequencing after them is
+    # enough. Unlike them it is a distinct, human-invoked command whose own
+    # exit-code contract does not track check pass/fail, so it always exits
+    # on its own rather than falling through to the report below.
+    if args.apply_reconciliation is not None:
+        run_apply_reconciliation(root, args.apply_reconciliation, issues,
+                                 args.json)
+
     checks = [
         check_bd_version(),
         check_req_issue(issues, reqs_by_phase, milestone),
@@ -986,6 +2027,11 @@ def main():
         check_claims_stale(issues, milestone, active_phase),
         check_bd_doctor(root),
         check_gsd_capability(root),
+        check_phase_corroboration(root, planning_dir),
+        check_phase_artifacts(root, planning_dir, disk_reasons),
+        check_external_ref(root, planning_dir, issues, args.link_refs),
+        check_lease_stale(root),
+        check_release_versions(root),
     ]
     summary["checks"] = checks
     n_fail = sum(1 for c in checks if c["status"] == "fail")

@@ -18,6 +18,13 @@ ship-gate
     closed — never ship on an ambiguous tracker, mirroring the security
     ship gate's strict-equality contract).
 
+    SECOND, independent block reason (CORR-05 / D-10): a completed phase
+    whose directory never reached "executed" on disk — no file ending
+    -SUMMARY.md or -VERIFICATION.md — blocks even when bd reports zero open
+    issues for it. Identical rule to cairn/scripts/cairn-gate.py's twin
+    check, duplicated here (not imported) per this bundle's self-contained
+    convention, so both ship-gate entry points agree in lockstep.
+
 verify-cross
     Advisory verify:post report. Cross-checks bd state for the phase against
     the phase's *-VERIFICATION.md status and prints mismatches. Always exits
@@ -171,6 +178,7 @@ def cmd_ship_gate(opts, project_dir):
         sys.exit(EXIT_OK)
 
     blockers = {}
+    no_artifacts = set()
     for n in sorted(phases):
         labels = [f"phase-{n}"]
         if opts["milestone"]:
@@ -184,21 +192,39 @@ def cmd_ship_gate(opts, project_dir):
         open_issues = non_closed(issues)
         if open_issues:
             blockers[n] = open_issues
+        # SECOND, independent block reason (CORR-05 / D-10): a completed
+        # phase whose disk never reached "executed" blocks even when bd
+        # reports zero open issues for it — force it into the report even
+        # though the bd-issue loop above only populates `blockers` for
+        # phases WITH non-closed issues.
+        if not disk_reached_executed(resolve_phase_dir(planning, n)):
+            no_artifacts.add(n)
 
-    if not blockers:
+    if not blockers and not no_artifacts:
         sys.exit(EXIT_OK)
     pair = f",m-{opts['milestone']}" if opts["milestone"] else ""
     print("[cairn-loop-gate] ship gate BLOCKED — completed phases still have "
-          "non-closed bd issues:")
-    for n, open_issues in sorted(blockers.items()):
-        # --all, not --status open: the gate blocks on ANY non-closed
-        # status (open, in_progress, blocked, ...), so the hint must list
-        # every offender the gate saw.
-        print(f"phase {n} (non-closed; bd list -l phase-{n}{pair} --all):")
-        for issue in open_issues:
-            print(issue_line(issue))
-    print("Close them (bd close <id> --reason \"...\") or defer them out of "
-          "the phase, then re-run /gsd:ship.")
+          "non-closed bd issues or no artifacts on disk:")
+    for n in sorted(set(blockers) | no_artifacts):
+        if n in blockers:
+            # --all, not --status open: the gate blocks on ANY non-closed
+            # status (open, in_progress, blocked, ...), so the hint must
+            # list every offender the gate saw.
+            print(f"phase {n} (non-closed; bd list -l phase-{n}{pair} --all):")
+            for issue in blockers[n]:
+                print(issue_line(issue))
+        if n in no_artifacts:
+            # Mirrors cairn-gate.py's "no artifacts" phrasing so an operator
+            # reading either gate's output recognizes the same failure class.
+            print(f"phase {n}: no artifacts on disk (no -SUMMARY.md or "
+                  "-VERIFICATION.md) even though ROADMAP.md marks it "
+                  "complete.")
+    if blockers:
+        print("Close them (bd close <id> --reason \"...\") or defer them out of "
+              "the phase, then re-run /gsd:ship.")
+    if no_artifacts:
+        print("Build the phase (SUMMARY/VERIFICATION) or uncheck it in "
+              "ROADMAP.md, then re-run /gsd:ship.")
     sys.exit(EXIT_BLOCK)
 
 
@@ -213,6 +239,18 @@ def resolve_phase_dir(planning_dir, n):
                    if d.is_dir() and pat.match(d.name)),
                   key=lambda d: d.name)
     return hits[0] if hits else None
+
+
+def disk_reached_executed(pdir):
+    """True when the phase directory holds at least one -SUMMARY.md or
+    -VERIFICATION.md file. Identical behavior to cairn-gate.py's twin
+    helper of the same name — duplicated here (not imported) per this
+    bundle's self-contained convention."""
+    if pdir is None or not pdir.is_dir():
+        return False
+    names = [p.name for p in pdir.iterdir() if p.is_file()]
+    return any(n.endswith("-SUMMARY.md") or n.endswith("-VERIFICATION.md")
+               for n in names)
 
 
 def verification_status(phase_dir):

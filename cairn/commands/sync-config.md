@@ -66,8 +66,9 @@ truth; tools sync to bd (hub-and-spoke). Do the following:
 
 7. Explain the generated files: `.cairn/id-map.json`, `.cairn/state.json`, and
    `.cairn/conflicts.json` are generated automatically at sync time — do not
-   create them by hand. `sync.json` is meant to be committed; the generated
-   three are gitignored by default (`cairn-init.sh` adds the entries) — a team
+   create them by hand. `sync.json` and `context.json` are meant to be
+   committed; every generated file under `.cairn/` is gitignored by default
+   (`cairn-init.sh` adds one entry per file — see docs/sync.md §4) — a team
    that prefers to commit any of them can remove its line from `.gitignore`.
 
 8. Tell the user how to drive it:

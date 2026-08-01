@@ -499,6 +499,15 @@ body {
   color: var(--bone);
 }
 
+/* A purpose sentence runs longer than a title, so it gets its own
+   line-height rather than borrowing .phase-title's. */
+.phase-purpose {
+  font-size: var(--t-xs);
+  color: var(--bone-dim);
+  line-height: 1.45;
+  margin: 3px 0 0;
+}
+
 .phase-req {
   font-family: var(--mono);
   font-size: var(--t-xs);
@@ -518,6 +527,24 @@ body {
 /* A phase that cannot start yet reads one tonal step back, so the ones that
    can are what the eye lands on. Tone, not a colour or a badge. */
 .phase.is-waiting .phase-title { color: var(--bone-dim); }
+
+/* A phase whose sources disagree takes the same accent-edge treatment as
+   the split note below (.panel-par.is-split) - severity picks the colour,
+   never a badge/pill/icon-tile. --oxide's own contrast floor (3.38:1, see
+   :root) is documented as marks/accents only, so it lives on the border,
+   not the small meta text; the text itself brightens to --bone instead of
+   staying at --bone-dim, so nothing here drops out of AA. */
+.phase.phase-conflict .phase-meta {
+  padding-left: 10px;
+  border-left: 2px solid var(--oxide);
+  color: var(--bone);
+}
+
+.phase.phase-informs .phase-meta {
+  padding-left: 10px;
+  border-left: 2px solid var(--amber);
+  color: var(--bone);
+}
 
 .cmd {
   display: grid;

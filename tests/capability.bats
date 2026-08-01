@@ -14,6 +14,8 @@ CAP_DIR="$CAIRN_REPO_ROOT/cairn/capability"
 CAP_JSON="$CAIRN_REPO_ROOT/cairn/capability/capability.json"
 GATE_SH="$CAIRN_REPO_ROOT/cairn/capability/scripts/cairn-loop-gate.sh"
 MAP_SHIM="$CAIRN_REPO_ROOT/cairn/capability/scripts/cairn-map.sh"
+LEASE_SHIM="$CAIRN_REPO_ROOT/cairn/capability/scripts/cairn-lease.sh"
+LEASE_DIRECT="$CAIRN_REPO_ROOT/cairn/scripts/cairn-lease.sh"
 
 # The closed 12-point vocabulary from docs/reference/capability-manifest.md.
 VALID_POINTS="discuss:pre discuss:post plan:pre plan:post execute:pre execute:wave:pre execute:wave:post execute:post verify:pre verify:post ship:pre ship:post"
@@ -272,6 +274,68 @@ require_or_skip() {
   assert_output_contains "$PH2_ISSUE"
 }
 
+#-----------------------------------------------------------------------------
+# roadmap-complete-but-nothing-built (CORR-05 / D-10) — additive, independent
+# of what bd says. Twin of the cairn-gate.py coverage in cairn-gate.bats.
+#-----------------------------------------------------------------------------
+
+@test "ship-gate blocks a completed phase with no directory on disk at all, even with zero bd issues" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # ROADMAP: phase 1 is [x]
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+  rm -rf .planning/phases/01-auth
+
+  run bash "$GATE_SH" ship-gate
+  [ "$status" -eq 1 ]
+  assert_output_contains "phase 1"
+  assert_output_contains "no artifacts on disk"
+}
+
+@test "ship-gate blocks a completed phase whose disk holds only a bare PLAN.md (planned, never executed)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 ships SUMMARY + VERIFICATION by default
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+  rm -f .planning/phases/01-auth/01-01-SUMMARY.md \
+        .planning/phases/01-auth/01-VERIFICATION.md
+
+  run bash "$GATE_SH" ship-gate
+  [ "$status" -eq 1 ]
+  assert_output_contains "no artifacts on disk"
+}
+
+@test "ship-gate passes a completed phase with VERIFICATION.md on disk and zero bd issues (unchanged by this check)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # phase 1 already ships a VERIFICATION.md
+  bd init -q --prefix noart --non-interactive >/dev/null 2>&1   # zero issues
+
+  run bash "$GATE_SH" ship-gate
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "cross-script lockstep (D-10): cairn-gate.sh and cairn-loop-gate.sh ship-gate both block on the same no-artifacts repo state" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"   # ROADMAP: phase 1 is [x]
+  bd init -q --prefix lock --non-interactive >/dev/null 2>&1   # zero issues
+  rm -rf .planning/phases/01-auth
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
+  local gate_status="$status"
+
+  run bash "$GATE_SH" ship-gate
+  local loop_gate_status="$status"
+
+  # D-10's concrete lockstep proof: a phase the ROADMAP marks complete with
+  # nothing built on disk blocks BOTH ship-gate entry points on the identical
+  # repo state — never one twin passing while the other blocks.
+  [ "$gate_status" -ne 0 ]
+  [ "$loop_gate_status" -ne 0 ]
+}
+
 @test "verify-cross reports MISMATCH for open issues against a passed VERIFICATION, OK after close" {
   require_bd
   make_tmp_repo
@@ -327,4 +391,77 @@ require_or_skip() {
     bash ".gsd/capabilities/cairn/scripts/cairn-map.sh" 1
   [ "$status" -eq 0 ]
   [ -f ".planning/phases/01-auth/01-BEADS-MAP.md" ]
+}
+
+# ─── Lease bundle shim (15-02) ────────────────────────────────────────────────
+# Mirrors the MAP_SHIM tests above, adapted to exercise acquire/status
+# instead of a map refresh — the exact "outside a /cairn:*-initiated session"
+# scenario (CLAUDE_PLUGIN_ROOT pointing at gsd-core, not cairn, during a bare
+# /gsd:* run) this bundle shim exists to survive.
+
+@test "bundle lease shim resolves the dev-checkout generator and delegates identically to the direct script" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lseshim --non-interactive >/dev/null 2>&1
+
+  run bash "$LEASE_SHIM" acquire 15 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local shim_holder
+  shim_holder="$(jq -r '.holder' <<<"$output")"
+  [ -n "$shim_holder" ]
+  [ "$shim_holder" != "null" ]
+
+  # Confirm via the direct (Plan 15-01) script that the shim's write really
+  # landed, and that both report the identical holder.
+  run bash "$LEASE_DIRECT" status 15 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+  assert_json_eq "$output" '.holder' "$shim_holder"
+}
+
+@test "bundle lease shim honors the .cairn/plugin-root pointer from an installed layout, outside a /cairn:*-initiated session" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lseptr --non-interactive >/dev/null 2>&1
+
+  # Simulate `gsd capability install --scope project`: copy the bundle to
+  # .gsd/capabilities/cairn/ (no plugin sources nearby) + pointer file.
+  mkdir -p .gsd/capabilities
+  cp -R "$CAP_DIR" .gsd/capabilities/cairn
+  mkdir -p .cairn
+  printf '%s\n' "$CAIRN_REPO_ROOT/cairn" > .cairn/plugin-root
+
+  # Neutralize env fallbacks so only the pointer file can resolve the root —
+  # this IS the "outside a /cairn:*-initiated session" scenario: a bare
+  # /gsd:* run leaves CLAUDE_PLUGIN_ROOT pointing at gsd-core's own plugin
+  # root, not cairn's, so only .cairn/plugin-root can resolve correctly.
+  run env CAIRN_PLUGIN_ROOT= CLAUDE_PLUGIN_ROOT= \
+    bash ".gsd/capabilities/cairn/scripts/cairn-lease.sh" acquire 15 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+
+  # Prove the underlying bd write actually landed — not merely "exit 0" —
+  # via a follow-up status call through the same copied shim.
+  run env CAIRN_PLUGIN_ROOT= CLAUDE_PLUGIN_ROOT= \
+    bash ".gsd/capabilities/cairn/scripts/cairn-lease.sh" status 15 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+}
+
+@test "bundle lease shim warns and exits 0 when no resolution tier finds cairn-lease.py" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lsedeg --non-interactive >/dev/null 2>&1
+
+  # Copy the bundle with no plugin sources nearby and no .cairn/plugin-root
+  # pointer — the dev-checkout fallback (bundle/../..) also lands short of
+  # any scripts/cairn-lease.py reachable from this copied location.
+  mkdir -p .gsd/capabilities
+  cp -R "$CAP_DIR" .gsd/capabilities/cairn
+
+  run env CAIRN_PLUGIN_ROOT= CLAUDE_PLUGIN_ROOT= \
+    bash ".gsd/capabilities/cairn/scripts/cairn-lease.sh" status 15 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_output_contains "could not locate"
+  assert_output_contains "cairn-lease.py"
 }

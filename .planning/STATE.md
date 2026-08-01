@@ -1,17 +1,19 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-active_phase: none
-milestone_name: milestone
-status: v1.3 shipped and archived — awaiting next milestone
-stopped_at: Milestones v1.2 and v1.3 shipped and archived (phases 7-12). Plugin released as 1.4.2 after three fixes to the same root cause — a green signal that did not prove what it claimed. Open unphased work: CairnGo-9xy (build the 13 decided wrappers), CairnGo-c8v (remove the gsd-core manifest repair when upstream lands #2077).
-last_updated: "2026-07-28T17:30:00.000Z"
-last_activity: 2026-07-28 — v1.2 and v1.3 archived, cairn 1.4.2 released
+milestone: v1.4
+milestone_name: Honest State
+current_phase: 19
+current_phase_name: Ship v1.4
+status: ready-to-ship
+stopped_at: Phase 19 closed — 1.5.0 prepared, tag local, publicacao aguarda o Felipe
+last_updated: "2026-08-01T01:20:00.000Z"
+last_activity: 2026-08-01
+last_activity_desc: Milestone v1.4 completo; release 1.5.0 preparada e nao publicada
 progress:
-  total_phases: 12
-  completed_phases: 12
-  total_plans: 20
-  completed_plans: 20
+  total_phases: 7
+  completed_phases: 7
+  total_plans: 29
+  completed_plans: 29
   percent: 100
 ---
 
@@ -19,17 +21,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-25)
+See: .planning/PROJECT.md (updated 2026-07-29)
 
-**Core value:** Workflow unificado plan→work→ship que custa menos tokens que as alternativas — e agora provado por benchmark reproduzível, não por afirmação.
-**Current focus:** Milestone v1.1 execution complete (Phase 6 verified, 0 blocking gaps) — pending gate/ship
+**Core value:** Workflow unificado plan→work→ship cujo estado é verificável — nenhuma superfície afirma que uma fase está pronta sem ter com o que corroborar.
+**Current focus:** Milestone v1.4 (Honest State) — 13 a 17 fechadas; 18 e 19 pendentes
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: 18 — Parallel phase execution (não planejada)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-27 — Milestone v1.1 completed and archived
+Status: Fases 13-17 fechadas — próxima é a 18
+Last activity: 2026-07-31 — Fases 14 e 15 em paralelo, mescladas e fechadas
 
 ## Performance Metrics
 
@@ -137,9 +139,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T10:33:00Z
-Stopped at: Verified Phase 6 (Reporting, Charts & Publication) — 18/19 must-haves, 21/21 phase-6 bats green (+14/14 spot-checked regression), $0; 0 blocking gaps (see 06-VERIFICATION.md). Milestone v1.1 execution complete (6 of 6 phases), pending gate/ship.
-Resume file: None
+Last session: 2026-07-30T19:47:35.864Z
+Stopped at: Phase 13 context gathered
+Resume file: .planning/phases/13-state-corroboration/13-CONTEXT.md
 
 ## Operator Next Steps
 

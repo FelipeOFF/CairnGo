@@ -13,6 +13,10 @@
 
 load 'helpers'
 
+# The journal-failure test uses `run --separate-stderr` (bats-core >= 1.5.0)
+# to assert on stdout and stderr independently.
+bats_require_minimum_version 1.5.0
+
 # Assert NEEDLE does not appear in $output. (`! grep` cannot be used inline:
 # bash's `!` suppresses errexit, so its failure would never fail the test.)
 refute_in_output() {
@@ -1103,4 +1107,424 @@ board_inside() {
   [ "$status" -eq 0 ]
   run file_mode board.html
   [ "$output" = "640" ]
+}
+
+# ------------------------------------------------------------------- lease
+# Plan 15-05: the phase lease (Plan 15-01) is visible on the status board's
+# footer only (D-05) and its own bookkeeping bd issue must never leak into
+# a lane, a count, or the terrain. LEASE_SH is the cairn-lease.sh wrapper —
+# acquiring for phase 2 targets make_gsd_fixture's own active_phase.
+
+LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
+
+@test "the lease-labeled bookkeeping issue never appears in any lane in open, in_progress, or closed status, and never inflates counts" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # An "open" lease issue — the shape bd_create_lease_issue() produces
+  # just after `bd create`, before acquire's own --claim runs.
+  local lease_open
+  lease_open="$(bd create "phase-9 lease" -t chore -l lease --silent)"
+
+  # An "in_progress" lease issue, acquired exactly as Plan 15-01 shapes
+  # it: title "phase-N lease", type chore, single label "lease", claimed
+  # in_progress by acquire's own --claim.
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_doing
+  lease_doing="$(jq -r '.id' <<<"$output")"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$lease_open"
+  refute_in_output "$lease_doing"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output "$lease_open"
+  refute_in_output "$lease_doing"
+
+  # The exclusion reaches the counts themselves, not just the card render:
+  # without it .counts.doing would read 2 (ST_DOING + the lease issue).
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.counts.doing' '1'
+  assert_json_eq "$output" '.counts.blocked' '1'
+  assert_json_eq "$output" '.counts.closed' '1'
+
+  # Closing both lease issues (bookkeeping churn, not real completed work)
+  # must never inflate the done count either. (The closed array itself is
+  # never exposed via --json — only counts.closed is — so the count is the
+  # whole proof here; the additive "lease" key legitimately still carries
+  # the lease issue's own id via cairn-lease.py status, which is not a
+  # lane leak and must not be asserted away.)
+  run bd close "$lease_doing"
+  [ "$status" -eq 0 ]
+  run bd close "$lease_open"
+  [ "$status" -eq 0 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counts.closed' '1'
+}
+
+@test "--json's lease key is additive: every pre-existing top-level key keeps its exact name and shape" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  # Exhaustive top-level key set: the pre-15-05 keys, unchanged, plus the
+  # one new additive "lease" key — nothing renamed, nothing dropped.
+  local keys
+  keys="$(jq -c 'keys' <<<"$output")"
+  [ "$keys" = '["blocked","counts","doing","lease","milestone","next","next_commands","note","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+
+  # Shape of the pre-existing keys is untouched.
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.counts.doing' '1'
+  assert_json_eq "$output" '.counts.blocked' '1'
+  assert_json_eq "$output" '.counts.closed' '1'
+  assert_json_eq "$output" '.phase.active' '2'
+  assert_json_eq "$output" '.next.kind' 'continue'
+  assert_json_eq "$output" '.ready[0].id' "$ST_READY1"
+
+  # The new key itself: no lease was ever acquired for phase 2 here.
+  assert_json_eq "$output" '.lease.held' 'false'
+}
+
+@test "--json: lease is null when no active_phase is resolvable, with no traceback" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "Some issue" -t task --silent >/dev/null
+  # No .planning/ at all -> no STATE.md -> active_phase can never resolve.
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.lease' 'null'
+  refute_in_output 'Traceback'
+}
+
+@test "--html composes cleanly with a held, fresh lease for the active phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  grep -qF 'wrote' <<<"$output"
+  [ -f board.html ]
+}
+
+@test "an actively held, fresh lease renders the same holder path on the terminal board, --plain, and --html" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  local holder
+  holder="$(git rev-parse --show-toplevel)"
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF "◆ phase 2 in use by $holder" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'LEASE\t2\t%s' "$holder")" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run cat board.html
+  grep -qF "phase 2 in use by $holder" <<<"$output"
+}
+
+@test "a stale lease is not rendered as held on any surface" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_id acquired_at holder
+  lease_id="$(jq -r '.id' <<<"$output")"
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+  holder="$(jq -r '.holder' <<<"$output")"
+
+  # Hand-advance heartbeat_at more than 4h into the past via bd directly —
+  # same technique as tests/cairn-lease.bats and tests/hooks.bats.
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
+")"
+  run bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":2,\"holder\":\"$holder\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$holder"
+  refute_in_output 'in use by'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output 'LEASE'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run cat board.html
+  refute_in_output "$holder"
+}
+
+@test "no lease held: the pre-existing footer content is unchanged and no lease line appears" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+
+  # Byte-for-byte regression against "board at --width 100: lanes, glyphs,
+  # footer, next action"'s own assertions — this plan must not touch any
+  # of them.
+  grep -qF '┌─ READY (2)' <<<"$output"
+  grep -qF '┬─ DOING (1)' <<<"$output"
+  grep -qF '┬─ BLOCKED (1)' <<<"$output"
+  grep -qF '└─' <<<"$output"
+  grep -qF "$ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "$ST_READY2  Timeout tuning" <<<"$output"
+  grep -qF "$ST_DOING" <<<"$output"
+  grep -qF '◆ felipe' <<<"$output"
+  grep -qF "⧗ $ST_READY1" <<<"$output"
+  grep -qF 'phase 2/2' <<<"$output"
+  grep -qF 'done: 1' <<<"$output"
+  grep -qF "▶ next: continue $ST_DOING" <<<"$output"
+  refute_in_output "$ST_CLOSED"
+
+  # No lease was ever acquired for phase 2: no lease line anywhere.
+  refute_in_output 'in use by'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output 'LEASE'
+}
+
+@test "--ascii downgrades the lease line's glyph to @ like every other glyph" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
+  [ "$status" -eq 0 ]
+  grep -qF '@ phase 2 in use by' <<<"$output"
+  refute_in_output '◆'
+}
+
+#-----------------------------------------------------------------------------
+# Phase 16 Plan 04: phase_model() batch-wires every render into
+# cairn-journal.py's `observe` subcommand (JOUR-01/JOUR-02, D-01/D-02), and
+# corroborate() itself stays provably independent of the journal's presence
+# or contents (JOUR-03 — Pitfall 11's exact failure shape, closed
+# mechanically, not narrated).
+#
+# CAIRN_JOURNAL is phase_model()'s own env-override seam (identical shape to
+# cairn-lease.py's seam of the same name).
+#-----------------------------------------------------------------------------
+
+JOURNAL_SH="$CAIRN_SCRIPTS_DIR/cairn-journal.sh"
+
+@test "journal observe: exactly one batched cairn-journal.py invocation per --json run, not one per phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # A stub that counts its own invocations to a side file, then execs into
+  # the real cairn-journal.py so the run still actually journals (this test
+  # also proves the DONE criterion: history shows the expected records).
+  local stub="$BATS_TEST_TMPDIR/counting-journal.py"
+  local count_file="$BATS_TEST_TMPDIR/journal-call-count"
+  cat > "$stub" <<'PYEOF'
+#!/usr/bin/env python3
+import os, sys
+with open(os.environ["CAIRN_JOURNAL_CALL_COUNT_FILE"], "a") as f:
+    f.write("1\n")
+os.execv(sys.executable,
+         [sys.executable, os.environ["CAIRN_JOURNAL_REAL"]] + sys.argv[1:])
+PYEOF
+  chmod +x "$stub"
+
+  run env CAIRN_JOURNAL="$stub" \
+      CAIRN_JOURNAL_CALL_COUNT_FILE="$count_file" \
+      CAIRN_JOURNAL_REAL="$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  # Exactly one subprocess spawn for this whole render, not one per phase
+  # (this fixture has 2 phases via make_gsd_fixture).
+  [ "$(wc -l < "$count_file" | tr -d ' ')" = "1" ]
+
+  # The one batched call wrote what phase_model() actually computed: one
+  # state_changed/verdict_changed set per phase, on a journal that had never
+  # observed either phase before (4 evidence axes + 1 verdict each = 5).
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.records[] | select(.phase==1)] | length' '5'
+  assert_json_eq "$output" '[.records[] | select(.phase==2)] | length' '5'
+  assert_json_eq "$output" \
+    '[.records[] | select(.phase==1 and .event=="verdict_changed")] | length' '1'
+  assert_json_eq "$output" \
+    '[.records[] | select(.phase==2 and .event=="verdict_changed")] | length' '1'
+}
+
+@test "journal observe: a broken CAIRN_JOURNAL produces byte-identical --json output to a working one, plus a stderr warning" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local working_output="$output"
+
+  run --separate-stderr env CAIRN_JOURNAL=/nonexistent/path \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  [ "$output" = "$working_output" ]
+  grep -qF "[cairn-status] warning:" <<<"$stderr"
+  grep -qiF "journal" <<<"$stderr"
+}
+
+@test "journal observe: two --json runs with no state change between them append zero new records the second time" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  local count_after_first
+  count_after_first="$(jq '.records | length' <<<"$output")"
+  [ "$count_after_first" -gt 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  local count_after_second
+  count_after_second="$(jq '.records | length' <<<"$output")"
+  [ "$count_after_second" -eq "$count_after_first" ]
+}
+
+#-----------------------------------------------------------------------------
+# JOUR-03: corroborate() itself is provably independent of the journal —
+# a hand-edit made outside any cairn command is caught on the FIRST read
+# (never depends on a prior observe having seen an intermediate state), and
+# deleting the journal entirely changes zero bytes of the next --json
+# render. This is the mechanical proof this plan exists to carry (Pitfall
+# 11: journal-as-ground-truth is the milestone's own root bug shape).
+#-----------------------------------------------------------------------------
+
+@test "JOUR-03: a hand-edit outside any cairn command is caught on the first read, and deleting the journal changes nothing" {
+  require_bd
+  make_tmp_repo
+  # A 2-phase roadmap; neither phase has a directory on disk yet, and
+  # nothing has ever run cairn-status.sh in this repo.
+  mkdir -p .planning
+  cat > .planning/ROADMAP.md <<'EOF'
+# Roadmap: JOUR-03 Fixture
+
+## Phases
+
+- [ ] Phase 1: First phase
+- [ ] Phase 2: Second phase
+EOF
+  bd init -q --prefix j3 --non-interactive >/dev/null 2>&1
+
+  # No prior cairn-status.sh run has happened yet in this fixture — the
+  # journal genuinely does not exist before the hand-edit below. This rules
+  # out the test passing only because a PRIOR observe call happened to have
+  # already recorded the right thing.
+  [ ! -f .cairn/journal.jsonl ]
+
+  # Part (1): hand-edit OUTSIDE any cairn command — a plain sed on
+  # ROADMAP.md, never a cairn-*.sh invocation — checks phase 1's box while
+  # its phase directory has no -SUMMARY.md/-VERIFICATION.md at all. This
+  # deterministically produces R2's roadmap-vs-disk "blocks" conflict.
+  sed -i.bak 's/^- \[ \] Phase 1/- [x] Phase 1/' .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+
+  # This IS the first read after the hand-edit — the journal cannot have
+  # observed this phase before (it did not even exist a moment ago).
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local first_read_output="$output"
+  printf '%s' "$first_read_output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+p = [x for x in d["phases"] if x["number"] == 1][0]
+assert p["corroboration"] == "conflict", p
+items = [c for c in p["conflicts"]
+         if c["severity"] == "blocks" and c["sources"] == ["roadmap", "disk"]]
+assert len(items) == 1, p["conflicts"]
+'
+
+  # That first read's own observe call just wrote this phase's evidence into
+  # the journal for the first time — confirm it, rather than assume it.
+  [ -f .cairn/journal.jsonl ]
+
+  # Part (2): pin the fixture — no .cairn/sync.json, no lease held anywhere
+  # — the only two genuinely time-varying keys the --json payload can carry.
+  # Assert this directly rather than trust it; a fixture that violates
+  # either would make the coming full-output diff flaky for reasons that
+  # have nothing to do with JOUR-03.
+  [ ! -f .cairn/sync.json ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" status --all --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
+
+  # "before": a SECOND read, now against a journal that genuinely has real
+  # accumulated history for this phase (unlike first_read_output, which ran
+  # against no journal at all) — this is the render that deletion below
+  # must prove made no difference to, not a repeat of the no-journal case.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local before_output="$output"
+  # A second read against a populated journal changes nothing either — the
+  # same structural proof, one call earlier.
+  diff <(jq -S . <<<"$first_read_output") <(jq -S . <<<"$before_output")
+
+  # Delete the journal entirely, then render again and diff structurally
+  # against before_output. Deleting a journal that had real history in it
+  # must change zero bytes of the corroboration output.
+  rm -f .cairn/journal.jsonl
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local after_output="$output"
+
+  diff <(jq -S . <<<"$before_output") <(jq -S . <<<"$after_output")
 }

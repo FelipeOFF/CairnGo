@@ -50,14 +50,30 @@ else
   echo "  ✓ bd init"
 fi
 
-# 4. keep generated sync state out of git — the sync id-map/state/conflicts
-#    files are local-only (docs/sync.md §4). Idempotent: each entry is
-#    appended at most once.
+# 4. keep generated local state out of git — everything cairn writes under
+#    .cairn/ that is machine-local (docs/sync.md §4). This is a LIST, never
+#    a blanket '.cairn/' or '.cairn/*.json': sync.json and context.json are
+#    meant to be committed so the whole team shares one config, and a
+#    directory-wide ignore would silently hide them.
+#    Idempotent: each entry is appended at most once.
 GI=".gitignore"
 CAIRN_IGNORES=(
   '.cairn/id-map.json'
   '.cairn/state.json'
   '.cairn/conflicts.json'
+  # v1.4 generated files — added late, hence the "re-run /cairn:init" note
+  # in the release. journal.jsonl needs the wildcard, not the exact name:
+  # cairn-journal.py writes journal.jsonl.tmp-* siblings and a
+  # journal.jsonl.compact.lock next to it, and an exact name misses both.
+  '.cairn/journal.jsonl*'
+  '.cairn/reconcile-evidence.json'
+  '.cairn/hook.log'
+  # cairn-migrate's resumable plan + state: same class, same reason.
+  '.cairn/migrate-plan.json'
+  '.cairn/migrate-state.json'
+  # /cairn:init writes ${CLAUDE_PLUGIN_ROOT} here — an absolute, per-machine
+  # path that is wrong on every other checkout.
+  '.cairn/plugin-root'
 )
 ADDED=0
 for entry in "${CAIRN_IGNORES[@]}"; do
@@ -65,13 +81,15 @@ for entry in "${CAIRN_IGNORES[@]}"; do
     continue
   fi
   if [ "$ADDED" -eq 0 ]; then
-    printf '\n# cairn: generated sync state (never commit)\n' >> "$GI"
+    printf '\n# cairn: generated local state (never commit)\n' >> "$GI"
   fi
   printf '%s\n' "$entry" >> "$GI"
-  ADDED=1
+  ADDED=$((ADDED + 1))
 done
-if [ "$ADDED" -eq 1 ]; then
-  echo "  ✓ gitignored .cairn state files (id-map, state, conflicts)"
+if [ "$ADDED" -gt 0 ]; then
+  # Report the count, not the names: a message that enumerates starts lying
+  # the moment the set grows — which is exactly how we got here.
+  echo "  ✓ gitignored $ADDED generated .cairn state file(s)"
 else
   echo "  ✓ .cairn state files already gitignored"
 fi

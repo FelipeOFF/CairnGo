@@ -5,14 +5,17 @@
 ## Usage
 
 ```
-/cairn:doctor [--fix-labels] [--close-completed] [--json]
+/cairn:doctor [--fix-labels] [--close-completed] [--link-refs] [--json]
 ```
 
 Flags typed by the user are appended to the script call. Under the hood:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--close-completed]
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--close-completed] [--link-refs]
 ```
+
+`--apply-reconciliation N` is a separate, standalone invocation, not part of
+this routine health-check flow — see its own section below.
 
 ## What it does
 
@@ -40,7 +43,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
    invocation drains an `epic ← epic ← epic` chain without `--force`.
    A target bd still refuses is reported with bd's reason and **fails**
    the check (exit `7`) instead of a silent partial sweep.
-5. Routes each finding to its remediation:
+5. When the **external-ref** check finds an unambiguous, unlinked git
+   match, offers a re-run with `--link-refs`, which backfills bd's
+   `external_ref` field (`bd update <id> --external-ref gh-<N>`) for every
+   closed issue whose match is unambiguous, printing each id it links.
+   Idempotent — an issue that already carries an `external_ref` is never
+   reconsidered, so a second run links nothing further. On a shallow
+   clone, skips entirely and says so (see the check's own entry below).
+6. Routes each finding to its remediation:
    - **req-issue** (✗) — a ROADMAP requirement has no stamped, phase-labeled
      issue → `/cairn:migrate` (mode C wires or creates), or a one-off
      `bd create "CAT-NN: <title>" -l m-<m>,phase-<N> --metadata
@@ -105,9 +115,76 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
      used only when no GSD binary can be found at all, since that is not
      evidence either way.
 
-   (An eleventh check probes the minimum supported `bd` version; it needs no
-   routing beyond upgrading bd.)
-6. Re-runs the doctor after fixes to confirm a clean `ok` footer.
+   - **phase-corroboration** (⚠/✗) — Plan 13-01's `phase_model()` verdict
+     for a phase disagrees across disk, bd, the ROADMAP checkbox, or
+     STATE.md's `active_phase` pointer. Each item is routed to the
+     likely-correct fix first: a **disk-vs-bd** item (disk says the phase
+     shipped, bd still has an open issue) → close the open issue(s) if the
+     work is really done, or `/cairn:work N` if it is not; a
+     **roadmap-vs-disk** item (the checkbox is ticked, disk disagrees) →
+     confirm the phase is really done before leaving it ticked, or
+     re-plan it; a **state_md-vs-disk** item (STATE.md still points at a
+     phase disk already finished) → nothing to fix unless you are
+     genuinely still working that phase. Disk-vs-bd and roadmap-vs-disk
+     are `blocks` severity and **fail** the run (exit `7`); a
+     state_md-vs-disk item, or bd being unreadable for a phase
+     (`unknown`), is `informs` and only warns. Shells to `cairn-status.py
+     --json`; a failure there degrades this check to a warn rather than
+     crashing the doctor run.
+
+     Each **conflict** item also names when each of its cited sources
+     last moved (Plan 16-05, JOUR-02) — e.g. "disk last moved
+     2026-07-31T10:00:00+00:00, bd last moved never observed" — pulled
+     from `cairn-journal.py last-moved --phase N --json` (one call per
+     phase, cached, never one per conflict item). This is the only place
+     the transition journal's history surfaces (D-04): a "never observed"
+     source means the journal never saw that side move, not that nothing
+     happened. A missing, unreadable, or broken journal degrades the
+     clause to nothing — the conflict itself, its severity, and this
+     check's exit code are completely unaffected either way.
+   - **phase-artifacts** (⚠) — names which artifact is missing for a phase
+     whose board row would otherwise be a bare dash (CARD-02/D-04): a
+     `PLAN.md` still lacking its own `SUMMARY.md` in a phase that has
+     already reached `disk_state: verified` (an `NN-VERIFICATION.md`
+     exists), or an `NN-VERIFICATION.md` with no readable `status:` field
+     in its frontmatter → write the missing `SUMMARY.md`, or add the
+     missing `status:` field to the verification report. The
+     missing-`SUMMARY` half is deliberately narrower than it sounds: it
+     only fires once a phase has reached `verified`, not on every
+     unsummarized plan — an ordinary phase between waves always has some,
+     and that is not the anomaly this check exists to name. One accepted
+     consequence: a phase stuck at `executed` (a plan never summarized,
+     and nobody ever runs `/cairn:verify` on it) never reaches `verified`
+     and so is never flagged here either — check 5 (`phase-complete-open`)
+     independently covers the ROADMAP-checkbox-complete flavor of the same
+     gap. Shells to `cairn-status.py --json`, same pattern as
+     phase-corroboration. Never fails the run — a missing `SUMMARY` or an
+     unreadable verdict is record hygiene, not contradictory evidence
+     about what happened.
+   - **external-ref** (⚠) — a closed issue has no bd `external_ref` and an
+     unambiguous `(#N)` PR reference was found in this repo's own git
+     history (a commit within ±2 days of the issue's `closed_at`, touching
+     that phase's `files_modified`) → step 5 above (`--link-refs`). Never
+     warns merely because history predates the convention — that is this
+     repo's entire history today (STACK.md) and is not, by itself,
+     actionable. On a shallow clone, the check is skipped for the whole
+     run and says so: a shallow clone's git match can be silently *wrong*
+     at the boundary commit, not merely incomplete, so `--link-refs`
+     never trusts one (run against a full clone, or `git fetch
+     --unshallow`, then retry).
+   - **lease-stale** (⚠) — a phase-level coordination lease
+     (`cairn-lease.py`, Plan 15-01) is currently held and its heartbeat is
+     older than the 4h TTL → reclaimable, not a bug: the next
+     `/cairn:work N` reclaims it automatically, or run `cairn-lease.sh
+     release N` directly to clear it now. Mirrors **claims-stale**'s own
+     never-fails posture one level up (D-04/LEASE-05) — always a warning,
+     never a doctor failure. Shells to `cairn-lease.py status --all
+     --json`; a non-zero exit or unparsable JSON degrades this check to a
+     warn rather than crashing the doctor run.
+
+   (Check 0, `bd-version`, runs first but needs no routing beyond
+   upgrading bd — fifteen checks in total.)
+7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
 
@@ -116,15 +193,17 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" [--json] [--fix-labels] [--
 | `--json` | Machine-readable report |
 | `--fix-labels` | Repair label pairs via `cairn-relabel pair` (active milestone) before checking |
 | `--close-completed` | Bulk-close non-closed issues in ROADMAP-complete phases via `bd close --reason` before checking (idempotent, prints each closed id; sweeps as a fixpoint so parent/blocker chains drain in one run, and exits `7` if bd refuses one) |
+| `--link-refs` | Backfill closed issues lacking `external_ref` from an unambiguous git match via `bd update --external-ref` (idempotent, prints each linked id; skipped entirely on a shallow clone) |
+| `--apply-reconciliation N` | ESC-03, a **separate, standalone** invocation, not paired with the ordinary checks — see [Applying a reconciliation proposal](#applying-a-reconciliation-proposal-esc-03) below |
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| `0` | All ok (warnings included) — or not-applicable: `.planning/` or `.beads/` absent (one side present → suggests `/cairn:migrate`; neither → `/cairn:init`) |
-| `2` | Usage — notably `--fix-labels` refuses when candidates exist but the milestone is unresolvable: set `milestone:` in STATE.md frontmatter, or mark the in-progress ROADMAP milestone with 🚧, then retry |
+| `0` | All ok (warnings included) — or not-applicable: `.planning/` or `.beads/` absent (one side present → suggests `/cairn:migrate`; neither → `/cairn:init`). Also `--apply-reconciliation`'s own "no longer in conflict" refusal — nothing left to apply is not a failure |
+| `2` | Usage — notably `--fix-labels` refuses when candidates exist but the milestone is unresolvable: set `milestone:` in STATE.md frontmatter, or mark the in-progress ROADMAP milestone with 🚧, then retry. Also `--apply-reconciliation` finding no proposal for phase N (`.cairn/conflicts.json` missing, or its own `phase` field doesn't match N) |
 | `5` | `bd` unavailable |
-| `7` | At least one check **failed** (✗) — including `--close-completed` leaving a target unclosed because bd refused it (reported on the phase-complete-open check with bd's reason) |
+| `7` | At least one check **failed** (✗) — including `--close-completed` leaving a target unclosed because bd refused it (reported on the phase-complete-open check with bd's reason), and a `blocks`-severity phase-corroboration conflict. Also `--apply-reconciliation` refusing a stale proposal, a bad citation, an unrecognized `recommended_action.type`, an issue-provenance mismatch, or bd itself refusing a close/reopen it was asked to apply |
 
 ## Examples
 
@@ -139,7 +218,8 @@ cairn doctor — root: ~/Projects/app · milestone: v1.0 · active phase: 3
 ✓ req-issue          ✓ frontmatter-ids     ⚠ maps-fresh (phase 2 stale)
 ✓ superseded-released ✓ phase-complete-open ✓ orphans
 ✓ label-pairs        ✓ claims-stale        ✓ bd-doctor
-✓ gsd-capability
+✓ gsd-capability      ✓ phase-corroboration ✓ phase-artifacts
+✓ external-ref        ✓ lease-stale
 ok (1 warning)
 ```
 
@@ -149,7 +229,7 @@ A repo whose GSD cannot host the fusion reports it plainly:
 ✗ gsd-capability     GSD 4.x lineage — it has no 'capability' subcommand, so
                      plain /gsd:* does NOT touch bd issues. Install the
                      official core: claude plugin install gsd-core@cairngo
-FAIL — 10 ok, 0 warning(s), 1 failure(s)
+FAIL — 12 ok, 0 warning(s), 1 failure(s)
 ```
 
 Repair label pairs, then re-check:
@@ -158,13 +238,69 @@ Repair label pairs, then re-check:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 ```
 
+## Applying a reconciliation proposal (ESC-03)
+
+`--apply-reconciliation N` is the human-invoked, separate command that
+applies a semantic-escalation reconciliation proposal `/cairn:reconcile N`
+wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 15 checks
+above and does not run alongside them — it always exits on its own instead
+of falling through to the ordinary report.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --apply-reconciliation N
+```
+
+Before touching anything it re-verifies the proposal is STILL trustworthy —
+never trusting what the proposal claims about itself, since time may have
+passed since `/cairn:reconcile` wrote it — and refuses the WHOLE apply,
+fail-closed, on any of:
+
+1. no `.cairn/conflicts.json` for phase N, or its own `phase` field doesn't
+   match N (exit `2`).
+2. phase N's corroboration verdict is no longer `"conflict"`, re-read via a
+   REAL `cairn-reconcile.py collect N --json` run at apply-time (exit `0` —
+   nothing to apply, not a failure).
+3. the freshly re-collected `evidence_hash` no longer matches the
+   proposal's own stored one — the tree moved between proposal and apply
+   (exit `7`).
+4. any citation fails a real `cairn-reconcile.py verify N` re-check (D-03 —
+   one bad citation invalidates the whole proposal) (exit `7`).
+5. any `recommended_action.type` falls outside the closed
+   `{bd_close, bd_reopen, manual_review}` vocabulary — checked over every
+   claim before anything is even enumerated (exit `7`).
+6. any `bd_close`/`bd_reopen` claim's `recommended_action.issue` names a bd
+   id carrying no `phase-N` label — the issue-provenance check: correct
+   citations elsewhere in the same proposal never excuse a claim that
+   targets an unrelated issue (exit `7`).
+
+Only once every one of those passes does anything print: EVERY claim is
+enumerated — statement, recommended action, what will happen, with
+`manual_review` claims listed as "skipped (manual review, no automated
+action)" — **before** the first `bd` subprocess call ever runs, so the
+operator sees the full plan while it can still be stopped. `bd_close`/
+`bd_reopen` claims are then applied one at a time (`bd close --reason` /
+`bd update --status open --assignee ""`); `manual_review` claims never touch
+bd. A close/reopen bd itself refuses is reported by id and reason and fails
+the run (exit `7`) — never silent, the same "asked for it and did not get
+it" discipline `--close-completed`'s own `close_failures` reporting already
+applies one level up.
+
 ## Files touched
 
 - **Reads:** `.planning/ROADMAP.md`, `.planning/STATE.md`, phase dirs
-  (PLAN.md frontmatter, `NN-BEADS-MAP.md` freshness), beads state via `bd`
+  (PLAN.md frontmatter, `NN-BEADS-MAP.md` freshness, `files_modified:`),
+  beads state via `bd`, `cairn-status.py --json` (phase corroboration),
+  `cairn-lease.py status --all --json` (lease staleness), git history
+  (`git rev-parse --is-shallow-repository`, `git log` — the external-ref
+  check reads this for its report even without `--link-refs`);
+  `--apply-reconciliation` additionally reads `.cairn/conflicts.json` and
+  shells to `cairn-reconcile.py collect`/`verify`
 - **Writes:** nothing by default; with `--fix-labels`, issue labels via
   `cairn-relabel pair` (`bd update`); with `--close-completed`, issue status
-  via `bd close --reason`
+  via `bd close --reason`; with `--link-refs`, `external_ref` via
+  `bd update --external-ref`; with `--apply-reconciliation N`, issue status
+  via `bd close --reason` / `bd update --status open --assignee ""` for
+  each `bd_close`/`bd_reopen` claim only — never any git write
 
 ## Related
 

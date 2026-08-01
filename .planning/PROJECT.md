@@ -2,11 +2,11 @@
 
 ## What This Is
 
-CairnGo ("cairn") é um plugin de Claude Code que funde GSD (planejamento por fases) com beads/bd (issue tracker git-nativo) num lifecycle único: comandos `/gsd:*` criam, claimam e fecham issues bd automaticamente, com ship gate por hook de git. v1.0.0 shipada e pública em `FelipeOFF/CairnGo`. Este ciclo estrutura o próximo diferencial: **provar com números que o cairn gasta menos tokens que as alternativas**.
+CairnGo ("cairn") é um plugin de Claude Code que funde GSD (planejamento por fases) com beads/bd (issue tracker git-nativo) num lifecycle único: comandos `/gsd:*` criam, claimam e fecham issues bd automaticamente, com ship gate por hook de git. Público em `FelipeOFF/CairnGo`, plugin na 1.4.2. O benchmark foi coletado e publicado: nenhum arm é mensuravelmente mais barato que outro nesse corpus, cairn incluído — e isso está escrito no BENCHMARKS.md. Este ciclo ataca o que sobrou: **o estado do projeto tem que provar o que afirma**.
 
 ## Core Value
 
-Workflow unificado plan→work→ship que custa menos tokens que as alternativas — e agora provado por benchmark reproduzível, não por afirmação.
+Workflow unificado plan→work→ship cujo estado é verificável — nenhuma superfície afirma que uma fase está pronta sem ter com o que corroborar.
 
 ## Requirements
 
@@ -23,12 +23,17 @@ Workflow unificado plan→work→ship que custa menos tokens que as alternativas
 - ✓ Sync adapters (jira, github, gitlab, azure-boards, asana) via gbsync — v1.0
 - ✓ Integração context-mode (memória intent-aware escopada por issue+fase) — v1.0
 - ✓ Suite bats (92+ testes) + CI — v1.0
+- ✓ Coleta live da matriz e publicação dos números reais (charts commitados, Results preenchido, conclusão honesta de não-diferença) — v1.1
+- ✓ Dependência no `open-gsd/gsd-core` oficial, pinada por tag; capability que **verifica** que registrou; doctor reporta linhagem — v1.2
+- ✓ Um modelo de fase único por trás do board, do `--json` e do HTML; próximo comando computado por fase; paralelismo declarado — v1.3
 
 ### Active
 
-(próximo milestone a definir — candidatos: coleta live + publicação dos números (requer ANTHROPIC_API_KEY, ~$40), v2 backlog: re-run cadence, dashboard web, segundo arm concorrente)
-
-- [ ] Coleta real da matriz completa (120 runs) e publicação dos resultados/charts
+- [ ] Estado de fase corroborado entre artefatos, bd, git e árvore — discordância vira `conflict`, nunca escolha silenciosa
+- [ ] Lease de fase: outro agente dentro da mesma fase é fato visível, não surpresa
+- [ ] Escalada semântica que propõe reconciliação e nunca grava estado sozinha
+- [ ] Card de fase que diz para que a fase serve — mesma leitura no terminal e no HTML
+- [ ] Journal append-only de transições: estado lido, não reconstruído
 
 ### Out of Scope
 
@@ -38,12 +43,25 @@ Workflow unificado plan→work→ship que custa menos tokens que as alternativas
 
 ## Current State
 
-**v1.1 shipped 2026-07-27.** Benchmark harness completo em `benchmarks/` (~22k linhas adicionadas no milestone, 199 testes bats, $2.88 de API gastos — só validação de schema). O que existe: 6 tasks de corpus provadas bidirecionalmente, 4 arms pinados e isolados, agregação determinística success-gated, publicação methodology-first com resultados honestamente pendentes. Ação de operador pendente: `bench-all.sh --yes` com key (~$40) coleta e publica os números reais.
+**v1.3 shipped 2026-07-28; plugin na 1.4.2.** Doze fases fechadas e arquivadas. O benchmark rodou de verdade (`matrix-20260727.jsonl`, charts commitados) e a conclusão publicada é que nenhum arm é mensuravelmente mais barato — inclusive o cairn. O v1.2 descobriu que a fusão GSD↔beads nunca tinha rodado para ninguém: a linhagem antiga não tem capability, `gsd_run` não estava no PATH e um `|| echo "skipped"` convertia toda falha em sucesso. Três releases (1.4.0→1.4.2) atacaram a mesma causa: um sinal verde que não provava o que afirmava.
+
+## Current Milestone: v1.4 Honest State
+
+**Goal:** o estado de uma fase deixa de ser adivinhado por quatro nomes de arquivo — passa a ser corroborado entre artefatos, bd, git e a árvore; discordância vira conflito reportado; e toda superfície diz para que a fase serve.
+
+**Target features:**
+- Corroboração multi-fonte com estado `conflict` explícito
+- Lease de fase para trabalho concorrente entre agentes
+- Escalada semântica que propõe, nunca decide
+- Card de fase rico e idêntico no terminal e no HTML
+- Journal append-only das transições de estado
 
 ## Context
 
 - Brownfield: mapa da codebase em `.planning/codebase/` (7 docs, 2026-07-25).
-- Quick task em voo (CairnGo-4ju): redesign do `/cairn:status` como board kanban + documentação dos 22 comandos — corre fora deste roadmap.
+- A causa-raiz deste milestone é uma função só: `phase_disk_state()` em `cairn-status.py` decide entre quatro estados por existência de quatro nomes de arquivo. Nunca abre o arquivo, nunca lê o código, o git ou o bd. Todo trabalho que acontece sem esses arquivos aparecerem é invisível.
+- O GSD precisa de `/gsd:audit-milestone` porque o estado dele é inferido de efeito colateral. O cairn tem uma vantagem estrutural que o GSD não tem: o bd é um banco com timestamp, autor e motivo de fechamento.
+- Backlog fora deste milestone: `CairnGo-9xy` (13 wrappers `/cairn:*`), `CairnGo-c8v` (remover o reparo de manifesto quando o upstream resolver #2077).
 - Concerns conhecidos do mapa: race no gbsync id-map, parsing regex leniente de ROADMAP/STATE, adapters sem cobertura funcional. Não são deste milestone, ficam registrados.
 
 ## Constraints
@@ -62,6 +80,10 @@ Workflow unificado plan→work→ship que custa menos tokens que as alternativas
 | --bare exige ANTHROPIC_API_KEY (OAuth não funciona headless isolado) | Verificado ao vivo na fase 1 | ✓ Good |
 | Decomposição prefere modelUsage sobre usage | usage under-reporta cache_creation ~30% (verificado por aritmética vs pricing) | ✓ Good |
 | Zero número sintético publicado; SVGs só com dados reais | Credibilidade methodology-first (inverso do anti-padrão claim-sem-dado) | ✓ Good |
+| Core Value reescrito: de "custa menos tokens" para "estado verificável" | O próprio benchmark do projeto refutou a alegação de custo; manter a antiga seria o exato anti-padrão que o v1.1 existiu para combater | — Pending |
+| Corroboração determinística antes de escalada semântica | LLM lendo codebase é caro e não-reproduzível; tripwire barato dispara, investigação profunda só no conflito | — Pending |
+| A escalada nunca grava estado — só propõe | Um agente que corrige o próprio registro de estado destrói a evidência do erro | — Pending |
+| Journal (C) não substitui corroboração (A) | O journal só vê o que o cairn faz; humano ou outra ferramenta editando código continua invisível | — Pending |
 
 ## Evolution
 
@@ -81,4 +103,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-27 after v1.1 milestone (Metrics & Benchmarks — shipped)*
+*Last updated: 2026-07-29 ao abrir o milestone v1.4 (Honest State)*

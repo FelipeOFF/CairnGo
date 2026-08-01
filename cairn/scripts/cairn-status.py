@@ -22,13 +22,23 @@ Behavior:
        .beads/, bd is never queried (bd walks UP to find a database, which
        could silently render an ancestor repo's board): the board degrades
        to a GSD-only render with a note — mirroring cairn-gate's
-       applicability decision.
+       applicability decision. When the root DOES have a .beads/ but a
+       cheap `bd list --limit 1` probe run before the lane queries itself
+       fails (bd present on PATH, the query broken — a crashed daemon, a
+       corrupted DB), the board degrades the same way — every lane empty,
+       a note naming the failure — and `phase_model()`'s `bd_ok` flag turns
+       False, so every phase's corroboration `bd` evidence reads "unknown"
+       rather than silently agreeing with disk (see 4c).
     3. Read GSD position leniently (regex, no YAML lib — patterns shared
        with cairn-gate, except TABLE_PHASE_ANY which is stricter, see its
        comment): ROADMAP.md phase checkboxes / progress-table rows and the
        🚧 milestone line; STATE.md frontmatter `milestone:`, `active_phase:`
        and `next_action:`. All of it is optional — missing files degrade to
-       an issues-only board.
+       an issues-only board. `roadmap_phase_rows()` also reads each phase's
+       `### Phase N:` detail block for `**Card:**` (or, failing that, the
+       first sentence of `**Goal:**`) — per D-03, this is the phase's
+       `purpose`, and it is `null` only when the phase has no detail block
+       at all.
     4. Synthesize ONE next action. In order: an in_progress issue exists →
        continue it; else the highest-priority ready issue labeled
        m-<milestone>,phase-<active>; else STATE.md's next_action; else the
@@ -42,6 +52,38 @@ Behavior:
        data — but carry a dim ·done-phase marker on their card, a footer
        warning pointing at /cairn:doctor --close-completed, and their ids
        under the JSON key stale_complete.
+    4c. Corroborate each phase's state from four independent reads: disk
+       (phase_disk_state — file existence only), bd (that phase's own
+       phase-N-labeled issues), the ROADMAP checkbox, and STATE.md's
+       active_phase pointer. Each `--json` phase row carries additive keys
+       `evidence` (the raw per-source reads), `corroboration` (`"ok"` /
+       `"conflict"` / `"unknown"`), and `conflicts` (itemized `{severity,
+       sources, detail}`, severity `"blocks"` or `"informs"`) — disk_state
+       itself is never widened, so it stays exactly the four values it
+       always was. A source that could not be read (bd unreachable) is
+       reported "unknown", never folded into agreement: an unreadable bd
+       never produces "ok" by itself. A phase needing attention (an
+       "unknown" verdict, or a "blocks" conflict) is rerouted to
+       `/cairn:doctor` instead of its disk-driven next command, both in
+       `phases[].next_command` and in `next_commands[]`.
+    4d. Each `--json` phase row also carries four additive, purely
+       descriptive keys for the phase card: `purpose` (see step 3),
+       `research_done` (does the phase directory carry an `NN-RESEARCH.md`),
+       `issues_done`/`issues_total` (bd issues matching that phase's own
+       `phase-N` label by ANY match — a looser count than bd_state()'s
+       ALL-not-ANY corroboration filter, and never used for corroboration),
+       and `verify_status` (the literal `status:` value from the phase's
+       `NN-VERIFICATION.md` frontmatter, or `null` when absent/unreadable).
+       `disk_state` itself is still never widened by any of this.
+    4e. `phase_model()` ends with exactly ONE batched call to
+       `cairn-journal.py observe` (Phase 16, D-01/D-02), carrying every
+       phase's `evidence`+`corroboration` from 4c above as one JSON array
+       on stdin — the concrete write path for the journal's "phase state"
+       and "corroboration verdict" categories, reached from every surface
+       that renders the board. Purely a side effect: the journal is never
+       read anywhere in this script, so a missing or broken
+       cairn-journal.py degrades to a stderr warning and changes nothing
+       else about this run (JOUR-03) — see journal_observe_phases().
     5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
        gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
        list (< 40 cols). Non-TTY without an output flag: --plain
@@ -52,9 +94,28 @@ Behavior:
        ignored (--ascii alone does not force it). All bd/STATE.md text is
        passed through clean(), which strips C0/C1 control bytes — titles
        from remote trackers can't inject escape sequences or forge rows.
+    5b. Below the columned/stacked board, `phase_panel_lines()` prints a
+       PENDING PHASES table (`#`, `phase`, `state`, `rsch`, `plans`, `issues`,
+       `verify`, `waits`, `next` — the same step-4d/4c fields the HTML page
+       renders) and a PURPOSE list keyed by phase number, each line pairing
+       that phase's purpose with the reason `next_commands()` ordered it
+       where it did. There is no separate NEXT COMMANDS section: the command
+       itself is the table's `next` column, and the reason lives in PURPOSE
+       instead. PURPOSE is the one place text wraps rather than truncates —
+       a phase's purpose is never cut. When every phase is complete
+       (`pending_phases()` empty), PURPOSE still renders: `next_commands()`'s
+       `phase: None` pair (`/cairn:ship`, `/cairn:milestone complete`) prints
+       there with no phase-number prefix, so the terminal never shows less
+       than `--json` or the HTML page.
     6. When .cairn/sync.json exists, append a sync-staleness line from the
        last-pull watermarks in .cairn/state.json (missing or older than 24h
        → suggest /cairn:sync-pull).
+    6b. When the active phase's lease (Plan 15-01) is actively held and
+       fresh, append one footer line naming who holds it and since when
+       (D-05) — computed once from data["lease"] and shared verbatim by
+       the terminal footer, --plain and the HTML foot, so the three can
+       never disagree. A vacant or stale hold renders nothing here (a
+       stale hold is /cairn:doctor's story to tell, not the footer's).
     7. --html <path> renders the SAME data as a standalone HTML board (no
        network of any kind: styles, texture and the profile are inline, no
        font/script/image is loaded from anywhere). The page is a generated
@@ -73,8 +134,8 @@ Behavior:
        HTML escaping, so a title carrying markup renders as text.
 
     --json      one machine line: {ready, doing, blocked, counts, milestone,
-                phase, next, sync, stale_complete, note} (+ html: {file,
-                changed} when --html also ran)
+                phase, next, sync, stale_complete, note, lease} (+ html:
+                {file, changed} when --html also ran)
     --plain     tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA) plus
                 PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color, no
                 truncation
@@ -95,7 +156,11 @@ Behavior:
 
 Exit codes:
     0 ok    2 usage (bad flag, or an unusable --html target/template)
-    5 bd unavailable (not on PATH, or a bd query failed)
+    5 bd unavailable — not on PATH, or the pre-lane-query probe failed
+      (bd present but the query itself broke). Can now happen on ANY
+      render path (--json, --html, or the terminal/plain/brief default),
+      always after this run's real output on stdout, never a silent,
+      empty exit.
 """
 import html
 import json
@@ -115,6 +180,16 @@ from pathlib import Path
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_NO_BD = 5
+
+# Test/override seam for the journal companion script (mirrors the existing
+# CAIRN_GBSYNC/CAIRN_MAP/CAIRN_GATE env-seam convention and cairn-lease.py's
+# identical CAIRN_JOURNAL seam — see CONVENTIONS.md's "Environment variable
+# seams" note). Default: the sibling cairn-journal.py next to this script.
+# phase_model()'s own observe call (Phase 16, D-01/D-02) shells out through
+# this seam, resiliently — see journal_observe_phases().
+CAIRN_JOURNAL = os.environ.get(
+    "CAIRN_JOURNAL",
+    str(Path(__file__).resolve().parent / "cairn-journal.py"))
 
 USAGE = ("usage: cairn-status.py [--json] [--plain] [--brief] [--width N] "
          "[--max-rows N] [--ascii] [--color=always|never] "
@@ -166,6 +241,29 @@ ROADMAP_COMPLETED = re.compile(
 ROADMAP_TRAILING_PAREN = re.compile(r"\s*\(([^()]*)\)\s*$")
 ROADMAP_PLANS = re.compile(r"^(\d+)\s*/\s*(\d+)\s+plans?$", re.IGNORECASE)
 REQ_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d+(?:\s*,\s*[A-Z][A-Z0-9]*-\d+)*$")
+
+# "## Detalhe das fases" prose blocks (Phase 14): a THIRD phase-reference
+# shape, an H3 heading, distinct in form from ANY_PHASE's checkbox line and
+# TABLE_PHASE_ANY's table row — it can never collide with either.
+DETAIL_PHASE_HEADING = re.compile(r"^###\s+Phase\s+0*(\d+)\b")
+CARD_LABEL = re.compile(r"^\*\*Card:\*\*\s*(.*)$")
+GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
+# Recognizes ANY bold label line, both the colon-inside shape (`**Card:**`)
+# and the colon-outside shape used by `**Requirements**:` elsewhere in the
+# same blocks. Used only to know when to STOP collecting continuation text
+# for a Card/Goal block, never to start it.
+#
+# The colon is REQUIRED, in one position or the other. It used to be optional
+# (`\*\*:?`), which made every emphasized word at the start of a wrapped line
+# look like a new label: phase 17's real Goal wraps onto a line beginning
+# `**propõe** uma reconciliação`, so the purpose was flushed early and rendered
+# as a sentence fragment with no closing period. Prose emphasis carries no
+# colon; a label always does.
+BOLD_LABEL = re.compile(r"^\*\*[^*]+\*\*:|^\*\*[^*]+:\*\*")
+
+# Inline **bold** / __bold__ / *italic* / _italic_ inside a Card or Goal, with
+# the marked words kept. Applied only to the purpose text, never to a label.
+INLINE_EMPHASIS = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_")
 
 
 def die(msg, code):
@@ -291,6 +389,15 @@ def issue_phase_ns(iss):
     return out
 
 
+def is_lease_issue(iss):
+    """True when this is the phase-lease bookkeeping issue (Plan 15-01):
+    a real bd issue, carrying the `lease` label, that is never tracked
+    work — it must never show up as a phantom card in READY/DOING/BLOCKED,
+    or inflate the done count, alongside issues that actually are (D-05).
+    Mirrors NO_PHASE_EXEMPT's `lease` entry in cairn-doctor.py."""
+    return "lease" in as_str_list(iss.get("labels"))
+
+
 def in_done_phase(iss, done_set):
     """True when the issue is phase-labeled and EVERY phase label points at
     a roadmap-complete phase — an open issue the roadmap says was already
@@ -322,6 +429,36 @@ def fetch_lanes(root):
     key = lambda i: (issue_priority(i), str(i.get("id") or ""))  # noqa: E731
     return (sorted(ready, key=key), sorted(doing, key=key),
             sorted(blocked, key=key), closed)
+
+
+def fetch_lease_status(root, active_phase, bd_ok):
+    """data["lease"]: the active phase's lease status (Plan 15-01), or
+    None when there is no active phase to ask about or bd itself could not
+    be read.
+
+    One subprocess call to `cairn-lease.py status <active_phase> --json`,
+    mirroring cairn-doctor.py's check_phase_corroboration()/
+    check_lease_stale() shell-out-and-parse-defensively shape: a
+    subprocess failure or unparsable JSON degrades to None, never a
+    crash. No TTL/staleness math is re-derived here — cairn-lease.py
+    status --json is the single source for that.
+    """
+    if active_phase is None or not bd_ok:
+        return None
+    lease_script = Path(__file__).resolve().parent / "cairn-lease.py"
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(lease_script), "status", str(active_phase),
+             "--json", "--project-dir", str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        return None
 
 
 # --------------------------------------------------------------- GSD reading
@@ -367,6 +504,102 @@ def phase_disk_state(pdir):
     return "none"
 
 
+def bd_state(issues, n, roadmap_done_set):
+    """bd's own verdict on phase n: none/closed/in_progress/open.
+
+    Only issues whose phase-label set is entirely covered by phase n plus
+    already-roadmap-complete phases count as evidence for n — an issue that
+    also carries an undone OTHER phase's label is genuinely live work for
+    THAT phase, not evidence against n. This mirrors in_done_phase's
+    ALL-not-ANY discipline, so a legitimate cross-phase issue can never
+    fabricate a false conflict for a phase it isn't really about.
+    """
+    allowed = roadmap_done_set | {n}
+    qualifying = [iss for iss in issues
+                  if n in issue_phase_ns(iss) and issue_phase_ns(iss) <= allowed]
+    if not qualifying:
+        return "none"
+    statuses = [iss.get("status") for iss in qualifying]
+    if all(s == "closed" for s in statuses):
+        return "closed"
+    if any(s == "in_progress" for s in statuses):
+        return "in_progress"
+    return "open"
+
+
+def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
+                state_md_active_phase):
+    """(verdict, evidence, conflicts) for phase n from four independent
+    reads: disk, bd, the roadmap checkbox, and STATE.md's active_phase
+    pointer.
+
+    Two severities only (D-09), each rule carrying its own justification for
+    the one it gets:
+      R1 blocks, disk vs bd — both are direct, artifact-backed reads of real
+         work state; a disagreement between them is exactly what ROADMAP SC2
+         and D-05 ("disk vs bd invalidates") describe.
+      R2 blocks, roadmap vs disk — a checked box with nothing built is at
+         least as dangerous as R1, and it fires independent of whether bd
+         has any opinion at all. The reverse (disk verified, box unticked)
+         is the existing, accepted lag phase_model() already documents and
+         must NOT fire here.
+      R3 informs, state_md vs disk — STATE.md's active_phase is a workflow
+         POINTER, not a work-completion signal (D-05): it must never
+         invalidate /cairn:work N on its own, so it can never outrank R1/R2.
+
+    Verdict is "conflict" whenever conflicts is non-empty, else "unknown"
+    when bd could not be read, else "ok". An unreadable bd (bd_ok False)
+    never fabricates agreement (D-07) — its axis simply casts no vote, so R2
+    and R3 can still fire and produce "conflict" without it, since neither
+    needs bd to disagree. Two readable sources disagreeing is already a
+    conflict: no majority, no tiebreak (D-06).
+
+    Pure and silent by construction: no prompting, no blocking on input, no
+    AskUserQuestion anywhere in this call graph (D-02) — this only reports,
+    structured and deterministic; the prose in cairn/commands/*.md is what
+    later offers the human options.
+    """
+    evidence = {
+        "disk": disk_state,
+        "bd": bd_val if bd_ok else "unknown",
+        "roadmap": "complete" if roadmap_complete else "incomplete",
+        "state_md": "active" if state_md_active_phase == n else None,
+    }
+    conflicts = []
+
+    if bd_ok and bd_val != "none":
+        disk_done = disk_state in ("executed", "verified")
+        bd_done = bd_val == "closed"
+        if disk_done != bd_done:
+            conflicts.append({
+                "severity": "blocks", "sources": ["disk", "bd"],
+                "detail": (f"disk reports phase {n} {disk_state}, bd "
+                          f"reports its issues {bd_val}"),
+            })
+
+    if roadmap_complete and disk_state not in ("executed", "verified"):
+        conflicts.append({
+            "severity": "blocks", "sources": ["roadmap", "disk"],
+            "detail": (f"roadmap marks phase {n} complete, disk reports "
+                      f"{disk_state}"),
+        })
+
+    if state_md_active_phase == n and disk_state in ("executed", "verified"):
+        conflicts.append({
+            "severity": "informs", "sources": ["state_md", "disk"],
+            "detail": (f"STATE.md still points at phase {n}, disk already "
+                      f"reports {disk_state}"),
+        })
+
+    if conflicts:
+        verdict = "conflict"
+    elif not bd_ok:
+        verdict = "unknown"
+    else:
+        verdict = "ok"
+    return verdict, evidence, conflicts
+
+
 def phase_plan_counts(pdir):
     """(plans with a SUMMARY, total non-superseded plans) on disk, or None."""
     if pdir is None or not pdir.is_dir():
@@ -385,6 +618,62 @@ def phase_plan_counts(pdir):
     if not plans:
         return None, None
     return len(summaries & plans), len(plans)
+
+
+def phase_has_research(pdir):
+    """Whether this phase directory carries at least one `*-RESEARCH.md`
+    file — the same suffix-match shape phase_disk_state() already uses for
+    its own four suffixes: existence only, never mtime- or content-sensitive.
+    """
+    if pdir is None or not pdir.is_dir():
+        return False
+    return any(p.name.endswith("-RESEARCH.md") for p in pdir.iterdir()
+              if p.is_file())
+
+
+def phase_issue_counts(issues, n):
+    """(done, total) bd issues carrying phase n's own `phase-N` label, by ANY
+    match.
+
+    Deliberately looser than bd_state()'s ALL-not-ANY qualifying filter: an
+    issue that also carries an undone OTHER phase's label is still counted
+    here. This is a raw completion tally for the phase card, not a
+    corroboration read that must avoid fabricating a false conflict — do not
+    reuse this count for corroboration, and do not reuse bd_state()'s
+    qualifying list here. The two answer different questions.
+    """
+    done = total = 0
+    for iss in issues:
+        if n in issue_phase_ns(iss):
+            total += 1
+            if iss.get("status") == "closed":
+                done += 1
+    return done, total
+
+
+def verification_status(pdir):
+    """The literal `status:` value from a phase's `NN-VERIFICATION.md`
+    frontmatter, or None when the file is absent, unreadable, or the field
+    is missing/empty. Mirrors state_frontmatter()'s lenient
+    regex-and-strip shape rather than a YAML lib.
+    """
+    if pdir is None or not pdir.is_dir():
+        return None
+    candidates = sorted(p for p in pdir.iterdir()
+                        if p.is_file() and p.name.endswith("-VERIFICATION.md"))
+    if not candidates:
+        return None
+    lines = read_lines(candidates[0])
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^status\s*:\s*(.+?)\s*$", line)
+        if m:
+            val = m.group(1).split("#", 1)[0].strip().strip("'\"").strip()
+            return val or None
+    return None
 
 
 def plan_depends_on(pdir, dir_to_number):
@@ -476,10 +765,74 @@ def roadmap_phase_rows(planning_dir):
         return rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [],
+            "requirements": [], "purpose": None,
         })
 
+    # State machine for the "## Detalhe das fases" prose blocks, tracked
+    # across the same single pass below (no second file read): detail_phase
+    # is the `### Phase N:` block currently open (or None), collecting is
+    # None/"card"/"goal" naming which label is being gathered, buffer holds
+    # its continuation lines so far. card_text/goal_text are resolved once
+    # after the loop, per phase number.
+    detail_phase = None
+    collecting = None
+    buffer = []
+    card_text, goal_text = {}, {}
+
+    def flush():
+        # Joins the buffered continuation lines into one cleaned string and
+        # files it under the label ("card"/"goal") currently being
+        # collected, keyed by the detail block it belongs to. A no-op when
+        # nothing is being collected.
+        nonlocal collecting, buffer
+        if collecting is not None:
+            text = " ".join(b for b in buffer if b).strip()
+            # Prose emphasis is markup for a markdown reader, not for a
+            # terminal column — `**propõe**` in phase 17's Goal would reach
+            # the board as four literal asterisks. Strip the bold/italic
+            # markers and keep the words. Backticks are deliberately left
+            # alone: in this project's prose they mark real identifiers, and
+            # that distinction is worth carrying into the card.
+            text = INLINE_EMPHASIS.sub(
+                lambda m: next(g for g in m.groups() if g is not None), text)
+            target = card_text if collecting == "card" else goal_text
+            target[detail_phase] = text
+        collecting = None
+        buffer = []
+
     for line in read_lines(planning_dir / "ROADMAP.md"):
+        m = DETAIL_PHASE_HEADING.match(line)
+        if m:
+            flush()
+            detail_phase = int(m.group(1))
+            slot(detail_phase)
+            continue
+
+        if detail_phase is not None:
+            m = CARD_LABEL.match(line)
+            if m:
+                flush()
+                collecting = "card"
+                buffer = [m.group(1).strip()]
+                continue
+            m = GOAL_LABEL.match(line)
+            if m:
+                flush()
+                collecting = "goal"
+                buffer = [m.group(1).strip()]
+                continue
+            if collecting is not None:
+                stripped = line.strip()
+                if not stripped or BOLD_LABEL.match(line) or stripped == "---":
+                    flush()
+                    if stripped == "---":
+                        # The `---` rule separates one phase's detail block
+                        # from the next, per the file's own structure.
+                        detail_phase = None
+                    continue
+                buffer.append(stripped)
+                continue
+
         m = ANY_PHASE.match(line)
         if m:
             n = int(m.group(1))
@@ -525,6 +878,22 @@ def roadmap_phase_rows(planning_dir):
             dm = re.match(r"^(\d{4}-\d{2}-\d{2})$", cell)
             if dm and not row["completed_on"]:
                 row["completed_on"] = cell
+    flush()  # a Card/Goal block running to EOF with no trailing `---`
+
+    for n in set(card_text) | set(goal_text):
+        slot(n)
+        card, goal = card_text.get(n), goal_text.get(n)
+        if card:
+            purpose = card
+        elif goal:
+            # First sentence only (up to and including the first period);
+            # the whole Goal text when no period exists.
+            sm = re.search(r"^(.*?\.)(?:\s|$)", goal)
+            purpose = sm.group(1) if sm else goal
+        else:
+            purpose = None
+        rows[n]["purpose"] = clean(purpose) if purpose else None
+
     return rows
 
 
@@ -578,7 +947,51 @@ def issue_phase_deps(issues):
     return edges
 
 
-def phase_model(planning_dir, issues=None):
+def journal_observe_phases(root, phases):
+    """Best-effort, single batched append of every phase's already-computed
+    evidence/corroboration into cairn-journal.py's `observe` subcommand
+    (Phase 16, D-01/D-02) — the concrete write path for JOUR-01's "phase
+    state" and "corroboration verdict" categories. Exactly ONE subprocess
+    call per phase_model() invocation, carrying every phase's own
+    `{"phase", "evidence", "verdict"}` as one JSON array on stdin; never one
+    call per phase.
+
+    Purely a side effect appended AFTER corroborate() has already produced
+    every value in the payload (see phase_model()'s own call site) —
+    nothing here can feed back into corroboration itself, and nothing here
+    is read by anything else in this module (JOUR-03: the journal is never
+    consulted as a source of "current state"). On ANY failure — a nonzero
+    exit, a missing script (FileNotFoundError), any other
+    subprocess.SubprocessError, or output that is not valid JSON — prints a
+    single `[cairn-status] warning: could not record journal observation:
+    ...` line to stderr and returns. NEVER raises, NEVER calls die():
+    recording history is bookkeeping, rendering the board is the real work
+    (mirrors fetch_lease_status()'s and cairn-lease.py's
+    journal_lease_event()'s identical resilience posture)."""
+    payload = [{"phase": p["number"], "evidence": p["evidence"],
+                "verdict": p["corroboration"]} for p in phases]
+    cmd = [sys.executable, CAIRN_JOURNAL, "observe",
+           "--project-dir", str(root), "--json"]
+    try:
+        proc = subprocess.run(cmd, input=json.dumps(payload),
+                               capture_output=True, text=True)
+    except (FileNotFoundError, subprocess.SubprocessError) as e:
+        print(f"[cairn-status] warning: could not record journal "
+              f"observation: {e}", file=sys.stderr)
+        return
+    if proc.returncode != 0:
+        detail = proc.stderr.strip() or f"exit {proc.returncode}"
+        print(f"[cairn-status] warning: could not record journal "
+              f"observation: {detail}", file=sys.stderr)
+        return
+    try:
+        json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as e:
+        print(f"[cairn-status] warning: could not record journal "
+              f"observation: unparsable output ({e})", file=sys.stderr)
+
+
+def phase_model(planning_dir, issues=None, bd_ok=True):
     """Every phase, described once, for all three surfaces to render from.
 
     The board, `--json` and the HTML page previously each re-derived what they
@@ -586,6 +999,22 @@ def phase_model(planning_dir, issues=None):
     surface, so the three could disagree. This is the single read: roadmap text
     merged with what is actually on disk, plus the dependency edges that make
     parallelism computable.
+
+    Each row also carries additive corroboration keys — `evidence`,
+    `corroboration`, `conflicts`, `needs_doctor` — computed by corroborate()
+    from disk/bd/roadmap/STATE.md without ever widening `disk_state` itself.
+    `bd_ok` (default True, unchanged behavior for every existing caller) says
+    whether `issues` is a trustworthy read of bd; when False (bd unreachable)
+    the bd axis reports "unknown" rather than fabricating agreement.
+
+    Once every phase's evidence/corroboration below is computed, this
+    function ends with exactly ONE batched call to journal_observe_phases()
+    (Phase 16, D-01/D-02) — a pure, best-effort side effect appended AFTER
+    corroborate() has already produced its answer for every phase. The
+    journal is never read anywhere in this call graph and never feeds back
+    into any value computed here, so a missing or broken journal changes
+    zero bytes of this function's return value, only a stderr warning
+    (JOUR-03).
     """
     rows = roadmap_phase_rows(planning_dir)
     dirs = phase_dirs(planning_dir)
@@ -593,17 +1022,50 @@ def phase_model(planning_dir, issues=None):
         rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [],
+            "requirements": [], "purpose": None,
         })
     dir_to_number = {d.name: n for n, d in dirs.items()}
     bd_edges = issue_phase_deps(issues or [])
+
+    # Independent evidence corroborate() needs, read once — not the
+    # disk-aware done_set below, which corroborate() must be free to
+    # disagree with (a checked box with nothing on disk is exactly the
+    # conflict R2 exists to catch).
+    roadmap_done_set = {n for n, row in rows.items() if row.get("complete")}
+    active_raw = normalize_phase(state_frontmatter(planning_dir)["active_phase"])
+    active_phase_n = (int(active_raw) if active_raw is not None
+                      and str(active_raw).isdigit() else None)
+    # Project root: the same resolution main() already applies (planning_dir
+    # is always root / ".planning", whichever branch resolved it) — reused
+    # here rather than invented a second way, both for row["dir"] below and
+    # for the observe call's --project-dir at the end of this function.
+    root = planning_dir.parent
 
     out = []
     for n in sorted(rows):
         row = dict(rows[n])
         pdir = dirs.get(n)
-        row["dir"] = str(pdir.relative_to(planning_dir.parent)) if pdir else None
+        row["dir"] = str(pdir.relative_to(root)) if pdir else None
         row["disk_state"] = phase_disk_state(pdir)
+        row["research_done"] = phase_has_research(pdir)
+        row["issues_done"], row["issues_total"] = phase_issue_counts(
+            issues or [], n)
+        row["verify_status"] = verification_status(pdir)
+        bd_val = bd_state(issues or [], n, roadmap_done_set)
+        verdict, evidence, conflicts = corroborate(
+            n, row["disk_state"], row["complete"], bd_val, bd_ok,
+            active_phase_n)
+        row["evidence"] = evidence
+        row["corroboration"] = verdict
+        row["conflicts"] = conflicts
+        # The single, shared "route this phase to /cairn:doctor" predicate —
+        # computed exactly once, here, and only ever READ by
+        # phase_next_command()'s guard and next_commands()'s sort/blocked
+        # fold below. Neither of them recomputes this condition.
+        row["needs_doctor"] = (
+            verdict == "unknown"
+            or (verdict == "conflict"
+                and any(c["severity"] == "blocks" for c in conflicts)))
         if row["plans_total"] is None:
             done, total = phase_plan_counts(pdir)
             row["plans_done"], row["plans_total"] = done, total
@@ -620,6 +1082,10 @@ def phase_model(planning_dir, issues=None):
     for p in out:
         p["blocked_by"] = [d for d in p["depends_on"] if d not in done_set]
         p["next_command"] = phase_next_command(p)
+    # Every phase's evidence/corroboration is fully computed above — this is
+    # the ONE place in the whole module where the batch gets observed into
+    # the journal, resiliently (see journal_observe_phases()).
+    journal_observe_phases(root, out)
     return out
 
 
@@ -635,9 +1101,22 @@ def phase_next_command(p):
     so reading disk state alone would tell the operator to go and plan phase 1
     again. When the checkbox and the artifacts genuinely disagree, that is
     /cairn:doctor's report to make, not a suggestion to act on.
+
+    A needs_doctor phase (an "unknown" corroboration verdict, or a "blocks"
+    conflict) is routed to /cairn:doctor instead of its disk-driven command —
+    the one shared field computed once in phase_model(), never recomputed
+    here.
     """
     if p["complete"]:
+        # Deliberately unconditional and deliberately BEFORE the needs_doctor
+        # guard below — a roadmap-complete phase keeps returning None whatever
+        # corroboration says. A complete-but-conflicting phase is not "next
+        # work to do"; it is a done phase that might be WRONG, and auditing
+        # that is the ship gate's (13-04) and doctor's (13-03) job, never
+        # next-command routing's. Do not reorder this check after the guard.
         return None
+    if p.get("needs_doctor"):
+        return "/cairn:doctor"
     return {
         "none": f"/cairn:plan {p['number']}",
         "planned": f"/cairn:work {p['number']}",
@@ -683,6 +1162,42 @@ def phase_progress_text(p):
     return f"{done}/{p['plans_total']} plans"
 
 
+def phase_purpose_text(p):
+    """What a phase IS, in one sentence — Plan 14-01's resolved `purpose`
+    (Card verbatim, or the first sentence of Goal), with the same
+    never-blank fallback shape `title` already uses elsewhere on this
+    board. Shared by the terminal PURPOSE list and the HTML purpose
+    paragraph so the two can only ever repeat the same sentence (D-04)."""
+    return p.get("purpose") or p.get("title") or "(no purpose recorded)"
+
+
+def phase_research_text(p):
+    """`yes`/`—` — whether an `NN-RESEARCH.md` exists for this phase."""
+    return "yes" if p.get("research_done") else "—"
+
+
+def phase_issues_text(p):
+    """`done/total`, or `—` when this phase has no bd issues mapped to it at
+    all. Distinct from `0/N`, real information (issues exist, none closed
+    yet) that must never collapse to a dash — only the true absence of any
+    issue does."""
+    total = p.get("issues_total")
+    if not total:
+        return "—"
+    return f"{p['issues_done']}/{total}"
+
+
+def phase_verify_text(p):
+    """The verification verdict: the literal `status:` value from
+    `NN-VERIFICATION.md` when one exists; `pending` when a SUMMARY exists but
+    no VERIFICATION.md yet (`disk_state == "executed"`); else `—`."""
+    if p.get("verify_status"):
+        return p["verify_status"]
+    if p.get("disk_state") == "executed":
+        return "pending"
+    return "—"
+
+
 DISK_STATE_LABEL = {
     "none": "not planned",
     "planned": "planned",
@@ -697,6 +1212,35 @@ def phase_state_text(p):
     if p.get("complete"):
         return "complete"
     return DISK_STATE_LABEL.get(p.get("disk_state"), "unknown")
+
+
+def conflict_summary_text(p):
+    """`word — detail` for a "conflict" verdict phase (D-03's one-line
+    rendering): `conflict` when the phase carries a "blocks" item, else
+    `diverges` when only "informs" items exist. The detail is that item's
+    own `detail` string, already naming both sources (built by corroborate()
+    in Plan 13-01) — never re-derived here, so the terminal panel and the
+    HTML page can only ever repeat the exact same claim, not each
+    independently summarize it (D-04)."""
+    conflicts = p.get("conflicts") or []
+    blocks = [c for c in conflicts if c["severity"] == "blocks"]
+    item = blocks[0] if blocks else conflicts[0]
+    word = "conflict" if blocks else "diverges"
+    return f"{word} — {item['detail']}"
+
+
+def conflict_marker(p, style):
+    """(glyph, sgr) naming a phase's corroboration verdict — computed once so
+    the terminal panel and the HTML CSS class can never point at a different
+    severity for the same phase (D-04). "unknown" (bd unreachable, no
+    conflicts computed) gets the same quiet g_stale/SGR_DIM treatment as a
+    stale marker elsewhere on the board; a "blocks" item outranks "informs"
+    within a "conflict" verdict, matching conflict_summary_text()'s pick."""
+    if p.get("corroboration") == "unknown":
+        return (style.g_stale, SGR_DIM)
+    if any(c["severity"] == "blocks" for c in (p.get("conflicts") or [])):
+        return (style.g_conflict, SGR_RED)
+    return (style.g_informs, SGR_YELLOW)
 
 
 def pending_phases(model):
@@ -778,23 +1322,38 @@ def next_commands(model, milestone=None):
     outranks an earlier one that is waiting.
 
     Returns [{command, phase, title, reason, blocked}], unblocked first.
+
+    A needs_doctor phase (the same stored field phase_next_command() reads —
+    never recomputed here) reroutes both its reason and its blocked flag: an
+    "unknown" verdict and a "blocks" conflict are both deprioritized behind
+    every runnable phase, not just the conflict half — the self-contained
+    ROADMAP SC4 guarantee (see 13-01's Objective for the doctor pre-flight's
+    complementary half).
     """
     out = []
     for p in pending_phases(model):
         cmd = p["next_command"]
         if not cmd:
             continue
-        waiting = phase_dependents(model, p["number"])
-        if p["blocked_by"]:
-            reason = f"waits on phase {join_numbers(p['blocked_by'])}"
-        elif waiting:
-            reason = (f"nothing blocks it, and phase "
-                      f"{join_numbers(waiting)} waits on it")
+        needs_doctor = p.get("needs_doctor", False)
+        if needs_doctor:
+            # Takes priority over the blocked_by/waiting branches below: a
+            # corroboration/doctor routing is not a dependency wait, so it
+            # gets its own distinct message rather than borrowing theirs.
+            reason = ("corroboration conflict — resolve via /cairn:doctor "
+                      "before continuing")
         else:
-            reason = "nothing blocks it"
+            waiting = phase_dependents(model, p["number"])
+            if p["blocked_by"]:
+                reason = f"waits on phase {join_numbers(p['blocked_by'])}"
+            elif waiting:
+                reason = (f"nothing blocks it, and phase "
+                          f"{join_numbers(waiting)} waits on it")
+            else:
+                reason = "nothing blocks it"
         out.append({"command": cmd, "phase": p["number"],
                     "title": p["title"], "reason": reason,
-                    "blocked": bool(p["blocked_by"])})
+                    "blocked": bool(p["blocked_by"]) or needs_doctor})
     # Free work first, then by phase number. Sorting by number alone would put
     # a blocked phase 11 above a free phase 12 and read as an instruction.
     out.sort(key=lambda c: (c["blocked"], c["phase"]))
@@ -1025,6 +1584,7 @@ class Style:
             self.ell, self.sep = "...", " | "
             self.g_next, self.g_dep, self.g_who = ">", "<-", "@"
             self.g_stale = "*"
+            self.g_conflict, self.g_informs = "x", "!"
         else:
             self.tl, self.tm, self.tr = "┌", "┬", "┐"
             self.bl, self.bm, self.br = "└", "┴", "┘"
@@ -1032,6 +1592,7 @@ class Style:
             self.ell, self.sep = "…", " · "
             self.g_next, self.g_dep, self.g_who = "▶", "⧗", "◆"
             self.g_stale = "·"
+            self.g_conflict, self.g_informs = "✗", "⚠"
 
     def asciify(self, text):
         """Downgrade the punctuation this script itself injects. Issue titles
@@ -1187,13 +1748,26 @@ def meta_parts(data, style, include_done=True):
     return spans
 
 
-def phase_panel_lines(data, width, style):
-    """The pending phases and the commands to run next.
+PHASE_TABLE_FLOOR = 18       # target minimum for the `phase` column
+STATE_TABLE_FLOOR = 16       # enough for "x conflict -" (12 cells) plus a
+                              # margin under both --ascii (3-cell ellipsis)
+                              # and unicode (1-cell ellipsis)
+RSCH_W, PLANS_W, ISSUES_W = 5, 6, 7
+VERIFY_W, WAITS_W, NEXT_W = 16, 7, 16   # 16: fits "needs-revision" (14) whole
 
-    The lanes above answer "what tracked work exists". These two blocks answer
-    "which phase should I run, and why that one" — the question a row of phase
-    numbers cannot answer at all. Both render from the shared model, so they
-    cannot disagree with the footer or with the HTML page.
+
+def phase_panel_lines(data, width, style):
+    """The pending phases, what each one IS and has done, and what comes
+    next for it.
+
+    The lanes above answer "what tracked work exists". This block answers
+    "which phase should I run, why that one, and what has it actually done" —
+    a table for the vertical scan (read `issues` down every row at once),
+    plus a PURPOSE list below carrying what a fixed-width column cannot:
+    each phase's purpose in full (D-01), and the next-command routing reason
+    beside it (D-02 — `NEXT COMMANDS` no longer exists as its own section).
+    Both render from the shared model, so they cannot disagree with the
+    footer or with the HTML page.
     """
     phases = data.get("phases") or []
     pending = pending_phases(phases)
@@ -1202,45 +1776,175 @@ def phase_panel_lines(data, width, style):
         return []
 
     lines = [""]
+    # Shared by the table above and the PURPOSE list below, so a phase
+    # number lines up under the same width in both — and so this still
+    # works when `pending` is empty (the all-complete case: PURPOSE is
+    # carried entirely by `global_cmds`, computed below).
+    num_w = max((len(str(p["number"])) for p in pending), default=1)
+
     if pending:
         lines.append(render_spans(
             [("PENDING PHASES", SGR_BOLD),
              (f"  {len(pending)}", SGR_DIM)], style))
-        # Titles share one column so the states line up and can be read down.
-        num_w = max(len(str(p["number"])) for p in pending)
-        budget = max(24, width - num_w - 34)
+
+        # Pass 1: gather each row's raw (untruncated) content. The `state`
+        # column's width is only known once every row's real need is known
+        # (a conflict/unknown verdict's marker+detail can run to ~70-80
+        # cells; a plain "not planned" needs far less) — computing it
+        # requires a full pass before anything is truncated or printed.
+        rows = []
+        n_blocks = n_informs = 0
         for p in pending:
-            state = phase_state_text(p)
-            prog = phase_progress_text(p)
-            if prog:
-                state = f"{state} {style.sep} {prog}"
-            if p["blocked_by"]:
-                state = (f"{state} {style.sep} waits on "
-                         f"{join_numbers(p['blocked_by'])}")
-            title = style.asciify(p["title"] or "(untitled)")
+            corrob = p.get("corroboration")
+            if corrob == "conflict":
+                # One phase, one line (D-03, inherited unchanged from Phase
+                # 13): the marker + reason REPLACES the normal state text
+                # entirely, it never sits alongside it. This plan only
+                # narrows the column the marker lives in.
+                if any(c["severity"] == "blocks" for c in p["conflicts"]):
+                    n_blocks += 1
+                else:
+                    n_informs += 1
+                glyph, sgr = conflict_marker(p, style)
+                state_raw = f"{glyph} {conflict_summary_text(p)}"
+            elif corrob == "unknown":
+                glyph, sgr = conflict_marker(p, style)
+                state_raw = f"{glyph} corroboration unknown"
+            else:
+                sgr = SGR_DIM
+                state_raw = phase_state_text(p)
+            blocked = bool(p["blocked_by"]) or p.get("needs_doctor", False)
+            rows.append({
+                "p": p, "state_raw": state_raw, "state_sgr": sgr,
+                "title": style.asciify(p["title"] or "(untitled)"),
+                "rsch": phase_research_text(p),
+                "plans": phase_progress_text(p) or "—",
+                "issues": phase_issues_text(p),
+                "verify": phase_verify_text(p),
+                "waits": join_numbers(p["blocked_by"]) or "—",
+                "next": p["next_command"] or "—",
+                "next_sgr": SGR_DIM if blocked else SGR_GREEN,
+            })
+
+        # Widths: `state` gets exactly what its widest row needs, capped so
+        # `phase` never collapses; `phase` gets whatever `state` doesn't
+        # need. This is what lets a plain "not planned" render at its full
+        # width while a ~76-cell conflict detail also renders whole at a
+        # wide terminal, from the same formula, with no special-casing.
+        fixed = (2 + num_w + 2 + 2 + 2  # margin, "#", gutters around phase/state
+                 + RSCH_W + 2 + PLANS_W + 2 + ISSUES_W + 2 + VERIFY_W + 2
+                 + WAITS_W + 2 + NEXT_W)
+        available = max(0, width - fixed)
+        natural_state = max((display_width(r["state_raw"]) for r in rows),
+                            default=STATE_TABLE_FLOOR)
+        cap = max(STATE_TABLE_FLOOR, available - PHASE_TABLE_FLOOR)
+        state_w = max(STATE_TABLE_FLOOR, min(natural_state, cap))
+        phase_w = max(1, available - state_w)
+
+        # Header sub-row, built from the SAME width variables as the data
+        # rows below, so header and data always line up.
+        lines.append(render_spans([
+            ("  ", None), ("#".rjust(num_w), SGR_DIM), ("  ", None),
+            ("phase".ljust(phase_w), SGR_DIM), ("  ", None),
+            ("state".ljust(state_w), SGR_DIM), ("  ", None),
+            ("rsch".ljust(RSCH_W), SGR_DIM), ("  ", None),
+            ("plans".ljust(PLANS_W), SGR_DIM), ("  ", None),
+            ("issues".ljust(ISSUES_W), SGR_DIM), ("  ", None),
+            ("verify".ljust(VERIFY_W), SGR_DIM), ("  ", None),
+            ("waits".ljust(WAITS_W), SGR_DIM), ("  ", None),
+            ("next", SGR_DIM),
+        ], style))
+
+        for r in rows:
+            p = r["p"]
+            state_text = style.asciify(
+                truncate(r["state_raw"], state_w, style.ell))
             lines.append(render_spans([
                 ("  ", None),
                 (str(p["number"]).rjust(num_w), None),
                 ("  ", None),
-                (truncate(title, budget, style.ell).ljust(budget), None),
+                (truncate(r["title"], phase_w, style.ell).ljust(phase_w),
+                 None),
                 ("  ", None),
-                (style.asciify(state), SGR_DIM),
+                (state_text.ljust(state_w), r["state_sgr"]),
+                ("  ", None),
+                (truncate(r["rsch"], RSCH_W, style.ell).ljust(RSCH_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["plans"], PLANS_W, style.ell).ljust(PLANS_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["issues"], ISSUES_W, style.ell).ljust(ISSUES_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["verify"], VERIFY_W, style.ell).ljust(VERIFY_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["waits"], WAITS_W, style.ell).ljust(WAITS_W),
+                 SGR_DIM),
+                ("  ", None),
+                (truncate(r["next"], NEXT_W, style.ell), r["next_sgr"]),
             ], style))
 
-    if cmds:
+        if n_blocks or n_informs:
+            # The itemized per-source detail lives in /cairn:doctor and
+            # --json only — this line counts, it never dumps a second line
+            # per phase onto the board itself.
+            lines.append("")
+            spans = [("  ", None)]
+            if n_blocks:
+                spans.append((f"{style.g_conflict} {n_blocks} blocks",
+                              SGR_RED))
+            if n_blocks and n_informs:
+                spans.append((style.sep, SGR_DIM))
+            if n_informs:
+                spans.append((f"{style.g_informs} {n_informs} informs",
+                              SGR_YELLOW))
+            spans.append((style.asciify(" — /cairn:doctor for the itemized "
+                                        "report"), SGR_DIM))
+            lines.append(render_spans(spans, style))
+
+    # PURPOSE: the routing reason moves here from the deleted NEXT COMMANDS
+    # section (D-02). This is the ONE place text wraps instead of truncating
+    # (D-01 — a phase's purpose is never cut), and it is also the only
+    # section left standing when every phase is complete: `pending` is then
+    # empty and the per-phase loop below contributes nothing, but
+    # `global_cmds` (the /cairn:ship + /cairn:milestone complete pair
+    # next_commands() emits with `phase: None`) still carries its reasons
+    # into the terminal here — the fix for the bug this plan exists to
+    # close (the terminal silently dropping those two commands while --json
+    # and the HTML page still had them).
+    phase_cmds = [c for c in cmds if c["phase"] is not None]
+    global_cmds = [c for c in cmds if c["phase"] is None]
+    reason_by_phase = {c["phase"]: c["reason"] for c in phase_cmds}
+
+    if pending or global_cmds:
         lines.append("")
-        lines.append(render_spans([("NEXT COMMANDS", SGR_BOLD)], style))
-        cmd_w = max(len(c["command"]) for c in cmds)
-        for c in cmds:
+        lines.append(render_spans([("PURPOSE", SGR_BOLD)], style))
+        wrap_w = max(30, width - num_w - 4)
+        for p in pending:
+            text = phase_purpose_text(p)
+            reason = reason_by_phase.get(p["number"])
+            if reason:
+                text = f"{text} — {reason}"
+            wrapped = textwrap.wrap(style.asciify(text), wrap_w) or [""]
             lines.append(render_spans([
-                ("  ", None),
-                (c["command"].ljust(cmd_w), SGR_GREEN if not c["blocked"]
-                 else SGR_DIM),
-                ("  ", None),
-                (style.asciify(truncate(c["reason"],
-                                        max(20, width - cmd_w - 4),
-                                        style.ell)), SGR_DIM),
+                ("  ", None), (str(p["number"]).rjust(num_w), None),
+                ("  ", None), (wrapped[0], None),
             ], style))
+            for cont in wrapped[1:]:
+                lines.append(render_spans(
+                    [(" " * (num_w + 4), None), (cont, None)], style))
+        for c in global_cmds:
+            # No phase number and no purpose prefix — a global command is
+            # not attached to any one phase.
+            text = c["command"]
+            if c.get("reason"):
+                text = f"{text} — {c['reason']}"
+            wrapped = textwrap.wrap(style.asciify(text), wrap_w) or [""]
+            for cont in wrapped:
+                lines.append(render_spans([("  ", None), (cont, None)],
+                                          style))
 
     par = data.get("parallelism") or {}
     if par.get("note"):
@@ -1252,6 +1956,33 @@ def phase_panel_lines(data, width, style):
             lines.append(render_spans(
                 [("  " if i else "  ", None), (chunk, SGR_DIM)], style))
     return lines
+
+
+def active_lease(data):
+    """The active phase's lease dict when it is actively held and fresh
+    (D-05), else None — the single held/stale gate every renderer shares,
+    so a stale hold (doctor's story to tell, not the footer's — Plan
+    15-03) or a vacant lease can never render on one surface and not
+    another."""
+    lease = data.get("lease")
+    if lease and lease.get("held") and not lease.get("stale"):
+        return lease
+    return None
+
+
+def lease_line_text(data):
+    """`phase N in use by HOLDER since ACQUIRED_AT` for an actively-held,
+    fresh lease, or None. The terminal footer and the HTML foot both
+    render this exact sentence (asciified / esc()-escaped respectively);
+    --plain carries the same three values as separate LEASE\\t... fields
+    instead, per its own row convention — one read of data["lease"], no
+    renderer re-derives it independently (mirrors 13-01's D-04)."""
+    lease = active_lease(data)
+    if lease is None:
+        return None
+    return (f"phase {data['phase']['active']} in use by "
+            f"{clean(lease.get('holder') or '')} since "
+            f"{clean(lease.get('acquired_at') or '')}")
 
 
 def footer_lines(data, width, style):
@@ -1266,6 +1997,11 @@ def footer_lines(data, width, style):
             [("sync: ", SGR_DIM),
              (style.asciify(f"{sync['detail']} — run /cairn:sync-pull"),
               None)], style))
+    lease_text = lease_line_text(data)
+    if lease_text:
+        lines.append(render_spans(
+            [(style.g_who, SGR_YELLOW), (" ", None),
+             (style.asciify(lease_text), None)], style))
     if data["note"]:
         lines.append(render_spans(
             [("note: ", SGR_DIM), (style.asciify(data["note"]), None)],
@@ -1322,6 +2058,11 @@ def render_plain(data):
         lines.append(f"MILESTONE\t{data['milestone']}")
     lines.append(f"DONE\t{data['counts']['closed']}")
     lines.append(f"NEXT\t{data['next']['text']}")
+    lease = active_lease(data)
+    if lease:
+        lines.append(f"LEASE\t{data['phase']['active']}\t"
+                      f"{clean(lease.get('holder') or '')}\t"
+                      f"{clean(lease.get('acquired_at') or '')}")
     sync = data["sync"]
     if sync["configured"]:
         state = "stale" if sync["stale"] else "fresh"
@@ -1913,11 +2654,18 @@ def html_next(data):
 
 def html_phases(data):
     """The two blocks that turn the page from a snapshot into something to act
-    on: what is still pending and what it is, and which commands come next in
-    which order, with the reason for that order.
+    on: what is still pending, what it is (purpose, research, plans, issues,
+    verify), and which commands come next in which order, with the reason for
+    that order.
 
-    Same model as the terminal panel and the same wording, so a page open on a
-    second screen cannot quietly disagree with the shell that produced it.
+    Same `phase_purpose_text()`/`phase_research_text()`/`phase_issues_text()`/
+    `phase_verify_text()` helpers the terminal table calls (CARD-03), and the
+    same wording, so a page open on a second screen cannot quietly disagree
+    with the shell that produced it. The HTML side does not mirror the
+    terminal's table-plus-PURPOSE-list split (D-01 leaves that layout choice
+    to the terminal only) — this column stays a single per-phase list, with
+    the purpose paragraph and the research/issues/verify meta spans folded
+    into the same `<li>`.
     """
     phases = data.get("phases") or []
     pending = pending_phases(phases)
@@ -1933,10 +2681,31 @@ def html_phases(data):
                    f'<span class="panel-n">{len(pending)}</span></h2>')
         out.append('<ol class="phase-list">')
         for p in pending:
-            meta = [esc(phase_state_text(p))]
+            # Same D-04 helpers as the terminal panel — meta[0] is never
+            # re-derived here, so the two surfaces cannot independently
+            # summarize the same conflict differently.
+            corrob = p.get("corroboration")
+            conflict_cls = ""
+            if corrob == "conflict":
+                meta = [esc(conflict_summary_text(p))]
+                has_blocks = any(c["severity"] == "blocks"
+                                 for c in p["conflicts"])
+                conflict_cls = " phase-conflict" if has_blocks \
+                    else " phase-informs"
+            elif corrob == "unknown":
+                meta = [esc("corroboration unknown")]
+                conflict_cls = " phase-unknown"
+            else:
+                meta = [esc(phase_state_text(p))]
             prog = phase_progress_text(p)
             if prog:
                 meta.append(f'<span class="n">{esc(prog)}</span>')
+            # Same D-04 helpers as the terminal table's rsch/issues/verify
+            # columns — never re-derived here, so the two surfaces cannot
+            # independently summarize the same phase differently (CARD-03).
+            meta.append(f'<span class="n">{esc(phase_research_text(p))}</span>')
+            meta.append(f'<span class="n">{esc(phase_issues_text(p))}</span>')
+            meta.append(f'<span class="n">{esc(phase_verify_text(p))}</span>')
             if p["blocked_by"]:
                 meta.append('waits on phase '
                             f'<span class="n">'
@@ -1947,11 +2716,14 @@ def html_phases(data):
                         f'{esc(", ".join(p["requirements"]))}</span>')
             blocked = " is-waiting" if p["blocked_by"] else ""
             out.append(
-                f'<li class="phase{blocked}">'
+                f'<li class="phase{blocked}{conflict_cls}">'
                 f'<span class="phase-n">{p["number"]}</span>'
                 '<span class="phase-body">'
                 f'<span class="phase-title">{esc(p["title"] or "(untitled)")}'
-                f'</span>{reqs}'
+                '</span>'
+                f'<span class="phase-purpose">{esc(phase_purpose_text(p))}'
+                '</span>'
+                f'{reqs}'
                 f'<span class="phase-meta">{" &middot; ".join(meta)}</span>'
                 '</span></li>')
         out.append("</ol></div>")
@@ -2057,6 +2829,10 @@ def html_foot(data):
         tally.append(f'<span class="n">{phase["total"]}</span> phases on the '
                      'roadmap')
     lines.append(f'<p class="foot-line">{" &middot; ".join(tally)}</p>')
+    lease_text = lease_line_text(data)
+    if lease_text:
+        lines.append(f'<p class="foot-line has-mark">{PEBBLE}'
+                     f'<span class="foot-text">{esc(lease_text)}</span></p>')
     if data["note"]:
         lines.append(f'<p class="foot-line has-mark foot-note">{PEBBLE}'
                      f'<span class="foot-text">{esc(data["note"])}</span></p>')
@@ -2187,19 +2963,44 @@ def main():
 
     note = None
     if (root / ".beads").is_dir():
-        ready, doing, blocked, closed = fetch_lanes(root)
-        n_closed = len(closed)
+        # A cheap probe before the real lane queries: bd can be present on
+        # PATH and still fail the call itself (crashed daemon, corrupted
+        # DB) — that must degrade to "unknown" everywhere, not die via
+        # fetch_lanes()/run_bd()'s die() before any output is produced.
+        probe_cmd = ["bd", "-C", str(root), "list", "--limit", "1", "--json"]
+        probe = subprocess.run(probe_cmd, capture_output=True, text=True)
+        if probe.returncode != 0:
+            bd_ok = False
+            ready, doing, blocked, closed, n_closed = [], [], [], [], 0
+            note = (f"bd query failed at {root}: "
+                    f"{probe.stderr.strip() or 'unknown error'} — "
+                    "run /cairn:doctor")
+        else:
+            ready, doing, blocked, closed = fetch_lanes(root)
+            # The lease bookkeeping issue (Plan 15-01) is real bd state —
+            # a genuine claimed, in_progress issue — but never tracked
+            # work. Exclude it before phase_model(), the stale-marker
+            # cross-check, or the data dict ever sees it, so it can never
+            # appear on any lane or inflate the done count (D-05).
+            ready = [i for i in ready if not is_lease_issue(i)]
+            doing = [i for i in doing if not is_lease_issue(i)]
+            blocked = [i for i in blocked if not is_lease_issue(i)]
+            closed = [i for i in closed if not is_lease_issue(i)]
+            n_closed = len(closed)
+            bd_ok = True
     else:
         # bd resolves its database by walking UP from the root, so querying
         # it here could silently render an ANCESTOR repo's board. Mirror
         # cairn-gate's applicability decision instead: skip bd and degrade
-        # to a GSD-only board, saying so.
+        # to a GSD-only board, saying so. This is "no bd usage here", not
+        # "bd failed" — every phase's bd axis reads "none", never "unknown".
         ready, doing, blocked, closed, n_closed = [], [], [], [], 0
         note = f"no .beads/ at {root}: GSD-only board (bd lanes skipped)"
+        bd_ok = True
     # ONE phase model, built once. Every surface below renders from this list
     # rather than re-deriving what it needs, so the terminal board, --json and
     # the HTML page cannot describe the same phase differently.
-    phases = phase_model(planning_dir, ready + doing + blocked + closed)
+    phases = phase_model(planning_dir, ready + doing + blocked + closed, bd_ok=bd_ok)
     all_phases, done_phases = roadmap_phases(planning_dir, phases)
     # Cross-check (docstring step 4b): open issues whose phase labels are
     # all roadmap-complete keep their lane but get flagged. _stale drives
@@ -2222,6 +3023,10 @@ def main():
     nxt = synthesize_next(ready, doing, milestone, active_phase,
                           fm["next_action"], done_phases)
     sync = sync_status(root)
+    # Additive: the active phase's lease status (Plan 15-01), for the
+    # footer line D-05 adds — never re-derived by any renderer below, one
+    # read shared by the terminal footer, --plain and the HTML foot.
+    lease = fetch_lease_status(root, active_phase, bd_ok)
 
     data = {
         "ready": [trim_issue(i) for i in ready],
@@ -2248,12 +3053,18 @@ def main():
                                       "last_pull")},
         "stale_complete": stale_ids,
         "note": note,
+        "lease": lease,
         # Underscore keys are renderer-private: the --json summary filters
         # them out, so the machine contract stays exactly as documented.
         "_lanes": [ready, doing, blocked],
         "_closed": closed,
         "_phases": {"all": all_phases, "done": done_phases},
     }
+    # EXIT_NO_BD (5) is the documented "bd unavailable" contract — a query
+    # that failed after bd was found on PATH degrades exactly the same way
+    # as bd missing entirely: real output first, on every render path below,
+    # then this exit code rather than a silent EXIT_OK.
+    exit_code = EXIT_OK if bd_ok else EXIT_NO_BD
 
     html_info = None
     if opts["html"] is not None:
@@ -2264,7 +3075,7 @@ def main():
         if html_info is not None:
             out["html"] = html_info
         print(json.dumps(out))
-        sys.exit(EXIT_OK)
+        sys.exit(exit_code)
 
     if html_info is not None:
         c = data["counts"]
@@ -2275,7 +3086,7 @@ def main():
         print(f"[cairn-status] {state} {html_info['file']} — "
               f"{c['ready']} ready, {c['doing']} doing, "
               f"{c['blocked']} blocked")
-        sys.exit(EXIT_OK)
+        sys.exit(exit_code)
 
     style = Style(opts)
     if opts["brief"]:
@@ -2310,7 +3121,7 @@ def main():
         # the offending characters instead of crashing.
         enc = getattr(sys.stdout, "encoding", None) or "ascii"
         sys.stdout.buffer.write(out.encode(enc, errors="replace") + b"\n")
-    sys.exit(EXIT_OK)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

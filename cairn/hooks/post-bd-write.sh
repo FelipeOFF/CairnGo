@@ -3,7 +3,7 @@
 #
 # Reads the Claude Code hook payload on stdin ({tool_name, tool_input:
 # {command}, ...}) and reacts to bd lifecycle writes — commands matching
-# ^bd (create|update|close|reopen). Two fire-and-forget background jobs:
+# ^bd (create|update|close|reopen). Three fire-and-forget background jobs:
 #
 #   a) MIRROR PUSH — when <project>/.cairn/sync.json exists with at least one
 #      enabled backend, fire gbsync for the affected issue:
@@ -19,11 +19,22 @@
 #   b) MAP REFRESH — when <project>/.planning/ exists and the command string
 #      mentions phase-<N>, regenerate that phase's NN-BEADS-MAP.md via
 #      cairn-map.sh <N>.
+#   c) EXTERNAL-REF BACKFILL (bd close only — CORR-08 / D-12) — best-effort:
+#      when gh is on PATH and `gh pr view` finds a PR for the current branch,
+#      fire `bd update <id> --external-ref gh-<N>` so the closing issue links
+#      to it going forward (cairn-doctor's `--link-refs` covers the backfill
+#      for history that already happened). gh absent or no PR yet are both
+#      silent no-ops — the common cases, not failures. The one deliberate
+#      exception to "background jobs redirect to /dev/null" in this file:
+#      this job's stdout+stderr APPEND to .cairn/hook.log instead, so a
+#      write failure is observable instead of vanishing exactly like the bug
+#      shape this milestone exists to remove.
 #
-# Both jobs run nohup'd in the background so the hook returns immediately.
+# All jobs run nohup'd in the background so the hook returns immediately.
 # Contract: at most ONE short stdout line; ALWAYS exit 0 (never fail the
-# tool call). Test seams: CAIRN_GBSYNC / CAIRN_MAP override the scripts
-# (invoked via bash, so plain shell stubs work).
+# tool call). Test seams: CAIRN_GBSYNC / CAIRN_MAP / CAIRN_GH / CAIRN_BD
+# override the respective tools (gh/bd invoked directly, gbsync/map via
+# bash, so plain shell stubs work either way).
 set -uo pipefail
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -144,6 +155,22 @@ fi
 if [ -n "$PHASE" ] && [ -d "$PROJECT_DIR/.planning" ]; then
   nohup bash "$CAIRN_MAP" "$PHASE" >/dev/null 2>&1 &
   QUEUED="${QUEUED:+$QUEUED + }map refresh (phase $PHASE)"
+fi
+
+# --- (c) external-ref backfill on bd close -----------------------------------
+# D-12 (CORR-08): gh absent, or gh present with no PR yet for this branch, are
+# both silent no-ops — neither is a failure, so no log line either way.
+if [ "$VERB" = "close" ] && [ -n "$ISSUE" ] && command -v "${CAIRN_GH:-gh}" >/dev/null 2>&1; then
+  PR_NUM="$(cd "$PROJECT_DIR" 2>/dev/null && "${CAIRN_GH:-gh}" pr view --json number -q .number 2>/dev/null || true)"
+  if [ -n "$PR_NUM" ]; then
+    mkdir -p "$PROJECT_DIR/.cairn" 2>/dev/null || true
+    # The one deliberate exception in this file: append to a persistent log
+    # instead of /dev/null, so a write failure here is observable rather
+    # than vanishing like the bug shape this hook must not repeat.
+    nohup "${CAIRN_BD:-bd}" -C "$PROJECT_DIR" update "$ISSUE" \
+      --external-ref "gh-$PR_NUM" >> "$PROJECT_DIR/.cairn/hook.log" 2>&1 &
+    QUEUED="${QUEUED:+$QUEUED + }external-ref gh-$PR_NUM"
+  fi
 fi
 
 [ -n "$QUEUED" ] && echo "[cairn] bd $VERB${ISSUE:+ $ISSUE} → $QUEUED queued"

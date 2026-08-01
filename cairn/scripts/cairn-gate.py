@@ -32,6 +32,14 @@ Behavior:
        deferred, …) — a completed phase with an in-flight issue is as
        incoherent as one with an open issue. Same semantics as the
        capability bundle's cairn-loop-gate ship-gate.
+    6. SECOND, independent block reason (CORR-05 / D-10): a completed phase
+       whose directory never reached "executed" on disk — no file ending
+       -SUMMARY.md or -VERIFICATION.md (a bare -PLAN.md, or no directory at
+       all, counts as "not executed") — blocks even when bd reports zero
+       open issues for it. This mirrors Plan 13-01's R2 rule
+       (disk_state in ("executed", "verified")) and is duplicated,
+       independently, in cairn/capability/scripts/cairn-loop-gate.py so both
+       ship-gate entry points agree in lockstep.
 
 Exit codes:
     0  all clear — or gate NOT APPLICABLE (.planning/ or .beads/ absent, or
@@ -41,8 +49,9 @@ Exit codes:
        printed. IMPORTANT: the pre-push shim MUST NOT block the push on
        exit 5 — an availability failure is not a gate failure. Only exit 6
        may block a push.
-    6  GATE FAILED — offending issue ids are listed one per line (the id is
-       the first whitespace-delimited token of each line).
+    6  GATE FAILED — offending entries are listed one per line. A bd-issue
+       entry starts with the issue id; a no-artifacts entry (id is null in
+       --json) starts with "phase-<N>" instead since there is no issue id.
 """
 import json
 import os
@@ -63,6 +72,7 @@ VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
 CHECKED_PHASE = re.compile(r"^\s*-\s*\[[xX]\]\s.*?\bPhase\s+0*(\d+)\b")
 TABLE_PHASE = re.compile(r"^\s*\|\s*0*(\d+)[.)\s][^|]*\|.*\|\s*Complete\s*\|",
                          re.IGNORECASE)
+PHASE_DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
 
 
 def die(msg, code):
@@ -107,6 +117,33 @@ def completed_phases(planning_dir):
         if m:
             done.add(int(m.group(1)))
     return sorted(done)
+
+
+def phase_dir_for(planning_dir, n):
+    """Directory under <planning>/phases/ whose numeric prefix matches n, or
+    None. Mirrors cairn-status.py's phase_dirs() matching (numeric prefix,
+    optional project-code prefix, optional zero padding)."""
+    root = planning_dir / "phases"
+    if not root.is_dir():
+        return None
+    for d in sorted(p for p in root.iterdir() if p.is_dir()):
+        m = PHASE_DIR_PREFIX.match(d.name)
+        if m and int(m.group(1)) == n:
+            return d
+    return None
+
+
+def disk_reached_executed(pdir):
+    """True when the phase directory holds at least one -SUMMARY.md or
+    -VERIFICATION.md file. Deliberately the SAME two-suffix threshold Plan
+    13-01's R2 rule uses (disk_state in ("executed", "verified")), not "any
+    artifact" — a phase with only a -PLAN.md on disk is "planned but not yet
+    built" and must NOT satisfy this."""
+    if pdir is None or not pdir.is_dir():
+        return False
+    names = [p.name for p in pdir.iterdir() if p.is_file()]
+    return any(n.endswith("-SUMMARY.md") or n.endswith("-VERIFICATION.md")
+               for n in names)
 
 
 def state_milestone(planning_dir):
@@ -224,16 +261,41 @@ def main():
                               "status": iss.get("status", "open"),
                               "title": iss.get("title", "")})
 
+    # SECOND, independent block reason (CORR-05 / D-10): a completed phase
+    # whose disk never reached "executed" — no SUMMARY or VERIFICATION file
+    # — blocks even when bd reports zero open issues for it. `id` is None
+    # (there is no bd issue behind this reason); the human-readable line
+    # branches on that below.
+    for n in phases:
+        if not disk_reached_executed(phase_dir_for(planning_dir, n)):
+            offending.append({
+                "id": None, "phase": n, "status": "no-artifacts",
+                "title": f"phase {n} is checked off in ROADMAP.md but disk "
+                         "never reached executed (no SUMMARY or "
+                         "VERIFICATION)",
+            })
+
     if offending:
         summary["ok"] = False
         summary["offending"] = offending
         scope = f"milestone {milestone}" if milestone else "all milestones"
-        lines = [f"[cairn-gate] GATE FAILED — {len(offending)} non-closed "
-                 f"issue(s) in completed phase(s) ({scope}):"]
-        lines += [f"{o['id']}  phase-{o['phase']}  {o['title']}"
-                  for o in offending]
-        lines.append("[cairn-gate] close them (bd close <id> --reason=...) "
-                     "before shipping.")
+        lines = [f"[cairn-gate] GATE FAILED — {len(offending)} blocking "
+                 f"item(s) in completed phase(s) ({scope}):"]
+        # A bd-issue entry has an id and leads with it; a no-artifacts entry
+        # has no bd issue behind it, so it leads with the phase label instead.
+        lines += [
+            (f"{o['id']}  phase-{o['phase']}  {o['title']}"
+             if o.get("id") is not None
+             else f"phase-{o['phase']}  {o['title']}")
+            for o in offending
+        ]
+        if any(o.get("id") is not None for o in offending):
+            lines.append("[cairn-gate] close them (bd close <id> "
+                         "--reason=...) before shipping.")
+        if any(o.get("id") is None for o in offending):
+            lines.append("[cairn-gate] build the phase (SUMMARY/"
+                         "VERIFICATION) or uncheck it in ROADMAP.md before "
+                         "shipping.")
         emit(opts, summary, lines)
         sys.exit(EXIT_GATE_FAILED)
 

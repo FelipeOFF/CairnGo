@@ -274,7 +274,11 @@ assert d["phase"]["title"] == [p for p in model if p["number"] == 3][0]["title"]
   bd dep add "$B" "$A" >/dev/null
   run bash "$STATUS_SH" --width 100
   [ "$status" -eq 0 ]
-  assert_output_contains "waits on 3"
+  # The state-column append ("waits on 3") is gone with the table redesign
+  # (D-01/D-02) — the blocked phase's row now carries phase 3 in its own
+  # `waits` column, and the routing reason ("waits on phase 3") relocated to
+  # the PURPOSE list beside that phase's purpose.
+  assert_output_contains "waits on phase 3"
 }
 
 @test "the next command carries the reason it sits where it does" {
@@ -283,7 +287,8 @@ assert d["phase"]["title"] == [p for p in model if p["number"] == 3][0]["title"]
   bd dep add "$B" "$A" >/dev/null
   run bash "$STATUS_SH" --width 100
   [ "$status" -eq 0 ]
-  assert_output_contains "NEXT COMMANDS"
+  # NEXT COMMANDS no longer exists as its own section (D-02) — the command
+  # itself is the table's `next` column, and the reason lives in PURPOSE.
   assert_output_contains "/cairn:plan 3"
   assert_output_contains "phase 4 waits on it"
   assert_output_contains "waits on phase 3"
@@ -337,6 +342,16 @@ cmds = json.load(sys.stdin)["next_commands"]
 assert [c["command"] for c in cmds] == ["/cairn:ship", "/cairn:milestone complete"], cmds
 assert "v1.1" in cmds[1]["reason"], cmds
 '
+
+  # Terminal-side regression coverage (the specific bug this plan exists to
+  # close): pending_phases() is empty here, so the old "guard on `pending`"
+  # design silently dropped these two commands from the terminal while
+  # --json and the HTML page still carried them. Guarding on
+  # `pending or global_cmds` instead is what keeps them visible.
+  run bash "$STATUS_SH" --width 100
+  [ "$status" -eq 0 ]
+  assert_output_contains "/cairn:ship"
+  assert_output_contains "/cairn:milestone complete"
 }
 
 @test "the terminal panel and the HTML page carry the same commands and reasons" {

@@ -3,6 +3,12 @@ __pycache__/
 .cairn/id-map.json
 .cairn/state.json
 .cairn/conflicts.json
+.cairn/reconcile-evidence.json
+.cairn/hook.log
+.cairn/journal.jsonl*
+.cairn/migrate-plan.json
+.cairn/migrate-state.json
+.cairn/plugin-root
 .DS_Store
 
 # cairn 2.0 per-machine state (never commit)
@@ -32,3 +38,6 @@ status.html
 # records an absolute source path. Re-created by /cairn:init.
 .gsd/
 .gsd-capabilities.json
+
+# Research fetch cache (per-machine, written by the research agents)
+.planning/research/.cache/
