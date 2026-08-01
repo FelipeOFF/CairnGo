@@ -4,17 +4,17 @@ milestone: v1.4
 milestone_name: Honest State
 current_phase: 19
 current_phase_name: Ship v1.4
-status: planning
-stopped_at: Phase 18 verified and closed (4 plans + 1 gap closure, 5 issues)
+status: ready-to-ship
+stopped_at: Phase 19 closed — 1.5.0 prepared, tag local, publicacao aguarda o Felipe
 last_updated: "2026-08-01T01:20:00.000Z"
 last_activity: 2026-08-01
-last_activity_desc: Fase 18 fechada — o ensaio manual das 14/15 virou mecanismo
+last_activity_desc: Milestone v1.4 completo; release 1.5.0 preparada e nao publicada
 progress:
   total_phases: 7
-  completed_phases: 6
-  total_plans: 25
-  completed_plans: 25
-  percent: 86
+  completed_phases: 7
+  total_plans: 29
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State

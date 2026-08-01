@@ -58,10 +58,10 @@ Requisitos deste milestone. Cada um mapeia para exatamente uma fase do roadmap.
 
 ### Release do milestone (REL)
 
-- [ ] **REL-01**: O CHANGELOG descreve o que o milestone entregou em termos do que mudou para quem usa o plugin, não como lista de commits ou de nomes de função
-- [ ] **REL-02**: A versão é bumpada em todo arquivo que a carrega, e um comando verifica que eles combinam em vez de alguém conferir de olho
-- [ ] **REL-03**: A tag é anotada e a release publicada com notas derivadas do CHANGELOG, nunca reescritas em paralelo
-- [ ] **REL-04**: A release diz o que quem já tem o plugin instalado precisa fazer, ou diz explicitamente que não precisa fazer nada
+- [x] **REL-01**: O CHANGELOG descreve o que o milestone entregou em termos do que mudou para quem usa o plugin, não como lista de commits ou de nomes de função
+- [x] **REL-02**: A versão é bumpada em todo arquivo que a carrega, e um comando verifica que eles combinam em vez de alguém conferir de olho
+- [x] **REL-03**: A tag é anotada e a release publicada com notas derivadas do CHANGELOG, nunca reescritas em paralelo
+- [x] **REL-04**: A release diz o que quem já tem o plugin instalado precisa fazer, ou diz explicitamente que não precisa fazer nada
 
 ## v2 Requirements
 
@@ -123,10 +123,10 @@ Excluídos explicitamente.
 | PAR-03 | Phase 18 | Complete |
 | PAR-04 | Phase 18 | Complete |
 | PAR-05 | Phase 18 | Complete |
-| REL-01 | Phase 19 | Pending |
-| REL-02 | Phase 19 | Pending |
-| REL-03 | Phase 19 | Pending |
-| REL-04 | Phase 19 | Pending |
+| REL-01 | Phase 19 | Complete |
+| REL-02 | Phase 19 | Complete |
+| REL-03 | Phase 19 | Complete |
+| REL-04 | Phase 19 | Complete |
 
 **Coverage:**
 - v1 requirements: 35 total
