@@ -48,6 +48,38 @@ assert_render_matches() {
 
 # ─── The reference renders ───────────────────────────────────────────────────
 
+# One file per mode, because each one fails for a different reason: the
+# column board, the two width degrades, the ASCII glyph set, the per-lane
+# overflow cut, and the two flag-selected formats.
+#
+# --json is deliberately NOT in this matrix. Phase 20 adds a key to it on
+# purpose, so freezing its bytes here would freeze the phase against itself;
+# its contract is "no existing key moves", proved by the model tests.
+
 @test "the wide board renders the reference bytes" {
   assert_render_matches w100 --width 100
+}
+
+@test "the stacked degrade renders the reference bytes" {
+  assert_render_matches w50 --width 50
+}
+
+@test "the raw degrade renders the reference bytes" {
+  assert_render_matches w38 --width 38
+}
+
+@test "the ascii board renders the reference bytes" {
+  assert_render_matches ascii100 --width 100 --ascii
+}
+
+@test "the lane overflow cut renders the reference bytes" {
+  assert_render_matches maxrows --width 100 --max-rows 2
+}
+
+@test "the machine format renders the reference bytes" {
+  assert_render_matches plain --plain
+}
+
+@test "the three-line format renders the reference bytes" {
+  assert_render_matches brief --brief
 }

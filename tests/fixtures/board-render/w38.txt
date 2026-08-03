@@ -1,0 +1,7 @@
+READY  brd-001  Read the roadmap into a phase model
+READY  brd-002  Fill the screen at any width
+READY  brd-003  Sweep the backlog
+DOING  brd-004  Hold the lease while executing
+BLOCKED  brd-005  Wait on the phase model
+phase 3/4 Phase model — read what a phase actually is · v1.0 · done: 1
+▶ next: continue brd-004 — Hold the lease while executing

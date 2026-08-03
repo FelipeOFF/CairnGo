@@ -1,0 +1,18 @@
+┌─ READY (3) ────────────────────┬─ DOING (1) ────────────────────┬─ BLOCKED (1) ──────────────────┐
+│ brd-001  Read the roadmap int… │ brd-004  Hold…  ◆ cairn-tests  │ brd-005  Wait on t…  ⧗ brd-001 │
+│ brd-002  Fill the screen at a… │                                │                                │
+│ +1 more                        │                                │                                │
+└────────────────────────────────┴────────────────────────────────┴────────────────────────────────┘
+phase 3/4 Phase model — read what a phase actually is · v1.0 · done: 1
+▶ next: continue brd-004 — Hold the lease while executing
+
+PENDING PHASES  2
+  #  phase     state             rsch   plans   issues   verify            waits    next
+  3  Phase m…  planned           —      0/1 p…  0/2      —                 —        /cairn:work 3
+  4  Board f…  not planned       —      —       0/2      —                 3        /cairn:plan 4
+
+PURPOSE
+  3  Phase model — read what a phase actually is — nothing blocks it, and phase 4 waits on it
+  4  Board fills the screen — waits on phase 3
+
+  One phase can move: /cairn:work 3. Phase 4 waits.
