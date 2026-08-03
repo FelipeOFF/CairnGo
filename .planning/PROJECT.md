@@ -2,7 +2,7 @@
 
 ## What This Is
 
-CairnGo ("cairn") é um plugin de Claude Code que funde GSD (planejamento por fases) com beads/bd (issue tracker git-nativo) num lifecycle único: comandos `/gsd:*` criam, claimam e fecham issues bd automaticamente, com ship gate por hook de git. Público em `FelipeOFF/CairnGo`, plugin na 1.4.2. O benchmark foi coletado e publicado: nenhum arm é mensuravelmente mais barato que outro nesse corpus, cairn incluído — e isso está escrito no BENCHMARKS.md. Este ciclo ataca o que sobrou: **o estado do projeto tem que provar o que afirma**.
+CairnGo ("cairn") é um plugin de Claude Code que funde GSD (planejamento por fases) com beads/bd (issue tracker git-nativo) num lifecycle único: comandos `/gsd:*` criam, claimam e fecham issues bd automaticamente, com ship gate por hook de git. Público em `FelipeOFF/CairnGo`, plugin na 1.5.0. O benchmark foi coletado e publicado: nenhum arm é mensuravelmente mais barato que outro nesse corpus, cairn incluído — e isso está escrito no BENCHMARKS.md. O v1.4 atacou o que sobrou: **o estado do projeto tem que provar o que afirma** — e entregou.
 
 ## Core Value
 
@@ -43,18 +43,43 @@ Workflow unificado plan→work→ship cujo estado é verificável — nenhuma su
 
 ## Current State
 
+**v1.4 Honest State shipped 2026-08-01 como cairn 1.5.0.** Dezenove fases fechadas
+e arquivadas. O estado de uma fase deixou de ser palpite tirado de quatro nomes de
+arquivo: quatro fontes declaram sua alegação, a discordância é nomeada em vez de
+resolvida em silêncio, e quando elas discordam a investigação **propõe** — ela não
+tem ferramenta de escrita nenhuma, por construção. Fases independentes rodam de
+verdade ao mesmo tempo, uma worktree cada, e a reconciliação relata inclusive a
+edição convergente, que o git junta sem avisar.
+
+O ciclo virou o número do plugin de 1.4.2 para **1.5.0**, desamarrando dois eixos
+que vinham se imitando: o nome do ciclo de planejamento e a versão publicada.
+
+Dívida assumida e registrada no arquivo do milestone: `req-issue` passa no vazio
+(`CairnGo-ca3`, P1), o `orphans` do doctor nunca zera (`CairnGo-xhy`), e nenhum
+teste prova dois agentes rodando ao mesmo tempo — o proxy está rotulado como
+proxy.
+
+<details>
+<summary>Estado anterior (até v1.3)</summary>
+
 **v1.3 shipped 2026-07-28; plugin na 1.4.2.** Doze fases fechadas e arquivadas. O benchmark rodou de verdade (`matrix-20260727.jsonl`, charts commitados) e a conclusão publicada é que nenhum arm é mensuravelmente mais barato — inclusive o cairn. O v1.2 descobriu que a fusão GSD↔beads nunca tinha rodado para ninguém: a linhagem antiga não tem capability, `gsd_run` não estava no PATH e um `|| echo "skipped"` convertia toda falha em sucesso. Três releases (1.4.0→1.4.2) atacaram a mesma causa: um sinal verde que não provava o que afirmava.
 
-## Current Milestone: v1.4 Honest State
+</details>
 
-**Goal:** o estado de uma fase deixa de ser adivinhado por quatro nomes de arquivo — passa a ser corroborado entre artefatos, bd, git e a árvore; discordância vira conflito reportado; e toda superfície diz para que a fase serve.
+## Next Milestone Goals
 
-**Target features:**
-- Corroboração multi-fonte com estado `conflict` explícito
-- Lease de fase para trabalho concorrente entre agentes
-- Escalada semântica que propõe, nunca decide
-- Card de fase rico e idêntico no terminal e no HTML
-- Journal append-only das transições de estado
+Nenhum milestone aberto. Candidatos, em ordem de sinal:
+
+1. **O board não escala.** Numa base com muitas tarefas a saída vira lista plana:
+   não dá para ver a que milestone cada linha pertence, nem separar "pronto para
+   planejar" de "pronto para executar" de "já executado". Pedido do Felipe com
+   evidência de outro repositório, 2026-08-03.
+2. **Os 13 wrappers `/cairn:*`** decididos no GSD-05 e nunca construídos
+   (`CairnGo-9xy`).
+3. **Os falsos-verdes que sobraram**: `req-issue` no vazio (`CairnGo-ca3`, P1) e
+   o `orphans` que nunca zera (`CairnGo-xhy`).
+
+Abrir com `/cairn:milestone new`. A numeração de fases continua em **20**.
 
 ## Context
 
