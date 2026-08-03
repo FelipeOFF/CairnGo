@@ -58,12 +58,24 @@ jobs:
       - name: Install bats-core
         # sudo: the runner user cannot mkdir under /usr/local/share/man,
         # which npm needs for the package's man pages (EACCES otherwise).
-        run: sudo npm install -g bats
+        #
+        # GNU parallel is what `bats --jobs` needs; without it, -j is silently
+        # not an option. Nearly every test here builds a throwaway git repo and
+        # a bd database, so the suite is dominated by per-test setup and splits
+        # across cores well. Measured locally: tests/cairn-map.bats 64s serial
+        # -> 33s at -j 6.
+        run: |
+          sudo npm install -g bats
+          sudo apt-get update -qq && sudo apt-get install -y -qq parallel
 
       - name: Lint Python scripts
         run: python3 -m py_compile cairn/scripts/*.py cairn/adapters/*.py cairn/capability/scripts/*.py benchmarks/scripts/*.py
 
       - name: Run tests
+        # -j 4: GitHub's standard runner has 4 cores. A job count above the core
+        # count buys nothing here because the bottleneck is per-test `git init`
+        # and `bd init`, not CPU.
         run: |
           bd version
-          bats tests/
+          parallel --version | head -1
+          bats -j 4 tests/

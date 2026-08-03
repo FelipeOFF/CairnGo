@@ -6,7 +6,7 @@
 - ✅ **v1.2 GSD Core** — Phases 7-9, shipped 2026-07-28 · [archive](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Status Panel** — Phases 10-12, shipped 2026-07-28 · [archive](./milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 Honest State** — Phases 13-19, shipped 2026-08-01 como cairn 1.5.0 · [archive](./milestones/v1.4-ROADMAP.md)
-- 🚧 **v1.5 Legible State** — Phases 20-28, em andamento
+- 🚧 **v1.5 Legible State** — Phases 20-29, em andamento
 
 ## Milestone: v1.5 Legible State 🚧
 
@@ -29,7 +29,7 @@ não conta como pronta.
 
 ## Phases
 
-### 🚧 v1.5 Legible State — onde você está (Phases 20-28)
+### 🚧 v1.5 Legible State — onde você está (Phases 20-29)
 
 - [ ] Phase 20: Group model (BOARD-01)
 - [ ] Phase 21: The grouped board (BOARD-02, BOARD-03, BOARD-05)
@@ -40,6 +40,7 @@ não conta como pronta.
 - [ ] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03)
 - [ ] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02)
 - [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03)
+- [ ] Phase 29: Nothing mechanical stays manual (AUTO-01, AUTO-02, AUTO-03, AUTO-04)
 
 ## Detalhe das fases
 
@@ -346,6 +347,70 @@ manter o journal local.
 
 ---
 
+### Phase 29: Nothing mechanical stays manual
+
+**Card:** o que é mecânica pura e não tem regra de negócio dentro para de ser feito
+à mão.
+
+**Goal:** este é o pecado do cairn, e o ciclo v1.4 inteiro é a evidência. Marcar uma
+fase completa no roadmap, marcar seus requisitos, mexer os contadores do STATE,
+regenerar o mapa, liberar o lease — **nenhuma dessas coisas tem regra de negócio
+dentro**, e todas foram feitas à mão, uma a uma, em toda fase. Medido em
+2026-08-03: **dez commits** tocando `STATE.md`/`ROADMAP.md`/`REQUIREMENTS.md` por
+edição manual, e **nenhum script no repositório faz isso**. O custo é invisível
+porque quem paga é o agente, e o erro também: ao abrir o v1.5, nove issues adotadas
+ficaram com o label do ciclo antigo pendurado junto do novo, e três seguiram
+marcadas `quick` já tendo fase.
+
+A mesma doença aparece na configuração. O `response_language` precisou ser
+descoberto e setado no meio de um milestone. O Jira, que o `bd` já sabe guardar em
+`external_ref`, exige que alguém digite a chave. A suíte roda serial porque ninguém
+instalou o `parallel`.
+
+A linha que separa o que se automatiza do que se pergunta é a do `/groom-me`:
+**mudança de regra de negócio se conversa antes; mecânica se automatiza e pronto.**
+Nada nesta fase cruza essa linha.
+
+**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04
+
+**Success criteria:**
+
+1. Fechar uma fase é **um comando**. Ele marca a fase no roadmap, marca seus
+   requisitos, atualiza os contadores do STATE, regenera o mapa e libera o lease —
+   e é idempotente, porque rodar duas vezes é o caso normal num loop autônomo. Um
+   teste roda a fase inteira do bookkeeping contra um fixture e compara com o
+   resultado esperado; nenhuma edição manual sobrevive nos comandos.
+2. O Jira é **detectado, confirmado e então configurado pelo cairn** — o fluxo é
+   híbrido de propósito: detectar sozinho e configurar sozinho seria adivinhar
+   sobre a ferramenta de outra pessoa; pedir configuração é o pecado que esta fase
+   existe para corrigir. Então o cairn procura um servidor MCP do Atlassian na
+   configuração de MCP, e chaves no formato `ABC-123` em nomes de branch e
+   mensagens de commit; **mostra o que encontrou** ("achei DTP-142 em três branches
+   e um servidor Atlassian configurado — quer vincular?"); pergunta **uma vez**; e
+   a partir do "sim" grava tudo sozinho. O usuário confirma, e nunca digita chave,
+   projeto nem credencial. Um projeto sem sinal nenhum jamais é perguntado, e um
+   "não" é gravado com a mesma força de um "sim".
+3. Um card associado a uma fase ou issue aparece no board **sem chamada de rede no
+   caminho padrão** — o vínculo mora no `external_ref` do bd e no roadmap, e buscar
+   título ou status no Jira ao vivo é opcional e atrás de flag. O board offline
+   continua offline.
+4. A suíte roda em paralelo quando o ambiente permite. Medido em 2026-08-03:
+   `bats -j 6 tests/cairn-map.bats` leva 33s contra 64s serial, porque cada teste
+   constrói um repo git e um banco bd e o gargalo é setup, não CPU. Quando o
+   `parallel` não está instalado, o cairn **diz isso** em vez de rodar serial em
+   silêncio.
+
+**Research durante o planejamento:** precisa de um item — como detectar um servidor
+MCP configurado a partir de um script stdlib-only, sem depender do harness. A
+resposta provável é ler a configuração de MCP do projeto e do usuário, mas o formato
+e a precedência precisam ser medidos, não presumidos.
+
+**Depende de:** nada tecnicamente. Fica no fim porque é a fase que muda como as
+outras são executadas, e mudar o processo no meio de um ciclo é como se perde o
+fio.
+
+---
+
 ## Cobertura
 
 | Requisito | Fase | Status |
@@ -375,8 +440,12 @@ manter o journal local.
 | DJOUR-01 | Phase 28 | Pending |
 | DJOUR-02 | Phase 28 | Pending |
 | DJOUR-03 | Phase 28 | Pending |
+| AUTO-01 | Phase 29 | Pending |
+| AUTO-02 | Phase 29 | Pending |
+| AUTO-03 | Phase 29 | Pending |
+| AUTO-04 | Phase 29 | Pending |
 
-25 requisitos, 25 mapeados.
+29 requisitos, 29 mapeados.
 
 ## Ordem de dependência
 

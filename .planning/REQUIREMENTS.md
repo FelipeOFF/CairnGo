@@ -58,6 +58,13 @@ o que está respondendo não conta como pronta.
 - [ ] **FIX-03**: O campo `status` por portador do `cairn-release --json` significa "está correto", ou é renomeado para dizer o que de fato significa
 - [ ] **FIX-04**: Uma dependência para fase de milestone arquivado deixa de bloquear para sempre, e uma aresta `discovered-from` deixa de contar como bloqueio
 
+### Nada mecânico continua manual (AUTO)
+
+- [ ] **AUTO-01**: O bookkeeping de fim de fase — marcar a fase completa, marcar seus requisitos completos, mexer os contadores do STATE, atualizar o mapa, liberar o lease — é **um comando**, e nenhuma dessas edições volta a ser feita à mão
+- [ ] **AUTO-02**: O Jira é **detectado, confirmado e então configurado pelo cairn** — híbrido: ele procura o MCP do Atlassian e chaves `ABC-123` em branch e commits, mostra o que achou, pergunta **uma vez**, e a partir do "sim" grava a configuração sozinho. O usuário confirma; nunca digita chave, projeto ou credencial
+- [ ] **AUTO-03**: Um card do Jira associado a uma fase ou a uma issue aparece no board sem que o caminho padrão faça chamada de rede
+- [ ] **AUTO-04**: A suíte roda em paralelo quando o ambiente permite, e diz claramente quando não permite em vez de rodar serial em silêncio
+
 ## Deferred (v2)
 
 - **CORR-09**: Severidade de conflito com allowlist configurável — segue adiado. Exige corpus real de tipos de conflito; inventar níveis sobre zero dado é o erro que a pesquisa do v1.4 descreve.
