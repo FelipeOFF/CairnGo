@@ -1180,10 +1180,13 @@ LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
   [ "$status" -eq 0 ]
 
   # Exhaustive top-level key set: the pre-15-05 keys, unchanged, plus the
-  # one new additive "lease" key — nothing renamed, nothing dropped.
+  # additive "lease" key (15-05) and "groups" (20-02) — nothing renamed,
+  # nothing dropped. What this list guards is that no EXISTING key changes
+  # name or disappears; a genuinely additive key is expected to land here,
+  # and the one line below is where it is declared.
   local keys
   keys="$(jq -c 'keys' <<<"$output")"
-  [ "$keys" = '["blocked","counts","doing","lease","milestone","next","next_commands","note","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+  [ "$keys" = '["blocked","counts","doing","groups","lease","milestone","next","next_commands","note","parallelism","phase","phases","ready","stale_complete","sync"]' ]
 
   # Shape of the pre-existing keys is untouched.
   assert_json_eq "$output" '.counts.ready' '2'
