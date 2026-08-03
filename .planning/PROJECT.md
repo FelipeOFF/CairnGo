@@ -66,20 +66,23 @@ proxy.
 
 </details>
 
-## Next Milestone Goals
+## Current Milestone: v1.5 Legible State
 
-Nenhum milestone aberto. Candidatos, em ordem de sinal:
+**Goal:** onde você está dentro do estado que já prova o que afirma. O board sabe
+listar e não sabe situar — com muitas tarefas vira coluna plana, `READY` significa
+três coisas ao mesmo tempo, o título é cortado em 28 caracteres, e fora do TTY ele
+degrada para o formato de máquina sem ninguém pedir. E o doctor dá 16 ok e 0 falhas
+sobre um roadmap vazio, porque três checagens passam por não ter o que checar.
 
-1. **O board não escala.** Numa base com muitas tarefas a saída vira lista plana:
-   não dá para ver a que milestone cada linha pertence, nem separar "pronto para
-   planejar" de "pronto para executar" de "já executado". Pedido do Felipe com
-   evidência de outro repositório, 2026-08-03.
-2. **Os 13 wrappers `/cairn:*`** decididos no GSD-05 e nunca construídos
-   (`CairnGo-9xy`).
-3. **Os falsos-verdes que sobraram**: `req-issue` no vazio (`CairnGo-ca3`, P1) e
-   o `orphans` que nunca zera (`CairnGo-xhy`).
+**Nove fases (20-28), 24 requisitos.** Só duas arestas de dependência no ciclo
+inteiro: a corrente do board (20→21→22) e a tendência que precisa do estado
+não-aplicável (23→27). As outras cinco são independentes — é o primeiro roadmap do
+projeto com paralelismo real disponível, e a fase 18 do ciclo anterior é quem o
+executa.
 
-Abrir com `/cairn:milestone new`. A numeração de fases continua em **20**.
+A ordem numérica põe no fim o que pode ser cortado inteiro: a 26 (wrappers) é a
+maior em volume e não é pré-requisito de nada, e a 28 (journal durável) é a única
+cujo escopo a própria pesquisa pode redefinir.
 
 ## Context
 

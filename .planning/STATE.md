@@ -1,20 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Honest State
-current_phase: 19
-current_phase_name: Ship v1.4
-status: ready-to-ship
-stopped_at: Phase 19 closed — 1.5.0 prepared, tag local, publicacao aguarda o Felipe
-last_updated: "2026-08-01T01:20:00.000Z"
-last_activity: 2026-08-01
-last_activity_desc: Milestone v1.4 completo; release 1.5.0 preparada e nao publicada
+milestone: v1.5
+milestone_name: Legible State
+current_phase: 20
+current_phase_name: Group model
+status: planning
+stopped_at: v1.5 aberto — roadmap e requisitos escritos, nenhuma fase planejada
+last_updated: "2026-08-03T12:00:00.000Z"
+last_activity: 2026-08-03
+last_activity_desc: Milestone v1.5 Legible State aberto (9 fases, 24 requisitos)
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 29
-  completed_plans: 29
-  percent: 100
+  total_phases: 9
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
