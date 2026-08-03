@@ -395,3 +395,61 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   # Nothing lost either: the new issue is the eighth.
   assert_nothing_lost 8
 }
+
+# ─── The contract, pinned mechanically ───────────────────────────────────────
+#
+# "The existing suite still passes" does not prove that no key changed name,
+# type or meaning: the 83 tests read the keys they each need, never the SET of
+# them, and a new key nested in the wrong place passes every one. The three
+# tests below are the mechanical version of that claim.
+#
+# The literals were measured against this code. If one of them goes red, it is
+# a contract change asking to be discussed, not a test asking to be updated.
+
+@test "the --json top-level key set is the old one plus groups, exactly" {
+  render_json
+  run jq -r 'keys_unsorted | sort | join(",")' "$BOARD_JSON"
+  [ "$status" -eq 0 ]
+  # The 14 pre-existing keys plus `groups`. tests/cairn-status.bats pins this
+  # same set against a different fixture (make_gsd_fixture + a status
+  # fixture); the two literals must agree, and a key that appears under only
+  # one fixture would show up as exactly that disagreement.
+  [ "$output" = "blocked,counts,doing,groups,lease,milestone,next,next_commands,note,parallelism,phase,phases,ready,stale_complete,sync" ]
+}
+
+@test "every phases[] row carries exactly the 22 keys it always did" {
+  render_json
+
+  # The aggregation is the point, so the premise gets asserted rather than
+  # assumed: .phases[0] here is phase 1, complete, from the ARCHIVED v1.0.
+  # The most plausible way to violate D-02 is not adding a key to every
+  # phase — it is adding one only to the phases inside an open milestone
+  # group, which would leave this row untouched. A single-row sample would
+  # then be green with the decision violated.
+  run jq -r '.phases[0] | "\(.number) \(.complete)"' "$BOARD_JSON"
+  [ "$output" = "1 true" ]
+
+  run jq -r '[.phases[] | keys_unsorted] | add | unique | join(",")' \
+    "$BOARD_JSON"
+  [ "$status" -eq 0 ]
+  # `add | unique` comes out sorted, so the literal is the sorted set. Any
+  # group structure nested inside a phases[] row — in one row is enough —
+  # adds a key here and this goes red. That is the only mechanical proof of
+  # "a new key BESIDE the existing ones, never inside them" (D-02).
+  [ "$output" = "blocked_by,complete,completed_on,conflicts,corroboration,depends_on,dir,disk_state,evidence,issues_done,issues_total,milestone,needs_doctor,next_command,number,plans_done,plans_total,purpose,requirements,research_done,title,verify_status" ]
+}
+
+@test "disk_state still carries only its four values" {
+  render_json
+  run jq -r '[.phases[].disk_state] - ["none","planned","executed","verified"]
+             | join(",")' "$BOARD_JSON"
+  [ "$status" -eq 0 ]
+  # Be honest about how little this proves. Measured: this fixture yields
+  # only `none`, and this repository yields `executed,none` — a subset
+  # assertion over four values passes trivially until something produces a
+  # fifth, and the fixture never will. It is NOT what keeps
+  # phase_next_command()'s bare dict lookup from raising KeyError; scope is,
+  # because nothing in this phase writes disk_state. Cheap tripwire against
+  # a future change, and nothing more.
+  [ "$output" = "" ]
+}
