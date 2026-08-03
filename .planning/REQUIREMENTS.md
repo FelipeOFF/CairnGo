@@ -56,6 +56,7 @@ o que está respondendo não conta como pronta.
 - [ ] **FIX-01**: `/cairn:milestone new` para de mandar gerar mapa antes de existir diretório de fase
 - [ ] **FIX-02**: O nome da branch de uma fase não deriva quando o diretório da fase passa a existir depois do `prepare`
 - [ ] **FIX-03**: O campo `status` por portador do `cairn-release --json` significa "está correto", ou é renomeado para dizer o que de fato significa
+- [ ] **FIX-05**: Uma fase com um plano de três executados para de ler como `executed`, e a corroboração para de fabricar conflito bloqueante a partir disso
 - [ ] **FIX-04**: Uma dependência para fase de milestone arquivado deixa de bloquear para sempre, e uma aresta `discovered-from` deixa de contar como bloqueio
 
 ### Nada mecânico continua manual (AUTO)

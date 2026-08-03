@@ -37,7 +37,7 @@ não conta como pronta.
 - [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
 - [ ] Phase 23: Not-applicable as a check state (VOID-01, VOID-02, VOID-03)
 - [ ] Phase 24: Language chosen at install (LANG-01, LANG-02)
-- [ ] Phase 25: Measured cleanup (FIX-01, FIX-02, FIX-03, FIX-04)
+- [ ] Phase 25: Measured cleanup (FIX-01 … FIX-05)
 - [ ] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03)
 - [ ] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02)
 - [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03)
@@ -229,7 +229,7 @@ fase; o nome da branch de uma fase muda quando o diretório aparece depois do
 CHANGELOG já em 1.5.0 e os manifestos em 1.4.2, o `marketplace` levou `ok`
 carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
 
-**Requirements**: FIX-01, FIX-02, FIX-03, FIX-04
+**Requirements**: FIX-01, FIX-02, FIX-03, FIX-04, FIX-05
 
 **Success criteria:**
 
@@ -451,6 +451,7 @@ roadmap passa a demonstrar isso.
 | FIX-02 | Phase 25 | Pending |
 | FIX-03 | Phase 25 | Pending |
 | FIX-04 | Phase 25 | Pending |
+| FIX-05 | Phase 25 | Pending |
 | WRAP-01 | Phase 26 | Pending |
 | WRAP-02 | Phase 26 | Pending |
 | WRAP-03 | Phase 26 | Pending |
