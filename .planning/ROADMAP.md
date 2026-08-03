@@ -31,6 +31,7 @@ não conta como pronta.
 
 ### 🚧 v1.5 Legible State — onde você está (Phases 20-29)
 
+- [ ] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-06) — **roda primeiro**
 - [ ] Phase 20: Group model (BOARD-01)
 - [ ] Phase 21: The grouped board (BOARD-02, BOARD-03, BOARD-05)
 - [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
@@ -40,7 +41,6 @@ não conta como pronta.
 - [ ] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03)
 - [ ] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02)
 - [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03)
-- [ ] Phase 29: Nothing mechanical stays manual (AUTO-01, AUTO-02, AUTO-03, AUTO-04)
 
 ## Detalhe das fases
 
@@ -371,7 +371,7 @@ A linha que separa o que se automatiza do que se pergunta é a do `/groom-me`:
 **mudança de regra de negócio se conversa antes; mecânica se automatiza e pronto.**
 Nada nesta fase cruza essa linha.
 
-**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04
+**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, AUTO-06
 
 **Success criteria:**
 
@@ -399,15 +399,34 @@ Nada nesta fase cruza essa linha.
    constrói um repo git e um banco bd e o gargalo é setup, não CPU. Quando o
    `parallel` não está instalado, o cairn **diz isso** em vez de rodar serial em
    silêncio.
+5. O cairn ganha config própria, com **duas portas para o mesmo lugar**: perguntada
+   como o `/gsd:config` pergunta, e editável à mão no `.json`. Hoje o GSD expõe mais
+   de trinta chaves e o cairn **zero** — o que existe está espalhado entre
+   `.cairn/context.json` e `.cairn/sync.json`, e nada lista o conjunto. A config
+   cobre o que não tem onde morar: commit automático, PR por fase ou por milestone,
+   teto de ciclos e de laços do run autônomo. Um teste altera uma chave pela
+   pergunta e lê o efeito **no ponto de consumo**, não no arquivo — ter a chave
+   gravada não prova que alguém a lê.
 
 **Research durante o planejamento:** precisa de um item — como detectar um servidor
 MCP configurado a partir de um script stdlib-only, sem depender do harness. A
 resposta provável é ler a configuração de MCP do projeto e do usuário, mas o formato
 e a precedência precisam ser medidos, não presumidos.
 
-**Depende de:** nada tecnicamente. Fica no fim porque é a fase que muda como as
-outras são executadas, e mudar o processo no meio de um ciclo é como se perde o
-fio.
+**Depende de:** nada. **Roda primeiro, por decisão do Felipe (2026-08-03), e a
+decisão inverte a minha.**
+
+Eu a tinha posto no fim com o argumento de que mudar o processo no meio de um ciclo
+é como se perde o fio. O argumento oposto é mais forte e é o que vale: esta fase é a
+única que torna **todas as outras mais baratas**, e deixá-la para o fim significa
+pagar o imposto manual nove vezes antes de removê-lo. Dez commits de bookkeeping à
+mão foram medidos num único dia; multiplicar isso por nove fases para preservar uma
+preferência de sequência é o cálculo errado.
+
+**O número 29 fica.** Renumerá-la para 20 orfanaria toda issue que carrega label
+`phase-N` — que é literalmente o risco descrito na `CairnGo-9xy` como razão de os
+wrappers existirem. Ordem de execução e número de fase são coisas diferentes, e este
+roadmap passa a demonstrar isso.
 
 ---
 
@@ -449,7 +468,13 @@ fio.
 
 ## Ordem de dependência
 
-Só duas arestas reais no ciclo inteiro:
+**A fase 29 roda primeiro**, e isso não é uma aresta do grafo — é decisão. Ela não
+bloqueia ninguém tecnicamente; ela torna todas as outras mais baratas, e nove fases
+pagando bookkeeping manual antes de ele ser removido é o cálculo errado. Ordem de
+execução e número de fase são coisas diferentes, e o número dela fica em 29 porque
+renumerar orfanaria toda issue com label `phase-N`.
+
+Depois dela, só duas arestas reais no ciclo inteiro:
 
 - **20 → 21 → 22**, a corrente do board. O modelo antes do render, o render antes do
   caminho não-TTY que o emite.

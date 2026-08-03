@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Legible State
-current_phase: 20
-current_phase_name: Group model
+current_phase: 29
+current_phase_name: Nothing mechanical stays manual
 status: planning
-stopped_at: v1.5 aberto — roadmap e requisitos escritos, nenhuma fase planejada
+stopped_at: fase 29 sobe para primeira por decisao do Felipe; fase 20 tem a onda 1 fechada e volta depois
 last_updated: "2026-08-03T12:00:00.000Z"
 last_activity: 2026-08-03
 last_activity_desc: Milestone v1.5 Legible State aberto (9 fases, 24 requisitos)
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
