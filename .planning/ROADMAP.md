@@ -31,7 +31,7 @@ não conta como pronta.
 
 ### 🚧 v1.5 Legible State — onde você está (Phases 20-29)
 
-- [ ] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-07) — **roda primeiro**
+- [ ] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-08) — **roda primeiro**
 - [x] Phase 20: Group model (BOARD-01) — completed 2026-08-03
 - [ ] Phase 21: The grouped board (BOARD-06, BOARD-02, BOARD-03, BOARD-05)
 - [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
@@ -397,7 +397,7 @@ A linha que separa o que se automatiza do que se pergunta é a do `/groom-me`:
 **mudança de regra de negócio se conversa antes; mecânica se automatiza e pronto.**
 Nada nesta fase cruza essa linha.
 
-**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, AUTO-06, AUTO-07
+**Requirements**: AUTO-01 … AUTO-08
 
 **Success criteria:**
 
@@ -423,8 +423,17 @@ Nada nesta fase cruza essa linha.
 4. A suíte roda em paralelo quando o ambiente permite. Medido em 2026-08-03:
    `bats -j 6 tests/cairn-map.bats` leva 33s contra 64s serial, porque cada teste
    constrói um repo git e um banco bd e o gargalo é setup, não CPU. Quando o
-   `parallel` não está instalado, o cairn **diz isso** em vez de rodar serial em
-   silêncio.
+   `parallel` não está instalado, o cairn **diz isso**.
+
+   **Correção medida durante a checagem desta fase, e ela desfaz uma afirmação
+   minha:** eu escrevi que sem o `parallel` o `-j` "rodaria serial em silêncio".
+   Falso. Medido no bats 1.14.0 com o `parallel` fora do PATH — `parallel: command
+   not found`, `Executed 0 instead of expected 2 tests`, **exit 1**. Ele executa
+   **zero** testes e falha alto. A ameaça que este critério dizia mitigar não
+   existe; a que existe é o inverso e é pior de outro jeito: uma suíte que não
+   rodou, reportada como falha de infraestrutura em vez de suíte vazia. O critério
+   passa a ser: o cairn detecta a ausência **antes** de invocar o bats, e diz que
+   vai rodar serial — nunca deixa o bats executar zero testes.
 5. **Nada valida a cadeia do registro de requisitos, e por isso ela derivou.**
    Medido em 2026-08-03 neste próprio repositório: **33** requisitos ativos em
    `REQUIREMENTS.md`, **31** linhas na tabela de Cobertura do ROADMAP (faltam
@@ -467,6 +476,16 @@ preferência de sequência é o cálculo errado.
 wrappers existirem. Ordem de execução e número de fase são coisas diferentes, e este
 roadmap passa a demonstrar isso.
 
+**Plans:** 7 plans
+
+- [ ] 29-01-PLAN.md — congela a discordância real como fixture e lê os três arquivos sem pressupor consistência
+- [ ] 29-02-PLAN.md — o caminho de escrita completo: fase, requisitos, tabela, rodapé, contadores, mapa e lease num comando
+- [ ] 29-03-PLAN.md — config própria do cairn, duas portas, e nenhuma chave sem leitor executável
+- [ ] 29-04-PLAN.md — o detector de Jira para de mentir, e o cairn pergunta uma vez e grava sozinho
+- [ ] 29-05-PLAN.md — o card do rastreador no board, com prova executável de que nada toca a rede
+- [ ] 29-06-PLAN.md — a suíte roda em paralelo quando dá, e diz quando não dá
+- [ ] 29-07-PLAN.md — `req-ledger`: a checagem que faltava para requisito → tabela → rodapé
+
 ---
 
 ## Cobertura
@@ -505,6 +524,7 @@ roadmap passa a demonstrar isso.
 | AUTO-03 | Phase 29 | Pending |
 | AUTO-04 | Phase 29 | Pending |
 | AUTO-07 | Phase 29 | Pending |
+| AUTO-08 | Phase 29 | Pending |
 
 29 requisitos, 29 mapeados.
 
