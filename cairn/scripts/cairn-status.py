@@ -84,6 +84,25 @@ Behavior:
        read anywhere in this script, so a missing or broken
        cairn-journal.py degrades to a stderr warning and changes nothing
        else about this run (JOUR-03) — see journal_observe_phases().
+    4f. `--json` also carries a top-level `groups` key (never anything
+       nested inside `phases[]`): the same model read as the hierarchy
+       milestone → phase → issue. Each group is `{type, key, label, items}`
+       with `type` `"milestone"` or `"unphased"`, and `items` is always a
+       list of `{phase, issues}` buckets — the unphased group has exactly
+       one, with `phase` null. Open milestone groups come in the roadmap's
+       own order, the unphased group is always last, and a group with no
+       buckets is not emitted at all, so a roadmap with no open cycle
+       produces zero milestone groups rather than one wearing the last
+       archived name. "Open" is the marker on the milestone's own
+       `## Milestones` line (`🚧` / `(in progress)`), never STATE.md's
+       `milestone:`, which keeps pointing at the archived cycle. An issue's
+       `phase-N` labels are the ONLY thing that places it (the smallest
+       phase it names among the ones some emitted group claims, else the
+       unphased group); dependency edges are deliberately never read here,
+       because they currently conflate provenance with blocking across
+       archived cycles (FIX-04). Nothing is deduplicated, so the multiset of
+       ids across every bucket equals the multiset on the lanes. See
+       phase_groups() and roadmap_milestones().
     5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
        gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
        list (< 40 cols). Non-TTY without an output flag: --plain
@@ -134,8 +153,9 @@ Behavior:
        HTML escaping, so a title carrying markup renders as text.
 
     --json      one machine line: {ready, doing, blocked, counts, milestone,
-                phase, next, sync, stale_complete, note, lease} (+ html:
-                {file, changed} when --html also ran)
+                phase, phases, next_commands, parallelism, groups, next,
+                sync, stale_complete, note, lease} (+ html: {file, changed}
+                when --html also ran)
     --plain     tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA) plus
                 PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color, no
                 truncation
@@ -241,6 +261,32 @@ ROADMAP_COMPLETED = re.compile(
 ROADMAP_TRAILING_PAREN = re.compile(r"\s*\(([^()]*)\)\s*$")
 ROADMAP_PLANS = re.compile(r"^(\d+)\s*/\s*(\d+)\s+plans?$", re.IGNORECASE)
 REQ_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d+(?:\s*,\s*[A-Z][A-Z0-9]*-\d+)*$")
+
+# The `## Milestones` list (roadmap_milestones(), phase 20). The heading match
+# is anchored and plural on purpose: this repo's own ROADMAP carries a
+# `## Milestone: v1.5 Legible State 🚧` heading immediately BELOW the list, and
+# a looser pattern would open the section a second time on it and read the
+# phase checkboxes that follow as milestone items.
+MILESTONES_HEADING = re.compile(r"^##\s+Milestones\s*$", re.IGNORECASE)
+ANY_H2 = re.compile(r"^##\s+")
+MILESTONE_ITEM = re.compile(r"^\s*[-*]\s+(.+)$")
+MILESTONE_BOLD = re.compile(r"\*\*([^*]+)\*\*")
+# `Phases 20-29`, `Phases 3 - 4`, `Phase 7` — read from the text AFTER the
+# bold span, never from inside it, so a milestone NAMED after a phase cannot
+# be mistaken for a range.
+MILESTONE_RANGE = re.compile(r"\bPhases?\s+0*(\d+)(?:\s*[-–—]\s*0*(\d+))?",
+                             re.IGNORECASE)
+# The SAME two markers roadmap_milestone() accepts, deliberately: two readers
+# of "which cycle is open" that disagree would be the defect this phase exists
+# to avoid, wearing a different name.
+MILESTONE_IN_PROGRESS = re.compile(r"\(in progress\)", re.IGNORECASE)
+
+# Label of the group holding work that belongs to no emitted milestone group.
+# A module constant, not a literal at the emit site: phase 21 owns how this
+# reads on the board and needs one place to change it. English like every
+# other string this CLI prints (READY, PENDING PHASES, PURPOSE).
+UNPHASED_KEY = "unphased"
+UNPHASED_LABEL = "No milestone"
 
 # "## Detalhe das fases" prose blocks (Phase 14): a THIRD phase-reference
 # shape, an H3 heading, distinct in form from ANY_PHASE's checkbox line and
@@ -1369,6 +1415,107 @@ def next_commands(model, milestone=None):
     return out
 
 
+def phase_groups(model, milestones, issues):
+    """The hierarchy milestone → phase → issue, as a list of groups.
+
+    A pure derivation of `model` + the roadmap's milestone list + the open
+    issues, in the line of parallelism(model) and next_commands(model): no
+    I/O, no bd, testable on its own, and a TOP-LEVEL key of the model rather
+    than anything nested inside `phases[]` (D-02) — a consumer reading
+    `phases[]` today reads exactly the same rows tomorrow.
+
+    Each group is `{type, key, label, items}`, `type` being `"milestone"` or
+    `"unphased"`. `items` is homogeneous across both types: always a list of
+    `{phase, issues}` buckets, the unphased group carrying exactly one bucket
+    whose `phase` is None. A consumer iterating `items` never has to know
+    which kind of group it is holding. No group and no bucket carries a
+    count: a count is len(), and a second spelling of the same number is a
+    second thing that can disagree — which is the whole reason this file
+    exists.
+
+    A phase belongs to a milestone by, in this order: its own `milestone`
+    cell from the roadmap's `## Progress` table (explicit and per-phase, so
+    it wins), else the milestone line's `first..last` range (the only path in
+    a roadmap that has no progress table, like this repository's own). Only
+    phases that EXIST in `model` become buckets: inventing a phase out of a
+    range is the same class of lie as naming an archived cycle. Groups come
+    out in the roadmap's own order, filtered to the open ones (D-03: a
+    milestone with no buckets is not emitted at all, so an absent open cycle
+    yields zero milestone groups rather than one wearing the last archived
+    name); buckets inside a group come out by ascending phase number; the
+    unphased group is always last.
+
+    Issue placement reads ONE thing: `issue_phase_ns()`, the issue's own
+    `phase-N` labels. An issue goes to the bucket of the SMALLEST phase it
+    names among those some emitted group claims, and to the unphased group
+    when it names none of them.
+
+    This function deliberately does NOT read `dependencies`, `blocked_by`,
+    `depends_on` or `dep_target_ids()`. Measured 2026-08-03: phase 26 renders
+    as blocked by phase 9 — a cycle archived two milestones earlier — because
+    dep_target_ids() counts every edge without looking at its type (a
+    `discovered-from` edge, which /cairn:quick documents as provenance and
+    not as a block, counts as a block) and because the pending filter tests
+    against a completed-phase set an archived phase is never part of. That is
+    FIX-04, phase 25's repair. Grouping by edge would import the whole
+    confusion into the group model, so placement rests on labels alone.
+
+    Only OPEN issues are passed in (main() calls with ready + doing +
+    blocked): a group describes work still to do, and the lease bookkeeping
+    issue was already filtered out upstream (Phase 15, D-05). Inside a
+    bucket, issues keep the order the lanes deliver them in (READY, then
+    DOING, then BLOCKED) — the model introduces no second ordering.
+
+    No deduplication, and that is part of the contract: `doing` and
+    `blocked` are independent bd queries, so one issue can legitimately
+    arrive twice. Placement is per INPUT OCCURRENCE, so the multiset of ids
+    across every bucket is exactly the multiset of ids on the lanes — which
+    is what makes "nothing was lost and nothing was doubled" checkable by
+    comparing the two sorted lists.
+    """
+    by_number = {p["number"]: p for p in model}
+    explicit = {}
+    for p in model:
+        key = p.get("milestone")
+        if key:
+            explicit.setdefault(key, set()).add(p["number"])
+
+    groups = []
+    buckets = {}
+    for ms in milestones:
+        if not ms["open"]:
+            continue
+        numbers = set(explicit.get(ms["key"], ()))
+        if ms["first"] is not None:
+            # Range only for phases the progress table left unassigned: an
+            # explicit cell naming another milestone is never overridden by
+            # a range that happens to span this phase.
+            numbers.update(n for n, p in by_number.items()
+                           if not p.get("milestone")
+                           and ms["first"] <= n <= ms["last"])
+        items = []
+        for n in sorted(numbers):
+            if n not in by_number or n in buckets:
+                continue
+            bucket = {"phase": n, "issues": []}
+            buckets[n] = bucket
+            items.append(bucket)
+        if not items:
+            continue
+        groups.append({"type": "milestone", "key": ms["key"],
+                       "label": ms["label"], "items": items})
+
+    loose = {"phase": None, "issues": []}
+    for iss in issues:
+        named = sorted(n for n in issue_phase_ns(iss) if n in buckets)
+        target = buckets[named[0]] if named else loose
+        target["issues"].append(str(iss.get("id") or "?"))
+    if loose["issues"]:
+        groups.append({"type": "unphased", "key": UNPHASED_KEY,
+                       "label": UNPHASED_LABEL, "items": [loose]})
+    return groups
+
+
 def state_frontmatter(planning_dir):
     """{milestone, active_phase, next_action} from STATE.md's YAML
     frontmatter, parsed by regex (no YAML lib) — missing keys are None."""
@@ -1392,11 +1539,71 @@ def roadmap_milestone(planning_dir):
     """Milestone marked in progress in ROADMAP.md (🚧 / '(in progress)' line
     carrying a vN[.N...] token), or None."""
     for line in read_lines(planning_dir / "ROADMAP.md"):
-        if "🚧" in line or re.search(r"\(in progress\)", line, re.IGNORECASE):
+        if "🚧" in line or MILESTONE_IN_PROGRESS.search(line):
             m = VERSION_TOKEN.search(line)
             if m:
                 return m.group(0)
     return None
+
+
+def roadmap_milestones(planning_dir):
+    """[{key, label, open, first, last}] from the `## Milestones` list.
+
+    The list, and only the list: the section opens at a `## Milestones`
+    heading and closes at the next `## ` heading. Each list item carrying a
+    bold span that STARTS with a version token is a milestone — the token is
+    the key (`v1.1`), the whole bold span cleaned is the label
+    (`v1.1 Surface`), and the `Phases A-B` (or lone `Phase A`, with
+    `last == first`) read from the text AFTER the bold span is the range.
+    A milestone whose line declares no range gets `first = last = None`.
+
+    `open` is the marker on the milestone's OWN line — `🚧`, or
+    `(in progress)` in any case, the same two roadmap_milestone() accepts.
+    Everything else (`✅`, `shipped`, an archive link, no marker at all) is
+    closed. Deliberately conservative: nothing infers openness from position
+    in the list, from recency, or from STATE.md, because a group announcing
+    an archived cycle is exactly the measured defect (2026-08-03, ten minutes
+    after v1.4 was archived, the board still read `MILESTONE v1.4`) that this
+    phase must not reproduce under a new key.
+
+    Measured 2026-08-03: 5 milestones and exactly 1 open (`v1.5`, phases
+    20-29) in this repository's own ROADMAP; 2 and 1 open (`v1.1`, phases
+    3-4) in the test fixtures' roadmap; 0 in a roadmap with no such section.
+    """
+    out = []
+    in_section = False
+    for line in read_lines(planning_dir / "ROADMAP.md"):
+        if MILESTONES_HEADING.match(line):
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        if ANY_H2.match(line):
+            break
+        m = MILESTONE_ITEM.match(line)
+        if not m:
+            continue
+        item = m.group(1)
+        bold = MILESTONE_BOLD.search(item)
+        if not bold:
+            continue
+        text = bold.group(1).strip()
+        token = VERSION_TOKEN.match(text)
+        if not token:
+            continue
+        first = last = None
+        rng = MILESTONE_RANGE.search(item[bold.end():])
+        if rng:
+            first = int(rng.group(1))
+            last = int(rng.group(2)) if rng.group(2) else first
+        out.append({
+            "key": token.group(0),
+            "label": clean(text),
+            "open": "🚧" in line or bool(MILESTONE_IN_PROGRESS.search(line)),
+            "first": first,
+            "last": last,
+        })
+    return out
 
 
 # ------------------------------------------------------------ sync staleness
@@ -3048,6 +3255,10 @@ def main():
         # What can proceed at the same time — the input for splitting work
         # across agents, and for /cairn:autonomous to state the order it chose.
         "parallelism": parallelism(phases),
+        # The same model seen as a hierarchy: open milestone → phase → issue,
+        # plus one last group for work no emitted group claims.
+        "groups": phase_groups(phases, roadmap_milestones(planning_dir),
+                               ready + doing + blocked),
         "next": nxt,
         "sync": {k: sync[k] for k in ("configured", "stale", "detail",
                                       "last_pull")},
