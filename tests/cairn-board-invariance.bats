@@ -31,19 +31,57 @@ setup() {
 }
 
 # Render the fixture with the given flags and diff it against the committed
-# reference NAME. Prints the diff on failure — an exit code alone says
-# "different" and nothing about how.
-assert_render_matches() {
+# reference NAME, leaving diff's exit code in $status and its report in
+# $output.
+#
+# BOTH directions go through this one function: the seven render tests
+# assert 0 here, and the liveness test asserts non-zero here. That is
+# deliberate. If the liveness test carried a diff of its own, a comparison
+# rigged to always agree would pass all seven AND leave the liveness test
+# green on its private, still-honest copy — the exact hole the liveness
+# test exists to close.
+diff_render_against_reference() {
   local name="$1"
   shift
   local actual="$BATS_TEST_TMPDIR/render-$name.txt"
   bash "$STATUS_SH" "$@" --color=never > "$actual"
   run diff -u "$BOARD_FIXTURES/$name.txt" "$actual"
+}
+
+# The reference direction: the bytes must match. Prints the diff on failure —
+# an exit code alone says "different" and nothing about how.
+assert_render_matches() {
+  local name="$1"
+  shift
+  diff_render_against_reference "$name" "$@"
   if [ "$status" -ne 0 ]; then
     echo "render drifted from tests/fixtures/board-render/$name.txt" >&2
     printf '%s\n' "$output" >&2
   fi
   [ "$status" -eq 0 ]
+}
+
+# A reference that was emptied or truncated would happily match a render
+# that broke and printed nothing. Size > 0, plus one or more anchors that
+# only exist when that mode really rendered. Content anchors, not byte
+# counts: a byte count needs editing on every legitimate change and rots
+# into noise — and it would not even have caught the one case measured
+# here, where maxrows.txt differs from w100.txt at an identical 1539 bytes.
+assert_reference_intact() {
+  local name="$1"
+  shift
+  local file="$BOARD_FIXTURES/$name.txt"
+  if [ ! -s "$file" ]; then
+    echo "reference $name.txt is missing or empty" >&2
+    return 1
+  fi
+  local anchor
+  for anchor in "$@"; do
+    if ! grep -qF -- "$anchor" "$file"; then
+      echo "reference $name.txt lost its structural anchor: '$anchor'" >&2
+      return 1
+    fi
+  done
 }
 
 # ─── The reference renders ───────────────────────────────────────────────────
@@ -82,4 +120,39 @@ assert_render_matches() {
 
 @test "the three-line format renders the reference bytes" {
   assert_render_matches brief --brief
+}
+
+# ─── Proving the comparison is alive ─────────────────────────────────────────
+
+@test "perturbing the fixture makes the comparison fail" {
+  # Everything above would pass just as well against a comparison that can
+  # never disagree — a diff of a file with itself, a normalization that
+  # empties both sides, a trailing `|| true`. This is the test that kills
+  # those: change one thing the board renders, and the comparison MUST go
+  # red. `sed -i.bak` because BSD sed needs the suffix; the .bak lands in
+  # the throwaway fixture, never in tests/fixtures/.
+  sed -i.bak 's/Board fills the screen/Board fills the window/' \
+    .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+  diff_render_against_reference w100 --width 100
+  # A sed that matched nothing would leave the render identical and fail
+  # the check below — the perturbation cannot silently become a no-op.
+  if ! printf '%s\n' "$output" | grep -qF "Board fills the window"; then
+    echo "the diff does not mention the perturbation — it reports something" \
+      "other than the change that was made:" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  [ "$status" -ne 0 ]
+}
+
+@test "no reference file is empty or has lost its structure" {
+  assert_reference_intact w100 "PENDING PHASES" "┌─ READY (3) ─" "PURPOSE"
+  assert_reference_intact w50 "DOING (1)" "▶ next: "
+  assert_reference_intact w38 "BLOCKED  brd-005" "▶ next: "
+  assert_reference_intact ascii100 "PENDING PHASES" "+- READY (3) -" "PURPOSE"
+  assert_reference_intact maxrows "+1 more" "PENDING PHASES"
+  assert_reference_intact plain "$(printf 'READY\tbrd-001')" \
+    "$(printf 'MILESTONE\tv1.0')"
+  assert_reference_intact brief "[cairn-status] phase 3/4" "▶ next: "
 }
