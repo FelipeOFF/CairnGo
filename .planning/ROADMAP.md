@@ -31,7 +31,7 @@ não conta como pronta.
 
 ### 🚧 v1.5 Legible State — onde você está (Phases 20-29)
 
-- [ ] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-06) — **roda primeiro**
+- [ ] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-07) — **roda primeiro**
 - [x] Phase 20: Group model (BOARD-01) — completed 2026-08-03
 - [ ] Phase 21: The grouped board (BOARD-06, BOARD-02, BOARD-03, BOARD-05)
 - [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
@@ -397,7 +397,7 @@ A linha que separa o que se automatiza do que se pergunta é a do `/groom-me`:
 **mudança de regra de negócio se conversa antes; mecânica se automatiza e pronto.**
 Nada nesta fase cruza essa linha.
 
-**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, AUTO-06
+**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, AUTO-06, AUTO-07
 
 **Success criteria:**
 
@@ -425,7 +425,18 @@ Nada nesta fase cruza essa linha.
    constrói um repo git e um banco bd e o gargalo é setup, não CPU. Quando o
    `parallel` não está instalado, o cairn **diz isso** em vez de rodar serial em
    silêncio.
-5. O cairn ganha config própria, com **duas portas para o mesmo lugar**: perguntada
+5. **Nada valida a cadeia do registro de requisitos, e por isso ela derivou.**
+   Medido em 2026-08-03 neste próprio repositório: **33** requisitos ativos em
+   `REQUIREMENTS.md`, **31** linhas na tabela de Cobertura do ROADMAP (faltam
+   `AUTO-05` e `AUTO-06`), e o rodapé afirmando **"29 requisitos, 29 mapeados"** —
+   quatro números para a mesma coisa, três deles errados.
+
+   A causa não é uma checagem que falhou: é uma que **não existe**. O `req-issue`
+   do doctor valida requisito → issue e reporta `33 requirement(s) mapped`
+   corretamente; ninguém valida requisito → tabela, nem tabela → rodapé. Esta fase
+   acrescenta essa checagem, e ela falha contra o estado atual do repositório antes
+   de qualquer conserto — se passar de primeira, está errada.
+6. O cairn ganha config própria, com **duas portas para o mesmo lugar**: perguntada
    como o `/gsd:config` pergunta, e editável à mão no `.json`. Hoje o GSD expõe mais
    de trinta chaves e o cairn **zero** — o que existe está espalhado entre
    `.cairn/context.json` e `.cairn/sync.json`, e nada lista o conjunto. A config
@@ -433,6 +444,8 @@ Nada nesta fase cruza essa linha.
    teto de ciclos e de laços do run autônomo. Um teste altera uma chave pela
    pergunta e lê o efeito **no ponto de consumo**, não no arquivo — ter a chave
    gravada não prova que alguém a lê.
+7. A suíte roda em paralelo quando o ambiente permite (era o critério 4; renumerado
+   pela inserção acima).
 
 **Research durante o planejamento:** precisa de um item — como detectar um servidor
 MCP configurado a partir de um script stdlib-only, sem depender do harness. A
@@ -491,6 +504,7 @@ roadmap passa a demonstrar isso.
 | AUTO-02 | Phase 29 | Pending |
 | AUTO-03 | Phase 29 | Pending |
 | AUTO-04 | Phase 29 | Pending |
+| AUTO-07 | Phase 29 | Pending |
 
 29 requisitos, 29 mapeados.
 

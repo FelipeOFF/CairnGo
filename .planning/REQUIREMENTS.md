@@ -67,6 +67,7 @@ o que está respondendo não conta como pronta.
 - [ ] **AUTO-03**: Um card do Jira associado a uma fase ou a uma issue aparece no board sem que o caminho padrão faça chamada de rede
 - [ ] **AUTO-04**: A suíte roda em paralelo quando o ambiente permite, e diz claramente quando não permite em vez de rodar serial em silêncio
 - [ ] **AUTO-05**: O cairn tem config própria, perguntada como o GSD pergunta **e** editável à mão no `.json` — as duas portas para o mesmo lugar, nunca só uma
+- [ ] **AUTO-07**: Uma checagem valida a cadeia inteira do registro de requisitos — requisito ativo → linha na tabela de Cobertura → número afirmado no rodapé — que hoje **ninguém** valida
 - [ ] **AUTO-06**: A config cobre o que hoje não tem onde morar: commit automático, PR por fase ou por milestone, teto de ciclos e de laços do run autônomo, e o que já está espalhado em `.cairn/` passa a ser listado num lugar só
 
 ## Deferred (v2)
