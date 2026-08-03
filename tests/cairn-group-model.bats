@@ -21,6 +21,18 @@
 load 'helpers'
 
 STATUS_SH="$CAIRN_REPO_ROOT/cairn/scripts/cairn-status.sh"
+CAIRN_STATUS_PY="$CAIRN_SCRIPTS_DIR/cairn-status.py"
+
+# Load cairn-status.py as a module named cairn_status — not "__main__", so
+# its own guard never fires — for the one assertion below that has to read a
+# roadmap fact the --json surface deliberately does not expose. Same snippet
+# as tests/cairn-corroboration.bats.
+PY_LOAD="
+import importlib.util
+spec = importlib.util.spec_from_file_location('cairn_status', '$CAIRN_STATUS_PY')
+cs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cs)
+"
 
 setup() {
   require_bd
@@ -185,4 +197,145 @@ bucket_issues() {
   # A comparison of two empty lists would pass and prove nothing.
   run jq -r '[.groups[].items[].issues[]] | length | tostring' "$BOARD_JSON"
   [ "$output" = "7" ]
+}
+
+# ─── The honest silence ──────────────────────────────────────────────────────
+#
+# Two roadmap variants, both mutating the TMP repo's own .planning/ROADMAP.md
+# that make_board_fixture just wrote. Never tests/fixtures/, which is the
+# committed reference the invariance suite compares against and is not a
+# fixture anyone may mutate.
+#
+# Each mutation asserts that it actually happened. A sed (or replace) that
+# silently stops matching — because the fixture's roadmap grammar moved
+# upstream — would leave the milestone open, and every test below would go
+# green while measuring nothing at all.
+
+# Variant A, "no open cycle": the fixture's one open milestone becomes an
+# archived one. This is the repository ten minutes after a
+# `/cairn:milestone complete` and before anyone opens the next cycle — the
+# exact interval in which the defect was measured on 2026-08-03, when the
+# board still read `MILESTONE v1.4` with v1.4 already archived.
+archive_the_open_milestone() {
+  python3 - <<'PY'
+import pathlib
+p = pathlib.Path(".planning/ROADMAP.md")
+text = p.read_text()
+after = text.replace("- 🚧 **v1.1 Surface**", "- ✅ **v1.1 Surface**")
+assert after != text, "the open-milestone line no longer matches"
+p.write_text(after)
+PY
+  run grep -c '🚧' .planning/ROADMAP.md
+  [ "$output" = "0" ]
+}
+
+# Variant B, "an open cycle that names no phase": v1.1 is archived as in
+# variant A, and a milestone marked open takes its place whose range spans
+# phases that exist nowhere. So an open milestone DOES exist, and there must
+# still be no milestone group — which is the other half of D-03, and the half
+# the empty-bucket boundary invites you to get backwards.
+open_a_milestone_with_no_phases() {
+  python3 - <<'PY'
+import pathlib
+p = pathlib.Path(".planning/ROADMAP.md")
+text = p.read_text()
+after = text.replace(
+    "- 🚧 **v1.1 Surface** — Phases 3-4",
+    "- ✅ **v1.1 Surface** — Phases 3-4\n"
+    "- 🚧 **v9.9 Far Horizon** — Phases 90-99")
+assert after != text, "the open-milestone line no longer matches"
+p.write_text(after)
+PY
+  run grep -c '^- 🚧 \*\*v9.9 Far Horizon\*\* — Phases 90-99$' .planning/ROADMAP.md
+  [ "$output" = "1" ]
+  # Exactly one open marker in the file, and it is the new one.
+  run grep -c '🚧' .planning/ROADMAP.md
+  [ "$output" = "1" ]
+}
+
+# The ids on the lanes, sorted — what every group must still add up to.
+assert_nothing_lost() {
+  local grouped lanes
+  grouped="$(jq -c '[.groups[].items[].issues[]] | sort' "$BOARD_JSON")"
+  lanes="$(jq -c '[(.ready[],.doing[],.blocked[]) | .id] | sort' "$BOARD_JSON")"
+  [ "$grouped" = "$lanes" ]
+  run jq -r '[.groups[].items[].issues[]] | length | tostring' "$BOARD_JSON"
+  [ "$output" = "${1:-7}" ]
+}
+
+@test "variant A: no open milestone in the roadmap means no milestone group" {
+  archive_the_open_milestone
+  render_json
+  run jq -r '[.groups[] | select(.type=="milestone")] | length | tostring' \
+    "$BOARD_JSON"
+  [ "$status" -eq 0 ]
+  # Falling back on roadmap_milestone(), on data["milestone"], or on "the
+  # last milestone in the list" each births a group here.
+  [ "$output" = "0" ]
+}
+
+@test "variant A: no group wears the archived cycle's name, and the work stays" {
+  local archived_key="v1.1" archived_label="v1.1 Surface" older_key="v1.0"
+  archive_the_open_milestone
+  render_json
+
+  # Compare extracted SETS, never a substring search over the whole --json:
+  # both v1.0 and v1.1 legitimately appear in phases[].milestone, straight
+  # from the progress table, so a raw grep would go red for a reason that has
+  # nothing to do with grouping.
+  local names
+  names="$(jq -c '[.groups[].key] + [.groups[].label]' "$BOARD_JSON")"
+  run jq -r --arg t "$archived_key" 'index($t) | tostring' <<<"$names"
+  [ "$output" = "null" ]
+  run jq -r --arg t "$archived_label" 'index($t) | tostring' <<<"$names"
+  [ "$output" = "null" ]
+  # Nor the cycle before it, which is the one STATE.md still points at.
+  run jq -r --arg t "$older_key" 'index($t) | tostring' <<<"$names"
+  [ "$output" = "null" ]
+
+  # And the work did not go silent with the group: one unphased group,
+  # carrying every open issue. Naming THAT group after the last known cycle
+  # "for context" is the same lie in a friendlier voice, so its label is
+  # pinned too.
+  run jq -r '[.groups[].type] | join(" ")' "$BOARD_JSON"
+  [ "$output" = "unphased" ]
+  run jq -r '.groups[0].label' "$BOARD_JSON"
+  [ "$output" = "No milestone" ]
+  assert_nothing_lost 7
+}
+
+@test "variant B: an open milestone naming no existing phase is not a group" {
+  open_a_milestone_with_no_phases
+
+  # The variant is really a variant: the parser sees exactly one OPEN
+  # milestone. Without this, variant B silently degenerates into variant A
+  # and the emptiness it proves is the one test 6 already proved. --json
+  # never exposes the roadmap's open marker (`.milestone` comes from
+  # STATE.md, which names v1.0 here), so this reads the function directly.
+  run python3 -c "$PY_LOAD
+import pathlib
+print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning'))
+                if m['open']))"
+  [ "$status" -eq 0 ]
+  [ "$output" = "v9.9" ]
+
+  render_json
+  # An open milestone whose every phase is imaginary claims no bucket, and a
+  # group with no buckets is not emitted. Emitting it with `items: []` is the
+  # backwards reading of D-03 and this is where it goes red.
+  run jq -r '[.groups[] | select(.type=="milestone")] | length | tostring' \
+    "$BOARD_JSON"
+  [ "$output" = "0" ]
+  # Nor may the phantom key leak in under any group.
+  run jq -r '[.groups[].key] | index("v9.9") | tostring' "$BOARD_JSON"
+  [ "$output" = "null" ]
+  # Phases 90-99 do not exist: inventing a bucket out of a range would show
+  # up here as a group with buckets and no issues.
+  run jq -r '[.groups[].items[].phase] | map(tostring) | join(" ")' \
+    "$BOARD_JSON"
+  [ "$output" = "null" ]
+
+  run jq -r '[.groups[].type] | join(" ")' "$BOARD_JSON"
+  [ "$output" = "unphased" ]
+  assert_nothing_lost 7
 }
