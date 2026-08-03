@@ -36,7 +36,7 @@ não conta como pronta.
 - [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
 - [ ] Phase 23: Not-applicable as a check state (VOID-01, VOID-02, VOID-03)
 - [ ] Phase 24: Language chosen at install (LANG-01, LANG-02)
-- [ ] Phase 25: Measured cleanup (FIX-01, FIX-02, FIX-03)
+- [ ] Phase 25: Measured cleanup (FIX-01, FIX-02, FIX-03, FIX-04)
 - [ ] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03)
 - [ ] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02)
 - [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03)
@@ -222,7 +222,7 @@ fase; o nome da branch de uma fase muda quando o diretório aparece depois do
 CHANGELOG já em 1.5.0 e os manifestos em 1.4.2, o `marketplace` levou `ok`
 carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
 
-**Requirements**: FIX-01, FIX-02, FIX-03
+**Requirements**: FIX-01, FIX-02, FIX-03, FIX-04
 
 **Success criteria:**
 
@@ -230,8 +230,17 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
    medição original citada no próprio teste.
 2. O campo `status` do `cairn-release --json` ou passa a significar "está correto",
    ou é renomeado para o que de fato significa — nunca fica ambíguo.
-3. Nenhum dos três consertos muda o código de saída de um caminho que hoje é verde
+3. Nenhum dos consertos muda o código de saída de um caminho que hoje é verde
    legitimamente.
+4. **FIX-04, achado no pré-flight deste ciclo:** a fase 26 aparece como "waits on
+   phase 9", um ciclo arquivado dois milestones atrás. Dois defeitos somados em
+   `cairn-status.py` — `dep_target_ids()` coleta toda aresta de `dependencies` sem
+   olhar o tipo, então `discovered-from` (documentado no `/cairn:quick` como
+   procedência **sem bloquear**) conta como bloqueio; e a linha 1083 filtra contra
+   o conjunto de fases feitas, do qual uma fase arquivada nunca faz parte. O
+   próprio bd reporta a issue como `[READY]`. Um teste constrói uma aresta
+   `discovered-from` para issue fechada de fase arquivada e afirma que a fase
+   dependente segue `runnable`.
 
 **Research durante o planejamento:** não precisa. Os três carregam a medição na
 própria issue do bd.
@@ -351,6 +360,7 @@ manter o journal local.
 | FIX-01 | Phase 25 | Pending |
 | FIX-02 | Phase 25 | Pending |
 | FIX-03 | Phase 25 | Pending |
+| FIX-04 | Phase 25 | Pending |
 | WRAP-01 | Phase 26 | Pending |
 | WRAP-02 | Phase 26 | Pending |
 | WRAP-03 | Phase 26 | Pending |
@@ -360,7 +370,7 @@ manter o journal local.
 | DJOUR-02 | Phase 28 | Pending |
 | DJOUR-03 | Phase 28 | Pending |
 
-24 requisitos, 24 mapeados.
+25 requisitos, 25 mapeados.
 
 ## Ordem de dependência
 
