@@ -440,11 +440,31 @@ Nada nesta fase cruza essa linha.
    `AUTO-05` e `AUTO-06`), e o rodapé afirmando **"29 requisitos, 29 mapeados"** —
    quatro números para a mesma coisa, três deles errados.
 
-   A causa não é uma checagem que falhou: é uma que **não existe**. O `req-issue`
-   do doctor valida requisito → issue e reporta `33 requirement(s) mapped`
-   corretamente; ninguém valida requisito → tabela, nem tabela → rodapé. Esta fase
-   acrescenta essa checagem, e ela falha contra o estado atual do repositório antes
-   de qualquer conserto — se passar de primeira, está errada.
+   A causa não é uma checagem que falhou: é uma que **não existe**. Ninguém valida
+   requisito → tabela, nem tabela → rodapé. Esta fase acrescenta essa checagem, e
+   ela falha contra o estado atual do repositório antes de qualquer conserto — se
+   passar de primeira, está errada.
+
+   **Segunda correção medida durante a revisão dos planos, e ela desfaz outra
+   afirmação minha:** eu escrevi que o `req-issue` do doctor "valida requisito →
+   issue e reporta corretamente". Falso. Ele reporta hoje
+   `ok :: 29 requirement(s) mapped to issues` com 35 requisitos ativos, porque a
+   linha `**Requirements**:` desta fase é uma **reticência** — `AUTO-01 … AUTO-08`
+   — e `roadmap_requirements()` devolve dois ids em vez de oito. O mesmo silêncio
+   faz o `29-BEADS-MAP.md` afirmar `None — every phase requirement is mapped`, o
+   que é verdade só porque `AUTO-01` e `AUTO-08` têm issue: `AUTO-02`…`AUTO-07`
+   nunca entram na conta de gaps. Uma reticência cegou a cobertura de requisitos em
+   **duas** ferramentas ao mesmo tempo, e ambas dizem `ok`. O 29 que ela produz é,
+   por coincidência, o mesmo 29 do rodapé errado — dois números errados por causas
+   independentes batendo por acaso. A checagem desta fase cobre também esse elo: uma
+   linha de requisitos ilegível é falha nomeada, nunca silêncio, e nunca expansão
+   por inferência.
+
+   **Os números deste critério envelhecem, e isso é parte do achado.** Foram 33/31
+   quando escrito, 34/32 dias depois, 35/33 em 2026-08-03 — `AUTO-07` e `AUTO-08`
+   nasceram no meio do planejamento da própria fase. Eles ficam registrados como
+   medição datada; a regra é **re-medir na execução**, e nenhum plano carimba esses
+   números em teste.
 6. O cairn ganha config própria, com **duas portas para o mesmo lugar**: perguntada
    como o `/gsd:config` pergunta, e editável à mão no `.json`. Hoje o GSD expõe mais
    de trinta chaves e o cairn **zero** — o que existe está espalhado entre
@@ -453,8 +473,23 @@ Nada nesta fase cruza essa linha.
    teto de ciclos e de laços do run autônomo. Um teste altera uma chave pela
    pergunta e lê o efeito **no ponto de consumo**, não no arquivo — ter a chave
    gravada não prova que alguém a lê.
-7. A suíte roda em paralelo quando o ambiente permite (era o critério 4; renumerado
-   pela inserção acima).
+7. **O `STATE.md` fala um dialeto e o cairn lê outro, e a checagem que deveria
+   perceber isso está morta há o projeto inteiro.** Medido em 2026-08-03:
+   `grep -rn current_phase cairn/` devolve **zero**, enquanto `active_phase` é lido
+   por cinco superfícies (`cairn-status.py`, `cairn-doctor.py`, `cairn-lease.py`,
+   `cairn-migrate.py`, `hooks/session-start.sh`). O `STATE.md` tem `current_phase` e
+   não tem `active_phase`, e a consequência é
+   `claims-stale :: ok :: skipped — no active_phase in STATE.md`: uma checagem que
+   nunca rodou uma única vez, exibindo o marcador de sucesso.
+
+   O critério se parte em dois, e a linha do `/groom-me` passa exatamente no meio.
+   **Mecânica, e sai nesta fase:** nenhuma checagem do doctor volta a dizer `ok` por
+   não ter conseguido checar — ela diz o que faltou, cita onde a decisão está, e não
+   bloqueia por falta de insumo. **Regra de negócio, e NÃO sai nesta fase:** qual
+   dialeto vence. Escolher muda o que cinco arquivos leem e o que acontece com todo
+   repositório que já tem `STATE.md` escrito. Fica em aberto, com endereço:
+   `CairnGo-rq0`. Nenhum plano desta fase escreve `active_phase` nem renomeia chave
+   nenhuma.
 
 **Research durante o planejamento:** precisa de um item — como detectar um servidor
 MCP configurado a partir de um script stdlib-only, sem depender do harness. A
@@ -483,8 +518,12 @@ roadmap passa a demonstrar isso.
 - [ ] 29-03-PLAN.md — config própria do cairn, duas portas, e nenhuma chave sem leitor executável
 - [ ] 29-04-PLAN.md — o detector de Jira para de mentir, e o cairn pergunta uma vez e grava sozinho
 - [ ] 29-05-PLAN.md — o card do rastreador no board, com prova executável de que nada toca a rede
-- [ ] 29-06-PLAN.md — a suíte roda em paralelo quando dá, e diz quando não dá
-- [ ] 29-07-PLAN.md — `req-ledger`: a checagem que faltava para requisito → tabela → rodapé
+- [ ] 29-06-PLAN.md — a suíte roda em paralelo quando dá, e detecta a ausência do parallel antes de invocar o bats
+- [ ] 29-07-PLAN.md — `req-ledger`, e o fim do `ok` sobre checagem que não conseguiu checar
+
+**Ondas:** 1 → 29-01, 29-03 · 2 → 29-02, 29-06 · 3 → 29-04, 29-07 · 4 → 29-05.
+O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`, e
+`autonomous.md:238-248` proíbe resolução automática de conflito.
 
 ---
 
