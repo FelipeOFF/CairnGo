@@ -339,3 +339,59 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   [ "$output" = "unphased" ]
   assert_nothing_lost 7
 }
+
+# ─── Not inheriting the confusion between the live cycle and an archived one ──
+
+@test "an archived-cycle issue with a discovered-from edge neither groups nor vanishes" {
+  # Measured 2026-08-03 in this repository: phase 26 renders as blocked by
+  # phase 9, a cycle archived two milestones back, because dep_target_ids()
+  # counts every edge without reading its type — so a `discovered-from` edge,
+  # which /cairn:quick documents as provenance and explicitly not as a block,
+  # counts as a block — and because the pending filter tests against a
+  # completed-phase set an archived phase is never part of. That is FIX-04,
+  # phase 25's repair; this phase does not fix it. What this test proves is
+  # that the group model does not INHERIT it.
+  render_json
+  local before
+  before="$(jq -c '[.groups[] | select(.type=="milestone") | .key]' \
+    "$BOARD_JSON")"
+  [ "$before" = '["v1.1"]' ]
+
+  # phase-9 exists in no roadmap here — an archived cycle's phase, whose
+  # label outlived the cycle in bd. The edge points at brd-001, which lives
+  # in the phase-3 bucket of the one emitted group.
+  bd create "Filed while executing an archived phase" --id brd-103 -t task \
+    -p 4 -l phase-9 --deps "discovered-from:brd-001" --silent >/dev/null
+  render_json
+
+  # (a) exactly once in the whole model, and in the unphased group. Placing
+  # by edge instead of by label would walk the provenance INTO the phase-3
+  # bucket and this count would still be 1 — so the second assertion, the
+  # group it landed in, is the one that catches it.
+  run jq -r '[.groups[].items[].issues[] | select(. == "brd-103")]
+             | length | tostring' "$BOARD_JSON"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+  run jq -r '[.groups[] | select(.items[].issues | index("brd-103"))
+             | .type] | join(" ")' "$BOARD_JSON"
+  [ "$output" = "unphased" ]
+
+  # (b) the milestone groups did not move: not created, not renamed, not
+  # dropped. Creating a group per label found, without confronting the
+  # roadmap's open milestones, births a phantom `phase-9` group right here.
+  run jq -c '[.groups[] | select(.type=="milestone") | .key]' "$BOARD_JSON"
+  [ "$output" = "$before" ]
+
+  # (c) and no group is named after anything the stray label dragged in:
+  # the full key and label sets, exhaustively.
+  run jq -r '[.groups[].key] | join(" ")' "$BOARD_JSON"
+  [ "$output" = "v1.1 unphased" ]
+  # Joined on a pipe, not a space: both labels contain spaces, and a space
+  # join would let "v1.1 Surface" / "No milestone" and a single group called
+  # "v1.1 Surface No milestone" produce the same string.
+  run jq -r '[.groups[].label] | join("|")' "$BOARD_JSON"
+  [ "$output" = "v1.1 Surface|No milestone" ]
+
+  # Nothing lost either: the new issue is the eighth.
+  assert_nothing_lost 8
+}

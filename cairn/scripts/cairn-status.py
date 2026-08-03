@@ -103,6 +103,28 @@ Behavior:
        archived cycles (FIX-04). Nothing is deduplicated, so the multiset of
        ids across every bucket equals the multiset on the lanes. See
        phase_groups() and roadmap_milestones().
+    4g. What the group model rests on, measured and presumed. MEASURED
+       2026-08-03: this repository's own ROADMAP carries 5 milestones with
+       exactly 1 open (`v1.5`, phases 20-29); the phase-model fixture's
+       roadmap carries 2 with 1 open (`v1.1`, phases 3-4); make_gsd_fixture
+       writes no `## Milestones` section at all and yields 0, which is the
+       shape every pre-20 test runs on; and the `## Milestone: v1.5 ... 🚧`
+       heading sitting immediately below the list does not reopen the
+       section (the heading regex is anchored and plural on purpose).
+       MEASURED: without `bd create --id`, two identically built repos
+       produce different issue ids, so a render carrying ids is not
+       byte-stable — which is why the reference fixture pins every id.
+       MEASURED, and the reason placement reads labels and nothing else:
+       phase 26 renders as blocked by phase 9, a cycle archived two
+       milestones earlier, because a `discovered-from` edge counts as a
+       block and an archived phase is never in the completed-phase set
+       (FIX-04, phase 25's repair — not this one's). PRESUMED, with no
+       formal guarantee anywhere: that every milestone of this project keeps
+       writing itself as a list item whose bold span starts with a version
+       token. If that shape changes, roadmap_milestones() returns an empty
+       list and the model falls silent — zero milestone groups, every issue
+       in the unphased group — which is the correct failure mode, and the
+       reason the rule is written to fall that way rather than to guess.
     5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
        gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
        list (< 40 cols). Non-TTY without an output flag: --plain
