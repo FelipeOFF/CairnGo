@@ -11,7 +11,8 @@ o que está respondendo não conta como pronta.
 
 ### O board que situa (BOARD)
 
-- [ ] **BOARD-01**: O board agrupa por milestone e, dentro dele, por fase; trabalho sem milestone tem grupo próprio e aparece por último
+- [ ] **BOARD-01**: O **modelo** carrega a hierarquia milestone → fase → tarefa: milestones abertos primeiro, trabalho sem milestone em grupo próprio e por último
+- [ ] **BOARD-06**: O **board renderiza** agrupado — milestones abertos primeiro, fases dentro deles, trabalho sem milestone por último
 - [ ] **BOARD-02**: Cada linha carrega a etapa (não planejada, planejada, em execução, feita, bloqueada) num símbolo de largura simples, com fallback ASCII sob `--ascii`
 - [ ] **BOARD-03**: O título de uma tarefa não é truncado no render humano, em nenhuma largura de terminal em que a linha caiba
 - [ ] **BOARD-04**: O cabeçalho diz qual milestone está aberto, e diz explicitamente quando não há nenhum — nunca repete o último arquivado

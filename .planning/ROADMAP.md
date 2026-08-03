@@ -32,8 +32,8 @@ não conta como pronta.
 ### 🚧 v1.5 Legible State — onde você está (Phases 20-29)
 
 - [ ] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-06) — **roda primeiro**
-- [ ] Phase 20: Group model (BOARD-01)
-- [ ] Phase 21: The grouped board (BOARD-02, BOARD-03, BOARD-05)
+- [x] Phase 20: Group model (BOARD-01) — completed 2026-08-03
+- [ ] Phase 21: The grouped board (BOARD-06, BOARD-02, BOARD-03, BOARD-05)
 - [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
 - [ ] Phase 23: Not-applicable as a check state (VOID-01, VOID-02, VOID-03)
 - [ ] Phase 24: Language chosen at install (LANG-01, LANG-02)
@@ -68,6 +68,32 @@ está ao fim dela.
 4. Um teste renderiza o board antes e depois da fase e prova que a saída é
    **byte a byte idêntica** — a mudança é de modelo, não de superfície.
 
+**Override registrado na verificação (2026-08-03):** o critério 3 pedia "chave nova
+de topo" **e** "a suíte atual passa sem edição", e as duas não valem juntas —
+`tests/cairn-status.bats:1189` afirma o conjunto **exaustivo** de chaves de topo, e
+qualquer chave aditiva o reprova, inclusive a que esta fase existe para acrescentar.
+As alternativas eram piores: aninhar em `phases[]` viola a D-02, e afrouxar para
+subconjunto destrói a única asserção que pega chave renomeada. Um literal foi
+editado, a intenção preservada em comentário, e os dois lugares que afirmam o
+conjunto foram conferidos e concordam (15 chaves, idênticas). A metade "nenhuma
+chave existente muda de nome, tipo ou significado" está atendida e agora é
+mecanicamente verificável.
+
+**BOARD-01 atravessa duas fases.** Seu texto diz "o **board** agrupa"; esta fase
+entrega a metade-modelo por decisão explícita e o board não muda um byte.
+
+A primeira tentativa foi fazer BOARD-01 atravessar as fases 20 e 21, como
+`CairnGo-ro4` fez no v1.4. **Não funciona aqui, e o doctor disse na hora:**
+`req-issue` reportou *"BOARD-01 (phase 21): CairnGo-8vy carry the req but none is
+labeled phase-21"*, e a chave de dedup `(gsd.req, gsd.milestone)` proíbe uma segunda
+issue para o mesmo requisito no mesmo milestone. Diferente do `ro4`, que atravessava
+dois planos de **uma** fase, este atravessava duas fases — e fase completa com issue
+aberta é conflito de corroboração legítimo, além de barrar o ship gate.
+
+Então o requisito foi **dividido**: BOARD-01 é o modelo (fase 20, fechado), BOARD-06
+é o render agrupado (fase 21). Dois requisitos, uma issue cada, cada uma carimbada
+na sua fase.
+
 **Research durante o planejamento:** não precisa. `phase_model()` é função
 existente e bem entendida, e a fase 13 já estabeleceu o padrão de estender o modelo
 sem mexer nas chaves que os consumidores leem.
@@ -93,7 +119,7 @@ dividida por três e cortam todo título em ~28 caracteres — `[bug] doctor da�
 duas ficam vazias. Esta fase troca a forma: uma lista, agrupada pelo modelo da fase
 20, com a etapa num símbolo.
 
-**Requirements**: BOARD-02, BOARD-03, BOARD-05
+**Requirements**: BOARD-06, BOARD-02, BOARD-03, BOARD-05
 
 **Success criteria:**
 
@@ -434,7 +460,8 @@ roadmap passa a demonstrar isso.
 
 | Requisito | Fase | Status |
 |-----------|------|--------|
-| BOARD-01 | Phase 20 | Pending |
+| BOARD-01 | Phase 20 | Complete |
+| BOARD-06 | Phase 21 | Pending |
 | BOARD-02 | Phase 21 | Pending |
 | BOARD-03 | Phase 21 | Pending |
 | BOARD-05 | Phase 21 | Pending |
