@@ -73,6 +73,12 @@ sem mexer nas chaves que os consumidores leem.
 
 **Depende de:** nada. É a raiz do ciclo.
 
+**Plans:** 3 plans
+
+- [ ] 20-01-PLAN.md — grava a referência do render do código intocado, com a prova de que a comparação está viva
+- [ ] 20-02-PLAN.md — `roadmap_milestones()`, `phase_groups()` e a chave de topo `groups` no `--json`
+- [ ] 20-03-PLAN.md — as bordas da D-03, o isolamento do ciclo arquivado e os travões de contrato do `--json`
+
 ---
 
 ### Phase 21: The grouped board
