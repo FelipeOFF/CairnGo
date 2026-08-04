@@ -77,9 +77,14 @@ write_mini_roadmap() {
 EOF
 }
 
+# Every date this command writes comes from CAIRN_NOW when it is set — the
+# same determinism seam the other CAIRN_* variables are. Fixed here so the
+# `— completed <date>` suffix and the two STATE timestamps are literals a
+# test can assert instead of a moving target.
 setup() {
   make_tmp_repo
   ROADMAP="$PWD/.planning/ROADMAP.md"
+  export CAIRN_NOW="2026-08-04T09:00:00.000Z"
 }
 
 @test "close: read mode names the edit, exits 3, and writes nothing" {
@@ -128,12 +133,47 @@ setup() {
   grep -qF -- "- [x] Phase 20: Group model (BOARD-01) — completed 2026-08-03" "$ROADMAP"
   grep -qF "**Requirements**: AUTO-01 … AUTO-08" "$ROADMAP"
 
-  # Same byte count in, same byte count out: '[ ]' -> '[x]' is one character
-  # for one character.
-  local n_before n_after
+  # The byte count grows by EXACTLY the completion suffix and nothing else:
+  # '[ ]' -> '[x]' is one character for one character, and ' — completed
+  # 2026-08-04' is the only addition. (Plan 29-01 deliberately left the
+  # suffix out and asserted equal byte counts; 29-02 writes it, so the
+  # assertion becomes the suffix's own length rather than zero.)
+  local n_before n_after suffix_bytes
   n_before="$(wc -c < "$BATS_TEST_TMPDIR/roadmap.before")"
   n_after="$(wc -c < "$ROADMAP")"
-  [ "$n_before" -eq "$n_after" ]
+  suffix_bytes="$(printf ' — completed 2026-08-04' | wc -c | tr -d ' ')"
+  [ "$n_after" -eq "$((n_before + suffix_bytes))" ]
+  grep -qF -- "— **roda primeiro** — completed 2026-08-04" "$ROADMAP"
+}
+
+@test "close --apply: the completed suffix is written once, never twice" {
+  write_mini_roadmap "$PWD"
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # A second run with a DIFFERENT CAIRN_NOW must still write nothing: the
+  # suffix's presence is the idempotence test, never its date. A writer that
+  # re-stamps the date would append a second suffix on every autonomous
+  # cycle.
+  local before
+  before="$(file_sha256 "$ROADMAP")"
+  CAIRN_NOW="2027-01-01" run bash "$BOOKKEEP" close 29 --apply --json \
+    --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.changed' 'false'
+  [ "$before" = "$(file_sha256 "$ROADMAP")" ]
+  refute_in_file "completed 2027-01-01" "$ROADMAP"
+}
+
+@test "close: a malformed CAIRN_NOW is a usage error, not a garbage date" {
+  write_mini_roadmap "$PWD"
+  local before
+  before="$(file_sha256 "$ROADMAP")"
+  CAIRN_NOW="ontem" run bash "$BOOKKEEP" close 29 --apply \
+    --planning-dir "$PWD/.planning"
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -qF "CAIRN_NOW must start with YYYY-MM-DD"
+  [ "$before" = "$(file_sha256 "$ROADMAP")" ]
 }
 
 @test "close --apply twice: the second run reports changed:false and writes nothing" {
@@ -336,12 +376,16 @@ FIXTURE_DIR="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 
-  # And it is a real denominator: a one-line edit shows up as exactly one.
+  # And it is a real denominator: the edits show up as an exact count, with
+  # nothing else riding along. Seven lines in the ROADMAP — the phase
+  # checkbox, two row status cells, the footer and three plan checkboxes.
+  # The per-edit breakdown is asserted in "the six edits land"; what this
+  # one proves is that the baseline commit makes numstat mean something.
   run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   run git -C "$PWD" diff --numstat -- .planning/ROADMAP.md
   [ "$status" -eq 0 ]
-  [ "$output" = "1	1	.planning/ROADMAP.md" ]
+  [ "$output" = "7	7	.planning/ROADMAP.md" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -507,10 +551,22 @@ FIXTURE_DIR="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
   [ -z "$output" ]
 }
 
-@test "reconcile: has no --apply, because resolving is not this plan" {
+@test "reconcile --apply marks no phase complete — that is what close is for" {
   make_drift_fixture "$PWD"
   run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
-  [ "$status" -eq 2 ]
+  [ "$status" -eq 0 ]
+
+  # It resolved what it could (BOARD-01, the plan checkboxes, the footer,
+  # the counters) …
+  grep -qF -- "- [x] **BOARD-01**" "$PWD/.planning/REQUIREMENTS.md"
+  grep -qF -- "- [x] 20-01-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  grep -qF "35 requisitos, 33 mapeados." "$PWD/.planning/ROADMAP.md"
+
+  # … and marked NOTHING complete. Break: reusing close's edit 1 here, which
+  # would let a drift repair silently close a phase nobody finished.
+  refute_in_file "- [x] Phase 29" "$PWD/.planning/ROADMAP.md"
+  refute_in_file "| AUTO-01 | Phase 29 | Complete |" "$PWD/.planning/ROADMAP.md"
+  refute_in_file "- [x] **AUTO-01**" "$PWD/.planning/REQUIREMENTS.md"
 }
 
 @test "reconcile: a consistent tree is exit 0 with an empty list" {
@@ -550,4 +606,340 @@ PY
   assert_json_eq "$output" '.coverage.source' 'null'
   # Three active requirements, and NOT three findings.
   assert_json_eq "$output" '.requirements.active | length' '3'
+}
+
+# ---------------------------------------------------------------------------
+# The write path (plan 29-02) — the whole bookkeeping against the frozen
+# drift, one edit at a time and never one line more.
+#
+# Same rule as above: every expected number is a LITERAL, because the fixture
+# is committed bytes and cannot age. The line counts in particular are the
+# contrast this milestone is measured by — `roadmap update-plan-progress 20`
+# produces +31/-4 to flip three checkboxes, because _normalizeMd reserializes
+# every .md the gsd-tools writes.
+# ---------------------------------------------------------------------------
+
+# The keys of STATE.md's frontmatter, in file order, as one line.
+state_key_order() {
+  python3 - "$1" <<'PY'
+import re, sys
+keys, started = [], False
+for i, line in enumerate(open(sys.argv[1], encoding="utf-8")):
+    line = line.rstrip("\n")
+    if line.strip() == "---":
+        if not started and i == 0:
+            started = True
+            continue
+        if started:
+            break
+    if not started:
+        continue
+    m = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", line)
+    if m:
+        keys.append(("  " if m.group(1) else "") + m.group(2))
+print(" ".join(keys))
+PY
+}
+
+# Everything BELOW the frontmatter — the prose body this command never reads.
+state_body_sha() {
+  python3 - "$1" <<'PY'
+import hashlib, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+print(hashlib.sha256(text.split("\n---\n", 1)[1].encode()).hexdigest())
+PY
+}
+
+@test "close --apply: the six edits land, and the diff is 15 lines for 15" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # 1. the phase, with the suffix phase 20 already carries.
+  grep -qF -- "- [x] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-08) — **roda primeiro** — completed 2026-08-04" \
+    "$PWD/.planning/ROADMAP.md"
+  # 2. its requirements, plus BOARD-01 whose phase was already closed.
+  grep -qF -- "- [x] **AUTO-01**" "$PWD/.planning/REQUIREMENTS.md"
+  grep -qF -- "- [x] **AUTO-08**" "$PWD/.planning/REQUIREMENTS.md"
+  grep -qF -- "- [x] **BOARD-01**" "$PWD/.planning/REQUIREMENTS.md"
+  # AUTO-02 has no phase declaring it (the ellipsis), so nothing derives it.
+  grep -qF -- "- [ ] **AUTO-02**" "$PWD/.planning/REQUIREMENTS.md"
+  # 3. the two rows those requirements own.
+  grep -qF "| AUTO-01 | Phase 29 | Complete |" "$PWD/.planning/ROADMAP.md"
+  grep -qF "| AUTO-08 | Phase 29 | Complete |" "$PWD/.planning/ROADMAP.md"
+  # 4. the footer: 35 active requirements, 33 of them mapped. A command that
+  #    counted rows twice would write "33 requisitos" over a file holding 35.
+  grep -qF "35 requisitos, 33 mapeados." "$PWD/.planning/ROADMAP.md"
+  # 5. the plan checkboxes follow the SUMMARY files on disk — and only them.
+  grep -qF -- "- [x] 20-01-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  grep -qF -- "- [x] 20-03-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  grep -qF -- "- [ ] 29-01-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  # 6. the counters, from the tree and the checkbox lines.
+  grep -qF "  total_plans: 10" "$PWD/.planning/STATE.md"
+  grep -qF "  completed_plans: 3" "$PWD/.planning/STATE.md"
+  grep -qF "  completed_phases: 2" "$PWD/.planning/STATE.md"
+  grep -qF "  percent: 20" "$PWD/.planning/STATE.md"
+  grep -qF 'last_updated: "2026-08-04T09:00:00.000Z"' "$PWD/.planning/STATE.md"
+  grep -qF "last_activity: 2026-08-04" "$PWD/.planning/STATE.md"
+
+  # The whole D-01 claim, in three numbers. Any reserialization, re-wrap or
+  # whitespace pass makes these explode.
+  run git -C "$PWD" diff --numstat
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qE '^3	3	\.planning/REQUIREMENTS\.md$'
+  echo "$output" | grep -qE '^7	7	\.planning/ROADMAP\.md$'
+  echo "$output" | grep -qE '^5	5	\.planning/STATE\.md$'
+}
+
+@test "close --apply: the prose quoting the footer comes out byte for byte" {
+  make_drift_fixture "$PWD"
+  # Measured 2026-08-04: `grep -n "requisitos, .*mapeados"` matches TWO lines
+  # in this file. The second is success criterion 5 quoting the WRONG footer,
+  # which is the measurement justifying this whole phase and the evidence
+  # 29-07 reads. A text search rewrites it on the first pass.
+  local quote
+  quote='   `AUTO-05` e `AUTO-06`), e o rodapé afirmando **"29 requisitos, 29 mapeados"** —'
+  grep -qxF -- "$quote" "$PWD/.planning/ROADMAP.md"
+
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  grep -qxF -- "$quote" "$PWD/.planning/ROADMAP.md"
+  # And the real footer DID move — otherwise this test would pass over a
+  # command that simply never touched the footer at all.
+  grep -qF "35 requisitos, 33 mapeados." "$PWD/.planning/ROADMAP.md"
+}
+
+@test "close --apply: two footer lines in the section is exit 2 naming both" {
+  make_drift_fixture "$PWD"
+  # A second whole-line footer INSIDE the coverage section. "Take the first"
+  # would silently pick one and edit it.
+  python3 - "$PWD/.planning/ROADMAP.md" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace(
+    "29 requisitos, 29 mapeados.\n",
+    "29 requisitos, 29 mapeados.\n\n30 requisitos, 30 mapeados.\n"))
+PY
+  local before
+  before="$(file_sha256 "$PWD/.planning/ROADMAP.md")"
+
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -qF "2 footer lines"
+  echo "$output" | grep -qF "29 requisitos, 29 mapeados."
+  echo "$output" | grep -qF "30 requisitos, 30 mapeados."
+  [ "$before" = "$(file_sha256 "$PWD/.planning/ROADMAP.md")" ]
+}
+
+@test "close --apply twice: the second run writes nothing, by sha AND mtime" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  local n sha_r sha_q sha_s mt_r mt_q mt_s
+  sha_r="$(file_sha256 "$PWD/.planning/ROADMAP.md")"
+  sha_q="$(file_sha256 "$PWD/.planning/REQUIREMENTS.md")"
+  sha_s="$(file_sha256 "$PWD/.planning/STATE.md")"
+  mt_r="$(file_mtime "$PWD/.planning/ROADMAP.md")"
+  mt_q="$(file_mtime "$PWD/.planning/REQUIREMENTS.md")"
+  mt_s="$(file_mtime "$PWD/.planning/STATE.md")"
+
+  # A LATER clock on the second run: the two STATE timestamps must not move
+  # on their own. Running twice is the normal case in an autonomous loop, and
+  # a timestamp written unconditionally makes every second pass a write.
+  CAIRN_NOW="2026-09-09T09:09:09.000Z" run bash "$BOOKKEEP" close 29 --apply \
+    --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.changed' 'false'
+  assert_json_eq "$output" '.planned | length' '0'
+  assert_json_eq "$output" '.files_written | length' '0'
+
+  [ "$sha_r" = "$(file_sha256 "$PWD/.planning/ROADMAP.md")" ]
+  [ "$sha_q" = "$(file_sha256 "$PWD/.planning/REQUIREMENTS.md")" ]
+  [ "$sha_s" = "$(file_sha256 "$PWD/.planning/STATE.md")" ]
+  [ "$mt_r" = "$(file_mtime "$PWD/.planning/ROADMAP.md")" ]
+  [ "$mt_q" = "$(file_mtime "$PWD/.planning/REQUIREMENTS.md")" ]
+  [ "$mt_s" = "$(file_mtime "$PWD/.planning/STATE.md")" ]
+  refute_in_file "2026-09-09" "$PWD/.planning/STATE.md"
+}
+
+@test "close --apply: what stays is EXACTLY what the command refused to write" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  # Eight of the ten are gone. The four rows below are the SET that remains,
+  # asserted as a set: "empty" would be a lie (the ellipsis is never expanded
+  # and a person's sentence is never rewritten), and asserting only a count
+  # would pass over a command that resolved the wrong ones.
+  assert_json_eq "$output" \
+    '[.disagreements[] | "\(.kind)/\(.subject)"] | sort | join(" ")' \
+    'coverage-row-missing/AUTO-05 coverage-row-missing/AUTO-06 requirements-line-unreadable/Phase 29 state-narrative-stale/last_activity_desc'
+}
+
+@test "close --apply: a row is never invented for a requirement with no carrier" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # AUTO-05 and AUTO-06 are active, have no row, and appear on NO phase's
+  # requirements line — phase 29's is the ellipsis. Every other AUTO-* row
+  # says Phase 29, which is a PATTERN, not a source. Inferring from it is the
+  # same move as expanding the ellipsis into eight ids.
+  assert_json_eq "$output" \
+    '[.unresolved[] | select(.kind == "coverage-row-missing") | .subject] | sort | join(",")' \
+    'AUTO-05,AUTO-06'
+  assert_json_eq "$output" \
+    '.unresolved[] | select(.subject == "AUTO-05") | .detail.phases_with_an_unreadable_requirements_line | join(",")' \
+    '29'
+  refute_in_file "| AUTO-05 |" "$PWD/.planning/ROADMAP.md"
+  refute_in_file "| AUTO-06 |" "$PWD/.planning/ROADMAP.md"
+}
+
+@test "close --apply: with the ids written out, the rows plan themselves" {
+  make_drift_fixture "$PWD"
+  # The one edit a person has to make — the ellipsis replaced by the ids.
+  python3 - "$PWD/.planning/ROADMAP.md" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace(
+    "**Requirements**: AUTO-01 … AUTO-08",
+    "**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, "
+    "AUTO-06, AUTO-07, AUTO-08"))
+PY
+  run bash "$BOOKKEEP" reconcile --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.unresolved | length' '0'
+
+  # Inserted at the END of Phase 29's group, in planning order, so the file's
+  # existing grouping by phase survives. Break: appending both to the bottom
+  # of the table, or inserting them reversed.
+  run grep -n "| AUTO-0[4-8] | Phase 29 |" "$PWD/.planning/ROADMAP.md"
+  [ "$status" -eq 0 ]
+  local ids
+  ids="$(sed 's/.*| \(AUTO-0[0-9]\) |.*/\1/' <<<"$output" | tr '\n' ' ')"
+  [ "$ids" = "AUTO-04 AUTO-07 AUTO-08 AUTO-05 AUTO-06 " ]
+
+  # 35 requirements, and now all 35 mapped.
+  grep -qF "35 requisitos, 35 mapeados." "$PWD/.planning/ROADMAP.md"
+
+  # Seven lines in, five out — the four edits this run made (two row status
+  # cells stay untouched here, so: the footer, the three 20-* plan
+  # checkboxes), the two inserted rows, and the requirements line the test
+  # itself rewrote above. The insert did not drag the table's shape along.
+  run git -C "$PWD" diff --numstat -- .planning/ROADMAP.md
+  [ "$status" -eq 0 ]
+  [ "$output" = "7	5	.planning/ROADMAP.md" ]
+}
+
+@test "close --apply: the frontmatter keeps its order, its body, and grows no key" {
+  make_drift_fixture "$PWD"
+  local order_before body_before
+  order_before="$(state_key_order "$PWD/.planning/STATE.md")"
+  body_before="$(state_body_sha "$PWD/.planning/STATE.md")"
+
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # Break: any YAML round-trip. Measured cause: `state complete-phase`
+  # reorders the frontmatter it rewrites.
+  [ "$(state_key_order "$PWD/.planning/STATE.md")" = "$order_before" ]
+
+  # Break: a command that "takes the opportunity" to refresh the prose — or,
+  # worse, that READS it. The measured corruption is `state record-session`
+  # taking `Phase: 18` out of this body and writing it over current_phase.
+  [ "$(state_body_sha "$PWD/.planning/STATE.md")" = "$body_before" ]
+  grep -qF "Phase: 18" "$PWD/.planning/STATE.md"
+
+  # AUTO-08 is grooming (CairnGo-rq0), not this command's to decide: it
+  # writes the key the file has and invents none.
+  grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  refute_in_file "active_phase" "$PWD/.planning/STATE.md"
+}
+
+@test "close --apply: the two free-text fields are untouched AND still named" {
+  make_drift_fixture "$PWD"
+  local desc stopped
+  desc="$(grep '^last_activity_desc:' "$PWD/.planning/STATE.md")"
+  stopped="$(grep '^stopped_at:' "$PWD/.planning/STATE.md")"
+
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # Break one way: a command that rewrites a person's sentence, which is what
+  # `state record-session` gets wrong.
+  [ "$(grep '^last_activity_desc:' "$PWD/.planning/STATE.md")" = "$desc" ]
+  [ "$(grep '^stopped_at:' "$PWD/.planning/STATE.md")" = "$stopped" ]
+
+  # Break the other way: silence. A number nobody recalculates and nobody
+  # reports is exactly how the coverage footer reached 29.
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "state-narrative-stale") | .subject] | join(",")' \
+    'last_activity_desc'
+}
+
+@test "close --apply: a view ahead of its authority is reported, never unmarked" {
+  make_drift_fixture "$PWD"
+  # A plan checked with no SUMMARY on disk, and a requirement checked while
+  # the phase carrying it is still open.
+  python3 - "$PWD/.planning/ROADMAP.md" "$PWD/.planning/REQUIREMENTS.md" <<'PY'
+import pathlib, sys
+r = pathlib.Path(sys.argv[1])
+r.write_text(r.read_text().replace("- [ ] 29-07-PLAN.md", "- [x] 29-07-PLAN.md"))
+q = pathlib.Path(sys.argv[2])
+q.write_text(q.read_text().replace("- [ ] **BOARD-06**", "- [x] **BOARD-06**"))
+PY
+  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  assert_json_eq "$output" \
+    '[.unresolved[] | select(.kind == "plan-checkbox-ahead") | .subject] | join(",")' \
+    '29-07-PLAN.md'
+  assert_json_eq "$output" \
+    '[.unresolved[] | select(.kind == "requirement-checkbox-ahead") | .subject] | join(",")' \
+    'BOARD-06'
+  assert_json_eq "$output" \
+    '.unresolved[] | select(.subject == "BOARD-06") | .detail.open_phases | join(",")' \
+    '21'
+
+  # Still checked. Unmarking asserts an ABSENCE, and a bookkeeper that can
+  # silently un-complete someone's work is worse than one that cannot finish.
+  grep -qF -- "- [x] 29-07-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  grep -qF -- "- [x] **BOARD-06**" "$PWD/.planning/REQUIREMENTS.md"
+}
+
+@test "close: read mode over the full plan writes nothing and exits 3" {
+  make_drift_fixture "$PWD"
+  local sha mt
+  sha="$(file_sha256 "$PWD/.planning/STATE.md")"
+  mt="$(file_mtime "$PWD/.planning/STATE.md")"
+
+  run bash "$BOOKKEEP" close 29 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" '.applied' 'false'
+  assert_json_eq "$output" '.changed' 'false'
+  assert_json_eq "$output" '.planned | length > 10' 'true'
+
+  [ "$sha" = "$(file_sha256 "$PWD/.planning/STATE.md")" ]
+  [ "$mt" = "$(file_mtime "$PWD/.planning/STATE.md")" ]
+  run git -C "$PWD" status --porcelain
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "close --apply: a roadmap-only tree writes the roadmap and NAMES the rest" {
+  write_mini_roadmap "$PWD"
+  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.changed' 'true'
+  # Break: a silent half-run. A missing file is a named skip, not a pass.
+  assert_json_eq "$output" \
+    '[.skipped[] | select(.what | contains("STATE"))] | length > 0' 'true'
+  assert_json_eq "$output" \
+    '[.skipped[] | select(.what | contains("requirement"))] | length > 0' 'true'
 }

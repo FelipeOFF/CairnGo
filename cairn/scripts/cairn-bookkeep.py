@@ -12,12 +12,19 @@ tests/fixtures/bookkeep-drift/, which is this script's test input.
 Usage:
     cairn-bookkeep.py close <phase-number> [--apply] [--json]
                             [--planning-dir <dir>]
-    cairn-bookkeep.py reconcile [--json] [--planning-dir <dir>]
+    cairn-bookkeep.py reconcile [--apply] [--json] [--planning-dir <dir>]
 
     --apply           write the planned edits (default: read only)
     --json            machine-readable output instead of human lines
     --planning-dir    planning dir (default: $CLAUDE_PROJECT_DIR or cwd,
                       plus /.planning)
+
+    CAIRN_NOW         the determinism seam, same shape as the other CAIRN_*
+                      seams: unset means the real clock, set means exactly
+                      what it says (`2026-08-04` or a full ISO stamp). A
+                      value that does not start with YYYY-MM-DD is a usage
+                      error rather than a garbage date written into three
+                      files.
 
 Reading is the default; writing needs the named --apply flag. That is the
 house pattern (cairn-doctor.py's --apply-reconciliation) and it is what keeps
@@ -25,22 +32,50 @@ an autonomous loop from writing by accident.
 
 Behavior:
 
-    close <N>   Mark phase N's checkbox line in ROADMAP.md as complete.
-                Without --apply, prints the edit it would make and exits
-                EXIT_DISAGREEMENT (3) when there is one, EXIT_OK (0) when
-                the checkbox is already marked. With --apply, writes and
-                exits 0. Running it twice writes nothing the second time.
+    close <N>   The whole end-of-phase bookkeeping, in one invocation:
 
-                The `— completed <date>` suffix that closed phases carry
-                (measured on phase 20) is NOT written here; it belongs to
-                the full write path (plan 29-02). This subcommand changes
-                one character inside one bracket, and nothing else.
+                  1. phase N's checkbox line in ROADMAP.md -> `[x]`, plus
+                     the `— completed <date>` suffix a closed phase line
+                     carries (the form measured on phase 20);
+                  2. the checkbox of every requirement all of whose phases
+                     are now complete, in REQUIREMENTS.md;
+                  3. those requirements' status cell in the coverage table
+                     -> `Complete`, and a row for an active requirement that
+                     has none — inserted at the end of its phase's group, so
+                     the file's existing grouping survives;
+                  4. the coverage footer, recounted;
+                  5. each `NN-MM-PLAN.md` checkbox whose `NN-MM-SUMMARY.md`
+                     is on disk;
+                  6. the STATE.md frontmatter counters, and only the keys
+                     listed under THE STATE KEYS below.
 
-    reconcile   Read the three planning files and the phase tree, and NAME
-                every disagreement between them. Writes NOTHING — this
-                subcommand has no --apply at all; resolving is plan 29-02.
-                Exits EXIT_DISAGREEMENT (3) when it found any, 0 when it
-                did not.
+                Without --apply, prints the edits it would make and exits
+                EXIT_DISAGREEMENT (3) when there is at least one, EXIT_OK
+                (0) when there is none. With --apply, writes and exits 0.
+                Running it twice writes nothing the second time — measured
+                by sha256 AND mtime, because a byte-identical rewrite is
+                still a write.
+
+    reconcile   Read the three planning files and the phase tree and NAME
+                every disagreement between them; exits EXIT_DISAGREEMENT
+                (3) when it found any, 0 when it did not, and writes
+                nothing.
+
+                With --apply, makes edits 2 to 5 above and the counters,
+                WITHOUT marking any phase complete: the way to resolve drift
+                that already exists without pretending a phase just closed.
+
+IT ONLY EVER MOVES A VIEW TO "DONE" — THE OTHER DIRECTION IS REPORTED
+    Marking something complete is corroborated by an artifact that exists: a
+    checked phase, a SUMMARY file on disk. Unmarking asserts an ABSENCE, and
+    an absence has many causes — a branch not merged yet, a rename, a phase
+    split, a file that will land in ten minutes. So a view that is AHEAD of
+    its authority (a requirement checked while one of its phases is open, a
+    plan checked with no SUMMARY, a row reading Complete under an open
+    phase) is reported as `*-ahead` in `unresolved` and left alone. This is
+    the one asymmetry in the derivation rule and it is deliberate: a
+    bookkeeper that can silently un-complete work is worse than one that
+    cannot finish.
 
 THE DERIVATION RULE (the spec, not a description of the code)
     One authority, five derived views. Every disagreement `reconcile` names
@@ -57,8 +92,20 @@ THE DERIVATION RULE (the spec, not a description of the code)
       derived 2   the requirement's checkbox in REQUIREMENTS.md reflects
                   derived 1;
       derived 3   its row in the coverage table reflects derived 1;
-      derived 4   the coverage footer's `N requisitos, N mapeados.` counts
-                  the table's rows;
+      derived 4   the coverage footer's `N requisitos, N mapeados.` states
+                  TWO quantities: how many requirements are active, and how
+                  many of them the table maps.
+
+                  THIS CORRECTS 29-01's RULE 4, which read both numbers as
+                  the table's row count. Under that reading the footer is
+                  self-consistent with the table by construction — it can
+                  never contradict REQUIREMENTS.md, and a number that cannot
+                  be wrong is not a check. It would also have this command
+                  WRITE `33 requisitos` into a file whose requirements
+                  section holds 35, which is the automated version of the
+                  defect the phase exists to remove. Read as written, the
+                  footer says where the gap is: `35 requisitos, 33
+                  mapeados.`;
       derived 5   each `NN-MM-PLAN.md` checkbox in a phase block's `Plans:`
                   list reflects whether `NN-MM-SUMMARY.md` exists on disk.
 
@@ -130,6 +177,73 @@ THE STATE COUNTERS COME FROM DISK, AND THE PROSE BODY IS NEVER READ
     answering about. When neither exists, that is ONE finding
     (coverage-view-missing), not one per requirement.
 
+THE FOOTER IS FOUND BY POSITION, AND SEARCHING FOR ITS TEXT DESTROYS THE
+PROOF THIS PHASE RESTS ON
+    Measured 2026-08-04: `grep -n "requisitos, .*mapeados" ROADMAP.md`
+    matches TWO lines. 568 is the footer. 440 is the prose of success
+    criterion 5 quoting the wrong footer between quotes and bold, indented
+    three spaces inside a list item — the measurement that justifies this
+    whole phase, and the acceptance evidence 29-07 reads. A `re.sub` over
+    the file rewrites it on the FIRST pass; idempotence saves nothing from
+    that, because the damage is done before the second run exists.
+
+    So the footer is located structurally: walk from the `## Cobertura`
+    heading to the last consecutive table row, then take the WHOLE-LINE
+    match that follows it inside the same section (no indentation, no `**`,
+    nothing before the first digit). Line 440 is neither in that interval
+    nor a whole-line match. Zero matches means no footer and raises nothing;
+    two matches inside the interval is EXIT_USAGE naming both — never "take
+    the first", the same posture the phase anchor takes.
+
+A ROW IS NEVER INVENTED FOR A REQUIREMENT WITH NO READABLE CARRIER
+    A new coverage row needs a phase for its middle cell, and the only
+    readable source of that is the phase's `**Requirements**:` line.
+    Measured here: AUTO-05 and AUTO-06 are active, have no row, and appear
+    on NO phase's requirements line, because phase 29's is the ellipsis. The
+    tempting inference — every other AUTO-* row says Phase 29, so these two
+    are Phase 29 — is a pattern, not a source, and it is the same move as
+    expanding `AUTO-01 … AUTO-08` into eight ids. So the row is not written:
+    `coverage-row-missing` stays in `unresolved` with `blocked_by` naming
+    the cause and the phases whose requirements line is unreadable. Write
+    the ids out on that line and the row plans itself on the next run.
+
+THE STATE KEYS, EXHAUSTIVELY, AND WHY NO NEW ONE IS EVER CREATED
+    Written: current_phase, current_phase_name (close only),
+    progress.total_phases, progress.completed_phases, progress.total_plans,
+    progress.completed_plans, progress.percent, last_updated,
+    last_activity — each by replacing the value of its OWN line, preserving
+    indentation, quoting and key order. Every other frontmatter line is
+    untouched and the prose body is never read. A key the file does not
+    already have is not created; it is named in `skipped`.
+
+    The two timestamps ride along with a real change and never alone. A run
+    that changed nothing did not produce activity, and writing them
+    unconditionally would make the second --apply of an idempotent command
+    write bytes — which is the whole claim.
+
+    `last_activity_desc` and `stopped_at` are NOT written: they are free
+    text a person wrote, and rewriting a person's sentence is precisely what
+    `state record-session` gets wrong. But the silence about them does not
+    stand either — `reconcile` NAMES `state-narrative-stale` with the
+    computed numbers beside it, so whoever wrote the sentence can decide. A
+    field nobody recalculates and nobody reports is exactly how the coverage
+    footer reached 29.
+
+    current_phase vs active_phase (AUTO-08) IS NOT DECIDED HERE. Measured:
+    `grep -rn current_phase cairn/` -> ZERO readers, while `active_phase` is
+    read by five surfaces (cairn-status.py, cairn-doctor.py, cairn-lease.py,
+    cairn-migrate.py, hooks/session-start.sh). The consequence is a measured
+    false green: `cairn-doctor.sh --json` reports `claims-stale :: ok ::
+    skipped — no active_phase in STATE.md`, a check that has never run in
+    this project's life, wearing `ok`. Which dialect wins changes what five
+    files read and a wrong migration breaks the lease and the board for
+    anyone with a STATE.md already written — that is grooming, tracked as
+    CairnGo-rq0, and this command neither decides it nor stays quiet about
+    it: it writes the key the file already has, invents none, and a test
+    asserts that no `active_phase` key is ever created. The mechanical half
+    of AUTO-08 (a check that could not check must stop saying `ok`) lands in
+    plan 29-07.
+
 DISAGREEMENT KINDS
     coverage-row-missing         active requirement with no table row
     coverage-view-missing        no coverage table anywhere (reported once)
@@ -143,6 +257,10 @@ DISAGREEMENT KINDS
                                  WITHOUT this command proposing to rewrite it
     plan-checkbox-stale          plan with a SUMMARY on disk still `- [ ]`
     requirements-line-unreadable the case above
+
+    And, only in a write run's `unresolved`, the three AHEAD kinds this
+    command reports instead of writing (see the one-way rule above):
+    requirement-checkbox-ahead, coverage-row-ahead, plan-checkbox-ahead.
 
 THE SURGERY, AND WHY IT IS NOT A SERIALIZER
     Every write goes: read the file with newline="" (so a CRLF file stays
@@ -222,6 +340,7 @@ Exit codes:
        difference between a promise and a lie.
 """
 import argparse
+import datetime
 import json
 import os
 import re
@@ -261,9 +380,28 @@ COVERAGE_HEAD = re.compile(
 COVERAGE_ROW = re.compile(
     r"^\|\s*([A-Za-z][A-Za-z0-9]*-\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|")
 # Measured form is pt-BR; the English alternative is ASSUMED (see docstring).
+#
+# WHOLE LINE, and matched against the UNSTRIPPED content: no indentation, no
+# `**` around it, nothing before the first digit. Measured 2026-08-04,
+# `grep -n "requisitos, .*mapeados" .planning/ROADMAP.md` matches TWO lines —
+# 568, the real footer, and 440, which is the prose of success criterion 5
+# quoting the wrong footer between quotes and bold, indented three spaces
+# inside a list item. That prose IS the measurement this whole phase rests on
+# and 29-07 reads it as its acceptance evidence. A substring search would
+# rewrite it on the FIRST pass, and idempotence saves nothing from that.
+# Groups 2 and 4 carry the words between and after the numbers so a rewrite
+# reproduces the file's own phrasing instead of imposing this script's.
 COVERAGE_FOOTER = re.compile(
-    r"^(\d+)\s+(?:requisitos?|requirements?)\s*,\s*(\d+)\s+"
-    r"(?:mapeados?|mapped)")
+    r"^(\d+)(\s+(?:requisitos?|requirements?)\s*,\s*)(\d+)"
+    r"(\s+(?:mapeados?|mapped)\b.*)$")
+# The `— completed <date>` suffix a closed phase line carries (measured on
+# phase 20). Detected anywhere in the line: its presence is what makes the
+# edit idempotent, so the test is "is it already there", never "where".
+COMPLETED_SUFFIX = re.compile(r"\bcompleted\s+\d{4}-\d{2}-\d{2}\b",
+                              re.IGNORECASE)
+HEAD_PHASE_TITLE = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\s*:\s*(.+?)\s*$")
+STATE_KEY = re.compile(r"^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$")
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 REQ_SECTION = re.compile(r"^##\s+(.*?)\s*$")
 REQ_ITEM = re.compile(
     r"^\s*-\s*(?:\[([ xX])\]\s*)?\*\*([A-Za-z][A-Za-z0-9]*-\d+)\*\*")
@@ -313,19 +451,45 @@ def phase_checkbox_hits(lines, n):
     return hits
 
 
-def make_edit(path, index, before, after, reason):
-    """An edit is a line replacement plus the reason it is being made.
+def make_edit(path, index, before, after, reason, op="replace"):
+    """An edit is one line position plus the reason it is being touched.
 
     A bookkeeping tool that writes without saying why is the automated
     version of the same problem, so `reason` is not optional.
+
+    op is "replace" (index is the line being replaced) or "insert" (index is
+    the position the new line takes, and `before` is None because there was
+    no line there). Those are the only two operations: nothing in this script
+    deletes a line, and nothing rewrites a file it did not plan an edit for.
     """
-    return {"file": str(path), "line": index + 1, "index": index,
+    return {"file": str(path), "line": index + 1, "index": index, "op": op,
             "before": before, "after": after, "reason": reason}
 
 
-def plan_close(path, lines, n):
-    """Edits that mark phase n complete in ROADMAP.md. Empty when already
-    marked."""
+def now_stamp():
+    """(date, timestamp) — CAIRN_NOW is the determinism seam for the tests.
+
+    Same shape as the other CAIRN_* seams in this repo: unset means the real
+    clock, set means exactly what it says. A malformed value is a usage error
+    rather than a garbage date written into three files.
+    """
+    raw = (os.environ.get("CAIRN_NOW") or "").strip()
+    if raw:
+        if not ISO_DATE.match(raw):
+            die(f"CAIRN_NOW must start with YYYY-MM-DD, got {raw!r}",
+                EXIT_USAGE)
+        date = raw[:10]
+        return date, raw if len(raw) > 10 else f"{date}T00:00:00.000Z"
+    utc = datetime.datetime.now(datetime.timezone.utc)
+    return (utc.strftime("%Y-%m-%d"),
+            utc.strftime("%Y-%m-%dT%H:%M:%S.") +
+            f"{utc.microsecond // 1000:03d}Z")
+
+
+def plan_close(path, lines, n, date):
+    """Edits that mark phase n complete in ROADMAP.md: the checkbox, and the
+    `— completed <date>` suffix a closed phase line carries (measured on
+    phase 20). Empty when both are already there."""
     hits = phase_checkbox_hits(lines, n)
     if not hits:
         die(f"no checkbox line for phase {n} in {path}", EXIT_NO_PHASE)
@@ -335,20 +499,59 @@ def plan_close(path, lines, n):
         die(f"phase {n} matches {len(hits)} checkbox lines — refusing to "
             f"guess which one is the phase:\n{listed}", EXIT_USAGE)
     index, state, content, _eol, span = hits[0]
-    if state.lower() == "x":
+    after = content
+    why = []
+    if state.lower() != "x":
+        start, end = span
+        after = after[:start] + "x" + after[end:]
+        why.append(f"its checkbox still reads '[{state}]'")
+    if not COMPLETED_SUFFIX.search(after):
+        after = f"{after} — completed {date}"
+        why.append("it carries no `— completed <date>` suffix")
+    if after == content:
         return []
-    start, end = span
-    after = content[:start] + "x" + content[end:]
     return [make_edit(path, index, content, after,
-                      f"phase {n} is complete; its checkbox still reads "
-                      f"'[{state}]'")]
+                      f"phase {n} is complete; " + " and ".join(why))]
 
 
-def apply_edits(path, lines, edits):
+def apply_edits(sources, edits):
+    """Apply every planned edit and write only the files that had one.
+
+    Replacements first, by their ORIGINAL index — they do not move anything.
+    Insertions after, in descending index order, so an earlier insertion
+    cannot shift a later one's position. Nothing is re-serialized: the list
+    of lines that came out of read_lines() is the list that goes back in,
+    with the planned positions and nothing else touched.
+    """
+    by_file = {}
     for edit in edits:
-        _content, eol = split_eol(lines[edit["index"]])
-        lines[edit["index"]] = edit["after"] + eol
-    write_lines(path, lines)
+        by_file.setdefault(edit["file"], []).append(edit)
+    written = []
+    for name in sorted(by_file):
+        lines = sources[name]
+        group = by_file[name]
+        for edit in group:
+            if edit["op"] != "replace":
+                continue
+            _content, eol = split_eol(lines[edit["index"]])
+            lines[edit["index"]] = edit["after"] + eol
+        # Descending index, and for two insertions at the SAME position the
+        # later-planned one first — so the pair comes out in planning order
+        # instead of reversed.
+        inserts = [(k, e) for k, e in enumerate(group)
+                   if e["op"] == "insert"]
+        for _k, edit in sorted(inserts,
+                               key=lambda t: (-t[1]["index"], -t[0])):
+            neighbour = edit["index"] - 1 if edit["index"] else 0
+            eol = "\n"
+            if lines:
+                _content, eol = split_eol(lines[min(neighbour,
+                                                    len(lines) - 1)])
+                eol = eol or "\n"
+            lines.insert(edit["index"], edit["after"] + eol)
+        write_lines(Path(name), lines)
+        written.append(name)
+    return written
 
 
 def emit(payload, as_json, human_lines):
@@ -370,30 +573,49 @@ def resolve_planning_dir(arg):
     return planning
 
 
-def cmd_close(args):
+def run_bookkeeping(args, phase):
+    """The shared body of `close N` and `reconcile --apply`: plan, write
+    behind --apply, report. `close` is this plus the phase's own checkbox
+    (edit 1); `reconcile --apply` is this without it."""
     planning = resolve_planning_dir(args.planning_dir)
-    roadmap = planning / "ROADMAP.md"
-    if not roadmap.is_file():
-        die(f"ROADMAP.md not found in {planning}", EXIT_USAGE)
-    lines = read_lines(roadmap)
-    edits = plan_close(roadmap, lines, args.phase)
+    date, stamp = now_stamp()
+    plan = build_plan(planning, phase, date, stamp)
+    edits = plan["edits"]
+
     changed = False
+    written = []
     if edits and args.apply:
-        apply_edits(roadmap, lines, edits)
+        written = apply_edits(plan["sources"], edits)
         changed = True
-    payload = {"phase": args.phase, "applied": bool(args.apply),
-               "changed": changed,
-               "planned": [{k: e[k] for k in
-                            ("file", "line", "before", "after", "reason")}
-                           for e in edits]}
-    if edits:
-        verb = "wrote" if changed else "would write"
-        human = [f"{verb} {e['file']}:{e['line']}: {e['reason']}"
-                 for e in edits]
-        human += [f"  - {e['before']}" for e in edits]
-        human += [f"  + {e['after']}" for e in edits]
-    else:
-        human = [f"phase {args.phase}: nothing to change"]
+
+    payload = {
+        "phase": phase, "applied": bool(args.apply), "changed": changed,
+        "files_written": written,
+        "planned": [{k: e[k] for k in ("file", "line", "op", "before",
+                                       "after", "reason")} for e in edits],
+        "unresolved": plan["unresolved"], "skipped": plan["skipped"],
+        "counters": plan["counters"]}
+
+    verb = "wrote" if changed else "would write"
+    human = []
+    for e in edits:
+        human.append(f"{verb} {e['file']}:{e['line']} ({e['op']}): "
+                     f"{e['reason']}")
+        if e["before"] is not None:
+            human.append(f"  - {e['before']}")
+        human.append(f"  + {e['after']}")
+    if not edits:
+        human.append("nothing to change")
+    for f in plan["unresolved"]:
+        human.append(f"NOT written :: {f['kind']} :: {f['subject']} :: "
+                     f"found {f['found']!r} ({f['source']})")
+    for s in plan["skipped"]:
+        human.append(f"skipped :: {s['what']} :: {s['why']}")
+    return payload, human, edits
+
+
+def cmd_close(args):
+    payload, human, edits = run_bookkeeping(args, args.phase)
     emit(payload, args.json, human)
     if edits and not args.apply:
         sys.exit(EXIT_DISAGREEMENT)
@@ -408,7 +630,7 @@ def parse_roadmap(lines):
     on every item so a finding can cite where it came from — and so 29-02's
     write path has the position it needs without re-parsing.
     """
-    out = {"phases": {}, "phase_reqs": {}, "phase_plans": {}}
+    out = {"phases": {}, "phase_reqs": {}, "phase_plans": {}, "titles": {}}
     current = None
     for i, raw in enumerate(lines):
         content, _eol = split_eol(raw)
@@ -421,6 +643,10 @@ def parse_roadmap(lines):
                 n, {"complete": False, "line": i + 1, "raw": content})
             if m.group(1).lower() == "x":
                 entry["complete"] = True
+
+        m = HEAD_PHASE_TITLE.match(content)
+        if m:
+            out["titles"].setdefault(int(m.group(1), 10), m.group(2).strip())
 
         m = HEAD_PHASE.match(content)
         if m:
@@ -440,8 +666,9 @@ def parse_roadmap(lines):
         m = PLAN_CHECKBOX.match(content)
         if m:
             out["phase_plans"].setdefault(current, []).append(
-                {"line": i + 1, "plan": m.group(2),
-                 "checked": m.group(1).lower() == "x"})
+                {"line": i + 1, "index": i, "plan": m.group(2),
+                 "checked": m.group(1).lower() == "x",
+                 "state_span": m.span(1), "raw": content})
     return out
 
 
@@ -455,34 +682,57 @@ def parse_coverage(lines, path):
 
     Returns None when this file has no coverage section at all, which is a
     different state from "a section with no rows" and is reported as such.
+
+    THE FOOTER IS FOUND BY POSITION, NEVER BY SEARCHING THE FILE FOR ITS
+    TEXT. Walk from the coverage heading to the last consecutive table row,
+    and take the whole-line match that follows it inside the same section.
+    Measured 2026-08-04: searching the file for `requisitos, .*mapeados`
+    matches TWO lines, and the second is the prose of success criterion 5
+    quoting the wrong footer — the evidence that justifies this phase. Zero
+    or two matches inside the interval is a usage error naming what was
+    found; "take the first" is how a tool ends up editing the wrong line
+    with confidence.
     """
-    inside = False
-    rows, footer, head_line = [], None, None
+    head_line, start, end = None, None, len(lines)
     for i, raw in enumerate(lines):
         content, _eol = split_eol(raw)
-        if COVERAGE_HEAD.match(content):
-            inside = True
-            head_line = i + 1
+        if head_line is None:
+            if COVERAGE_HEAD.match(content):
+                head_line, start = i + 1, i + 1
             continue
-        if inside and content.startswith("## "):
+        if content.startswith("## "):
+            end = i
             break
-        if not inside:
-            continue
-        m = COVERAGE_ROW.match(content)
-        if m:
-            rows.append({"file": str(path), "line": i + 1,
-                         "requirement": m.group(1), "phase": m.group(2),
-                         "status": m.group(3)})
-            continue
-        m = COVERAGE_FOOTER.match(content.strip())
-        if m and footer is None:
-            footer = {"file": str(path), "line": i + 1,
-                      "raw": content.strip(), "claim": int(m.group(1), 10),
-                      "mapped": int(m.group(2), 10)}
     if head_line is None:
         return None
+
+    rows, last_row = [], None
+    for i in range(start, end):
+        content, _eol = split_eol(lines[i])
+        m = COVERAGE_ROW.match(content)
+        if m:
+            rows.append({"file": str(path), "line": i + 1, "index": i,
+                         "requirement": m.group(1), "phase": m.group(2),
+                         "status": m.group(3), "status_span": m.span(3)})
+            last_row = i
+
+    footers = []
+    for i in range((last_row + 1) if last_row is not None else start, end):
+        content, _eol = split_eol(lines[i])
+        m = COVERAGE_FOOTER.match(content)
+        if m:
+            footers.append({"file": str(path), "line": i + 1, "index": i,
+                            "raw": content, "claim": int(m.group(1), 10),
+                            "mapped": int(m.group(3), 10)})
+    if len(footers) > 1:
+        listed = "\n".join(f"  {path}:{f['line']}: {f['raw']}"
+                           for f in footers)
+        die(f"the coverage section holds {len(footers)} footer lines — "
+            f"refusing to guess which one counts the table:\n{listed}",
+            EXIT_USAGE)
     return {"file": str(path), "heading_line": head_line, "rows": rows,
-            "footer": footer}
+            "footer": footers[0] if footers else None,
+            "last_row_index": last_row, "section_end_index": end}
 
 
 def parse_requirements(lines):
@@ -510,18 +760,26 @@ def parse_requirements(lines):
         if m:
             state = m.group(1)
             out[bucket].append({
-                "line": i + 1, "requirement": m.group(2),
+                "line": i + 1, "index": i, "requirement": m.group(2),
                 "checked": bool(state) and state.lower() == "x",
-                "has_checkbox": state is not None})
+                "has_checkbox": state is not None,
+                "state_span": m.span(1) if state is not None else None,
+                "raw": content})
     return out
 
 
-def parse_state_frontmatter(lines):
-    """The YAML frontmatter of STATE.md, one nesting level deep.
+def parse_state_frontmatter_items(lines):
+    """The YAML frontmatter of STATE.md, one nesting level deep, with the
+    POSITION of every key — dotted for a nested one (`progress.percent`).
 
     THE BODY IS NEVER READ. Measured cause: `state record-session` took
     `Phase: 18` from the obsolete prose below the frontmatter and rewrote
     `current_phase: 29` backwards to a phase of an archived milestone.
+
+    The position is what lets the write path replace one key's value in
+    place, preserving indentation AND key order. Measured cause for that
+    one: `state complete-phase` round-trips the frontmatter through a YAML
+    serializer and reorders it.
     """
     out = {}
     started = False
@@ -536,17 +794,25 @@ def parse_state_frontmatter(lines):
                 break
         if not started:
             continue
-        m = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$", content)
+        m = STATE_KEY.match(content)
         if not m:
             continue
         indent, key, value = m.group(1), m.group(2), m.group(3).strip()
+        item = {"index": i, "line": i + 1, "raw": content, "value": value,
+                "value_span": m.span(3)}
         if indent and nested:
-            out[f"{nested}.{key}"] = value
+            out[f"{nested}.{key}"] = item
         else:
             nested = key if value == "" else None
             if value != "":
-                out[key] = value
+                out[key] = item
     return out
+
+
+def parse_state_frontmatter(lines):
+    """Just the values — the shape reconcile's report echoes."""
+    return {k: v["value"]
+            for k, v in parse_state_frontmatter_items(lines).items()}
 
 
 def scan_phase_tree(planning):
@@ -584,6 +850,333 @@ def as_int(value):
         return None
 
 
+# The one-way rule, quoted into every finding it produces so the reason
+# travels with the report instead of living only in this file.
+ONE_WAY_NOTE = ("this command only ever moves a view from not-done to done. "
+                "The reverse — unmarking something the disk does not "
+                "corroborate — asserts an ABSENCE, and an absence has many "
+                "causes (a branch not merged yet, a rename, a phase split). "
+                "Reported, never written.")
+
+# Exhaustively: the only STATE.md frontmatter keys this command ever writes,
+# and only when the file already has them. It invents no key.
+STATE_KEYS_WRITTEN = ("current_phase", "current_phase_name",
+                      "progress.total_phases", "progress.completed_phases",
+                      "progress.total_plans", "progress.completed_plans",
+                      "progress.percent", "last_updated", "last_activity")
+
+
+def carriers_of(road):
+    """requirement id -> the phases whose `**Requirements**:` line names it.
+
+    ONE implementation, called by the reader and by the writer. Two
+    implementations of the same arithmetic that can drift apart is the
+    disease this milestone treats; writing it twice here would be the tool
+    catching itself.
+    """
+    carriers = {}
+    for n, block in road["phase_reqs"].items():
+        for rid in block["ids"]:
+            carriers.setdefault(rid, []).append(n)
+    return carriers
+
+
+def derive_complete(carriers, complete_phase):
+    """derived 1: a requirement is complete when EVERY phase carrying it
+    is."""
+    return {rid: all(complete_phase.get(n, False) for n in phases)
+            for rid, phases in carriers.items()}
+
+
+def compute_counters(road, tree, complete_phase, n_active, n_rows):
+    """The STATE counters, from the roadmap's checkbox lines and the file
+    NAMES under .planning/phases/ — never from the frontmatter that claims
+    them, and never from the prose body."""
+    in_milestone = sorted(road["phases"])
+    total_phases = len(in_milestone)
+    completed = sum(1 for n in in_milestone if complete_phase.get(n, False))
+    return {
+        "total_phases": total_phases,
+        "completed_phases": completed,
+        "total_plans": sum(len(tree.get(n, {}).get("plans", []))
+                           for n in in_milestone),
+        "completed_plans": sum(len(tree.get(n, {}).get("summaries", []))
+                               for n in in_milestone),
+        "percent": (round(100 * completed / total_phases)
+                    if total_phases else 0),
+        "active_requirements": n_active,
+        "coverage_rows": n_rows}
+
+
+def ellipsis_phases(road):
+    """Phases whose requirements line is an ellipsis — the ids it should
+    name are unknown, so anything derived from them is unknown too."""
+    return sorted(n for n, block in road["phase_reqs"].items()
+                  if ELLIPSIS.search(block["raw"]))
+
+
+def format_state_value(old, value):
+    """The new value, wearing the old one's quoting and trailing space."""
+    text = str(value)
+    body = old.rstrip()
+    trail = old[len(body):]
+    if len(body) >= 2 and body[0] in "\"'" and body[-1] == body[0]:
+        return f"{body[0]}{text}{body[0]}{trail}"
+    return f"{text}{trail}"
+
+
+def insertion_index(coverage, lines, phase):
+    """Where a new row for `phase` goes: after the LAST row already mapped
+    to that phase, so the file's existing grouping by phase survives; after
+    the last row of the table when the phase has no group yet."""
+    at = coverage["last_row_index"]
+    for row in coverage["rows"]:
+        m = re.search(r"\b0*(\d+)\b", row["phase"])
+        if m and int(m.group(1), 10) == phase:
+            at = row["index"]
+    return (at + 1) if at is not None else coverage["heading_line"]
+
+
+def build_plan(planning, phase, date, stamp):
+    """The whole edit plan over the three files — the six edits, the things
+    it refuses to write, and the things it could not reach.
+
+    Nothing here writes. It returns the plan; apply_edits() is the only
+    thing that touches a file, and only with this list in hand.
+    """
+    roadmap_path = planning / "ROADMAP.md"
+    if not roadmap_path.is_file():
+        die(f"ROADMAP.md not found in {planning}", EXIT_USAGE)
+    reqs_path = planning / "REQUIREMENTS.md"
+    state_path = planning / "STATE.md"
+
+    roadmap_lines = read_lines(roadmap_path)
+    sources = {str(roadmap_path): roadmap_lines}
+    reqs_lines = None
+    state_lines = None
+    skipped = []
+    if reqs_path.is_file():
+        reqs_lines = read_lines(reqs_path)
+        sources[str(reqs_path)] = reqs_lines
+    else:
+        skipped.append({"what": "the requirement checkboxes",
+                        "why": f"{reqs_path} does not exist"})
+    if state_path.is_file():
+        state_lines = read_lines(state_path)
+        sources[str(state_path)] = state_lines
+    else:
+        skipped.append({"what": "the STATE counters",
+                        "why": f"{state_path} does not exist"})
+
+    road = parse_roadmap(roadmap_lines)
+    tree = scan_phase_tree(planning)
+    reqs = (parse_requirements(reqs_lines) if reqs_lines is not None
+            else {"active": [], "deferred": [], "out_of_scope": []})
+    coverage = parse_coverage(roadmap_lines, roadmap_path)
+    if coverage is None and reqs_lines is not None:
+        coverage = parse_coverage(reqs_lines, reqs_path)
+
+    edits, unresolved = [], []
+
+    # --- edit 1: the phase's own checkbox (close only) ---------------------
+    if phase is not None:
+        edits.extend(plan_close(roadmap_path, roadmap_lines, phase, date))
+
+    complete_phase = {n: p["complete"] for n, p in road["phases"].items()}
+    if phase is not None:
+        complete_phase[phase] = True
+    carriers = carriers_of(road)
+    derived = derive_complete(carriers, complete_phase)
+
+    active = [r["requirement"] for r in reqs["active"]]
+    by_id = {r["requirement"]: r for r in reqs["active"]}
+
+    # --- edit 2: each requirement's checkbox ------------------------------
+    for rid in active:
+        item = by_id[rid]
+        if rid not in derived or not item["has_checkbox"]:
+            continue
+        if item["checked"] == derived[rid]:
+            continue
+        if not derived[rid]:
+            unresolved.append(finding(
+                "requirement-checkbox-ahead", rid, "[x]", "[ ]",
+                f"{reqs_path}:{item['line']}",
+                {"open_phases": sorted(n for n in carriers[rid]
+                                       if not complete_phase.get(n, False)),
+                 "note": ONE_WAY_NOTE}))
+            continue
+        start, end = item["state_span"]
+        raw = item["raw"]
+        edits.append(make_edit(
+            reqs_path, item["index"], raw, raw[:start] + "x" + raw[end:],
+            "every phase carrying {0} is complete ({1})".format(
+                rid, ", ".join("phase %d" % n
+                               for n in sorted(carriers[rid])))))
+
+    # --- edits 3 and 4: the coverage table and its footer ------------------
+    rows_after = 0
+    if coverage is None:
+        if active:
+            skipped.append({
+                "what": "the coverage table and its footer",
+                "why": "no '## Cobertura' section in ROADMAP.md and no "
+                       "'## Traceability' section in REQUIREMENTS.md"})
+    else:
+        cov_path = Path(coverage["file"])
+        cov_lines = sources[coverage["file"]]
+        rows_by_id = {r["requirement"]: r for r in coverage["rows"]}
+        for rid in sorted(rows_by_id):
+            row = rows_by_id[rid]
+            if rid not in derived:
+                continue
+            already = row["status"].strip().lower() == "complete"
+            if derived[rid] == already:
+                continue
+            if not derived[rid]:
+                unresolved.append(finding(
+                    "coverage-row-ahead", rid, row["status"].strip(),
+                    "a status matching its phases",
+                    f"{row['file']}:{row['line']}",
+                    {"open_phases": sorted(n for n in carriers[rid]
+                                           if not complete_phase.get(n,
+                                                                     False)),
+                     "note": ONE_WAY_NOTE}))
+                continue
+            raw = split_eol(cov_lines[row["index"]])[0]
+            start, end = row["status_span"]
+            edits.append(make_edit(
+                cov_path, row["index"], raw,
+                raw[:start] + "Complete" + raw[end:],
+                f"every phase carrying {rid} is complete"))
+
+        inserted = 0
+        blind = ellipsis_phases(road)
+        for rid in active:
+            if rid in rows_by_id:
+                continue
+            if rid not in carriers:
+                unresolved.append(finding(
+                    "coverage-row-missing", rid, None, "a coverage table row",
+                    f"{reqs_path}:{by_id[rid]['line']}",
+                    {"blocked_by": "no phase in ROADMAP.md declares it, so "
+                                   "the row's phase cell has no readable "
+                                   "source",
+                     "phases_with_an_unreadable_requirements_line": blind,
+                     "note": "NEVER inferred from the id's prefix. That the "
+                             "other AUTO-* rows all say Phase 29 is a "
+                             "pattern, not a source — writing the row from "
+                             "it would be inference wearing the costume of "
+                             "reading. Write the ids out on the phase's "
+                             "**Requirements**: line and this row plans "
+                             "itself."}))
+                continue
+            n = sorted(carriers[rid])[0]
+            status = "Complete" if derived[rid] else "Pending"
+            edits.append(make_edit(
+                cov_path, insertion_index(coverage, cov_lines, n), None,
+                f"| {rid} | Phase {n} | {status} |",
+                f"{rid} is active and has no row; phase {n} declares it",
+                op="insert"))
+            inserted += 1
+
+        rows_after = len(coverage["rows"]) + inserted
+        footer = coverage["footer"]
+        if footer is not None:
+            want = (len(active), rows_after)
+            if (footer["claim"], footer["mapped"]) != want:
+                raw = split_eol(cov_lines[footer["index"]])[0]
+                m = COVERAGE_FOOTER.match(raw)
+                edits.append(make_edit(
+                    cov_path, footer["index"], raw,
+                    f"{want[0]}{m.group(2)}{want[1]}{m.group(4)}",
+                    f"{len(active)} active requirement(s) and {rows_after} "
+                    f"table row(s); the footer claims "
+                    f"{footer['claim']}/{footer['mapped']}"))
+
+    # --- edit 5: each plan's checkbox against its SUMMARY on disk ----------
+    for n in sorted(road["phase_plans"]):
+        summaries = set(tree.get(n, {}).get("summaries", []))
+        for item in road["phase_plans"][n]:
+            summary = item["plan"].replace("-PLAN.md", "-SUMMARY.md")
+            on_disk = summary in summaries
+            if item["checked"] == on_disk:
+                continue
+            if not on_disk:
+                unresolved.append(finding(
+                    "plan-checkbox-ahead", item["plan"], "[x]", "[ ]",
+                    f"{roadmap_path}:{item['line']}",
+                    {"summary": summary, "note": ONE_WAY_NOTE}))
+                continue
+            start, end = item["state_span"]
+            raw = item["raw"]
+            edits.append(make_edit(
+                roadmap_path, item["index"], raw,
+                raw[:start] + "x" + raw[end:],
+                f"{summary} is on disk"))
+
+    # --- edit 6: the STATE frontmatter, and ONLY the keys it already has ---
+    counters = compute_counters(road, tree, complete_phase, len(active),
+                                rows_after)
+    if state_lines is not None:
+        items = parse_state_frontmatter_items(state_lines)
+        wanted = {f"progress.{k}": counters[k] for k in
+                  ("total_phases", "completed_phases", "total_plans",
+                   "completed_plans", "percent")}
+        if phase is not None:
+            wanted["current_phase"] = phase
+            title = road["titles"].get(phase)
+            if title:
+                wanted["current_phase_name"] = title
+        state_edits = []
+        for key in STATE_KEYS_WRITTEN:
+            if key not in wanted or key not in items:
+                continue
+            item = items[key]
+            raw = split_eol(state_lines[item["index"]])[0]
+            start, end = item["value_span"]
+            after = raw[:start] + format_state_value(raw[start:end],
+                                                     wanted[key]) + raw[end:]
+            if after == raw:
+                continue
+            state_edits.append(make_edit(
+                state_path, item["index"], raw, after,
+                f"{key} disagrees with the roadmap and the phase tree"))
+        # The two timestamps ride along with a real change and never alone:
+        # a run that changed nothing did not produce activity, and writing
+        # them unconditionally would make the second --apply of an
+        # idempotent command write bytes.
+        if edits or state_edits:
+            for key, value in (("last_updated", stamp),
+                               ("last_activity", date)):
+                if key not in items:
+                    continue
+                item = items[key]
+                raw = split_eol(state_lines[item["index"]])[0]
+                start, end = item["value_span"]
+                after = (raw[:start]
+                         + format_state_value(raw[start:end], value)
+                         + raw[end:])
+                if after != raw:
+                    state_edits.append(make_edit(
+                        state_path, item["index"], raw, after,
+                        f"{key} follows the edits this run made"))
+        edits.extend(state_edits)
+        absent = [k for k in STATE_KEYS_WRITTEN if k not in items]
+        if absent:
+            skipped.append({
+                "what": "STATE.md keys this command did not create",
+                "why": "the file does not have them: " + ", ".join(absent)
+                       + " — it writes the key a file already has and "
+                         "invents none (see AUTO-08 / CairnGo-rq0)"})
+
+    return {"sources": sources, "edits": edits, "unresolved": unresolved,
+            "skipped": skipped, "counters": counters,
+            "files": {"roadmap": str(roadmap_path),
+                      "requirements": str(reqs_path),
+                      "state": str(state_path)}}
+
+
 def reconcile(planning):
     """Read the three files and the phase tree; name every disagreement.
 
@@ -616,14 +1209,9 @@ def reconcile(planning):
     req_line_no = {r["requirement"]: r["line"] for r in reqs["active"]}
 
     # derived 1: a requirement is complete when every phase carrying it is.
-    carriers = {}
-    for n, block in road["phase_reqs"].items():
-        for rid in block["ids"]:
-            carriers.setdefault(rid, []).append(n)
     complete_phase = {n: p["complete"] for n, p in road["phases"].items()}
-    derived = {}
-    for rid, phases in carriers.items():
-        derived[rid] = all(complete_phase.get(n, False) for n in phases)
+    carriers = carriers_of(road)
+    derived = derive_complete(carriers, complete_phase)
 
     cov_rows = coverage["rows"] if coverage else []
     cov_footer = coverage["footer"] if coverage else None
@@ -695,15 +1283,24 @@ def reconcile(planning):
                 {"phases": sorted(carriers[rid]),
                  "phases_complete": derived[rid]}))
 
-    # --- derived 4: the footer counts the table -----------------------------
+    # --- derived 4: the footer counts requirements AND how many are mapped --
     # No footer at all reports nothing: an absent claim is not a false claim.
+    #
+    # `N requisitos, N mapeados.` states TWO different quantities, and this
+    # is a correction to 29-01's rule 4, which read both as the table's row
+    # count. Under that reading the footer is self-consistent with the table
+    # by construction: it can never contradict REQUIREMENTS.md, and a number
+    # that cannot be wrong is not a check. Read as written — how many
+    # requirements exist, how many of them the table maps — the footer says
+    # exactly where the gap is: `35 requisitos, 33 mapeados.`
     if cov_footer is not None:
         rows = len(cov_rows)
-        if cov_footer["claim"] != rows or cov_footer["mapped"] != rows:
+        if cov_footer["claim"] != len(active) or cov_footer["mapped"] != rows:
             found.append(finding(
                 "footer-count-stale", "coverage footer",
                 [cov_footer["claim"], cov_footer["mapped"]],
-                [rows, rows], f"{cov_footer['file']}:{cov_footer['line']}",
+                [len(active), rows],
+                f"{cov_footer['file']}:{cov_footer['line']}",
                 {"raw": cov_footer["raw"],
                  "active_requirements": len(active)}))
 
@@ -723,21 +1320,9 @@ def reconcile(planning):
 
     # --- the STATE counters, computed from disk and the roadmap only --------
     in_milestone = sorted(road["phases"])
-    total_phases = len(in_milestone)
-    completed_phases = sum(1 for n in in_milestone if complete_phase[n])
-    total_plans = sum(len(tree.get(n, {}).get("plans", []))
-                      for n in in_milestone)
-    completed_plans = sum(len(tree.get(n, {}).get("summaries", []))
-                          for n in in_milestone)
-    computed = {
-        "total_phases": total_phases,
-        "completed_phases": completed_phases,
-        "total_plans": total_plans,
-        "completed_plans": completed_plans,
-        "percent": (round(100 * completed_phases / total_phases)
-                    if total_phases else 0),
-        "active_requirements": len(active),
-        "coverage_rows": len(cov_rows)}
+    computed = compute_counters(road, tree, complete_phase, len(active),
+                                len(cov_rows))
+    total_phases = computed["total_phases"]
 
     for key in ("total_phases", "completed_phases", "total_plans",
                 "completed_plans", "percent"):
@@ -789,6 +1374,13 @@ def reconcile(planning):
 
 
 def cmd_reconcile(args):
+    if args.apply:
+        # The same five edits `close` makes, WITHOUT marking any phase
+        # complete: the way to resolve drift that already exists rather than
+        # pretending a phase just closed.
+        payload, human, edits = run_bookkeeping(args, None)
+        emit(payload, args.json, human)
+        sys.exit(EXIT_OK)
     planning = resolve_planning_dir(args.planning_dir)
     result = reconcile(planning)
     found = result["disagreements"]
@@ -822,11 +1414,11 @@ def build_parser():
                             "cwd, plus /.planning)")
     close.set_defaults(func=cmd_close)
 
-    # No --apply here, deliberately: reconcile in this plan reads and names.
-    # Resolving is plan 29-02, and a flag that exists before its behavior
-    # does is the defect this phase removes.
     rec = sub.add_parser("reconcile", help="name every disagreement between "
                                            "the planning files and the disk")
+    rec.add_argument("--apply", action="store_true",
+                     help="resolve what can be resolved without marking any "
+                          "phase complete (default: read only)")
     rec.add_argument("--json", action="store_true",
                      help="machine-readable output")
     rec.add_argument("--planning-dir", metavar="DIR",
