@@ -181,6 +181,16 @@ status: complete
 | `tests/cairn-config.bats` | não existia | **16**, 0 falhas |
 | `tests/cairn-parallel.bats` | 31 | **37**, 0 falhas |
 | `tests/cairn-parallel-autonomous.bats` | 9 | 9, 0 falhas (intocada) |
+| **suíte inteira** (`tests/`) | — | **600, 0 falhas** |
+
+A suíte inteira foi medida em lotes (`77 + 183 + 122 + 83 + 73 + 62 = 600`), e o
+total bate com o `1..600` que o `bats tests/` anuncia. **Não houve baseline limpo
+de 556 como o prompt supunha:** quando comecei, a árvore já carregava commits dos
+planos 29-01 e 29-02 desta mesma onda — a contagem estática de `@test` no HEAD de
+partida já era 570. Rodar `bats -j 6 tests/` inteiro de uma vez foi abortado três
+vezes no meio (`bats warning: Executed 171 instead of expected 600`), duas por
+concorrência com o outro executor na mesma árvore e uma por SIGPIPE do meu próprio
+`| head` — o número acima veio de lotes em foreground, sem `head` no pipe.
 
 **Treze quebras nomeadas, cada uma executada, vista vermelha, restaurada de backup
 `cp` (byte a byte, `cmp` confirmado) e vista verde de novo:**
