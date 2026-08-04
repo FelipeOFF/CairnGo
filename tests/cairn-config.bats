@@ -272,6 +272,121 @@ make_config_fixture() {
   grep -qF "takes a boolean" <<<"$output"
 }
 
+#-----------------------------------------------------------------------------
+# Task 3: the two doors.
+#
+# The asking layer is prose — AskUserQuestion does not run under bats, and no
+# test here pretends otherwise. What IS proven is the seam underneath it: the
+# command writes through `set` and reads through `list --json`, so if the two
+# doors reach the same bytes, the questions cannot land anywhere else. The
+# prose assertions below check that the command DELEGATES to that seam rather
+# than reimplementing it, which is the one thing a bats file can honestly say
+# about a markdown prompt.
+#-----------------------------------------------------------------------------
+
+@test "the two doors reach the same bytes: hand-write and read via get, set and read the file raw, and both orders produce identical files" {
+  make_config_fixture
+
+  # Door 1 — the one /cairn:config uses.
+  bash "$CONFIG" set autonomous.max_parallel 5 --project-dir "$ROOT"
+  bash "$CONFIG" set ship.pr_scope milestone --project-dir "$ROOT"
+  local by_set="$BATS_TEST_TMPDIR/by-set.json"
+  cp "$ROOT/.cairn/config.json" "$by_set"
+
+  # `set` wrote something a hand editor can read back with jq alone.
+  run jq -r '.autonomous.max_parallel' "$by_set"
+  [ "$output" = "5" ]
+  run jq -r '.ship.pr_scope' "$by_set"
+  [ "$output" = "milestone" ]
+
+  # Door 2 — a human with an editor, in a fresh repo, typing the same thing.
+  # This heredoc is written by hand on purpose: it is what the format claims
+  # to be, not what the writer happens to emit.
+  local other="$BATS_TEST_TMPDIR/by-hand-repo"
+  mkdir -p "$other/.cairn"
+  cat > "$other/.cairn/config.json" <<'JSONEOF'
+{
+  "autonomous": {
+    "max_parallel": 5
+  },
+  "ship": {
+    "pr_scope": "milestone"
+  }
+}
+JSONEOF
+
+  # The hand-written file is read as authoritative, key for key.
+  run bash "$CONFIG" get autonomous.max_parallel --project-dir "$other" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.value' '5'
+  assert_json_eq "$output" '.source' 'file'
+  run bash "$CONFIG" get ship.pr_scope --project-dir "$other"
+  [ "$output" = "milestone" ]
+
+  # And the two doors leave the same bytes on disk. Anything that normalized,
+  # reordered, or stored somewhere else than the hand edit sees would make
+  # "two doors, one place" a story rather than a fact.
+  run cmp "$by_set" "$other/.cairn/config.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "a set never clobbers a key its own question did not ask about" {
+  make_config_fixture
+  mkdir -p "$ROOT/.cairn"
+  # A hand edit carrying a key this run will not touch, plus a comment-free
+  # unknown key someone left behind.
+  cat > "$ROOT/.cairn/config.json" <<'JSONEOF'
+{
+  "autonomous": {
+    "max_cycles": 7
+  },
+  "keep_me": "not a schema key, and not this script's to delete"
+}
+JSONEOF
+
+  bash "$CONFIG" set ship.pr_scope none --project-dir "$ROOT"
+
+  run jq -r '.autonomous.max_cycles' "$ROOT/.cairn/config.json"
+  [ "$output" = "7" ]
+  run jq -r '.keep_me' "$ROOT/.cairn/config.json"
+  [ "$output" = "not a schema key, and not this script's to delete" ]
+  run jq -r '.ship.pr_scope' "$ROOT/.cairn/config.json"
+  [ "$output" = "none" ]
+}
+
+@test "the /cairn:config command delegates to the script and declares what it leaves out" {
+  local cmd="$CAIRN_REPO_ROOT/cairn/commands/config.md"
+  [ -f "$cmd" ]
+
+  # A thin wrapper: the current values come from `list --json` and the write
+  # goes through `set` — no prose reimplementation of either.
+  grep -qF 'scripts/cairn-config.sh" list --json' "$cmd"
+  grep -qF 'scripts/cairn-config.sh" set <key> <value>' "$cmd"
+
+  # One batch with the current value pre-selected, in named sections — the
+  # /gsd:config shape, mirrored rather than reinvented.
+  grep -qF "AskUserQuestion" "$cmd"
+  grep -qF "pre-selected" "$cmd"
+  grep -qF "Bookkeeping" "$cmd"
+  grep -qF "Autonomous run" "$cmd"
+  grep -qF "Tests" "$cmd"
+
+  # Both doors said out loud: half of AUTO-05 is exactly this sentence being
+  # true and being told to the user.
+  grep -qF "editing it by hand reaches exactly the same place" "$cmd"
+
+  # What is NOT offered, why, and where the decision lives.
+  grep -qF "cairn.sync_push" "$cmd"
+  grep -qF "post-bd-write.sh:126-152" "$cmd"
+  grep -qF "CairnGo-gbu" "$cmd"
+
+  # And the three config commands are told apart in one place.
+  local help="$CAIRN_REPO_ROOT/cairn/commands/help.md"
+  grep -qF "/cairn:config" "$help"
+  grep -qF "/cairn:sync-config" "$help"
+  grep -qF "/cairn:context-config" "$help"
+}
+
 @test "the nullable int: null means available CPUs, a number means that number, zero is refused" {
   make_config_fixture
 

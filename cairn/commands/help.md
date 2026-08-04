@@ -36,11 +36,20 @@ MIGRATE & HEALTH
 MEMORY (context-mode — on by default)
   /cairn:remember [what]  index reference material under the active gb/<id>/<phase>
   /cairn:recall  <query>  search memory scoped to the active issue + phase
-  /cairn:context-config   (optional) tune the scope template / capacity threshold
 
 SYNC (optional)
-  /cairn:sync-config      mirror bd ↔ GitHub/GitLab/Jira/Asana/Azure Boards
   /cairn:sync-pull        reconcile external edits back into bd
+
+CONFIG (three commands, three files — they do not overlap)
+  /cairn:config           cairn's own knobs: auto-commit, PR scope, the
+                          ceilings on an autonomous run, test jobs
+                          → .cairn/config.json
+  /cairn:sync-config      which backends bd mirrors to (GitHub/GitLab/Jira/
+                          Asana/Azure Boards)        → .cairn/sync.json
+  /cairn:context-config   context-mode scope template + capacity threshold
+                                                     → .cairn/context.json
+  Each writes a file you can also edit by hand, and /cairn:config ends by
+  naming all three plus GSD's own `cairn.enabled` — one place to look.
 
 ESCAPE HATCHES (raw passthrough — reach anything the verbs don't wrap)
   /cairn:bd  <args…>      run any beads command   (e.g. /cairn:bd dep add a b)
