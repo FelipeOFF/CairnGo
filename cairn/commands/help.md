@@ -22,6 +22,16 @@ LOOP
   /cairn:milestone <op>   new: roadmap + issues + maps · complete: gate → reconcile → archive
   /cairn:autonomous [N]   run every remaining phase hands-off (plan → claim → execute → close → verify per phase; stops at the ship gate)
 
+  scripts/cairn-bookkeep.sh close <N> --apply
+                          the end-of-phase bookkeeping, in one command: marks
+                          the phase and its requirements, moves the coverage
+                          table, the footer, the plan checkboxes and the STATE
+                          counters, regenerates the map, releases the lease.
+                          Invoked by the commands above; run it by hand when
+                          you closed a phase outside them. Reading is the
+                          default — drop --apply to see the edits first.
+                          → docs/commands/bookkeep.md
+
 VIEW
   /cairn:status           board render: READY / DOING / BLOCKED lanes + one next action (--brief)
   /cairn:progress         roadmap-level progress (GSD)

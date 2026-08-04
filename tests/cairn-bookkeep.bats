@@ -1125,3 +1125,128 @@ PY
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.pr_due' 'null'
 }
+
+# ---------------------------------------------------------------------------
+# The prose: no cairn command instructs a hand edit of the three files
+# (plan 29-02, task 3)
+#
+# What these do NOT prove: that an agent obeys prose. What they prove is that
+# the prose does not carry two contradictory instructions at once — which is
+# the likely result of a careless edit, and the one an "it mentions the
+# script" assertion would happily approve.
+#
+# The negative assertion is scoped to the STEP and searched one FILE NAME at a
+# time, deliberately. Measured before this plan: the three names were split
+# across two lines (`.planning/STATE.md`, `.planning/ROADMAP.md` and\n
+# `.planning/REQUIREMENTS.md`), so any search for a whole phrase containing
+# them matched ZERO occurrences and would have "passed" forever. A sweep that
+# finds nothing because it looked wrong is the same false green this phase
+# exists to remove, performed by the hand that came to remove it.
+# ---------------------------------------------------------------------------
+
+AUTONOMOUS_CMD="$CAIRN_REPO_ROOT/cairn/commands/autonomous.md"
+BOOKKEEP_DOC="$CAIRN_REPO_ROOT/cairn/docs/commands/bookkeep.md"
+
+# The completion-marks step only: from its numbered heading to the next one.
+completion_step() {
+  sed -n '/^3\. \*\*Apply the completion marks/,/^4\. \*\*/p' "$AUTONOMOUS_CMD"
+}
+
+@test "autonomous: the completion-marks step invokes the script" {
+  # The interval is real before anything is claimed about it — a delimiter
+  # that matched nothing would make every assertion below vacuous.
+  local step
+  step="$(completion_step)"
+  [ -n "$step" ]
+  [ "$(wc -l <<<"$step" | tr -d ' ')" -gt 5 ]
+
+  grep -qF "cairn-bookkeep.sh" <<<"$step"
+  grep -qE 'cairn-bookkeep\.sh" close <N> --apply' <<<"$step"
+  # Exit 5 is the one exit code the operator has to act on here.
+  grep -qF "Exit 5" <<<"$step"
+}
+
+@test "autonomous: no hand edit survives inside that step — one name at a time" {
+  local step name hits
+  step="$(completion_step)"
+  for name in "STATE.md" "ROADMAP.md" "REQUIREMENTS.md"; do
+    # Every line inside the step that names this file must be the invocation
+    # itself. Break: leaving "update .planning/STATE.md …" next to the new
+    # command — two instructions, one of them the defect.
+    hits="$(grep -nF -- "$name" <<<"$step" | grep -vF "cairn-bookkeep.sh" || true)"
+    if [ -n "$hits" ]; then
+      echo "the completion-marks step still names $name outside the invocation:" >&2
+      echo "$hits" >&2
+      return 1
+    fi
+  done
+}
+
+@test "autonomous: the worktree prohibition is untouched, and lives outside the step" {
+  # The script is not permission to write from inside a worktree; it is the
+  # HOW of "centrally". Break: reading the new invocation as a relaxation.
+  grep -qF -- "- **What it must not write.** \`.planning/STATE.md\`, \`.planning/ROADMAP.md\` and" \
+    "$AUTONOMOUS_CMD"
+  grep -qF -- "\`.planning/REQUIREMENTS.md\` are forbidden inside the worktree: do not create," \
+    "$AUTONOMOUS_CMD"
+
+  # And it is genuinely outside the interval the test above scopes to.
+  refute_substring "must not write" "$(completion_step)"
+}
+
+@test "no cairn command instructs a hand edit of the three planning files" {
+  # The whole sweep, by name, over both prompt trees. A line may READ or
+  # FORBID; what it may not do is tell someone to update/edit/write one.
+  local name hits
+  for name in "STATE.md" "ROADMAP.md" "REQUIREMENTS.md"; do
+    hits="$(grep -rniE "(update|edit|rewrite) [^.]*$name|$name[^.]*(by hand|manually)" \
+      "$CAIRN_REPO_ROOT/cairn/commands" "$CAIRN_REPO_ROOT/cairn/skills" 2>/dev/null \
+      | grep -vF "cairn-bookkeep" || true)"
+    if [ -n "$hits" ]; then
+      echo "a command still instructs a hand edit of $name:" >&2
+      echo "$hits" >&2
+      return 1
+    fi
+  done
+}
+
+@test "the command page documents the contract, the exit codes and the refusals" {
+  [ -f "$BOOKKEEP_DOC" ]
+
+  # Every exit code the script can return, so a reader never has to open the
+  # .py to find out what one means.
+  local code
+  for code in "| 0 |" "| 2 |" "| 3 |" "| 4 |" "| 5 |"; do
+    grep -qF -- "$code" "$BOOKKEEP_DOC"
+  done
+
+  # The derivation rule: one authority, five derived views. Without it in
+  # writing, the next person repairs the wrong side.
+  grep -qF "derived 1" "$BOOKKEEP_DOC"
+  grep -qF "derived 5" "$BOOKKEEP_DOC"
+
+  # Every STATE key it writes, named on the page and not only in the
+  # docstring.
+  local key
+  for key in current_phase current_phase_name progress.total_phases \
+             progress.completed_phases progress.total_plans \
+             progress.completed_plans progress.percent last_updated \
+             last_activity; do
+    grep -qF "$key" "$BOOKKEEP_DOC"
+  done
+
+  # And the section that says what it does NOT do — the half a page like
+  # this usually leaves out, and the half that keeps it from being read as a
+  # gate.
+  grep -qF "## What it does not do" "$BOOKKEEP_DOC"
+  grep -qF "It is not a gate" "$BOOKKEEP_DOC"
+  grep -qF "cairn-gate.sh" "$BOOKKEEP_DOC"
+  grep -qF "never un-marks" "$BOOKKEEP_DOC"
+  grep -qF "CairnGo-rq0" "$BOOKKEEP_DOC"
+}
+
+@test "help.md registers the command and points at its page" {
+  local help="$CAIRN_REPO_ROOT/cairn/commands/help.md"
+  grep -qF "cairn-bookkeep.sh close" "$help"
+  grep -qF "docs/commands/bookkeep.md" "$help"
+}

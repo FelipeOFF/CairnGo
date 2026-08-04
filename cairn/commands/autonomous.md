@@ -246,11 +246,24 @@ Nothing in this moment happens inside a worktree.
    that picks a winner in silence destroys one side of that disagreement and
    reports success, which is the failure mode this entire phase exists to make
    impossible.
-3. **Apply the completion marks centrally.** After the merges, update
-   `.planning/STATE.md`, `.planning/ROADMAP.md` and
-   `.planning/REQUIREMENTS.md` for every phase of the batch at once, here in
-   the main checkout — this is the other half of the prohibition the subagents
-   carried.
+3. **Apply the completion marks centrally** — one command per merged phase,
+   here in the main checkout, and never by editing the three planning files
+   by hand:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh" close <N> --apply
+   ```
+   That single call marks the phase, marks every requirement whose phases are
+   all closed, moves the coverage table and its footer, ticks the plan
+   checkboxes whose `-SUMMARY.md` is on disk, moves the STATE counters,
+   regenerates the phase map and releases the lease. It is idempotent, so
+   re-running it after a partial batch is safe.
+
+   Exit 5 means `bd` was not reachable and **nothing** was written — fix that
+   and re-run; do not fall back to editing by hand. It is **not** a gate:
+   what it will not write it names under `unresolved`, and barring a phase
+   stays with `cairn-gate.sh`. Fold its report into the per-phase block this
+   step already emits. This is the other half of the prohibition the
+   subagents carried.
 
    Then run the phase checkpoint for each merged phase, also here:
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh"` (failure stops the
