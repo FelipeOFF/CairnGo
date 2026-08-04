@@ -279,6 +279,99 @@ PYEOF
   assert_json_eq "$output" '[.deferred[] | select(.phase == 9) | .reason][0]' 'above the --max 1 ceiling'
 }
 
+#-----------------------------------------------------------------------------
+# The setting reaching its consumer (phase 29-03). A written key is not a read
+# key, so these assert the ceiling `batch` APPLIES — the selection itself —
+# and not what the config file happens to contain.
+#-----------------------------------------------------------------------------
+
+@test "the ceiling comes from autonomous.max_parallel: the setting changes which phases batch selects, not just what it reports" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  # No --max anywhere: an implementation that ignored the setting would keep
+  # its old argparse default of 3 and select both phases.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_parallel 1 \
+    --project-dir "$MAIN_ROOT"
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '1'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7'
+  assert_json_eq "$output" '[.deferred[] | select(.phase == 9) | .reason][0]' 'above the --max 1 ceiling'
+
+  # Raising the setting raises the real ceiling, same command, same stub.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_parallel 5 \
+    --project-dir "$MAIN_ROOT"
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '5'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+}
+
+@test "with no .cairn/config.json the ceiling is still 3 — no existing repo changes behavior" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+  [ ! -e "$MAIN_ROOT/.cairn/config.json" ]
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '3'
+}
+
+@test "an explicit --max wins over the setting, in both directions" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_parallel 1 \
+    --project-dir "$MAIN_ROOT"
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --max 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '2'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_parallel 5 \
+    --project-dir "$MAIN_ROOT"
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --max 1 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '1'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7'
+}
+
+@test "a config resolver that cannot be run does not take batch down: the ceiling degrades to 3" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  local missing="$BATS_TEST_TMPDIR/nowhere/cairn-config.py"
+  run env CAIRN_STATUS="$STATUS_STUB" CAIRN_CONFIG="$missing" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '3'
+  refute_in_output "Traceback"
+
+  # Same for a resolver that answers with something unreadable.
+  local garbage="$BATS_TEST_TMPDIR/garbage-config.py"
+  cat > "$garbage" <<'PYEOF'
+#!/usr/bin/env python3
+print("not json either")
+PYEOF
+  run env CAIRN_STATUS="$STATUS_STUB" CAIRN_CONFIG="$garbage" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '3'
+  refute_in_output "Traceback"
+}
+
 @test "the bridge: for TWO phases, the branch and worktree batch announces are byte-for-byte the ones prepare creates, and the two trees are isolated" {
   require_bd
   make_parallel_fixture

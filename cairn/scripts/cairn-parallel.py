@@ -137,6 +137,16 @@ and three agents is about what one person can actually review before the
 review becomes rubber-stamping. It is a ceiling on human attention, not on
 anything git or bd cares about, and `--max` exists so it can be raised.
 
+That default is now a SETTING rather than a literal: with no `--max`, the
+ceiling comes from `cairn-config.py get autonomous.max_parallel`, whose own
+schema default is 3 — so a repo with no `.cairn/config.json` behaves exactly
+as it did before. An explicit `--max` always wins over the config. The config
+is read by SUBPROCESS, in cairn-status.py's fetch_lease_status() shape: a
+failed subprocess or unparsable JSON degrades to the fallback and never takes
+`batch` down with it. Config resolution is not reimplemented here, for the
+same reason independence is not recomputed here — two implementations of one
+question eventually disagree.
+
 The bridge from `batch` to `prepare` is a CONTRACT, not just a shared function:
 what `batch` announces as `branch`/`worktree` has to be byte-for-byte what
 `prepare` creates, because `reconcile` (18-02) finds the work by the name
@@ -445,8 +455,9 @@ Usage:
 
     --project-dir DIR   project root for git/bd discovery (default:
                         $CLAUDE_PROJECT_DIR or cwd)
-    --max N             ceiling on how many phases `batch` selects
-                        (default: 3)
+    --max N             ceiling on how many phases `batch` selects (default:
+                        `autonomous.max_parallel` from .cairn/config.json,
+                        itself 3 when that file says nothing)
     --phases LIST       comma-separated phase numbers `reconcile` restricts
                         itself to (default: every phase/* branch)
     --apply             `cleanup` writes. Without it nothing anywhere is
@@ -542,6 +553,7 @@ Test/override seams (CONVENTIONS.md's CAIRN_* env-seam note, same shape as
 CAIRN_GBSYNC / CAIRN_MAP / CAIRN_GATE / CAIRN_JOURNAL):
     CAIRN_LEASE    default: the sibling cairn-lease.py
     CAIRN_STATUS   default: the sibling cairn-status.py
+    CAIRN_CONFIG   default: the sibling cairn-config.py
 """
 import argparse
 import json
@@ -567,6 +579,15 @@ CAIRN_LEASE = os.environ.get(
     "CAIRN_LEASE", str(SCRIPTS_DIR / "cairn-lease.py"))
 CAIRN_STATUS = os.environ.get(
     "CAIRN_STATUS", str(SCRIPTS_DIR / "cairn-status.py"))
+CAIRN_CONFIG = os.environ.get(
+    "CAIRN_CONFIG", str(SCRIPTS_DIR / "cairn-config.py"))
+
+# Last-resort fallback for the parallelism ceiling, used only when
+# cairn-config.py cannot be run or answers with something unreadable. It
+# echoes that script's schema default on purpose: the schema is the source,
+# this number is what keeps `batch` working when the source cannot be
+# reached. If the two ever disagree, the schema is right.
+MAX_PARALLEL_FALLBACK = 3
 
 # Phase directory numeric-prefix matching — the house convention is that each
 # script carries its own copy of this regex rather than sharing a lib (same
@@ -986,10 +1007,53 @@ def build_announcement(result):
     return "\n".join(lines)
 
 
+def config_value(top, key, fallback):
+    """One setting out of cairn-config.py, or `fallback`.
+
+    Defensive in exactly the shape cairn-status.py's fetch_lease_status()
+    uses: a subprocess that cannot be started, a nonzero exit, unparsable
+    JSON or a payload without a `value` all degrade to the fallback. `batch`
+    is a read-only planner and a missing/broken config file is not a reason
+    to take it down — nor is it a reason to invent a second config resolver
+    here (see the docstring).
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(CAIRN_CONFIG), "get", key, "--json",
+             "--project-dir", str(top)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    if proc.returncode != 0:
+        return fallback
+    try:
+        data = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        return fallback
+    if not isinstance(data, dict) or "value" not in data:
+        return fallback
+    return data["value"]
+
+
+def config_int(top, key, fallback, minimum):
+    """config_value() narrowed to an int at or above `minimum`. bool is an int
+    subclass in Python and `true` is not a ceiling, so it is excluded."""
+    value = config_value(top, key, fallback)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return fallback
+    return value if value >= minimum else fallback
+
+
 def cmd_batch(args, top):
-    if args.max < 1:
+    if args.max is not None and args.max < 1:
         die(f"--max must be at least 1 (got {args.max})\n" + USAGE,
             EXIT_USAGE)
+    # An explicit --max always wins over the setting; with no flag the ceiling
+    # is autonomous.max_parallel, whose own schema default is 3 — so a repo
+    # with no .cairn/config.json selects exactly what it selected before.
+    max_selected = (args.max if args.max is not None
+                    else config_int(top, "autonomous.max_parallel",
+                                    MAX_PARALLEL_FALLBACK, 1))
 
     data = status_json(top)
     par = data.get("parallelism") or {}
@@ -1022,9 +1086,10 @@ def cmd_batch(args, top):
                              "reason": f"lease held by {entry.get('holder')} "
                                        f"since {entry.get('acquired_at')}"})
             continue
-        if len(selected) >= args.max:
+        if len(selected) >= max_selected:
             deferred.append({"phase": n,
-                             "reason": f"above the --max {args.max} ceiling"})
+                             "reason": f"above the --max {max_selected} "
+                                       f"ceiling"})
             continue
         layout = phase_layout(top, n)
         cmd = commands.get(n) or {}
@@ -1045,7 +1110,7 @@ def cmd_batch(args, top):
         "blocked": [b for b in (par.get("blocked") or [])],
         "declared": bool(par.get("declared")),
         "note": par.get("note"),
-        "max": args.max,
+        "max": max_selected,
         "selected": selected,
         "deferred": deferred,
     }
@@ -1761,9 +1826,12 @@ def build_parser():
     batch = sub.add_parser("batch", help="what can run at once, with each "
                                          "phase's branch and worktree "
                                          "already resolved")
-    batch.add_argument("--max", type=int, default=3,
+    # default=None, not 3: the flag has to be distinguishable from its own
+    # absence, or `--max` could never lose to the setting it overrides.
+    batch.add_argument("--max", type=int, default=None,
                        help="ceiling on how many phases are selected "
-                            "(default: 3)")
+                            "(default: autonomous.max_parallel from "
+                            ".cairn/config.json, itself 3)")
     batch.set_defaults(func=cmd_batch)
 
     prepare = sub.add_parser("prepare", help="create phase N's named "
