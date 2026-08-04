@@ -9,6 +9,13 @@
 # bats test on this bash, so substring checks use grep -qF, negative checks go
 # through refute_in_file / refute_in_output, and computed comparisons are a
 # plain `[ ... ]` over a `run`-captured $status/$output.
+#
+# Why the surgery tests pass --no-tracker: `close --apply` refuses to write
+# without `bd`, on purpose (a run that edits three files and then cannot
+# release the lease is the half-done state this phase removes). These
+# fixtures have no bd database, and the claim they carry is about the LINE
+# SURGERY. --no-tracker is the named way to ask for exactly that half. The
+# tracker half has its own tests below, and they require_bd.
 
 load 'helpers'
 
@@ -107,7 +114,7 @@ setup() {
   write_mini_roadmap "$PWD"
   cp "$ROADMAP" "$BATS_TEST_TMPDIR/roadmap.before"
 
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   grep -qF -- "- [x] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-08) — **roda primeiro**" "$ROADMAP"
 
@@ -124,7 +131,7 @@ setup() {
 @test "close --apply preserves every other byte of the line and the file" {
   write_mini_roadmap "$PWD"
   cp "$ROADMAP" "$BATS_TEST_TMPDIR/roadmap.before"
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   # The ellipsis, the bold run and the em dash survive the edit verbatim, and
@@ -148,7 +155,7 @@ setup() {
 
 @test "close --apply: the completed suffix is written once, never twice" {
   write_mini_roadmap "$PWD"
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   # A second run with a DIFFERENT CAIRN_NOW must still write nothing: the
@@ -157,7 +164,7 @@ setup() {
   # cycle.
   local before
   before="$(file_sha256 "$ROADMAP")"
-  CAIRN_NOW="2027-01-01" run bash "$BOOKKEEP" close 29 --apply --json \
+  CAIRN_NOW="2027-01-01" run bash "$BOOKKEEP" close 29 --apply --no-tracker --json \
     --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.changed' 'false'
@@ -169,7 +176,7 @@ setup() {
   write_mini_roadmap "$PWD"
   local before
   before="$(file_sha256 "$ROADMAP")"
-  CAIRN_NOW="ontem" run bash "$BOOKKEEP" close 29 --apply \
+  CAIRN_NOW="ontem" run bash "$BOOKKEEP" close 29 --apply --no-tracker \
     --planning-dir "$PWD/.planning"
   [ "$status" -eq 2 ]
   echo "$output" | grep -qF "CAIRN_NOW must start with YYYY-MM-DD"
@@ -178,12 +185,12 @@ setup() {
 
 @test "close --apply twice: the second run reports changed:false and writes nothing" {
   write_mini_roadmap "$PWD"
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   local after_first
   after_first="$(file_sha256 "$ROADMAP")"
 
-  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.changed' 'false'
   assert_json_eq "$output" '.planned | length' '0'
@@ -233,7 +240,7 @@ EOF
   local before
   before="$(file_sha256 "$ROADMAP")"
 
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 2 ]
   echo "$output" | grep -qF "matches 2 checkbox lines"
   echo "$output" | grep -qF "duplicated by a careless hand"
@@ -381,7 +388,7 @@ FIXTURE_DIR="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
   # checkbox, two row status cells, the footer and three plan checkboxes.
   # The per-edit breakdown is asserted in "the six edits land"; what this
   # one proves is that the baseline commit makes numstat mean something.
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   run git -C "$PWD" diff --numstat -- .planning/ROADMAP.md
   [ "$status" -eq 0 ]
@@ -652,7 +659,7 @@ PY
 
 @test "close --apply: the six edits land, and the diff is 15 lines for 15" {
   make_drift_fixture "$PWD"
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   # 1. the phase, with the suffix phase 20 already carries.
@@ -701,7 +708,7 @@ PY
   quote='   `AUTO-05` e `AUTO-06`), e o rodapé afirmando **"29 requisitos, 29 mapeados"** —'
   grep -qxF -- "$quote" "$PWD/.planning/ROADMAP.md"
 
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   grep -qxF -- "$quote" "$PWD/.planning/ROADMAP.md"
@@ -724,7 +731,7 @@ PY
   local before
   before="$(file_sha256 "$PWD/.planning/ROADMAP.md")"
 
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 2 ]
   echo "$output" | grep -qF "2 footer lines"
   echo "$output" | grep -qF "29 requisitos, 29 mapeados."
@@ -734,7 +741,7 @@ PY
 
 @test "close --apply twice: the second run writes nothing, by sha AND mtime" {
   make_drift_fixture "$PWD"
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   local n sha_r sha_q sha_s mt_r mt_q mt_s
@@ -748,7 +755,7 @@ PY
   # A LATER clock on the second run: the two STATE timestamps must not move
   # on their own. Running twice is the normal case in an autonomous loop, and
   # a timestamp written unconditionally makes every second pass a write.
-  CAIRN_NOW="2026-09-09T09:09:09.000Z" run bash "$BOOKKEEP" close 29 --apply \
+  CAIRN_NOW="2026-09-09T09:09:09.000Z" run bash "$BOOKKEEP" close 29 --apply --no-tracker \
     --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.changed' 'false'
@@ -766,7 +773,7 @@ PY
 
 @test "close --apply: what stays is EXACTLY what the command refused to write" {
   make_drift_fixture "$PWD"
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
@@ -782,7 +789,7 @@ PY
 
 @test "close --apply: a row is never invented for a requirement with no carrier" {
   make_drift_fixture "$PWD"
-  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   # AUTO-05 and AUTO-06 are active, have no row, and appear on NO phase's
@@ -841,7 +848,7 @@ PY
   order_before="$(state_key_order "$PWD/.planning/STATE.md")"
   body_before="$(state_body_sha "$PWD/.planning/STATE.md")"
 
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   # Break: any YAML round-trip. Measured cause: `state complete-phase`
@@ -866,7 +873,7 @@ PY
   desc="$(grep '^last_activity_desc:' "$PWD/.planning/STATE.md")"
   stopped="$(grep '^stopped_at:' "$PWD/.planning/STATE.md")"
 
-  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   # Break one way: a command that rewrites a person's sentence, which is what
@@ -894,7 +901,7 @@ r.write_text(r.read_text().replace("- [ ] 29-07-PLAN.md", "- [x] 29-07-PLAN.md")
 q = pathlib.Path(sys.argv[2])
 q.write_text(q.read_text().replace("- [ ] **BOARD-06**", "- [x] **BOARD-06**"))
 PY
-  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
 
   assert_json_eq "$output" \
@@ -934,7 +941,7 @@ PY
 
 @test "close --apply: a roadmap-only tree writes the roadmap and NAMES the rest" {
   write_mini_roadmap "$PWD"
-  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.changed' 'true'
   # Break: a silent half-run. A missing file is a named skip, not a pass.
@@ -942,4 +949,179 @@ PY
     '[.skipped[] | select(.what | contains("STATE"))] | length > 0' 'true'
   assert_json_eq "$output" \
     '[.skipped[] | select(.what | contains("requirement"))] | length > 0' 'true'
+}
+
+# ---------------------------------------------------------------------------
+# The tracker half, the bd gate, and the two config keys (plan 29-02, task 2)
+# ---------------------------------------------------------------------------
+
+@test "close --apply: the map is regenerated and the lease released" {
+  require_bd
+  make_drift_fixture "$PWD"
+  bd init -q --prefix bkp --non-interactive >/dev/null 2>&1
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 29 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" status 29 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+
+  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.tracker.ran' 'true'
+  assert_json_eq "$output" '.tracker.skipped' 'null'
+  assert_json_eq "$output" '.tracker.map.ok' 'true'
+  assert_json_eq "$output" '.tracker.lease.ok' 'true'
+
+  # The lease is vacant and the generated map exists. Break: skipping the
+  # shell-out leaves the lease held — the concrete damage a hand-closed
+  # phase does, and the reason "one command" has to mean all of it.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" status 29 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'false'
+  [ -f "$PWD/.planning/phases/29-nothing-mechanical-stays-manual/29-BEADS-MAP.md" ]
+}
+
+@test "close --apply without bd: exit 5 BEFORE a single byte is written" {
+  make_drift_fixture "$PWD"
+  local stub="$BATS_TEST_TMPDIR/nobd-bin"
+  mkdir -p "$stub"
+  ln -s "$(python3 -c 'import sys; print(sys.executable)')" "$stub/python3"
+  ln -s "$(command -v bash)" "$stub/bash"
+  ln -s "$(command -v dirname)" "$stub/dirname"
+  # The setup itself is asserted: a stub that still reached bd would make
+  # this test pass for the wrong reason.
+  run env PATH="$stub" "$stub/bash" -c 'command -v bd'
+  [ "$status" -ne 0 ]
+
+  local sha_r sha_q sha_s
+  sha_r="$(file_sha256 "$PWD/.planning/ROADMAP.md")"
+  sha_q="$(file_sha256 "$PWD/.planning/REQUIREMENTS.md")"
+  sha_s="$(file_sha256 "$PWD/.planning/STATE.md")"
+
+  run env PATH="$stub" "$stub/bash" "$BOOKKEEP" close 29 --apply \
+    --planning-dir "$PWD/.planning"
+  [ "$status" -eq 5 ]
+  echo "$output" | grep -qF "bd is not on PATH"
+  echo "$output" | grep -qF "half done"
+
+  # Break: writing first and discovering afterwards.
+  [ "$sha_r" = "$(file_sha256 "$PWD/.planning/ROADMAP.md")" ]
+  [ "$sha_q" = "$(file_sha256 "$PWD/.planning/REQUIREMENTS.md")" ]
+  [ "$sha_s" = "$(file_sha256 "$PWD/.planning/STATE.md")" ]
+}
+
+@test "close --apply --no-tracker without bd: exit 0, and it names what it skipped" {
+  make_drift_fixture "$PWD"
+  local stub="$BATS_TEST_TMPDIR/nobd-bin"
+  mkdir -p "$stub"
+  ln -s "$(python3 -c 'import sys; print(sys.executable)')" "$stub/python3"
+  ln -s "$(command -v bash)" "$stub/bash"
+  ln -s "$(command -v dirname)" "$stub/dirname"
+
+  run env PATH="$stub" "$stub/bash" "$BOOKKEEP" close 29 --apply \
+    --no-tracker --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.changed' 'true'
+  assert_json_eq "$output" '.tracker.ran' 'false'
+  # Break: a silent skip. Half the bookkeeping done quietly is the state
+  # this phase exists to remove; done ON PURPOSE and SAID is a choice.
+  assert_json_eq "$output" '.tracker.skipped | contains("--no-tracker")' 'true'
+  assert_json_eq "$output" \
+    '.tracker.skipped | contains("lease") and contains("map")' 'true'
+  grep -qF -- "- [x] Phase 29" "$PWD/.planning/ROADMAP.md"
+}
+
+@test "close: read mode never touches the tracker, even with bd right there" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" close 29 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" '.tracker.ran' 'false'
+  assert_json_eq "$output" '.tracker.skipped | contains("read mode")' 'true'
+  [ ! -f "$PWD/.planning/phases/29-nothing-mechanical-stays-manual/29-BEADS-MAP.md" ]
+}
+
+@test "bookkeep.auto_commit: true commits exactly the planned files, false commits nothing" {
+  make_drift_fixture "$PWD"
+  local base
+  base="$(git -C "$PWD" rev-list --count HEAD)"
+
+  # false (the default): written, uncommitted, and the command printed.
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --json \
+    --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.commit.made' 'false'
+  assert_json_eq "$output" '.commit.note | contains("git add")' 'true'
+  [ "$(git -C "$PWD" rev-list --count HEAD)" = "$base" ]
+  run git -C "$PWD" status --porcelain
+  [ -n "$output" ]
+
+  # Config flipped, and a DIFFERENT open phase so there is real work to do.
+  # (Deliberately not `git checkout -- .planning` to rewind: a blanket
+  # working-tree reset is the move that destroys uncommitted work, and a
+  # test is not the place to teach it.)
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set bookkeep.auto_commit true \
+    --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  git -C "$PWD" add -A && git -C "$PWD" commit -q -m "phase 29 by hand"
+  base="$(git -C "$PWD" rev-list --count HEAD)"
+
+  run bash "$BOOKKEEP" close 21 --apply --no-tracker --json \
+    --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.commit.made' 'true'
+  assert_json_eq "$output" '.commit.message' 'chore(cairn): bookkeeping fase 21'
+  [ "$(git -C "$PWD" rev-list --count HEAD)" = "$((base + 1))" ]
+
+  # EXACTLY the three files this run planned — never `git add -A` sweeping
+  # up whatever else was in the tree.
+  run git -C "$PWD" show --name-only --format= HEAD
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | sort | tr '\n' ' ')" = ".planning/REQUIREMENTS.md .planning/ROADMAP.md .planning/STATE.md " ]
+}
+
+@test "bookkeep.auto_commit: an unrelated dirty file is never swept into the commit" {
+  make_drift_fixture "$PWD"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set bookkeep.auto_commit true \
+    --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  git -C "$PWD" add -A && git -C "$PWD" commit -q -m "config"
+  echo "work in progress" > "$PWD/unrelated.txt"
+  git -C "$PWD" add unrelated.txt
+
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  run git -C "$PWD" show --name-only --format= HEAD
+  refute_in_output "unrelated.txt"
+  # Still staged, still uncommitted: it was not this command's to take.
+  run git -C "$PWD" status --porcelain
+  echo "$output" | grep -qF "unrelated.txt"
+}
+
+@test "ship.pr_scope decides pr_due, and it is not a constant" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" close 29 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  # Schema default is "phase": the PR comes due at the end of a phase.
+  assert_json_eq "$output" '.pr_scope' 'phase'
+  assert_json_eq "$output" '.pr_due' 'true'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set ship.pr_scope milestone \
+    --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  run bash "$BOOKKEEP" close 29 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" '.pr_scope' 'milestone'
+  assert_json_eq "$output" '.pr_due' 'false'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set ship.pr_scope none \
+    --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  run bash "$BOOKKEEP" close 29 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" '.pr_due' 'false'
+
+  # reconcile owns no phase, so it answers null rather than guessing.
+  run bash "$BOOKKEEP" reconcile --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.pr_due' 'null'
 }

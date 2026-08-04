@@ -10,14 +10,18 @@ it is committed in this repository and frozen byte for byte under
 tests/fixtures/bookkeep-drift/, which is this script's test input.
 
 Usage:
-    cairn-bookkeep.py close <phase-number> [--apply] [--json]
+    cairn-bookkeep.py close <phase-number> [--apply] [--no-tracker] [--json]
                             [--planning-dir <dir>]
     cairn-bookkeep.py reconcile [--apply] [--json] [--planning-dir <dir>]
 
     --apply           write the planned edits (default: read only)
+    --no-tracker      do the file half only: skip the map refresh and the
+                      lease release, and say in the report what did not run
     --json            machine-readable output instead of human lines
     --planning-dir    planning dir (default: $CLAUDE_PROJECT_DIR or cwd,
-                      plus /.planning)
+                      plus /.planning). The project root the tracker and the
+                      config resolve from is this directory's parent — one
+                      flag, not two that can point at different repos.
 
     CAIRN_NOW         the determinism seam, same shape as the other CAIRN_*
                       seams: unset means the real clock, set means exactly
@@ -47,7 +51,10 @@ Behavior:
                   5. each `NN-MM-PLAN.md` checkbox whose `NN-MM-SUMMARY.md`
                      is on disk;
                   6. the STATE.md frontmatter counters, and only the keys
-                     listed under THE STATE KEYS below.
+                     listed under THE STATE KEYS below;
+                  7. the phase's generated map (cairn-map.py <N>) and its
+                     lease (cairn-lease.py release <N>), each by INVOKING
+                     the script that owns it.
 
                 Without --apply, prints the edits it would make and exits
                 EXIT_DISAGREEMENT (3) when there is at least one, EXIT_OK
@@ -244,6 +251,47 @@ THE STATE KEYS, EXHAUSTIVELY, AND WHY NO NEW ONE IS EVER CREATED
     of AUTO-08 (a check that could not check must stop saying `ok`) lands in
     plan 29-07.
 
+THE TRACKER HALF IS INVOKED, NEVER RE-IMPLEMENTED — AND IT REFUSES EARLY
+    `cairn-map.py <N> --json` already refuses a file whose marker block was
+    tampered with and is already idempotent; `cairn-lease.py release <N>` is
+    already a no-op on a lease nobody holds and already owns the TTL
+    arithmetic. Neither is reproduced here. Two implementations of a
+    staleness calculation that can disagree is this milestone's disease
+    wearing a different hat.
+
+    Because both need `bd`, its availability is checked BEFORE the first
+    byte is written: no bd and no --no-tracker means EXIT_NO_BD (5) with the
+    three files byte-identical. Writing first and discovering afterwards
+    that the lease cannot be released produces exactly the half-done state
+    this phase exists to remove. `--no-tracker` is the named way to do the
+    file half on purpose, and the report says what did not run.
+
+    THIS IS NOT A GATE. Measured (D-01): the gsd-tools `phase complete 20` —
+    the operation a hand actually performs — REFUSED to run and wrote zero
+    bytes, because roadmap.cjs:469 requires a passing verification and phase
+    20's came back `human_needed`. Here, a missing artifact is a NAMED entry
+    in `skipped` or `unresolved`; barring a phase is cairn-gate.py's job and
+    it already exits 6.
+
+TWO CONFIG KEYS, READ AT THE POINT OF USE
+    bookkeep.auto_commit  true -> after a successful --apply, `git add` of
+                          EXACTLY the files this run planned (never -A,
+                          never `.`) and one commit. Default false: the
+                          files are left written and uncommitted, and the
+                          report prints the commit command. A git failure is
+                          reported, never fatal — the edits are already on
+                          disk and correct.
+    ship.pr_scope         becomes the report's `pr_due`: true for "phase",
+                          false for "milestone" (the PR comes at the end of
+                          the cycle) and false for "none". End of phase is
+                          where that decision is answered, so this is where
+                          it is asked.
+
+    Both are read by one subprocess call to cairn-config.py, in the
+    degrading shape of cairn-status.py's fetch_lease_status(). Neither
+    default is copied here: a second home for a default that can drift from
+    the schema is the thing this phase removes.
+
 DISAGREEMENT KINDS
     coverage-row-missing         active requirement with no table row
     coverage-view-missing        no coverage table anywhere (reported once)
@@ -332,18 +380,17 @@ Exit codes:
     3  EXIT_DISAGREEMENT — read mode found something to change. Mirrors
        cairn-map.py's exit 3 ("stale") on purpose.
     4  EXIT_NO_PHASE — no checkbox line for that phase number.
-    5  RESERVED for "bd unavailable", the house meaning of 5. This script
-       does not talk to bd yet (the tracker path is plan 29-02), so it never
-       returns 5 today. It is listed so 29-02 cannot spend the number on
-       something else — a declared code with no producer is exactly the
-       defect this phase exists to remove, and naming it as reserved is the
-       difference between a promise and a lie.
+    5  EXIT_NO_BD — `bd` is not on PATH and the tracker half was not waived
+       with --no-tracker. Returned BEFORE any write, so the three files are
+       byte-identical. Never a failed check: barring is cairn-gate.py's 6.
 """
 import argparse
 import datetime
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -351,6 +398,7 @@ EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_DISAGREEMENT = 3
 EXIT_NO_PHASE = 4
+EXIT_NO_BD = 5
 
 TAG = "[cairn-bookkeep]"
 
@@ -573,14 +621,111 @@ def resolve_planning_dir(arg):
     return planning
 
 
+def sibling(name):
+    return str(Path(__file__).resolve().parent / name)
+
+
+def run_sibling_json(argv):
+    """Run a sibling cairn script and parse its --json, degrading to a named
+    failure instead of a traceback.
+
+    Same shape as cairn-status.py's fetch_lease_status(): a subprocess that
+    will not run, or output that will not parse, is reported — never
+    re-implemented here. Two implementations of a TTL calculation that can
+    disagree is this milestone's disease with a different hat on.
+    """
+    try:
+        proc = subprocess.run([sys.executable] + argv, capture_output=True,
+                              text=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": str(exc)}
+    out = {"ok": proc.returncode == 0, "exit": proc.returncode}
+    try:
+        out["result"] = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        out["result"] = None
+        out["error"] = (proc.stderr or proc.stdout or "").strip()[:400]
+    if not out["ok"] and "error" not in out:
+        out["error"] = (proc.stderr or "").strip()[:400]
+    return out
+
+
+def config_value(root, key):
+    """A config key's effective value, read from cairn-config.py — never
+    from a second copy of the schema's default living here."""
+    got = run_sibling_json([sibling("cairn-config.py"), "get", key, "--json",
+                            "--project-dir", str(root)])
+    if not got["ok"] or not isinstance(got.get("result"), dict):
+        return None
+    return got["result"].get("value")
+
+
+def git_commit(root, files, message):
+    """Stage EXACTLY the files this run planned, and commit those paths.
+
+    Never `git add -A`, never `git add .`: a bookkeeping commit that sweeps
+    up whatever else was in the tree is the tool taking work it did not do.
+    Both calls carry the same explicit pathspec, so even a dirty index
+    cannot widen it.
+    """
+    rel = [os.path.relpath(f, str(root)) for f in files]
+    for argv in (["add", "--"] + rel, ["commit", "-m", message, "--"] + rel):
+        try:
+            proc = subprocess.run(["git", "-C", str(root)] + argv,
+                                  capture_output=True, text=True)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, str(exc)
+        if proc.returncode != 0:
+            return False, (proc.stderr or proc.stdout or "").strip()[:400]
+    return True, None
+
+
+def run_tracker(planning, root, phase, wanted, applied):
+    """The two pieces of end-of-phase bookkeeping that belong to other
+    scripts: the generated map and the phase lease. Invoked, never
+    re-implemented."""
+    out = {"ran": False, "skipped": None, "map": None, "lease": None}
+    if phase is None:
+        out["skipped"] = ("reconcile owns no phase: there is no map to "
+                          "regenerate and no lease to release")
+        return out
+    if not wanted:
+        out["skipped"] = ("--no-tracker: the phase map was NOT regenerated "
+                          "and the phase lease was NOT released")
+        return out
+    if not applied:
+        out["skipped"] = "read mode: the tracker is only touched by --apply"
+        return out
+    out["ran"] = True
+    out["map"] = run_sibling_json([sibling("cairn-map.py"), str(phase),
+                                   "--json", "--planning-dir", str(planning)])
+    out["lease"] = run_sibling_json([sibling("cairn-lease.py"), "release",
+                                     str(phase), "--json", "--project-dir",
+                                     str(root)])
+    return out
+
+
 def run_bookkeeping(args, phase):
     """The shared body of `close N` and `reconcile --apply`: plan, write
     behind --apply, report. `close` is this plus the phase's own checkbox
     (edit 1); `reconcile --apply` is this without it."""
     planning = resolve_planning_dir(args.planning_dir)
+    root = planning.parent
     date, stamp = now_stamp()
     plan = build_plan(planning, phase, date, stamp)
     edits = plan["edits"]
+
+    # The bd gate fires BEFORE the first byte is written. Bookkeeping that
+    # edited three files and then discovered it cannot release the lease is
+    # exactly the half-done state this phase exists to remove, and 5 is the
+    # house code for "the tool is not there", never for a failed check.
+    tracker_wanted = phase is not None and not getattr(args, "no_tracker",
+                                                       False)
+    if args.apply and tracker_wanted and shutil.which("bd") is None:
+        die("bd is not on PATH, so the phase map and the lease cannot be "
+            "touched — refusing to write the planning files and leave the "
+            "bookkeeping half done. Install beads, or pass --no-tracker to "
+            "do the file half deliberately.", EXIT_NO_BD)
 
     changed = False
     written = []
@@ -588,13 +733,38 @@ def run_bookkeeping(args, phase):
         written = apply_edits(plan["sources"], edits)
         changed = True
 
+    tracker = run_tracker(planning, root, phase, tracker_wanted, args.apply)
+
+    auto_commit = config_value(root, "bookkeep.auto_commit")
+    commit = {"configured": auto_commit, "made": False, "note": None}
+    if not changed:
+        commit["note"] = "nothing was written, so there is nothing to commit"
+    elif auto_commit is True:
+        message = (f"chore(cairn): bookkeeping fase {phase}" if phase
+                   else "chore(cairn): bookkeeping reconcile")
+        ok, detail = git_commit(root, written, message)
+        commit["made"] = ok
+        commit["message"] = message
+        # A failed commit is REPORTED, never fatal: the edits are already on
+        # disk and correct, and the commit is a convenience on top of them.
+        commit["note"] = None if ok else f"git refused the commit: {detail}"
+    else:
+        paths = " ".join(os.path.relpath(f, str(root)) for f in written)
+        commit["note"] = (
+            "bookkeep.auto_commit is not true, so the files are written and "
+            f"uncommitted. Commit them with: git add -- {paths} && "
+            "git commit")
+
+    pr_scope = config_value(root, "ship.pr_scope")
     payload = {
         "phase": phase, "applied": bool(args.apply), "changed": changed,
         "files_written": written,
         "planned": [{k: e[k] for k in ("file", "line", "op", "before",
                                        "after", "reason")} for e in edits],
         "unresolved": plan["unresolved"], "skipped": plan["skipped"],
-        "counters": plan["counters"]}
+        "counters": plan["counters"], "tracker": tracker, "commit": commit,
+        "pr_scope": pr_scope,
+        "pr_due": None if phase is None else (pr_scope == "phase")}
 
     verb = "wrote" if changed else "would write"
     human = []
@@ -611,6 +781,20 @@ def run_bookkeeping(args, phase):
                      f"found {f['found']!r} ({f['source']})")
     for s in plan["skipped"]:
         human.append(f"skipped :: {s['what']} :: {s['why']}")
+    if tracker["skipped"]:
+        human.append(f"tracker :: not run :: {tracker['skipped']}")
+    elif tracker["ran"]:
+        for name in ("map", "lease"):
+            got = tracker[name] or {}
+            state = "ok" if got.get("ok") else f"FAILED ({got.get('error')})"
+            human.append(f"tracker :: {name} :: {state}")
+    if commit["note"]:
+        human.append(f"commit :: {commit['note']}")
+    elif commit["made"]:
+        human.append(f"commit :: made :: {commit['message']}")
+    if payload["pr_due"] is not None:
+        human.append(f"pr_due :: {payload['pr_due']} "
+                     f"(ship.pr_scope = {pr_scope!r})")
     return payload, human, edits
 
 
@@ -1407,6 +1591,9 @@ def build_parser():
     close.add_argument("phase", type=int, help="phase number")
     close.add_argument("--apply", action="store_true",
                        help="write the planned edits (default: read only)")
+    close.add_argument("--no-tracker", action="store_true",
+                       help="do the file half only: skip the map refresh "
+                            "and the lease release, and say so")
     close.add_argument("--json", action="store_true",
                        help="machine-readable output")
     close.add_argument("--planning-dir", metavar="DIR",
