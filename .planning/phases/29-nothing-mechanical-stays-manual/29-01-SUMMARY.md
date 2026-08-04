@@ -94,6 +94,19 @@ Medidas duas vezes, por dois parsers independentes (o `capture.sh` e o
 `CORR-09` aparece em `requirements.deferred`, **fora** de `disagreements`: ausência
 explicada não é discordância, e silenciá-la repetiria o defeito na direção oposta.
 
+### A doença andou de novo durante a execução deste plano, e o fixture não
+
+Medido ao terminar: o `.planning/` **vivo** já reporta **13** discordâncias, não 10.
+As três novas são `plan-checkbox-stale :: 29-01-PLAN.md`, `:: 29-03-PLAN.md` e
+`state-counter-stale :: progress.completed_plans` — porque este SUMMARY e o do 29-03
+caíram no disco enquanto os checkboxes de `Plans:` do ROADMAP continuam `- [ ]`. O
+fixture congelado continua em **10**, como estava.
+
+Não é curiosidade: é a quarta vez no mesmo artefato que os números se mexem entre ser
+escritos e ser lidos, e é a justificativa da D-02 acontecendo ao vivo. Um teste com
+literais medidos do `.planning/` teria ficado vermelho hoje à noite; com literais do
+fixture congelado, não.
+
 ### A reticência, e as três coisas que o comando faz com ela
 
 Detecta (dois sinais: a reticência entre dois ids, e a tabela mapeando
