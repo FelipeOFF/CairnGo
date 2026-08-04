@@ -30,6 +30,15 @@ refute_in_output() {
   fi
 }
 
+# Assert NEEDLE ($1) does not appear in HAYSTACK ($2), for strings that are
+# not the captured $output.
+refute_substring() {
+  if grep -qF -- "$1" <<<"$2"; then
+    echo "unexpectedly found '$1' in: $2" >&2
+    return 1
+  fi
+}
+
 # sha256 of FILE, computed through python3 so the digest format is identical
 # on macOS (shasum) and Linux (sha256sum) hosts and identical to the one
 # capture.sh writes into the fixture manifest.
@@ -37,6 +46,13 @@ file_sha256() {
   python3 -c \
     "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" \
     "$1"
+}
+
+# Nanosecond mtime of FILE, through python3 for the same portability reason
+# as file_sha256 (`stat -f %m` on macOS vs `stat -c %Y` on Linux).
+file_mtime() {
+  python3 -c \
+    "import os,sys;print(os.stat(sys.argv[1]).st_mtime_ns)" "$1"
 }
 
 # A minimal ROADMAP carrying two phase checkbox lines, one already complete.
@@ -326,4 +342,212 @@ FIXTURE_DIR="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
   run git -C "$PWD" diff --numstat -- .planning/ROADMAP.md
   [ "$status" -eq 0 ]
   [ "$output" = "1	1	.planning/ROADMAP.md" ]
+}
+
+# ---------------------------------------------------------------------------
+# reconcile — reading the frozen drift and naming it
+#
+# Every expected number here is a literal, for the reason spelled out above
+# the fixture guards: the fixture is frozen bytes, so these cannot age, and
+# reading them back out of MANIFEST.md would be a tautology. They are also a
+# second, independent count of the same files — capture.sh measured them with
+# its own counters, and cairn-bookkeep measures them with a different parser.
+# The two agreeing is the point; the two disagreeing would be a finding.
+# ---------------------------------------------------------------------------
+
+@test "reconcile: separates 35 active requirements from the deferred CORR-09" {
+  make_drift_fixture "$PWD"
+
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" '.requirements.active | length' '35'
+  assert_json_eq "$output" '.requirements.deferred | join(",")' 'CORR-09'
+  assert_json_eq "$output" '.requirements.out_of_scope | length' '0'
+
+  # A naive counter puts CORR-09 among the active ones; the section boundary
+  # is what keeps it out, and it is still reported rather than dropped.
+  assert_json_eq "$output" \
+    '.requirements.active | map(select(. == "CORR-09")) | length' '0'
+
+  # The footer is NOT the source of the row count. A command that trusted it
+  # would report footer_claim == rows and find nothing wrong.
+  assert_json_eq "$output" '.coverage.rows' '33'
+  assert_json_eq "$output" '.coverage.footer_claim' '29'
+}
+
+@test "reconcile: names all ten disagreements the fixture carries" {
+  make_drift_fixture "$PWD"
+
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+
+  # A command that presumes consistency returns an empty list over a fixture
+  # that provably disagrees with itself.
+  assert_json_eq "$output" '.disagreements | length' '10'
+
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "coverage-row-missing") | .subject] | sort | join(",")' \
+    'AUTO-05,AUTO-06'
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "requirement-checkbox-stale") | .subject] | join(",")' \
+    'BOARD-01'
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "footer-count-stale")] | length' '1'
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "state-counter-stale") | .subject] | join(",")' \
+    'progress.total_plans'
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "plan-checkbox-stale") | .subject] | sort | join(",")' \
+    '20-01-PLAN.md,20-02-PLAN.md,20-03-PLAN.md'
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "state-narrative-stale") | .subject] | join(",")' \
+    'last_activity_desc'
+
+  # BOARD-01's checkbox is stale because phase 20 is closed — derived, never
+  # copied from the coverage table's own "Complete".
+  assert_json_eq "$output" \
+    '.disagreements[] | select(.subject == "BOARD-01") | .expected' '[x]'
+
+  # CORR-09 is an explained absence, so it is NOT a disagreement.
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.subject == "CORR-09")] | length' '0'
+}
+
+@test "reconcile: the ellipsis is NAMED, and never expanded into ids" {
+  make_drift_fixture "$PWD"
+
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+
+  # Break 1 — a parser that silences the line: two ids and zero
+  # disagreements, which is exactly today's measured behavior and exactly
+  # what makes `req-issue` answer ok.
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "requirements-line-unreadable") | .subject] | join(",")' \
+    'Phase 29'
+  assert_json_eq "$output" \
+    '.disagreements[] | select(.kind == "requirements-line-unreadable") | .detail.ids_parsed | join(",")' \
+    'AUTO-01,AUTO-08'
+  assert_json_eq "$output" \
+    '.disagreements[] | select(.kind == "requirements-line-unreadable") | .detail.raw' \
+    '**Requirements**: AUTO-01 … AUTO-08'
+
+  # Break 2 — a parser clever enough to expand the range: eight ids invented
+  # out of suffix arithmetic, and it lies with more confidence than the first.
+  assert_json_eq "$output" '.phases.detail["29"].requirements | length' '2'
+  assert_json_eq "$output" \
+    '.phases.detail["29"].requirements | join(",")' 'AUTO-01,AUTO-08'
+
+  # `expected` stays null: what the line SHOULD say is genuinely unknown from
+  # the ROADMAP alone. AUTO-05 and AUTO-06 are not even in the coverage
+  # table, so no view of this file can reconstruct the missing ids.
+  assert_json_eq "$output" \
+    '.disagreements[] | select(.kind == "requirements-line-unreadable") | .expected' \
+    'null'
+}
+
+@test "reconcile: computes the STATE counters from disk, never from the prose" {
+  make_drift_fixture "$PWD"
+
+  # The fixture's own prose body says this, and the frontmatter says 29.
+  grep -qF "Phase: 18" "$PWD/.planning/STATE.md"
+
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" '.state.computed.total_phases' '10'
+  assert_json_eq "$output" '.state.computed.completed_phases' '1'
+  assert_json_eq "$output" '.state.computed.percent' '10'
+  # From the phase tree, not from the frontmatter that claims 3.
+  assert_json_eq "$output" '.state.computed.total_plans' '10'
+  assert_json_eq "$output" '.state.computed.completed_plans' '3'
+  assert_json_eq "$output" '.state.frontmatter["progress.total_plans"]' '3'
+
+  # The measured corruption is `state record-session` reading 18 out of the
+  # prose. Nothing computed here may carry it.
+  local computed
+  computed="$(jq -c '.state.computed' <<<"$output")"
+  refute_substring "18" "$computed"
+}
+
+@test "reconcile: read mode does not write one byte" {
+  make_drift_fixture "$PWD"
+
+  local before_r before_q before_s mt_r mt_q mt_s
+  before_r="$(file_sha256 "$PWD/.planning/ROADMAP.md")"
+  before_q="$(file_sha256 "$PWD/.planning/REQUIREMENTS.md")"
+  before_s="$(file_sha256 "$PWD/.planning/STATE.md")"
+  # sha256 alone only catches a write that CHANGES bytes. A reconcile that
+  # "takes the opportunity" and rewrites a file with identical content is
+  # still a write, and it passed a sha-only check when I tried it. mtime is
+  # what makes "does not write one byte" mean what it says.
+  mt_r="$(file_mtime "$PWD/.planning/ROADMAP.md")"
+  mt_q="$(file_mtime "$PWD/.planning/REQUIREMENTS.md")"
+  mt_s="$(file_mtime "$PWD/.planning/STATE.md")"
+
+  run bash "$BOOKKEEP" reconcile --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  echo "$output" | grep -qF "requirements-line-unreadable"
+  echo "$output" | grep -qF "deferred (out of the table by rule"
+  # The count itself belongs to the test above; this one is about the file
+  # not moving, and coupling it to a number would make it go red for a
+  # reason it does not name.
+  echo "$output" | grep -qE "[0-9]+ disagreement\(s\)"
+
+  [ "$before_r" = "$(file_sha256 "$PWD/.planning/ROADMAP.md")" ]
+  [ "$before_q" = "$(file_sha256 "$PWD/.planning/REQUIREMENTS.md")" ]
+  [ "$before_s" = "$(file_sha256 "$PWD/.planning/STATE.md")" ]
+  [ "$mt_r" = "$(file_mtime "$PWD/.planning/ROADMAP.md")" ]
+  [ "$mt_q" = "$(file_mtime "$PWD/.planning/REQUIREMENTS.md")" ]
+  [ "$mt_s" = "$(file_mtime "$PWD/.planning/STATE.md")" ]
+
+  # Nothing anywhere in the tree moved, not just those three files. The
+  # baseline commit is what makes this assertion mean something.
+  run git -C "$PWD" status --porcelain
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "reconcile: has no --apply, because resolving is not this plan" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 2 ]
+}
+
+@test "reconcile: a consistent tree is exit 0 with an empty list" {
+  make_gsd_fixture "$PWD"
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.disagreements | length' '0'
+  assert_json_eq "$output" '.requirements.active | length' '3'
+  assert_json_eq "$output" '.state.computed.percent' '50'
+}
+
+@test "reconcile: reads the coverage table from REQUIREMENTS when that is where it lives" {
+  make_gsd_fixture "$PWD"
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  # The GSD template puts the same three columns under `## Traceability` in
+  # REQUIREMENTS.md. Reading only `## Cobertura` in the ROADMAP would report
+  # one missing row per requirement over a table that is right there.
+  assert_json_eq "$output" '.coverage.rows' '3'
+  assert_json_eq "$output" '.coverage.source | endswith("REQUIREMENTS.md")' 'true'
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind == "coverage-row-missing")] | length' '0'
+}
+
+@test "reconcile: no coverage table anywhere is ONE finding, not one per requirement" {
+  make_gsd_fixture "$PWD"
+  # Strip both homes of the table.
+  python3 - "$PWD/.planning/REQUIREMENTS.md" <<'PY'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().split("## Traceability")[0])
+PY
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" '.disagreements | length' '1'
+  assert_json_eq "$output" '.disagreements[0].kind' 'coverage-view-missing'
+  assert_json_eq "$output" '.coverage.source' 'null'
+  # Three active requirements, and NOT three findings.
+  assert_json_eq "$output" '.requirements.active | length' '3'
 }
