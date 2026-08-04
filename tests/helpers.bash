@@ -14,6 +14,10 @@
 #   make_board_fixture DIR  deterministic board fixture: .planning/ tree with
 #                           every roadmap shape + bd db with FIXED issue ids
 #                           (needs bd >= 1.1.0 for `bd create --id`)
+#   make_drift_fixture DIR  this repo's OWN planning files, frozen while they
+#                           still disagree (tests/fixtures/bookkeep-drift/),
+#                           plus the phase tree rebuilt from phases.tsv and a
+#                           baseline commit
 #   make_env_asserting_claude_stub
 #                           claude stub that echoes its own observed HOME/env/
 #                           argv into the canned JSON payload it emits
@@ -438,6 +442,62 @@ EOF
     --silent >/dev/null
   bd close brd-006 >/dev/null 2>&1
   popd >/dev/null || return 1
+}
+
+# Build the drift fixture in DIR: this repository's OWN ROADMAP.md,
+# REQUIREMENTS.md and STATE.md as frozen by
+# tests/fixtures/bookkeep-drift/capture.sh, while they still disagree with
+# each other, plus the phase tree those files describe.
+#
+# The .md files are COPIED, never rewritten — the whole value of this fixture
+# is that it is a byte copy of a real, committed, drifted state (29-CONTEXT.md,
+# D-02). The phase tree is rebuilt from phases.tsv with EMPTY files of the
+# right names, because every counter under test counts NAMES, not content.
+#
+# It ends with `git add -A` + `git commit`, and that commit is load-bearing:
+# make_tmp_repo runs `git init` and configures a user but never commits
+# anything (there is no `git commit` anywhere else in this file), so without
+# this one the fixture files stay untracked and `git diff` against a tree with
+# no HEAD returns empty. A write test proving "only the planned lines moved"
+# would then pass against a 35-line reflow just as happily as against a
+# one-character edit. The commit is the denominator of that diff. If
+# make_tmp_repo ever grows a commit of its own this becomes harmless
+# redundancy — do not assume it will.
+make_drift_fixture() {
+  local dir="$1"
+  local src="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
+  local p="$dir/.planning"
+  mkdir -p "$p/phases"
+
+  local name
+  for name in ROADMAP REQUIREMENTS STATE; do
+    cp "$src/$name.md" "$p/$name.md"
+  done
+
+  # phases.tsv: phase_dir<TAB>plans<TAB>summaries<TAB>has_verification.
+  # Comment lines start with '#'. The plan/summary numbers are regenerated as
+  # NN-01..NN-<count>, which is how the frozen ROADMAP's own `Plans:` lists
+  # name them.
+  local phase_dir plans summaries has_ver nn i idx
+  while IFS=$'\t' read -r phase_dir plans summaries has_ver; do
+    case "$phase_dir" in ''|'#'*) continue ;; esac
+    mkdir -p "$p/phases/$phase_dir"
+    nn="${phase_dir%%-*}"
+    for ((i = 1; i <= plans; i++)); do
+      idx="$(printf '%02d' "$i")"
+      : > "$p/phases/$phase_dir/$nn-$idx-PLAN.md"
+    done
+    for ((i = 1; i <= summaries; i++)); do
+      idx="$(printf '%02d' "$i")"
+      : > "$p/phases/$phase_dir/$nn-$idx-SUMMARY.md"
+    done
+    if [ "$has_ver" = "1" ]; then
+      : > "$p/phases/$phase_dir/$nn-VERIFICATION.md"
+    fi
+  done < "$src/phases.tsv"
+
+  git -C "$dir" add -A
+  git -C "$dir" commit -q -m "fixture baseline"
 }
 
 # Write an executable claude stub to $BATS_TEST_TMPDIR/claude-env-stub (path

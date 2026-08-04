@@ -63,11 +63,11 @@ EOF
 
 setup() {
   make_tmp_repo
-  write_mini_roadmap "$PWD"
   ROADMAP="$PWD/.planning/ROADMAP.md"
 }
 
 @test "close: read mode names the edit, exits 3, and writes nothing" {
+  write_mini_roadmap "$PWD"
   local before after
   before="$(file_sha256 "$ROADMAP")"
 
@@ -83,6 +83,7 @@ setup() {
 }
 
 @test "close --apply: flips the checkbox and changes exactly one line" {
+  write_mini_roadmap "$PWD"
   cp "$ROADMAP" "$BATS_TEST_TMPDIR/roadmap.before"
 
   run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
@@ -100,6 +101,7 @@ setup() {
 }
 
 @test "close --apply preserves every other byte of the line and the file" {
+  write_mini_roadmap "$PWD"
   cp "$ROADMAP" "$BATS_TEST_TMPDIR/roadmap.before"
   run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
@@ -119,6 +121,7 @@ setup() {
 }
 
 @test "close --apply twice: the second run reports changed:false and writes nothing" {
+  write_mini_roadmap "$PWD"
   run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   local after_first
@@ -135,6 +138,7 @@ setup() {
 }
 
 @test "close: an already-complete phase is exit 0 with an empty plan, not an edit" {
+  write_mini_roadmap "$PWD"
   run bash "$BOOKKEEP" close 20 --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.planned | length' '0'
@@ -142,6 +146,7 @@ setup() {
 }
 
 @test "close --json: the planned edit carries file, line, before, after and a reason" {
+  write_mini_roadmap "$PWD"
   run bash "$BOOKKEEP" close 29 --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 3 ]
   assert_json_eq "$output" '.planned | length' '1'
@@ -155,12 +160,14 @@ setup() {
 }
 
 @test "close: an unknown phase number is exit 4, never a silent no-op" {
+  write_mini_roadmap "$PWD"
   run bash "$BOOKKEEP" close 77 --planning-dir "$PWD/.planning"
   [ "$status" -eq 4 ]
   echo "$output" | grep -qF "no checkbox line for phase 77"
 }
 
 @test "close: a phase number matching two lines is exit 2 naming both" {
+  write_mini_roadmap "$PWD"
   cat >> "$PWD/.planning/ROADMAP.md" <<'EOF'
 
 ## Ordem de dependência
@@ -183,8 +190,140 @@ EOF
 }
 
 @test "close: a missing planning dir is a usage error, not a traceback" {
+  write_mini_roadmap "$PWD"
   run bash "$BOOKKEEP" close 29 --planning-dir "$PWD/nope"
   [ "$status" -eq 2 ]
   echo "$output" | grep -qF "planning dir not found"
   refute_in_output "Traceback"
+}
+
+# ---------------------------------------------------------------------------
+# The frozen fixture (tests/fixtures/bookkeep-drift/)
+#
+# Every expected number below is a LITERAL in this file, deliberately. The
+# obvious alternative — reading them back out of MANIFEST.md — is a
+# tautology: capture.sh writes the fixture AND the manifest in the same run,
+# so a recapture taken after someone tidied .planning/ would move both
+# together and these guards would stay green over an empty proof. A literal
+# cannot be moved by capture.sh. It can only be moved by a hand, in a diff,
+# on purpose.
+#
+# The numbers are constants because the fixture is frozen bytes: unlike
+# .planning/, which moved three times while this phase was being planned
+# (33 -> 34 -> 35 active requirements), a committed copy cannot age.
+# ---------------------------------------------------------------------------
+
+FIXTURE_DIR="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
+
+@test "fixture: the frozen files still hash to what the manifest recorded" {
+  local name digest
+  for name in ROADMAP REQUIREMENTS STATE; do
+    digest="$(file_sha256 "$FIXTURE_DIR/$name.md")"
+    # The manifest row is `| \`NAME.md\` | bytes | \`sha256\` |`.
+    run grep -F "$digest" "$FIXTURE_DIR/MANIFEST.md"
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -qF "$name.md"
+  done
+}
+
+@test "fixture: the frozen ROADMAP still carries the disease it was frozen for" {
+  # 1. the footer's own wrong claim, verbatim.
+  grep -qF "29 requisitos, 29 mapeados." "$FIXTURE_DIR/ROADMAP.md"
+
+  # 2. thirty-three coverage rows — not the 29 the footer claims, and not
+  #    the 35 requirements that actually exist.
+  local rows
+  rows="$(grep -cE '^\| [A-Z]+-[0-9]+ \| Phase [0-9]+ \|' \
+    "$FIXTURE_DIR/ROADMAP.md")"
+  [ "$rows" -eq 33 ]
+
+  # 3. AUTO-05 and AUTO-06 have no row at all.
+  refute_in_file "| AUTO-05 |" "$FIXTURE_DIR/ROADMAP.md"
+  refute_in_file "| AUTO-06 |" "$FIXTURE_DIR/ROADMAP.md"
+
+  # 4. the ellipsis that blinded two tools, still unreadable.
+  grep -qF "**Requirements**: AUTO-01 … AUTO-08" "$FIXTURE_DIR/ROADMAP.md"
+
+  # 5. phase 20 is checked off while its three plans are not.
+  grep -qF -- "- [x] Phase 20: Group model (BOARD-01)" "$FIXTURE_DIR/ROADMAP.md"
+  grep -qF -- "- [ ] 20-01-PLAN.md" "$FIXTURE_DIR/ROADMAP.md"
+}
+
+@test "fixture: the frozen REQUIREMENTS still carries 35 unchecked active ids" {
+  local active checked
+  active="$(grep -cE '^- \[[ x]\] \*\*[A-Z]+-[0-9]+\*\*' \
+    "$FIXTURE_DIR/REQUIREMENTS.md")"
+  # Exactly 35, and every checkbox item in the file is an active one: the
+  # deferred entry below carries NO checkbox, which is the corroboration the
+  # section boundary gets for free.
+  [ "$active" -eq 35 ]
+
+  checked="$(grep -cE '^- \[x\] \*\*[A-Z]+-[0-9]+\*\*' \
+    "$FIXTURE_DIR/REQUIREMENTS.md" || true)"
+  [ "$checked" -eq 0 ]
+
+  # BOARD-01 unchecked here while the coverage table calls it Complete: the
+  # requirement checkbox and the table disagree, and the phase that carries
+  # it is already closed.
+  grep -qF -- "- [ ] **BOARD-01**" "$FIXTURE_DIR/REQUIREMENTS.md"
+  grep -qF "| BOARD-01 | Phase 20 | Complete |" "$FIXTURE_DIR/ROADMAP.md"
+
+  # CORR-09 is deferred, which is an explained absence, not drift — and it
+  # is written WITHOUT a checkbox, unlike every active id above it.
+  grep -qF "## Deferred (v2)" "$FIXTURE_DIR/REQUIREMENTS.md"
+  grep -qF -- "- **CORR-09**" "$FIXTURE_DIR/REQUIREMENTS.md"
+  refute_in_file "- [ ] **CORR-09**" "$FIXTURE_DIR/REQUIREMENTS.md"
+}
+
+@test "fixture: the frozen STATE still counts 3 plans against a 10-plan tree" {
+  grep -qF "  total_plans: 3" "$FIXTURE_DIR/STATE.md"
+  grep -qF "  completed_plans: 3" "$FIXTURE_DIR/STATE.md"
+  grep -qF "  total_phases: 10" "$FIXTURE_DIR/STATE.md"
+  grep -qF "last_activity_desc: Milestone v1.5 Legible State aberto (9 fases, 24 requisitos)" \
+    "$FIXTURE_DIR/STATE.md"
+
+  # The prose body still contradicts the frontmatter — the measured source of
+  # the `current_phase: 29 -> 18` corruption. reconcile must never read it.
+  grep -qF "current_phase: 29" "$FIXTURE_DIR/STATE.md"
+  grep -qF "Phase: 18" "$FIXTURE_DIR/STATE.md"
+
+  # phases.tsv is the tree those counters disagree with: 3+7 = 10 plans.
+  grep -qF "20-group-model	3	3	1" "$FIXTURE_DIR/phases.tsv"
+  grep -qF "29-nothing-mechanical-stays-manual	7	0	0" "$FIXTURE_DIR/phases.tsv"
+}
+
+@test "make_drift_fixture: rebuilds the tree by name and commits a baseline" {
+  make_drift_fixture "$PWD"
+
+  local plans summaries
+  plans="$(find "$PWD/.planning/phases" -name '*-PLAN.md' | wc -l | tr -d ' ')"
+  summaries="$(find "$PWD/.planning/phases" -name '*-SUMMARY.md' | wc -l | tr -d ' ')"
+  [ "$plans" -eq 10 ]
+  [ "$summaries" -eq 3 ]
+  [ -f "$PWD/.planning/phases/20-group-model/20-03-SUMMARY.md" ]
+  [ -f "$PWD/.planning/phases/20-group-model/20-VERIFICATION.md" ]
+  [ -f "$PWD/.planning/phases/29-nothing-mechanical-stays-manual/29-07-PLAN.md" ]
+  [ ! -f "$PWD/.planning/phases/29-nothing-mechanical-stays-manual/29-01-SUMMARY.md" ]
+
+  # The .md files are byte copies, not reconstructions.
+  local a b
+  a="$(file_sha256 "$FIXTURE_DIR/ROADMAP.md")"
+  b="$(file_sha256 "$PWD/.planning/ROADMAP.md")"
+  [ "$a" = "$b" ]
+
+  # The baseline commit is the denominator of every "only the planned lines
+  # moved" diff. Without it `git diff` has nothing to compare against and
+  # would approve a full-file reflow.
+  run git -C "$PWD" rev-parse HEAD
+  [ "$status" -eq 0 ]
+  run git -C "$PWD" status --porcelain
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+
+  # And it is a real denominator: a one-line edit shows up as exactly one.
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  run git -C "$PWD" diff --numstat -- .planning/ROADMAP.md
+  [ "$status" -eq 0 ]
+  [ "$output" = "1	1	.planning/ROADMAP.md" ]
 }

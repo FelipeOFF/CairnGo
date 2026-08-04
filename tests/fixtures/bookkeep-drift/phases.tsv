@@ -1,0 +1,6 @@
+# phase_dir	plans	summaries	has_verification
+# Counted by capture.sh from .planning/phases/. make_drift_fixture
+# rebuilds the tree from these counts with EMPTY files of the right
+# names — every counter under test counts names, not content.
+20-group-model	3	3	1
+29-nothing-mechanical-stays-manual	7	0	0
