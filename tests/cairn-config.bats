@@ -148,12 +148,147 @@ make_config_fixture() {
   refute_in_output "Traceback"
 }
 
-@test "cairn-config.sh with no subcommand exits 2; --help lists get and set" {
+@test "cairn-config.sh with no subcommand exits 2; --help lists list, get and set" {
   run bash "$CONFIG"
   [ "$status" -eq 2 ]
 
   run bash "$CONFIG" --help
   [ "$status" -eq 0 ]
+  grep -qF "list" <<<"$output"
   grep -qF "get" <<<"$output"
   grep -qF "set" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# Task 2: the whole schema, the inventory of what already lives elsewhere, and
+# the remaining types.
+#-----------------------------------------------------------------------------
+
+@test "list names EXACTLY the five keys of the schema — and sync_push is not one of them" {
+  make_config_fixture
+
+  run bash "$CONFIG" list --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  # An assertion on the SET, not on prose: a sixth key with no reader turns
+  # this red, and so does the sync_push button, whose absence is a grooming
+  # decision rather than an oversight (post-bd-write.sh:126-152 decides the
+  # push by the existence of sync.json, and the flag is read by nothing).
+  assert_json_eq "$output" '[.keys[].key] | sort | join(",")' \
+    'autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,ship.pr_scope,test.jobs'
+  assert_json_eq "$output" '[.keys[] | select(.key | test("sync_push"))] | length' '0'
+
+  # Every key names the executable that reads it. An empty reader is the
+  # defect this phase exists to close.
+  assert_json_eq "$output" '[.keys[] | select(.reader == null or .reader == "")] | length' '0'
+  assert_json_eq "$output" '[.keys[] | select(.key == "autonomous.max_parallel") | .reader][0]' \
+    'cairn-parallel.py batch'
+  assert_json_eq "$output" '[.keys[] | select(.key == "ship.pr_scope") | .reader][0]' \
+    'cairn-bookkeep.py'
+  assert_json_eq "$output" '[.keys[] | select(.key == "test.jobs") | .reader][0]' \
+    'cairn-test.py'
+}
+
+@test "list also inventories the config cairn keeps elsewhere, by file and by owner" {
+  make_config_fixture
+
+  run bash "$CONFIG" list --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  # The other half of "nothing lists the set": a list that only showed what
+  # this script itself writes would still leave a reader hunting.
+  assert_json_eq "$output" '[.elsewhere[].path] | sort | join(",")' \
+    '.cairn/context.json,.cairn/sync.json,.planning/config.json'
+  assert_json_eq "$output" '[.elsewhere[] | select(.path == ".cairn/sync.json") | .written_by][0]' \
+    '/cairn:sync-config'
+  assert_json_eq "$output" '[.elsewhere[] | select(.path == ".cairn/context.json") | .written_by][0]' \
+    '/cairn:context-config'
+  # cairn.enabled stays where the thing that activates the capability reads it.
+  assert_json_eq "$output" '[.elsewhere[] | select(.path == ".planning/config.json") | .key][0]' \
+    'cairn.enabled'
+  assert_json_eq "$output" '[.elsewhere[] | select(.path == ".planning/config.json") | .read_by][0]' \
+    'cairn-loop-gate.py'
+
+  # Naming them is not reading them: no .cairn/ file was created by a list.
+  [ ! -e "$ROOT/.cairn/config.json" ]
+  [ ! -e "$ROOT/.cairn/sync.json" ]
+  [ ! -e "$ROOT/.cairn/context.json" ]
+}
+
+@test "list reports where each value came from, and the human render says the file is hand-editable" {
+  make_config_fixture
+  bash "$CONFIG" set ship.pr_scope milestone --project-dir "$ROOT"
+
+  run bash "$CONFIG" list --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.keys[] | select(.key == "ship.pr_scope") | .source][0]' 'file'
+  assert_json_eq "$output" '[.keys[] | select(.key == "ship.pr_scope") | .value][0]' 'milestone'
+  assert_json_eq "$output" '[.keys[] | select(.key == "ship.pr_scope") | .default][0]' 'phase'
+  # Untouched keys still answer, from the schema.
+  assert_json_eq "$output" '[.keys[] | select(.key == "bookkeep.auto_commit") | .source][0]' 'default'
+
+  run bash "$CONFIG" list --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF ".cairn/config.json" <<<"$output"
+  grep -qF "edit it by hand" <<<"$output"
+  grep -qF "read by cairn-bookkeep.py" <<<"$output"
+}
+
+@test "the enum key: default phase, settable to milestone or none, and anything else exits 3" {
+  make_config_fixture
+
+  run bash "$CONFIG" get ship.pr_scope --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  # Bare, not JSON-quoted: `$(cairn-config.sh get ship.pr_scope)` is a shell
+  # idiom and `"phase"` would be the wrong answer to it.
+  [ "$output" = "phase" ]
+
+  run bash "$CONFIG" set ship.pr_scope milestone --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  run bash "$CONFIG" get ship.pr_scope --project-dir "$ROOT"
+  [ "$output" = "milestone" ]
+
+  run bash "$CONFIG" set ship.pr_scope talvez --project-dir "$ROOT"
+  [ "$status" -eq 3 ]
+  grep -qF "phase, milestone, none" <<<"$output"
+  # The rejection did not overwrite the good value.
+  run bash "$CONFIG" get ship.pr_scope --project-dir "$ROOT"
+  [ "$output" = "milestone" ]
+}
+
+@test "the bool key: default false, real JSON booleans on disk, junk exits 3" {
+  make_config_fixture
+
+  run bash "$CONFIG" get bookkeep.auto_commit --project-dir "$ROOT"
+  [ "$output" = "false" ]
+
+  run bash "$CONFIG" set bookkeep.auto_commit true --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  # A JSON boolean, not the string "true" — a reader doing `if value:` on
+  # "false" would be wrong for the rest of its life.
+  run jq -r '.bookkeep.auto_commit | type' "$ROOT/.cairn/config.json"
+  [ "$output" = "boolean" ]
+
+  run bash "$CONFIG" set bookkeep.auto_commit talvez --project-dir "$ROOT"
+  [ "$status" -eq 3 ]
+  grep -qF "takes a boolean" <<<"$output"
+}
+
+@test "the nullable int: null means available CPUs, a number means that number, zero is refused" {
+  make_config_fixture
+
+  run bash "$CONFIG" get test.jobs --project-dir "$ROOT"
+  [ "$output" = "null" ]
+
+  run bash "$CONFIG" set test.jobs 6 --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  run bash "$CONFIG" get test.jobs --project-dir "$ROOT"
+  [ "$output" = "6" ]
+
+  run bash "$CONFIG" set test.jobs null --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  run jq -r '.test.jobs | type' "$ROOT/.cairn/config.json"
+  [ "$output" = "null" ]
+
+  run bash "$CONFIG" set test.jobs 0 --project-dir "$ROOT"
+  [ "$status" -eq 3 ]
+  grep -qF "must be at least 1" <<<"$output"
 }

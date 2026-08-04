@@ -147,6 +147,16 @@ failed subprocess or unparsable JSON degrades to the fallback and never takes
 same reason independence is not recomputed here — two implementations of one
 question eventually disagree.
 
+The OTHER ceiling, `autonomous.max_cycles`, bounds a run rather than a batch,
+and it has a deliberate asymmetry: it applies only when the caller passes
+`--cycle K`. A caller that does not count cycles cannot be over one, and
+inventing a cycle number here would be exactly the second truth this file
+refuses everywhere else. Above the ceiling nothing is selected, every runnable
+phase is deferred with the ceiling named as its reason, `cycle_note` says it
+in one sentence, and the exit stays 0 — the ceiling is a planning input, not a
+gate, and the caller is what stops. `cycle_note` is its own field rather than
+a rewrite of `note`: `note` belongs to whoever computed independence.
+
 The bridge from `batch` to `prepare` is a CONTRACT, not just a shared function:
 what `batch` announces as `branch`/`worktree` has to be byte-for-byte what
 `prepare` creates, because `reconcile` (18-02) finds the work by the name
@@ -448,7 +458,8 @@ it is asked to say.
 
 
 Usage:
-    cairn-parallel.py batch     [--max N] [--project-dir DIR] [--json]
+    cairn-parallel.py batch     [--max N] [--cycle K] [--project-dir DIR]
+                                [--json]
     cairn-parallel.py prepare N [--project-dir DIR] [--json]
     cairn-parallel.py reconcile [--phases 7,9] [--project-dir DIR] [--json]
     cairn-parallel.py cleanup   [--apply] [--project-dir DIR] [--json]
@@ -458,6 +469,12 @@ Usage:
     --max N             ceiling on how many phases `batch` selects (default:
                         `autonomous.max_parallel` from .cairn/config.json,
                         itself 3 when that file says nothing)
+    --cycle K           which cycle of an autonomous run this is. Past
+                        `autonomous.max_cycles` (0 = no ceiling) `batch`
+                        selects nothing and says why, exit 0 — it is a
+                        read-only planner, not a gate. Omit the flag and the
+                        cycle ceiling does not apply at all: a caller that
+                        does not count cycles cannot be over one
     --phases LIST       comma-separated phase numbers `reconcile` restricts
                         itself to (default: every phase/* branch)
     --apply             `cleanup` writes. Without it nothing anywhere is
@@ -470,8 +487,8 @@ Usage:
 Behavior:
     batch      Calls `cairn-status.py --json` ONCE (through the CAIRN_STATUS
                seam) and reports:
-                 {runnable, blocked, declared, note, max, selected[],
-                  deferred[], announcement}
+                 {runnable, blocked, declared, note, max, cycle, max_cycles,
+                  cycle_note, selected[], deferred[], announcement}
                `selected[]` entries carry {phase, title, slug, branch,
                worktree, next_command, reason, lease_stale}; `deferred[]`
                entries carry {phase, reason}. `announcement` is the ready-made
@@ -588,6 +605,9 @@ CAIRN_CONFIG = os.environ.get(
 # this number is what keeps `batch` working when the source cannot be
 # reached. If the two ever disagree, the schema is right.
 MAX_PARALLEL_FALLBACK = 3
+# Same contract for the cycle ceiling, and 0 is the value that means "no
+# ceiling" — so a config that cannot be reached imposes none.
+MAX_CYCLES_FALLBACK = 0
 
 # Phase directory numeric-prefix matching — the house convention is that each
 # script carries its own copy of this regex rather than sharing a lib (same
@@ -998,6 +1018,8 @@ def build_announcement(result):
                      f"{s['branch']}")
     for d in result["deferred"]:
         lines.append(f"  phase {d['phase']} stays out: {d['reason']}")
+    if result.get("cycle_note"):
+        lines.append(result["cycle_note"])
     if result["note"]:
         lines.append(result["note"])
     if not result["declared"]:
@@ -1048,12 +1070,31 @@ def cmd_batch(args, top):
     if args.max is not None and args.max < 1:
         die(f"--max must be at least 1 (got {args.max})\n" + USAGE,
             EXIT_USAGE)
+    if args.cycle is not None and args.cycle < 0:
+        die(f"--cycle must be zero or more (got {args.cycle})\n" + USAGE,
+            EXIT_USAGE)
     # An explicit --max always wins over the setting; with no flag the ceiling
     # is autonomous.max_parallel, whose own schema default is 3 — so a repo
     # with no .cairn/config.json selects exactly what it selected before.
     max_selected = (args.max if args.max is not None
                     else config_int(top, "autonomous.max_parallel",
                                     MAX_PARALLEL_FALLBACK, 1))
+
+    # The cycle ceiling only exists for a caller that counts cycles: with no
+    # --cycle it does not apply at all, and 0 means no ceiling. Above it,
+    # `batch` selects nothing and SAYS SO — a limit enforced in silence is
+    # indistinguishable from a run that simply found no work (T-29-10).
+    max_cycles = config_int(top, "autonomous.max_cycles",
+                            MAX_CYCLES_FALLBACK, 0)
+    over_cycle = (args.cycle is not None and max_cycles > 0
+                  and args.cycle > max_cycles)
+    cycle_note = None
+    if over_cycle:
+        cycle_note = (f"cycle {args.cycle} is past the "
+                      f"autonomous.max_cycles ceiling of {max_cycles}, so no "
+                      f"phase is selected. Raise or clear it with "
+                      f"`cairn-config.sh set autonomous.max_cycles N` "
+                      f"(0 = no ceiling).")
 
     data = status_json(top)
     par = data.get("parallelism") or {}
@@ -1080,6 +1121,12 @@ def cmd_batch(args, top):
     selected = []
     deferred = []
     for n in runnable:
+        if over_cycle:
+            deferred.append({"phase": n,
+                             "reason": f"cycle {args.cycle} is above the "
+                                       f"autonomous.max_cycles ceiling of "
+                                       f"{max_cycles}"})
+            continue
         entry = held.get(n)
         if entry is not None and not entry.get("stale"):
             deferred.append({"phase": n,
@@ -1111,6 +1158,13 @@ def cmd_batch(args, top):
         "declared": bool(par.get("declared")),
         "note": par.get("note"),
         "max": max_selected,
+        # The cycle ceiling gets its OWN field rather than overwriting `note`:
+        # that one is passed through verbatim from whoever computed
+        # independence, and borrowing it here would put two authors' words in
+        # one place. `cycle` is null when the caller does not count cycles.
+        "cycle": args.cycle,
+        "max_cycles": max_cycles,
+        "cycle_note": cycle_note,
         "selected": selected,
         "deferred": deferred,
     }
@@ -1832,6 +1886,10 @@ def build_parser():
                        help="ceiling on how many phases are selected "
                             "(default: autonomous.max_parallel from "
                             ".cairn/config.json, itself 3)")
+    batch.add_argument("--cycle", type=int, default=None, metavar="K",
+                       help="which cycle of an autonomous run this is; "
+                            "past autonomous.max_cycles nothing is selected "
+                            "(omit it and the cycle ceiling never applies)")
     batch.set_defaults(func=cmd_batch)
 
     prepare = sub.add_parser("prepare", help="create phase N's named "

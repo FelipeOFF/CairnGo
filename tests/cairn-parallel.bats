@@ -372,6 +372,61 @@ PYEOF
   refute_in_output "Traceback"
 }
 
+@test "the cycle ceiling has teeth: at the limit batch still selects, past it it selects nothing and names the ceiling and the cycle" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_cycles 2 \
+    --project-dir "$MAIN_ROOT"
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --cycle 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.cycle_note' 'null'
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --cycle 3 --project-dir "$MAIN_ROOT" --json
+  # A read-only planner: exit stays 0, the caller is what stops.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.selected | length' '0'
+  assert_json_eq "$output" '.max_cycles' '2'
+  assert_json_eq "$output" '.cycle' '3'
+  # Zero selected AND a reason. A ceiling enforced in silence looks exactly
+  # like a run that found no work.
+  assert_json_eq "$output" '.cycle_note | contains("2")' 'true'
+  assert_json_eq "$output" '.cycle_note | contains("cycle 3")' 'true'
+  assert_json_eq "$output" '[.deferred[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.announcement | contains("max_cycles")' 'true'
+}
+
+@test "the cycle ceiling does not apply to a caller that does not count cycles, and 0 is no ceiling at all" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  # A ceiling in force, but no --cycle: nothing to be over.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_cycles 2 \
+    --project-dir "$MAIN_ROOT"
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.cycle' 'null'
+  assert_json_eq "$output" '.cycle_note' 'null'
+
+  # Back to the default of 0: a ceiling nobody asked for must not appear.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_cycles 0 \
+    --project-dir "$MAIN_ROOT"
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --cycle 99 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.max_cycles' '0'
+  assert_json_eq "$output" '.cycle_note' 'null'
+}
+
 @test "the bridge: for TWO phases, the branch and worktree batch announces are byte-for-byte the ones prepare creates, and the two trees are isolated" {
   require_bd
   make_parallel_fixture
