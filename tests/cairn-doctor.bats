@@ -117,14 +117,24 @@ EOF
   # The count is hardcoded ON PURPOSE: it is the canary for a check that was
   # written and never registered in main()'s `checks` list. 16 -> 17 here
   # came with check 16, test-parallel (29-06); 17 -> 18 with check 17,
-  # req-ledger (29-07).
+  # req-ledger (29-07); 18 -> 19 with check 18, response-language (phase 24).
+  #
+  # That last bump is the one this assertion was really built for, and it
+  # took the shape nothing else here can catch. Phases 23 and 24 ran in
+  # parallel worktrees and each added a check WITHOUT knowing about the
+  # other's. Neither branch's test was wrong on its own branch: 23 asserted
+  # 18 and passed, 24 asserted 19 and passed. git merged both files with NO
+  # conflict — the silent auto-merge that damaged phases 14/15 of this
+  # project — and the merged tree registered 19 checks while this literal
+  # still read 18. Two red tests, one defect, and the ONLY thing that named
+  # it was this canary.
   #
   # It is also the assertion that caught the reporting failure it was built
   # for. It stayed red through a `bats tests/cairn-doctor.bats` whose log was
   # read through `tail -15`, so the failure line scrolled out and the run was
   # called green. The full-suite run through cairn-test.sh is what surfaced
   # it. A number read off the end of a truncated log is not a measurement.
-  assert_json_eq "$output" '.checks | length' '18'
+  assert_json_eq "$output" '.checks | length' '19'
   # The exact ordered set, not "unique == ok": after 23-02 this fixture has
   # two ⊘ checks (cairn's own manifests are absent by construction), and an
   # assertion that merely tolerated extra values would stop proving anything.
@@ -2968,7 +2978,10 @@ PY
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.checks | length' '18'
+  # 19 since check 18, response-language (phase 24) — see the long note on
+  # the same assertion near the top of this file for why the merge, and not
+  # either branch, is what made this literal wrong.
+  assert_json_eq "$output" '.checks | length' '19'
   assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
     'true'
 }

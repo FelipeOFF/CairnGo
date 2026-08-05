@@ -12,11 +12,11 @@ o que está respondendo não conta como pronta.
 ### O board que situa (BOARD)
 
 - [x] **BOARD-01**: O **modelo** carrega a hierarquia milestone → fase → tarefa: milestones abertos primeiro, trabalho sem milestone em grupo próprio e por último
-- [ ] **BOARD-06**: O **board renderiza** agrupado — milestones abertos primeiro, fases dentro deles, trabalho sem milestone por último
-- [ ] **BOARD-02**: Cada linha carrega a etapa (não planejada, planejada, em execução, feita, bloqueada) num símbolo de largura simples, com fallback ASCII sob `--ascii`
-- [ ] **BOARD-03**: O título de uma tarefa não é truncado no render humano, em nenhuma largura de terminal em que a linha caiba
+- [x] **BOARD-06**: O **board renderiza** agrupado — milestones abertos primeiro, fases dentro deles, trabalho sem milestone por último
+- [x] **BOARD-02**: Cada linha carrega a etapa (não planejada, planejada, em execução, feita, bloqueada) num símbolo de largura simples, com fallback ASCII sob `--ascii`
+- [x] **BOARD-03**: O título de uma tarefa não é truncado no render humano, em nenhuma largura de terminal em que a linha caiba
 - [ ] **BOARD-04**: O cabeçalho diz qual milestone está aberto, e diz explicitamente quando não há nenhum — nunca repete o último arquivado
-- [ ] **BOARD-05**: Uma linha bloqueada nomeia por quem está bloqueada, na própria linha
+- [x] **BOARD-05**: Uma linha bloqueada nomeia por quem está bloqueada, na própria linha
 
 ### O contrato de máquina (PIPE)
 
@@ -26,20 +26,20 @@ o que está respondendo não conta como pronta.
 
 ### Não-aplicável como estado de primeira classe (VOID)
 
-- [ ] **VOID-01**: Uma checagem sem nada para checar reporta `not-applicable`, distinto de `ok`, e o resumo do doctor conta os dois separadamente
-- [ ] **VOID-02**: Um roadmap vazio não produz board verde: `req-issue`, `maps-fresh` e `orphans` reportam não-aplicável em vez de aprovar o nada
-- [ ] **VOID-03**: `orphans` para de sinalizar issue fechada de milestone arquivado, e a contagem zera ao fim de um ciclo em vez de crescer para sempre
+- [x] **VOID-01**: Uma checagem sem nada para checar reporta `not-applicable`, distinto de `ok`, e o resumo do doctor conta os dois separadamente
+- [x] **VOID-02**: Um roadmap vazio não produz board verde: `req-issue`, `maps-fresh` e `orphans` reportam não-aplicável em vez de aprovar o nada
+- [x] **VOID-03**: `orphans` para de sinalizar issue fechada de milestone arquivado, e a contagem zera ao fim de um ciclo em vez de crescer para sempre
 
 ### Linguagem escolhida na instalação (LANG)
 
-- [ ] **LANG-01**: `/cairn:init` pergunta a linguagem de resposta e grava a escolha na config local, com inglês como default
-- [ ] **LANG-02**: A escolha alcança todo subagente spawnado pelo lifecycle **do cairn**, provado por teste que lê o valor **na saída do processo**, nunca na config. O repasse dentro dos workflows do GSD é dependência externa e está fora deste escopo: o GSD já o manda, em `references/execute-phase-response-language.md:3` — *"Pass `response_language: {value}` into every spawned subagent prompt"* — e o que faltava no v1.4 era a chave existir, que é o LANG-01
+- [x] **LANG-01**: `/cairn:init` pergunta a linguagem de resposta e grava a escolha na config local, com inglês como default
+- [x] **LANG-02**: A escolha alcança todo subagente spawnado pelo lifecycle **do cairn**, provado por teste que lê o valor **na saída do processo**, nunca na config. O repasse dentro dos workflows do GSD é dependência externa e está fora deste escopo: o GSD já o manda, em `references/execute-phase-response-language.md:3` — *"Pass `response_language: {value}` into every spawned subagent prompt"* — e o que faltava no v1.4 era a chave existir, que é o LANG-01
 
 ### Os wrappers `/cairn:*` (WRAP)
 
-- [ ] **WRAP-01**: Os 13 wrappers decididos no GSD-05 existem e delegam ao comando `/gsd:*` correspondente, cada um com o bookkeeping bd da casa
-- [ ] **WRAP-02**: Um wrapper cujo comando GSD correspondente não existe falha nomeando o que falta, em vez de sair 0 em silêncio
-- [ ] **WRAP-03**: A documentação lista os wrappers a partir do que está instalado, não de uma lista escrita à mão que envelhece
+- [x] **WRAP-01**: Os 13 wrappers decididos no GSD-05 existem e delegam ao comando `/gsd:*` correspondente, cada um com o bookkeeping bd da casa
+- [x] **WRAP-02**: Um wrapper cujo comando GSD correspondente não existe falha nomeando o que falta, em vez de sair 0 em silêncio
+- [x] **WRAP-03**: A documentação lista os wrappers a partir do que está instalado, não de uma lista escrita à mão que envelhece
 
 ### Tendência entre ciclos (TREND)
 

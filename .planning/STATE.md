@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Legible State
-current_phase: 29
-current_phase_name: Nothing mechanical stays manual
+current_phase: 26
+current_phase_name: The cairn wrappers
 status: planning
 stopped_at: Completed 29-04-PLAN.md
-last_updated: "2026-08-05T15:40:21.429Z"
+last_updated: "2026-08-05T17:54:39.837Z"
 last_activity: 2026-08-05
-last_activity_desc: Fase 30 aberta — milestone v1.5 Legible State (11 fases, 40 requisitos)
+last_activity_desc: Fases 21, 23, 24 e 26 fechadas — milestone v1.5 Legible State (11 fases, 41 requisitos)
 progress:
   total_phases: 11
-  completed_phases: 2
-  total_plans: 14
-  completed_plans: 11
-  percent: 18
+  completed_phases: 6
+  total_plans: 23
+  completed_plans: 27
+  percent: 55
 ---
 
 # Project State

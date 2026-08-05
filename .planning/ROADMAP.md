@@ -33,12 +33,12 @@ não conta como pronta.
 
 - [x] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-08) — **roda primeiro** — completed 2026-08-05
 - [x] Phase 20: Group model (BOARD-01) — completed 2026-08-03
-- [ ] Phase 21: The grouped board (BOARD-06, BOARD-02, BOARD-03, BOARD-05)
+- [x] Phase 21: The grouped board (BOARD-06, BOARD-02, BOARD-03, BOARD-05) — completed 2026-08-05
 - [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
-- [ ] Phase 23: Not-applicable as a check state (VOID-01, VOID-02, VOID-03)
-- [ ] Phase 24: Language chosen at install (LANG-01, LANG-02)
+- [x] Phase 23: Not-applicable as a check state (VOID-01, VOID-02, VOID-03) — completed 2026-08-05
+- [x] Phase 24: Language chosen at install (LANG-01, LANG-02) — completed 2026-08-05
 - [ ] Phase 25: Measured cleanup (FIX-01 … FIX-05)
-- [ ] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03)
+- [x] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03) — completed 2026-08-05
 - [ ] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02)
 - [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03, DJOUR-04)
 - [ ] Phase 30: Did it land (PR-01, PR-02, PR-03, PR-04)
@@ -237,9 +237,9 @@ critério 3 existe para zerar.
 **Plans:** 4 plans
 
 - [x] 23-01-PLAN.md — a contagem para de aprovar por default, e uma checagem atravessa a pilha inteira (tracer)
-- [ ] 23-02-PLAN.md — as guardas que já diziam a palavra em prosa, e as anotações que esperavam esta fase
-- [ ] 23-03-PLAN.md — o idioma da contagem zero, decidido checagem a checagem, e a prova no roadmap vazio
-- [ ] 23-04-PLAN.md — issue fechada de milestone arquivado deixa de ser órfã, e o fecho do contrato
+- [x] 23-02-PLAN.md — as guardas que já diziam a palavra em prosa, e as anotações que esperavam esta fase
+- [x] 23-03-PLAN.md — o idioma da contagem zero, decidido checagem a checagem, e a prova no roadmap vazio
+- [x] 23-04-PLAN.md — issue fechada de milestone arquivado deixa de ser órfã, e o fecho do contrato
 
 ---
 
@@ -690,28 +690,28 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | Requisito | Fase | Status |
 |-----------|------|--------|
 | BOARD-01 | Phase 20 | Complete |
-| BOARD-06 | Phase 21 | Pending |
-| BOARD-02 | Phase 21 | Pending |
-| BOARD-03 | Phase 21 | Pending |
-| BOARD-05 | Phase 21 | Pending |
+| BOARD-06 | Phase 21 | Complete |
+| BOARD-02 | Phase 21 | Complete |
+| BOARD-03 | Phase 21 | Complete |
+| BOARD-05 | Phase 21 | Complete |
 | BOARD-04 | Phase 22 | Pending |
 | PIPE-01 | Phase 22 | Pending |
 | PIPE-02 | Phase 22 | Pending |
 | PIPE-03 | Phase 22 | Pending |
-| VOID-01 | Phase 23 | Pending |
-| VOID-02 | Phase 23 | Pending |
-| VOID-03 | Phase 23 | Pending |
-| LANG-01 | Phase 24 | Pending |
-| LANG-02 | Phase 24 | Pending |
+| VOID-01 | Phase 23 | Complete |
+| VOID-02 | Phase 23 | Complete |
+| VOID-03 | Phase 23 | Complete |
+| LANG-01 | Phase 24 | Complete |
+| LANG-02 | Phase 24 | Complete |
 | FIX-01 | Phase 25 | Pending |
 | FIX-02 | Phase 25 | Pending |
 | FIX-03 | Phase 25 | Pending |
 | FIX-04 | Phase 25 | Pending |
 | FIX-05 | Phase 25 | Pending |
 | AUTO-10 | Phase 25 | Pending |
-| WRAP-01 | Phase 26 | Pending |
-| WRAP-02 | Phase 26 | Pending |
-| WRAP-03 | Phase 26 | Pending |
+| WRAP-01 | Phase 26 | Complete |
+| WRAP-02 | Phase 26 | Complete |
+| WRAP-03 | Phase 26 | Complete |
 | TREND-01 | Phase 27 | Pending |
 | TREND-02 | Phase 27 | Pending |
 | DJOUR-01 | Phase 28 | Pending |
