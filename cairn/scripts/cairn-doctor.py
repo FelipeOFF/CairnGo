@@ -77,15 +77,34 @@ and "something never ran" are different questions and get different keys.
                         Not a mapping bug: the limit of the source it
                         reads, and exactly the limit check 17
                         (req-ledger) covers.
+                        NO '**Requirements**:' LINE ANYWHERE (phase 23 /
+                        VOID-02) -> NOT-APPLICABLE / no-input, never `ok`:
+                        the mapping was never verified in this repo, and
+                        writing the line is a concrete action.
     2. frontmatter-ids  every id in a non-superseded PLAN.md's 'beads:'
                         frontmatter exists in bd and carries the plan's
                         phase-<N> label. Dangling id or wrong label -> FAIL.
+                        Nothing to verify (phase 23) -> NOT-APPLICABLE /
+                        no-input, in BOTH its shapes: no non-superseded
+                        PLAN.md at all, and plans on disk carrying no
+                        'beads:' id — an unstamped plan is the very gap
+                        cairn exists to prevent, so it is the loudest
+                        no-input there is, not a vacuous pass.
     3. maps-fresh       cairn-map.py --check per phase dir that has issues
                         or a map (its exit codes reused: 3 stale -> WARN;
                         a missing map where issues exist -> WARN).
+                        No phase dir carrying either (phase 23) ->
+                        NOT-APPLICABLE / no-input. NOTE, measured: this
+                        check's input is .planning/phases/ ON DISK — it
+                        never reads ROADMAP.md, so an empty roadmap leaves
+                        it running for real.
     4. superseded-released  PLAN.md with 'status: superseded' whose beads:
                         ids are still open/in_progress -> WARN (release or
-                        move them).
+                        move them). No PLAN.md at all (phase 23) ->
+                        NOT-APPLICABLE / no-input, the same axis as check 2
+                        and therefore the same verdict. Plans present with
+                        none superseded stays `ok`: that is a real sweep of
+                        every plan, not an absent input.
     5. phase-complete-open  non-closed issues whose phase-<N> labels ALL
                         point at phases ROADMAP.md marks COMPLETE -> WARN
                         (FAIL only when a --close-completed the operator
@@ -128,10 +147,18 @@ and "something never ran" are different questions and get different keys.
                         with bd's own refusal reason and turns this check
                         FAIL (exit 7) — a close the operator asked for and
                         did not get is never silent.
-    6. orphans          issues labeled phase-<N> where N is not a ROADMAP
-                        phase -> WARN; non-closed issues with NO phase-*
-                        label at all (excluding migrated-todo/backlog/
-                        quick labels) -> WARN.
+    6. orphans          TWO INDEPENDENT AXES. Axis 1: issues labeled
+                        phase-<N> where N is not a ROADMAP phase -> WARN;
+                        needs the roadmap. Axis 2: non-closed issues with NO
+                        phase-* label at all (excluding migrated-todo/
+                        backlog/quick labels) -> WARN; never reads the
+                        roadmap. With an EMPTY roadmap (phase 23 / VOID-02
+                        + the first half of VOID-03) axis 1 cannot run, and
+                        the verdict then depends on axis 2: a finding still
+                        WARNs, and only a run with nothing from either axis
+                        is NOT-APPLICABLE / no-input. Refusing the whole
+                        check would swallow axis 2's findings — trading a
+                        false green for a new silence.
     7. label-pairs      issues with a phase-* label but no m-* label ->
                         WARN. --fix-labels repairs them via
                         'cairn-relabel.py pair --milestone <active>' BEFORE
@@ -858,9 +885,11 @@ def check_frontmatter_ids(plans, issues):
     by_id = {i.get("id"): i for i in issues}
     items = []
     checked = 0
+    live_plans = 0
     for plan in plans:
         if plan["status"] == "superseded":
             continue
+        live_plans += 1
         for bid in plan["beads"]:
             checked += 1
             iss = by_id.get(bid)
@@ -870,6 +899,25 @@ def check_frontmatter_ids(plans, issues):
                 labels = ", ".join(iss["labels"]) or "none"
                 items.append(f"{plan['rel']}: {bid} lacks label "
                              f"phase-{plan['phase']} (labels: {labels})")
+    if not checked:
+        # Phase 23 / VOID-02. `0 plan bead id(s) verified` was a count of
+        # nothing wearing the success marker. Two ways to get here, one
+        # sentence each, and BOTH are no-input:
+        #   - no non-superseded PLAN.md at all: nothing was planned yet, so
+        #     the stamp guarantee has never been verified in this repo;
+        #   - plans on disk carrying no `beads:` id: an unstamped plan is
+        #     precisely the gap cairn exists to prevent, so this is the
+        #     loudest no-input there is, not a vacuous pass.
+        if not live_plans:
+            detail = ("nothing to compare — no non-superseded PLAN.md on "
+                      "disk, so no plan bead id has ever been checked here")
+        else:
+            detail = (f"nothing to compare — none of the {live_plans} "
+                      "non-superseded PLAN.md file(s) carries a 'beads:' "
+                      "frontmatter id, so no plan is stamped with the issues "
+                      "it delivers — run cairn-map.sh <N> after stamping")
+        return {"id": "frontmatter-ids", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT, "detail": detail, "items": []}
     detail = (f"{len(items)} of {checked} plan bead id(s) broken" if items
               else f"{checked} plan bead id(s) verified")
     return {"id": "frontmatter-ids", "status": "fail" if items else "ok",
@@ -929,6 +977,16 @@ def check_maps_fresh(root, planning_dir, issues):
 
 
 def check_superseded_released(plans, issues):
+    if not plans:
+        # Phase 23 / VOID-02. Same axis as check_frontmatter_ids and
+        # therefore the same verdict: with no PLAN.md on disk this guarantee
+        # has never been verified here, and writing a plan is the action.
+        return {"id": "superseded-released", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": "nothing to compare — no PLAN.md on disk, so no "
+                          "superseded plan's beads have ever been checked "
+                          "here",
+                "items": []}
     by_id = {i.get("id"): i for i in issues}
     items = []
     n_superseded = 0
@@ -944,6 +1002,10 @@ def check_superseded_released(plans, issues):
     detail = (f"{len(items)} bead(s) still live under superseded plan(s)"
               if items else f"{n_superseded} superseded plan(s), "
                             "no live beads")
+    # Phase 23 evaluated and KEPT `ok` here. `n_superseded == 0` with plans on
+    # disk is not an absent input: the check swept EVERY plan, found none
+    # superseded, and that is a real answer with nothing for the operator to
+    # do. The no-input case is the empty inventory, handled at the top.
     return {"id": "superseded-released", "status": "warn" if items else "ok",
             "detail": detail, "items": items}
 
@@ -1004,6 +1066,12 @@ def check_phase_complete_open(issues, completed, disk_done, milestone,
         detail += (f" — {len(close_failures)} refused by bd, still open")
     status = ("fail" if close_failures
               else "warn" if n_flagged else "ok")
+    # Phase 23 evaluated and KEPT `ok`. "ROADMAP marks no phase complete" is
+    # the ordinary, correct state of a project in its first milestone, and
+    # there is no action behind it: the check looked for non-closed issues in
+    # completed phases, the set of completed phases is empty, so the set of
+    # findings is genuinely empty too. Vacuous truth with nothing to fix is
+    # not the same as an input that failed to arrive.
     return {"id": "phase-complete-open", "status": status,
             "detail": detail, "items": items}
 
@@ -1093,6 +1161,11 @@ def check_label_pairs(issues, milestone, fixed, fix_error):
                   else "every phase-labeled issue carries an m-* label")
         if fixed:
             detail += f" (fixed {fixed} via cairn-relabel pair)"
+    # Phase 23 evaluated and KEPT `ok` for the zero counts here, both of them.
+    # An empty tracker is already reported by other checks, so saying it again
+    # from this one adds a second voice for one fact; and issues present with
+    # every pair intact is the check having swept and approved. Neither is an
+    # absent input.
     return {"id": "label-pairs", "status": status,
             "detail": detail, "items": items}
 
@@ -1731,6 +1804,14 @@ def check_external_ref(root, planning_dir, issues, do_write):
     exactly the vacuous-check failure mode this milestone exists to avoid.
     """
     if git_is_shallow(root):
+        # PHASE 23 CONSIDERED PROMOTING THIS BRANCH TO not-applicable AND
+        # REFUSED, on the record so nobody reopens it without the argument.
+        # It reads like the new state ("cannot be trusted"), but the check
+        # RAN — it still counts how many closed issues lack a ref, and only
+        # the git evidence for PROPOSING a backfill is unavailable. And the
+        # missing input has a one-line cure (git fetch --unshallow). Partial
+        # execution plus a one-command fix is environment friction, which is
+        # exactly the sentence `warn` exists to say.
         return {"id": "external-ref", "status": "warn",
                 "detail": "shallow clone — git history cannot be trusted "
                           "for --link-refs (D-08); run against a full "
@@ -1765,6 +1846,10 @@ def check_external_ref(root, planning_dir, issues, do_write):
               f"(run --link-refs to backfill)")
     if linked:
         detail += f" — linked {len(linked)} via --link-refs"
+    # Phase 23 evaluated and KEPT `ok`. Zero closed issues means the check
+    # swept the closed set — which is empty — and there is nothing waiting to
+    # be linked. It already refuses to warn merely because history predates
+    # the convention, and the same reasoning covers the empty case.
     return {"id": "external-ref",
             "status": "warn" if remaining_candidates else "ok",
             "detail": detail, "items": items}
@@ -1837,6 +1922,11 @@ def check_lease_stale(root):
                 f"or run cairn-lease.sh release {phase} to clear it now")
     detail = (f"{len(items)} stale phase lease(s)" if items
               else "no stale phase leases")
+    # Phase 23 evaluated and KEPT `ok`, and this is the cleanest example of
+    # the line: the check looks for a STUCK lease. No lease registered means
+    # it looked, there is none stuck, and there is nothing anyone would want
+    # to do. Vacuously true with no action behind it is a real `ok`, not a
+    # check that failed to run.
     return {"id": "lease-stale", "status": "warn" if items else "ok",
             "detail": detail, "items": items}
 

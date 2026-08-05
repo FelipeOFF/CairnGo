@@ -57,6 +57,28 @@ this routine health-check flow — see its own section below.
 
    A consumer that wants "should I stop?" reads `.failed` (or the exit code).
    One that wants "can I trust this green?" reads `.ok`.
+
+   **A repo with nothing written down yet.** Run the doctor on a project whose
+   `ROADMAP.md` lists no phase and you get several `⊘` and an `INCOMPLETE`
+   footer — and exit `0`. That is the report working: `req-issue` never
+   compared a requirement to an issue, `orphans` never compared a phase label
+   to a roadmap. Before, all of them said `✓`. Nothing is broken; write the
+   roadmap and each one starts comparing.
+
+   **How to tell in advance which of your checks will read `⊘`.** A count of
+   zero means two different things, and the doctor now distinguishes them:
+
+   - **`⊘` `no-input`** when the zero means *a guarantee this project wants
+     was never verified*, and there is something you can do about it: no
+     `**Requirements**:` line to read, no phase directory to find a map in,
+     no `PLAN.md` carrying the `beads:` stamp.
+   - **`✓`** when the zero makes the answer genuinely true and there is
+     nothing to do: no stale lease *because nothing is leased*, no unpaired
+     label *because every label is paired*, no issue open in a completed
+     phase *because no phase is complete yet*.
+
+   The second group is not an oversight — phase 23 evaluated each one and
+   left it alone, with the reason written beside the code that returns it.
 3. When the **label-pairs** check warns, offers a re-run with `--fix-labels`,
    which runs `cairn-relabel pair` with the active milestone **before** the
    checks so the report shows the post-fix state.

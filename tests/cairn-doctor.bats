@@ -800,6 +800,82 @@ PY
   grep -qF "ROADMAP.md lists no phase" <<<"$output"
 }
 
+# Break: promote the plan-inventory checks off the wrong axis. Before 23-03
+# both of these read `ok` over an empty inventory — "0 plan bead id(s)
+# verified" and "0 superseded plan(s), no live beads" are counts of nothing
+# announced as a clean bill of health.
+@test "plan-inventory checks: no PLAN.md at all is not-applicable/no-input on both axes" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  rm -f .planning/phases/*/*-PLAN.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="frontmatter-ids") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="frontmatter-ids") | .scope' 'no-input'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="superseded-released") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="superseded-released") | .scope' 'no-input'
+}
+
+# Break: read the `beads:` gap as vacuous truth. A plan with no stamp is
+# EXACTLY the gap cairn exists to prevent, so "0 ids verified" over plans that
+# are right there is the loudest possible no-input, not a pass.
+@test "frontmatter-ids: plans present but none stamped is not-applicable/no-input" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  python3 - <<'PY'
+import re
+from pathlib import Path
+for p in Path(".planning/phases").glob("*/*-PLAN.md"):
+    p.write_text(re.sub(r"^beads: .*\n", "", p.read_text(), flags=re.MULTILINE))
+PY
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="frontmatter-ids") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="frontmatter-ids") | .scope' 'no-input'
+  grep -qF "carries a 'beads:'" <<<"$output"
+  # Its sibling on the same axis DID sweep every plan and found no superseded
+  # one — that is a real answer, and it must stay `ok`.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="superseded-released") | .status' 'ok'
+}
+
+# THE PERMANENCE TEST, and it is not decoration: it is what stops a future
+# pass from promoting, by reflex, a check that phase 23 deliberately decided
+# to leave alone. Each of these four counts zero in the healthy fixture and
+# each of those zeroes is a real answer — the check swept its universe and
+# found nothing wrong in it.
+#
+# Break: promote any of them. `lease-stale` with no lease registered has not
+# "failed to check"; it looked for a stuck lease, there is none, and there is
+# nothing the operator would want to do about that.
+@test "phase 23 decided NOT to promote these four: they stay exactly ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-complete-open") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="label-pairs") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="external-ref") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="lease-stale") | .status' 'ok'
+}
+
 # Break: wire this promotion to the roadmap. maps-fresh walks
 # `.planning/phases/` on disk and never reads ROADMAP.md, so emptying the
 # phases tree is the only lever that silences it — a promotion hung off the
