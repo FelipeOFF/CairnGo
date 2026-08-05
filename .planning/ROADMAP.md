@@ -224,6 +224,22 @@ e a linha exata da causa do `orphans` está localizada.
 
 **Depende de:** nada. Independente do board; pode correr em paralelo com 20-22.
 
+**Correção medida no planejamento (2026-08-05):** os números do `**Goal:**` acima
+são de 2026-08-03, quando o doctor tinha dezesseis checagens. Ele tem **dezoito**
+desde a fase 29, a linha de base sobre roadmap vazio é `16 ok, 1 warning, 1 failure`,
+e **nove das dezoito** aprovam sem ter comparado nada — não três. A causa do
+`orphans` mudou de `cairn-doctor.py:803` para a **904**. Neste repositório, medido no
+mesmo dia: `orphans` reporta **61** itens, todos de issues **fechadas** de quatro
+milestones já arquivados (`v1.1` a `v1.4`), que é exatamente a população que o
+critério 3 existe para zerar.
+
+**Plans:** 4 plans
+
+- [ ] 23-01-PLAN.md — a contagem para de aprovar por default, e uma checagem atravessa a pilha inteira (tracer)
+- [ ] 23-02-PLAN.md — as guardas que já diziam a palavra em prosa, e as anotações que esperavam esta fase
+- [ ] 23-03-PLAN.md — o idioma da contagem zero, decidido checagem a checagem, e a prova no roadmap vazio
+- [ ] 23-04-PLAN.md — issue fechada de milestone arquivado deixa de ser órfã, e o fecho do contrato
+
 ---
 
 ### Phase 24: Language chosen at install
