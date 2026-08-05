@@ -111,14 +111,15 @@ EOF
   assert_json_eq "$output" '.ok' 'true'
   # The count is hardcoded ON PURPOSE: it is the canary for a check that was
   # written and never registered in main()'s `checks` list. 16 -> 17 here
-  # came with check 16, test-parallel (29-06).
+  # came with check 16, test-parallel (29-06); 17 -> 18 with check 17,
+  # req-ledger (29-07).
   #
   # It is also the assertion that caught the reporting failure it was built
   # for. It stayed red through a `bats tests/cairn-doctor.bats` whose log was
   # read through `tail -15`, so the failure line scrolled out and the run was
   # called green. The full-suite run through cairn-test.sh is what surfaced
   # it. A number read off the end of a truncated log is not a measurement.
-  assert_json_eq "$output" '.checks | length' '17'
+  assert_json_eq "$output" '.checks | length' '18'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
@@ -502,11 +503,23 @@ EOF
   make_doctor_fixture
   # Both phases complete, on the ROADMAP checkbox AND on disk, so the whole
   # chain below is in scope and no divergence note fires.
+  # Marking phase 2 complete moves the derived views with it: API-01's own
+  # checkbox and every STATE plan/phase counter. Left stale they are a REAL
+  # ledger disagreement that check 17 names and fails on, which would take
+  # this test to exit 7 for a reason that has nothing to do with the bulk
+  # close it exercises.
   python3 - <<'PY'
 from pathlib import Path
 p = Path(".planning/ROADMAP.md")
 p.write_text(p.read_text().replace("- [ ] **Phase 2: API**",
                                    "- [x] **Phase 2: API**"))
+r = Path(".planning/REQUIREMENTS.md")
+r.write_text(r.read_text().replace("- [ ] **API-01**", "- [x] **API-01**"))
+s = Path(".planning/STATE.md")
+s.write_text(s.read_text()
+             .replace("  completed_phases: 1", "  completed_phases: 2")
+             .replace("  completed_plans: 1", "  completed_plans: 2")
+             .replace("  percent: 50", "  percent: 100"))
 PY
   cp .planning/phases/01-auth/01-01-SUMMARY.md \
      .planning/phases/02-api/02-01-SUMMARY.md
@@ -1143,6 +1156,18 @@ Output: src/api_extra.py
 
 </tasks>
 EOF
+  # The fixture adds a plan and a summary to phase 2, so STATE.md's plan
+  # counters move with it. Left behind they are a REAL ledger disagreement
+  # (check 17 names them), and this fixture is about phase-artifacts — a
+  # second finding riding along would make the "exactly one warning" assertion
+  # below fail for a reason that has nothing to do with what it tests.
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(p.read_text()
+             .replace("  total_plans: 2", "  total_plans: 3")
+             .replace("  completed_plans: 1", "  completed_plans: 2"))
+PY
 }
 
 # NN-VERIFICATION.md with a readable status: field — pushes phase 2's
@@ -2011,4 +2036,367 @@ PY
   assert_json_eq "$output" \
     '.checks[] | select(.id=="test-parallel") | .status' 'warn'
   grep -qF "exited 1" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# req-ledger (check 17, AUTO-07) — 29-07
+#
+# The chain nobody was validating: an active requirement has a coverage row,
+# the row count is the number the footer claims, each phase's
+# `**Requirements**:` line actually yields its ids, and a plan whose SUMMARY
+# is on disk has its checkbox ticked.
+#
+# EVERY status assertion below is on the EXACT value (`fail`, `ok`, `warn`),
+# never on "is not ok". The negation is satisfied by `warn`, and `warn` is
+# precisely the wrong state this check can fall into by accident: the
+# neighbouring defensive shell-out allowlists returncodes (0, 5), and
+# cairn-bookkeep.py reconcile spends 3 on the very disagreement this check
+# exists to report. Copied unchanged, the central case would land in the
+# "tool unavailable" branch, return `warn`, and leave the doctor exiting 0 —
+# a check against false green producing false green, passed by a test that
+# could not tell.
+#
+# The ledger itself is never re-parsed here or in the doctor: cairn-bookkeep.py
+# owns that reading, and these tests drive it through the CAIRN_BOOKKEEP seam
+# the same way the release check is driven through CAIRN_RELEASE.
+#-----------------------------------------------------------------------------
+
+# Insert LINE immediately before the first line starting with MARKER.
+# Appending to REQUIREMENTS.md instead lands the item under `## Traceability`,
+# where it is not an active requirement at all and the fixture proves nothing.
+req_insert_before() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+lines = p.read_text().splitlines()
+i = next(j for j, l in enumerate(lines) if l.startswith(sys.argv[2]))
+lines.insert(i, sys.argv[3])
+p.write_text("\n".join(lines) + "\n")
+PY
+}
+
+# Write `N requirements, M mapped.` as the coverage footer: a WHOLE line
+# directly after the last table row. cairn-bookkeep.py locates the footer by
+# POSITION, never by searching the file for its text.
+add_coverage_footer() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+from pathlib import Path
+p = Path(".planning/REQUIREMENTS.md")
+lines = p.read_text().splitlines()
+last = max(i for i, l in enumerate(lines) if re.match(r"^\|\s*[A-Za-z]", l))
+lines.insert(last + 1, f"{sys.argv[1]} requirements, {sys.argv[2]} mapped.")
+p.write_text("\n".join(lines) + "\n")
+PY
+}
+
+# Turn phase 1's readable `**Requirements**: [AUTH-01, AUTH-02]` into the
+# ellipsis this repo's ROADMAP.md:400 actually carries.
+elide_requirements_line() {
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".planning/ROADMAP.md")
+p.write_text(p.read_text().replace(
+    "**Requirements**: [AUTH-01, AUTH-02]",
+    "**Requirements**: AUTH-01 … AUTH-02"))
+PY
+}
+
+# Give phase 2 a SUMMARY on disk while its plan checkbox still reads `- [ ]`.
+# The GSD fixture writes plan items in the prose dialect (`- [ ] 02-01:
+# title`); the derived-5 link reads the filename dialect this repo's own
+# ROADMAP uses, the only one that names a file to look for on disk. The
+# STATE counter is bumped along with it so the ONE finding under test is the
+# checkbox, not a progress number riding on the same edit.
+stale_plan_checkbox() {
+  python3 - <<'PY'
+from pathlib import Path
+road = Path(".planning/ROADMAP.md")
+road.write_text(road.read_text().replace(
+    "- [ ] 02-01: Add rate limiting middleware",
+    "- [ ] 02-01-PLAN.md — Add rate limiting middleware"))
+state = Path(".planning/STATE.md")
+state.write_text(state.read_text().replace(
+    "  completed_plans: 1", "  completed_plans: 2"))
+Path(".planning/phases/02-api/02-01-SUMMARY.md").write_text(
+    "---\nphase: 02-api\nplan: '01'\nstatus: complete\n---\n\nDone.\n")
+PY
+}
+
+# A stand-in for cairn-bookkeep.py that prints PAYLOAD and exits CODE — the
+# only way to ask this check what it does with an exit code the real script
+# does not produce today.
+#
+# The payload rides in a sibling file rather than being quoted into the stub's
+# source: embedding JSON in Python in bash needs three levels of escaping to
+# agree, and the first version of this helper got it wrong silently.
+write_bookkeep_stub() {
+  local path="$1" code="$2" payload="$3"
+  printf '%s' "$payload" > "$path.payload"
+  {
+    printf 'import sys\n'
+    printf 'sys.stdout.write(open("%s.payload").read())\n' "$path"
+    printf 'sys.exit(%s)\n' "$code"
+  } > "$path"
+}
+
+# Break: skip the first link. Red — AUTO-07's whole point is that an active
+# requirement with no row went unnoticed for days.
+@test "req-ledger: an active requirement with no coverage row fails and names the id" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  req_insert_before .planning/REQUIREMENTS.md "## Traceability" \
+    "- [ ] **API-02**: Public API exposes a health endpoint"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  assert_json_eq "$output" '.ok' 'false'
+  grep -qF "API-02" <<<"$output"
+  grep -qF "no row in the coverage table" <<<"$output"
+  # The finding routes to the command that resolves it.
+  grep -qF "cairn-bookkeep.sh reconcile --apply" <<<"$output"
+}
+
+# Break: skip the second link — the one nobody thinks to write, because the
+# footer "is only prose". It is the line that read 29 while the table held 33.
+@test "req-ledger: a footer claiming another number fails and names both numbers" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  add_coverage_footer 9 9
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "9 requirements, 9 mapped." <<<"$output"
+  grep -qF "it claims 9 active requirement(s) / 9 coverage row(s)" <<<"$output"
+  grep -qF "the ledger holds 3 active requirement(s) / 3 coverage row(s)" \
+    <<<"$output"
+}
+
+# Break: inherit the blind spot that has check 1 report `ok :: 29
+# requirement(s) mapped` against 35 active requirements.
+@test "req-ledger: an elided **Requirements**: line fails, naming the phase and the ids parsed" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  elide_requirements_line
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "Phase 1:" <<<"$output"
+  grep -qF "ellipsis-between-ids" <<<"$output"
+  grep -qF "does not yield the ids the ledger assigns it" <<<"$output"
+
+  # The raw line and the ids the parser actually got, asserted on the HUMAN
+  # report: json.dumps escapes the ellipsis to …, so a grep for it
+  # against --json passes or fails for a reason that has nothing to do with
+  # this check.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "✗ req-ledger" <<<"$output"
+  grep -qF "**Requirements**: AUTH-01 … AUTH-02" <<<"$output"
+  grep -qF "parsed ['AUTH-01', 'AUTH-02']" <<<"$output"
+}
+
+# Break: leave the view 29-02 taught the bookkeeper to WRITE without a reader.
+@test "req-ledger: a plan with its SUMMARY on disk and an unticked checkbox fails, naming the plan" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  stale_plan_checkbox
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "02-01-PLAN.md" <<<"$output"
+  grep -qF "02-01-SUMMARY.md is on disk" <<<"$output"
+}
+
+# Break: a check that fails on everything would "catch" every test above and
+# be worth nothing. This is the one that proves it can say yes.
+@test "req-ledger: a coherent ledger reads ok and counts what it checked" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .items | length' '0'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .detail' \
+    'every requirement-ledger link agrees — 3 active requirement(s) against 3 coverage row(s), 0 excluded by rule (deferred / out of scope)'
+}
+
+# Break: count a deferred requirement as a gap. The doctor fills with noise
+# about requirements deliberately outside the table, and gets ignored.
+@test "req-ledger: a deferred requirement outside the table is ok, and the count is explained" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  printf '\n## Deferred (v2)\n\n- **API-09**: Webhook fanout\n' \
+    >> .planning/REQUIREMENTS.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'ok'
+  grep -qF "1 excluded by rule (deferred / out of scope)" <<<"$output"
+}
+
+# Break: the wide `except` that returns ok, AND the `warn` verdict that
+# satisfies "is not ok" while leaving the doctor at exit 0. Both are red here.
+@test "req-ledger: cairn-bookkeep.py out of place is exactly fail, and the doctor exits 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run env CAIRN_BOOKKEEP="$BATS_TEST_TMPDIR/no-such-bookkeep.py" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "the requirement ledger could not be read" <<<"$output"
+}
+
+# Break: copy check 11's allowlist `(0, 5)` unchanged. Exit 3 — the ONLY
+# verdict this check exists to report — would land in the unavailable branch
+# and the doctor would exit 0 over a ledger it was just told disagrees.
+@test "req-ledger: exit 3 with a valid report is a reading, not an unavailability (the (0, 3) allowlist)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-disagrees.py"
+  write_bookkeep_stub "$stub" 3 '{"coverage": {"rows": 3}, "requirements": {"active": ["A-01", "A-02", "A-03"], "deferred": [], "out_of_scope": []}, "disagreements": [{"kind": "coverage-row-missing", "subject": "A-03", "found": null, "expected": "a coverage table row", "source": "REQUIREMENTS.md:9"}]}'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "A-03" <<<"$output"
+  # The reading happened: the census is a parsed report, not an error string.
+  grep -qF "3 active requirement(s) against 3 coverage row(s)" <<<"$output"
+  refute_in_output "could not be read"
+}
+
+# Break: any defensive branch that returns `warn`. cairn-doctor.py's own
+# exit-code table records that a warning never changes the exit code, so a
+# warn here is a doctor approving a ledger nobody managed to read.
+@test "req-ledger: an exit outside the allowlist is fail, never warn" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-boom.py"
+  write_bookkeep_stub "$stub" 4 'boom'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "exited 4" <<<"$output"
+}
+
+# Break: return `fail` on unparsable output only when it is empty, or degrade
+# to warn the way the checks around it legitimately do.
+@test "req-ledger: an unparsable report is fail, and the doctor exits 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-garbage.py"
+  write_bookkeep_stub "$stub" 0 'not json at all'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "invalid JSON" <<<"$output"
+}
+
+# Break: fail a repo that keeps no coverage view. Every user's roadmap without
+# a coverage table would go to exit 7 over a table that has no business being
+# there — the trap check 15 documents, one check over.
+@test "req-ledger: a roadmap with no coverage view is not applicable, never a failure" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-no-view.py"
+  write_bookkeep_stub "$stub" 3 '{"coverage": {"rows": 0}, "requirements": {"active": [], "deferred": [], "out_of_scope": []}, "disagreements": [{"kind": "coverage-view-missing", "subject": "coverage table", "found": null, "expected": "a coverage table", "source": "ROADMAP.md"}]}'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'ok'
+  grep -qF "no coverage view" <<<"$output"
+}
+
+# Break: silently drop a disagreement this check does not claim. An
+# unexplained absence is the defect the phase removes; so is spending exit 7
+# on `state-narrative-stale`, free text reconcile itself declines to rewrite.
+@test "req-ledger: a disagreement outside its links is surfaced as warn, never exit 7 and never dropped" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-aside.py"
+  write_bookkeep_stub "$stub" 3 '{"coverage": {"rows": 3}, "requirements": {"active": ["A-01", "A-02", "A-03"], "deferred": [], "out_of_scope": []}, "disagreements": [{"kind": "state-narrative-stale", "subject": "last_activity_desc", "found": "old prose", "expected": {"fase": 2}, "source": "STATE.md"}]}'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'warn'
+  grep -qF "last_activity_desc" <<<"$output"
+  grep -qF "outside req-ledger's own links" <<<"$output"
+}
+
+# Break: write the function and forget to add it to main()'s `checks` list —
+# the quietest way for a new check not to exist, and the one no test that
+# calls the function directly would ever catch.
+@test "req-ledger: the check is registered and reported in --json" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.checks[].id] | index("req-ledger") != null' \
+    'true'
 }

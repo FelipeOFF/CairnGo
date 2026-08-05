@@ -353,6 +353,14 @@ CAIRN_RELEASE = os.environ.get(
 CAIRN_TEST = os.environ.get(
     "CAIRN_TEST", str(SCRIPTS_DIR / "cairn-test.py"))
 
+# Test/override seam for check_req_ledger()'s single read of the requirement
+# ledger (AUTO-07) — same CAIRN_* convention as the three seams above. The
+# doctor never re-parses the ledger: cairn-bookkeep.py owns that reading, and
+# a second parser is how a repo ends up with a fifth number for the same
+# quantity (T-29-31).
+CAIRN_BOOKKEEP = os.environ.get(
+    "CAIRN_BOOKKEEP", str(SCRIPTS_DIR / "cairn-bookkeep.py"))
+
 PHASE_LABEL = re.compile(r"^phase-(\d+)$")
 PHASE_HEAD = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\b")
 ANY_HEAD = re.compile(r"^#{1,6}\s")
@@ -1737,6 +1745,274 @@ def check_test_parallel(root):
 
 
 # --------------------------------------------------------------------------- #
+# check 17 — req-ledger (AUTO-07)
+# --------------------------------------------------------------------------- #
+# cairn-bookkeep.py reconcile's OWN exit-code contract, named rather than
+# inlined. `reconcile` (read-only) exits 3 when it named at least one
+# disagreement and 0 when it named none — cairn-bookkeep.py's own
+# EXIT_DISAGREEMENT = 3, the same 3 cairn-reconcile.py:154 spends on a
+# disagreement verdict and the same one cairn-map.py --check uses for "stale".
+#
+# THE ALLOWLIST IS (0, 3) AND NOT (0, 5), AND THE DIFFERENCE IS THE WHOLE
+# CHECK. The neighbouring defensive shell-out, check_phase_corroboration(),
+# allowlists (0, 5) because that is cairn-status.py's contract. Copied here
+# unchanged, 3 — the ONLY verdict this check exists to report — would fall
+# into the "tool unavailable" branch, that branch would return "warn", and
+# the exit-code table above records that a warning never changes the exit
+# code. The doctor would exit 0 against a ledger it had just been told
+# disagrees, and a test asserting "the status is not ok" would stay green on
+# the `warn`. Hence: every status assertion for this check is on the exact
+# value, and every unavailability verdict below is "fail".
+BOOKKEEP_EXIT_OK = 0
+BOOKKEEP_EXIT_DISAGREEMENT = 3
+
+# reconcile's disagreement vocabulary, split by what THIS check claims.
+# Written out by name on purpose: a set built by exclusion ("everything that
+# is not X") silently adopts whatever kind reconcile grows next, and this
+# check would start failing repos over a rule nobody here reviewed.
+#
+# The requirement-ledger chain — AUTO-07's four links, plus the two siblings
+# of the same derivation (a row that outlived its requirement; a requirement
+# checkbox lagging its own complete phases). All are
+# `cairn-bookkeep.sh reconcile --apply` territory, all FAIL.
+REQ_LEDGER_CHAIN_KINDS = (
+    "coverage-row-missing",          # link 1: active requirement -> table row
+    "coverage-row-orphan",           # link 1, the other direction
+    "footer-count-stale",            # link 2: the table -> the footer's claim
+    "requirements-line-unreadable",  # link 3: the phase's Requirements line
+    "plan-checkbox-stale",           # link 4: SUMMARY on disk -> plan checkbox
+    "requirement-checkbox-stale",    # reconcile's derived 2, same chain
+)
+
+# Named by reconcile, outside this check's remit: STATE.md's own views. They
+# are still SURFACED — an unexplained absence is the exact defect this phase
+# removes — but they never spend exit 7 on a check called `req-ledger`, and
+# `state-narrative-stale` is free text reconcile itself declines to rewrite,
+# so failing on it would be a red that the routed command cannot clear.
+REQ_LEDGER_OUT_OF_REMIT_KINDS = (
+    "state-counter-stale",
+    "state-narrative-stale",
+)
+
+# "This repo has no coverage view at all" is not a broken ledger, it is no
+# ledger. The doctor runs in USERS' repos, and a naive version of this check
+# would drive every roadmap without a coverage table to exit 7 — the same
+# trap check_release_versions() documents. Phase 23's VOID-01 is introducing
+# `not-applicable` as a first-class verdict, and this branch is one of its
+# cases; until it lands this uses the doctor's existing not-applicable idiom
+# (ok plus a detail that says so), the same one checks 15 and 16 use. Do not
+# anticipate the new state here — phase 23 owns it.
+#
+# ACCEPTED GAP, named rather than hidden: with no coverage view the plan
+# checkbox link (link 4) goes unchecked too, because the check is refused as
+# a whole. Splitting it per-link would let a repo with no ledger still be
+# failed over unticked plan checkboxes, which is the user-repo trap again.
+REQ_LEDGER_VOID_KIND = "coverage-view-missing"
+
+# reconcile's own preconditions, checked here first so that its EXIT_USAGE
+# (2) never arrives from this cause: it die()s when any of the three planning
+# files is absent, and "this repo keeps no REQUIREMENTS.md" must read as "no
+# ledger to check", not as "the ledger reader is broken".
+REQ_LEDGER_SOURCES = ("ROADMAP.md", "REQUIREMENTS.md", "STATE.md")
+
+# The command every finding routes to. A findings line that does not name
+# the command that resolves it trains everyone to scroll past it.
+REQ_LEDGER_FIX = "cairn-bookkeep.sh reconcile --apply"
+
+
+def req_ledger_source(root, source):
+    """A finding's file:line relative to the repo root when it sits under it
+    — the report is read next to the repo, not next to /."""
+    if not source:
+        return ""
+    text = str(source)
+    prefix = f"{root}{os.sep}"
+    return text[len(prefix):] if text.startswith(prefix) else text
+
+
+def req_ledger_pair(value):
+    """reconcile states the footer as TWO quantities ([active, mapped]).
+    Rendered as 'A active requirement(s) / B coverage row(s)' when it is that
+    pair, and verbatim otherwise — the shape belongs to cairn-bookkeep.py, so
+    this reads it defensively instead of asserting it."""
+    if isinstance(value, list) and len(value) == 2:
+        return f"{value[0]} active requirement(s) / {value[1]} coverage row(s)"
+    return repr(value)
+
+
+def req_ledger_item(root, finding):
+    """One reconcile disagreement rendered as one doctor item.
+
+    Every line names its SUBJECT (the requirement id, the phase, the plan
+    file, the footer) and the concrete values that disagree. "The ledger is
+    inconsistent" routes nowhere; naming AUTO-05, or 29 against 35/33, is
+    what makes the finding actionable — and an unknown kind still renders
+    (found/expected verbatim) rather than vanishing.
+    """
+    kind = finding.get("kind") or "?"
+    subject = finding.get("subject") or "?"
+    found = finding.get("found")
+    expected = finding.get("expected")
+    extra = finding.get("detail")
+    if not isinstance(extra, dict):
+        extra = {}
+    where = req_ledger_source(root, finding.get("source"))
+
+    if kind == "coverage-row-missing":
+        what = "active requirement with no row in the coverage table"
+    elif kind == "coverage-row-orphan":
+        what = ("a coverage table row for a requirement the requirements "
+                "section no longer lists as active")
+    elif kind == "footer-count-stale":
+        what = (f"the footer reads {extra.get('raw')!r} — it claims "
+                f"{req_ledger_pair(found)}, the ledger holds "
+                f"{req_ledger_pair(expected)}")
+    elif kind == "requirements-line-unreadable":
+        what = (f"its '**Requirements**:' line does not yield the ids the "
+                f"ledger assigns it — raw {extra.get('raw')!r}, parsed "
+                f"{found}, signals {extra.get('signals')}")
+    elif kind == "plan-checkbox-stale":
+        what = (f"{extra.get('summary')} is on disk but the plan's ROADMAP "
+                f"checkbox still reads {found!r}")
+    elif kind == "requirement-checkbox-stale":
+        what = (f"every phase carrying it ({extra.get('phases')}) is "
+                f"complete but its checkbox still reads {found!r}")
+    else:
+        what = f"found {found!r}, expected {expected!r}"
+    return f"{subject}: {what} [{kind}]" + (f" {where}" if where else "")
+
+
+def req_ledger_unavailable(why):
+    """The one verdict shape for "this check could not run".
+
+    ALWAYS "fail", NEVER "warn" and never "ok". A doctor that approves
+    because it could not check is the disease this whole milestone treats,
+    and `warn` is a quiet way of approving: the exit-code table above states
+    that a warning never changes the exit code, so a `warn` here leaves the
+    doctor exiting 0 over a ledger nobody read (T-29-29 / T-29-29b).
+    """
+    return {"id": "req-ledger", "status": "fail",
+            "detail": f"the requirement ledger could not be read: {why}",
+            "items": []}
+
+
+def check_req_ledger(root, planning_dir):
+    """Check 17, id "req-ledger" (AUTO-07) — the chain nobody was validating:
+    an active requirement has a row in the coverage table, the table's row
+    count is the number the footer claims, each phase's '**Requirements**:'
+    line actually yields its ids, and a plan whose SUMMARY is on disk has its
+    ROADMAP checkbox ticked.
+
+    Measured 2026-08-04 in this repository, and it is why the check exists:
+    35 active requirements, 33 coverage rows (AUTO-05 and AUTO-06 have none),
+    a footer still claiming '29 requisitos, 29 mapeados.', and check 1
+    (req-issue) reporting `ok :: 29 requirement(s) mapped to issues` because
+    ROADMAP.md:400 reads '**Requirements**: AUTO-01 … AUTO-08' and an
+    ellipsis is prose, not a separator. Three numbers for one quantity, two
+    of them wrong from independent causes that happened to meet at 29, both
+    wearing a green check, for days, with nothing to say so.
+
+    WHERE THIS CHECK STOPS AND check_req_issue() STARTS. Check 1 goes
+    requirement -> bd issue, and it can only count the ids it manages to READ
+    off a phase's requirements line — that limit is precisely what produced
+    its 29. This check covers that limit: requirement -> coverage row ->
+    footer claim, plus the legibility of the line check 1 reads and the plan
+    checkboxes of the phase.
+
+    THE LEDGER IS READ ONCE, BY INVOCATION, NEVER REIMPLEMENTED HERE.
+    cairn-bookkeep.py's `reconcile` owns that reading; a second parser in the
+    doctor would be a fifth number for the same quantity, which is the defect
+    with one more surface (T-29-31). Same shell-out-to-a-sibling-script shape
+    check_maps_fresh() uses for cairn-map.py and check_release_versions() for
+    cairn-release.py, through the CAIRN_BOOKKEEP seam.
+
+    STATUS LADDER, and every rung is a deliberate value, never a negation:
+      * a broken link in the requirement ledger    -> "fail" (exit 7)
+      * only findings outside this check's remit
+        (STATE.md's counters and narrative)        -> "warn", surfaced and
+                                                      routed, never exit 7
+      * no coverage view in this repo at all       -> "ok", not applicable
+      * the ledger could not be READ (script gone,
+        unexpected exit, unparsable JSON)          -> "fail", never "warn"
+
+    This check WRITES NOTHING. Every finding routes by name to
+    `cairn-bookkeep.sh reconcile --apply`, where the writing lives behind a
+    flag that says so.
+    """
+    absent = [name for name in REQ_LEDGER_SOURCES
+              if not (planning_dir / name).is_file()]
+    if absent:
+        return {"id": "req-ledger", "status": "ok",
+                "detail": f"not applicable — {planning_dir.name}/ carries no "
+                          f"{', '.join(absent)}, so there is no requirement "
+                          f"ledger to cross-check",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_BOOKKEEP, "reconcile", "--json",
+             "--planning-dir", str(planning_dir)],
+            capture_output=True, text=True, cwd=str(root))
+    except (OSError, subprocess.SubprocessError) as exc:
+        return req_ledger_unavailable(f"could not run cairn-bookkeep.py: "
+                                      f"{exc}")
+    if proc.returncode not in (BOOKKEEP_EXIT_OK, BOOKKEEP_EXIT_DISAGREEMENT):
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return req_ledger_unavailable(
+            f"cairn-bookkeep.py reconcile --json exited {proc.returncode} "
+            f"(expected {BOOKKEEP_EXIT_OK} or "
+            f"{BOOKKEEP_EXIT_DISAGREEMENT}): {first}")
+    try:
+        report = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return req_ledger_unavailable(
+            f"cairn-bookkeep.py reconcile --json returned invalid JSON: "
+            f"{exc}")
+    if not isinstance(report, dict):
+        return req_ledger_unavailable(
+            "cairn-bookkeep.py reconcile --json returned no report")
+
+    findings = report.get("disagreements") or []
+    if any(f.get("kind") == REQ_LEDGER_VOID_KIND for f in findings):
+        return {"id": "req-ledger", "status": "ok",
+                "detail": "not applicable — this roadmap has no coverage "
+                          "view (no '## Cobertura' table in ROADMAP.md and "
+                          "no '## Traceability' table in REQUIREMENTS.md), "
+                          "so there is no requirement ledger to cross-check",
+                "items": []}
+
+    reqs = report.get("requirements") or {}
+    active = reqs.get("active") or []
+    excluded = (reqs.get("deferred") or []) + (reqs.get("out_of_scope") or [])
+    rows = (report.get("coverage") or {}).get("rows")
+    census = (f"{len(active)} active requirement(s) against {rows} coverage "
+              f"row(s), {len(excluded)} excluded by rule (deferred / out of "
+              f"scope)")
+
+    broken = [f for f in findings if f.get("kind") in REQ_LEDGER_CHAIN_KINDS]
+    aside = [f for f in findings if f.get("kind") not in REQ_LEDGER_CHAIN_KINDS]
+    items = [req_ledger_item(root, f) for f in broken]
+    items += [f"{req_ledger_item(root, f)} — outside req-ledger's own links, "
+              f"reported not counted" for f in aside]
+
+    if broken:
+        return {"id": "req-ledger", "status": "fail",
+                "detail": f"{len(broken)} broken link(s) in the requirement "
+                          f"ledger — {census} — run {REQ_LEDGER_FIX}",
+                "items": items}
+    if aside:
+        return {"id": "req-ledger", "status": "warn",
+                "detail": f"every requirement-ledger link agrees — {census} "
+                          f"— but reconcile names {len(aside)} disagreement(s"
+                          f") outside this check's links: run "
+                          f"{REQ_LEDGER_FIX}",
+                "items": items}
+    return {"id": "req-ledger", "status": "ok",
+            "detail": f"every requirement-ledger link agrees — {census}",
+            "items": []}
+
+
+# --------------------------------------------------------------------------- #
 # --apply-reconciliation (ESC-03, Phase 17 Plan 3) — the human-invoked,
 # separate apply command for a verified semantic-escalation reconciliation
 # proposal. See the module docstring's own --apply-reconciliation entry for
@@ -2150,6 +2426,7 @@ def main():
         check_lease_stale(root),
         check_release_versions(root),
         check_test_parallel(root),
+        check_req_ledger(root, planning_dir),
     ]
     summary["checks"] = checks
     n_fail = sum(1 for c in checks if c["status"] == "fail")
