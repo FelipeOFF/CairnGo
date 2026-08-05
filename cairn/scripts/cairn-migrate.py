@@ -16,10 +16,21 @@ Subcommands:
         D  neither present                          (greenfield)
       With --json the payload also carries external.jira: Jira sniffed from
       the last 300 commit subjects+bodies and branch names. Jira keys share
-      the REQ-id shape ([A-Z]+-N), so a prefix only counts when the SAME
-      prefix occurs >= 3 times AND is not a requirement-id prefix in the
-      local REQUIREMENTS.md; env JIRA_* and an atlassian.net remote are
-      independent signals. Consumed by the init/migrate prose commands.
+      the REQ-id shape ([A-Z]+-N), so THREE guards keep local requirement ids
+      from masquerading as somebody else's tracker:
+        1. frequency — the SAME prefix has to occur >= 3 times;
+        2. denylist — a prefix that appears as a requirement id in the ACTIVE
+           REQUIREMENTS.md *or* in any archived
+           .planning/milestones/*REQUIREMENTS.md is excluded outright;
+        3. weak signal — `git-log` alone never flips `detected`; it takes a
+           second signal (`branches`, `env`, `remote` or `mcp`).
+      `prefixes` is still reported whatever `detected` says (it is
+      information, and callers rank by it), `samples` carries up to three
+      branch names / commit subjects per surviving prefix as evidence, and
+      `mcp` says whether an Atlassian server is DECLARED in a readable MCP
+      config file — declared, never connected. Consumed by the init/migrate/
+      sync-config prose commands and by cairn-jira.py, which is a pure
+      consumer: this is the only Jira detector in the codebase.
       Exit 0 always.
 
   plan [--mode A|B|C] [--milestone M] [--force] [--project-dir D]
@@ -102,6 +113,13 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 REQ_ID = re.compile(r"\b[A-Za-z][A-Za-z0-9]*-\d+\b")
 JIRA_KEY = re.compile(r"\b([A-Z][A-Z0-9]+)-\d+\b")
+# Signals that report a prefix but never flip `detected` on their own.
+# Measured on this repo (29-CONTEXT.md): a key in a commit message is 21/21
+# false positives, 100%. A key in a branch name is clean, 0 in 25 branches —
+# which is why `branches` is NOT in here.
+WEAK_JIRA_SIGNALS = ("git-log",)
+MCP_ATLASSIAN_HINTS = ("atlassian", "jira")
+MAX_JIRA_SAMPLES = 3
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
 # Checkbox phases come in two shapes. The bold form is the GSD template;
 # the lenient form mirrors cairn-gate's CHECKED_PHASE (any checked line
@@ -483,33 +501,187 @@ def run_git(args, project_dir):
     return proc.stdout if proc.returncode == 0 else ""
 
 
+def read_json_file(path):
+    """The parsed JSON object at path, or None.
+
+    A missing file, undecodable bytes, invalid JSON and a non-object payload
+    all degrade to None — the same contract run_git() follows above.
+    Detection reads third-party files; a malformed one must never take the
+    whole detect (and with it /cairn:migrate) down with it.
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError):
+        return None
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def requirement_prefixes(planning_dir):
+    """Every local requirement-id prefix — the detector's denylist.
+
+    Read from the ACTIVE .planning/REQUIREMENTS.md *plus* every archived
+    .planning/milestones/*REQUIREMENTS.md, because a milestone that shipped
+    keeps its ids in the git history forever: this repo's archived milestones
+    carry 13 of the 21 prefixes the log mentions, and a denylist built from
+    the active file alone let all 13 through.
+
+    Extraction is JIRA_KEY.finditer over the RAW file text, deliberately NOT
+    parse_requirements_md(). That parser's REQ_ITEM only matches
+    `- **ID**: title`, and the v1.2/v1.3 files here write `### GSD-01:` — so
+    the parser leaves GSD out of the denylist and the detector keeps
+    reporting it as somebody's Jira project.
+
+    Known and accepted over-exclusion: a key-shaped token appearing in PROSE
+    is excluded too — `ABC` lands in this repo's denylist because `ABC-123`
+    is used as an example of key format in the requirements text. That is the
+    safe direction to be wrong in. A false negative asks nobody anything; a
+    false positive pre-fills somebody else's tracker with the wrong key.
+    """
+    paths = [planning_dir / "REQUIREMENTS.md"]
+    milestones = planning_dir / "milestones"
+    if milestones.is_dir():
+        paths.extend(sorted(milestones.glob("*REQUIREMENTS.md")))
+    prefixes = set()
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in JIRA_KEY.finditer(text):
+            prefixes.add(m.group(1).upper())
+    return prefixes
+
+
+def mcp_server_maps(project_dir):
+    """[(source path, mcpServers dict)] in precedence order.
+
+    Two files, and in ~/.claude.json two places (MEASURED against a live
+    ~/.claude.json: both keys exist, and the per-project map is where Claude
+    Code stores a server added with project scope — reading only the
+    top-level map would be a known false negative):
+
+        <project>/.mcp.json          -> mcpServers
+        ~/.claude.json               -> mcpServers
+        ~/.claude.json               -> projects.<abs project dir>.mcpServers
+
+    Path.home() honours $HOME, which is also the seam the tests use to keep
+    this hermetic: a contributor's own MCP config must not decide a test.
+    """
+    out = []
+    project_mcp = Path(project_dir) / ".mcp.json"
+    data = read_json_file(project_mcp)
+    if data is not None:
+        out.append((project_mcp, data.get("mcpServers")))
+    home_cfg = Path.home() / ".claude.json"
+    data = read_json_file(home_cfg)
+    if data is not None:
+        out.append((home_cfg, data.get("mcpServers")))
+        projects = data.get("projects")
+        if isinstance(projects, dict):
+            entry = projects.get(str(project_dir))
+            if isinstance(entry, dict):
+                out.append((home_cfg, entry.get("mcpServers")))
+    return [(path, servers) for path, servers in out
+            if isinstance(servers, dict)]
+
+
+def detect_mcp_atlassian(project_dir):
+    """{"declared": bool, "source": str|None, "server": str|None} — is an
+    Atlassian/Jira MCP server DECLARED in an MCP config file readable from
+    here?
+
+    The narrow name is the point. MEASURED versus ASSUMED:
+
+      MEASURED — on the machine this was written the `mcpServers` map holds
+      four servers and none of them is Atlassian, while the Atlassian Rovo
+      connector is active in the session. So this predicate UNDER-reports,
+      and the report says "declared", never "connected".
+
+      ASSUMED — the only file trace of that active connector is
+      ~/.claude.json -> .claudeAiMcpEverConnected, a list of display names
+      that includes "claude.ai Atlassian Rovo". Whether that list means
+      "connected now" or "connected at some point" was NOT measured. History
+      read as state is a silent false positive, so the key stays OUTSIDE this
+      predicate on purpose. Measuring it is what would move it in.
+    """
+    for path, servers in mcp_server_maps(project_dir):
+        for name, entry in servers.items():
+            haystack = str(name).lower()
+            if isinstance(entry, dict):
+                for field in ("command", "url", "type"):
+                    haystack += " " + str(entry.get(field, "")).lower()
+                args = entry.get("args")
+                if isinstance(args, list):
+                    haystack += " " + " ".join(str(a) for a in args).lower()
+            if any(hint in haystack for hint in MCP_ATLASSIAN_HINTS):
+                return {"declared": True, "source": str(path),
+                        "server": str(name)}
+    return {"declared": False, "source": None, "server": None}
+
+
 def detect_jira(project_dir, planning_dir):
     """External-tracker sniff for detect --json (info["external"]["jira"]):
-    {"detected": bool, "prefixes": [str], "signals": [str]}. Jira keys share
-    the GSD REQ-id shape (\\b[A-Z][A-Z0-9]+-\\d+\\b), so two guards keep
-    local requirement ids from masquerading as Jira: a prefix counts only
-    when the SAME prefix occurs >= 3 times across the last 300 commits
-    (subject+body) and branch names, and prefixes that appear as requirement
-    ids in the local REQUIREMENTS.md are excluded outright. Env JIRA_* vars
-    and an atlassian.net git remote are independent signals. Read-only."""
-    excluded = {req.split("-", 1)[0].upper()
-                for req in parse_requirements_md(
-                    planning_dir / "REQUIREMENTS.md")}
+    {"detected": bool, "prefixes": [str], "signals": [str], "mcp": {...},
+     "samples": {prefix: {...}}}.
+
+    Jira keys share the GSD REQ-id shape (\\b[A-Z][A-Z0-9]+-\\d+\\b), so
+    three guards keep local requirement ids from masquerading as Jira:
+
+      1. FREQUENCY — a prefix counts only when it occurs >= 3 times across
+         the last 300 commits (subject+body) and the branch names.
+      2. DENYLIST — requirement_prefixes() above: active REQUIREMENTS.md plus
+         the archived milestone ones, by raw regex.
+      3. WEAK SIGNAL — `detected` needs a signal BEYOND `git-log`. Measured
+         on this repo (29-CONTEXT.md's signal table): a key in a commit
+         message is 21/21 false positives, 100%; a key in a branch name is
+         clean, 0 matches in 25 branches. `prefixes` is still reported when
+         the only signal is git-log, because it is information — but
+         information is not a verdict.
+
+    Guards 1+2+3 together are what makes THIS repository answer
+    `detected: false`, against the `true` with nine requirement-id prefixes
+    it answered before them.
+
+    Env JIRA_* vars, an atlassian.net git remote and a declared Atlassian MCP
+    server are independent (strong) signals. Read-only.
+    """
+    excluded = requirement_prefixes(planning_dir)
     counts = Counter()
     per_source = {}
-    corpora = (
-        ("git-log", run_git(["log", "-n", "300", "--format=%s%n%b"],
-                            project_dir)),
-        ("branches", run_git(["branch", "-a",
-                              "--format=%(refname:short)"], project_dir)),
-    )
-    for source, text in corpora:
-        for m in JIRA_KEY.finditer(text):
-            prefix = m.group(1)
-            if prefix in excluded:
-                continue
-            counts[prefix] += 1
-            per_source.setdefault(prefix, set()).add(source)
+    samples = {}
+    # A NUL record separator makes the log a list of commits instead of one
+    # blob, so `samples` can quote the SUBJECT of the commit a key was found
+    # in. Occurrence counting is unchanged: the same finditer, per record.
+    log_text = run_git(["log", "-n", "300", "--format=%s%n%b%x00"],
+                       project_dir)
+    commits = [rec.strip() for rec in log_text.split("\0") if rec.strip()]
+    branches = [b.strip() for b in run_git(
+        ["branch", "-a", "--format=%(refname:short)"],
+        project_dir).splitlines() if b.strip()]
+    corpora = (("git-log", commits), ("branches", branches))
+    for source, records in corpora:
+        example_key = "branches" if source == "branches" else "commits"
+        count_key = "branch_count" if source == "branches" else "commit_count"
+        for record in records:
+            here = set()
+            for m in JIRA_KEY.finditer(record):
+                prefix = m.group(1)
+                if prefix in excluded:
+                    continue
+                counts[prefix] += 1
+                per_source.setdefault(prefix, set()).add(source)
+                here.add(prefix)
+            for prefix in here:
+                bucket = samples.setdefault(
+                    prefix, {"branches": [], "branch_count": 0,
+                             "commits": [], "commit_count": 0})
+                bucket[count_key] += 1
+                if len(bucket[example_key]) < MAX_JIRA_SAMPLES:
+                    bucket[example_key].append(record.splitlines()[0].strip())
     # Most frequent first, as /cairn:sync-config documents and relies on: it
     # pre-fills project_key from prefixes[0]. Sorting alphabetically instead
     # handed it whichever key happened to sort first, so a repo with 200
@@ -524,8 +696,15 @@ def detect_jira(project_dir, planning_dir):
         signals.append("env")
     if "atlassian.net" in run_git(["remote", "-v"], project_dir):
         signals.append("remote")
-    return {"detected": bool(prefixes or signals),
-            "prefixes": prefixes, "signals": signals}
+    mcp = detect_mcp_atlassian(project_dir)
+    if mcp["declared"]:
+        signals.append("mcp")
+    strong = [s for s in signals if s not in WEAK_JIRA_SIGNALS]
+    return {"detected": bool(strong),
+            "prefixes": prefixes,
+            "signals": signals,
+            "mcp": mcp,
+            "samples": {p: samples[p] for p in prefixes}}
 
 
 def wired_signals(planning_dir):
