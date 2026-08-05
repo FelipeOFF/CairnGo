@@ -121,6 +121,76 @@ EOF
   # it. A number read off the end of a truncated log is not a measurement.
   assert_json_eq "$output" '.checks | length' '18'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
+  # `.failed` is the exact mirror of the exit code, and it is NOT `.ok`'s
+  # complement: `.ok` also answers "did every check in scope actually run".
+  assert_json_eq "$output" '.failed' 'false'
+}
+
+# Break: derive any counter as `len(checks) - the others`, the shape
+# cairn-doctor.py carried before this phase. A fifth status would then land
+# in the success bucket in silence — a brand-new false green inside the
+# phase that exists to remove them.
+@test "report footer: four counters, summing to the check count, none by subtraction" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # One bucket per word of the vocabulary: a status with no symbol has
+  # nowhere to be counted, which is the whole point of deriving the buckets
+  # from SYMBOL's own keys.
+  assert_json_eq "$output" '.counts | length' '4'
+  assert_json_eq "$output" \
+    '[.counts | to_entries[] | .value] | add' \
+    "$(jq -r '.checks | length' <<<"$output")"
+  # Recomputed from the check list itself, so the footer's arithmetic is not
+  # taken on trust — it has to agree with a number we derived separately.
+  assert_json_eq "$output" '.counts.ok' \
+    "$(jq -r '[.checks[] | select(.status == "ok")] | length' <<<"$output")"
+  assert_json_eq "$output" '.counts["not-applicable"]' \
+    "$(jq -r '[.checks[] | select(.status == "not-applicable")] | length' \
+        <<<"$output")"
+  assert_json_eq "$output" '.counts.warn' \
+    "$(jq -r '[.checks[] | select(.status == "warn")] | length' <<<"$output")"
+  assert_json_eq "$output" '.counts.fail' \
+    "$(jq -r '[.checks[] | select(.status == "fail")] | length' <<<"$output")"
+  # Closed vocabulary: subtracting the four leaves nothing behind.
+  assert_json_eq "$output" \
+    '[.checks[].status] - ["ok","not-applicable","warn","fail"] | length' '0'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qE '^\[cairn-doctor\] ok — [0-9]+ ok, [0-9]+ not-applicable, [0-9]+ warning\(s\), [0-9]+ failure\(s\)$' \
+    <<<"$output"
+}
+
+# Break: reuse ✓ for the new state, or pick a character that renders two
+# columns wide under a CJK locale. The proof is unicodedata, never how the
+# glyph looks in this terminal — the same rule phase 21 measured for the
+# board's step symbols.
+@test "status vocabulary: four symbols, the new one distinct and single-width" {
+  make_tmp_repo
+  cat > symbol_check.py <<'PY'
+import ast
+import re
+import sys
+import unicodedata
+
+src = open(sys.argv[1]).read()
+sym = ast.literal_eval(re.search(r"SYMBOL = (\{.*?\})", src, re.S).group(1))
+assert set(sym) == {"ok", "not-applicable", "warn", "fail"}, sorted(sym)
+na = sym["not-applicable"]
+assert na != sym["ok"], f"the new state must not wear the success marker: {na}"
+for name, ch in sorted(sym.items()):
+    width = unicodedata.east_asian_width(ch)
+    assert width == "N", (name, ch, width)
+print(f"{na} U+{ord(na):04X} {unicodedata.name(na)}")
+PY
+  run python3 symbol_check.py "$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
+  [ "$status" -eq 0 ]
+  grep -qF "U+2298" <<<"$output"
 }
 
 @test "gsd-capability: the 4.x lineage fails the doctor, exit 7" {
@@ -2425,9 +2495,12 @@ p.write_text(re.sub(r'^active_phase: ".*?"\n', "", p.read_text(),
 PY
 }
 
-# Break (twice over): keep the `ok` — the state of this check before 29-07 —
-# or promote a missing input to a blocking failure.
-@test "claims-stale: no active_phase is not ok, names the key and CairnGo-rq0, and never blocks" {
+# Break (three times over): keep the `ok` — the state of this check before
+# 29-07 — or keep the `warn` 29-07 left as a placeholder for this phase, or
+# promote a missing input to a blocking failure. This branch is the tracer
+# slice: STATE.md IS here, so the key it lacks is a GAP, not a repo the check
+# has no business running in — hence no-input, and hence `.ok` false.
+@test "claims-stale: no active_phase is not-applicable/no-input, routes, and never blocks" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -2437,13 +2510,19 @@ PY
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   # A check with no input is friction, not a state inconsistency: exit 7
-  # spent on friction stops meaning anything.
+  # spent on friction stops meaning anything. The verdict moved where it is
+  # READ, not where it decides to block.
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.ok' 'true'
-  # The exact value, never "is not ok": the old verdict WAS ok, and a
-  # negation would also accept a fail that has no business being one.
+  assert_json_eq "$output" '.failed' 'false'
+  # The health key can no longer be true while a check inside the doctor's
+  # remit never received its input.
+  assert_json_eq "$output" '.ok' 'false'
+  # The exact value, never "is not ok": the old verdict WAS ok, then warn,
+  # and a negation would also accept a fail that has no business being one.
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .status' 'warn'
+    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
   grep -qF "cannot check" <<<"$output"
   grep -qF "active_phase" <<<"$output"
   grep -qF "CairnGo-rq0" <<<"$output"
@@ -2453,8 +2532,12 @@ PY
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
-  grep -qF "⚠ claims-stale" <<<"$output"
+  grep -qF "⊘ claims-stale" <<<"$output"
   refute_in_output "✓ claims-stale"
+  refute_in_output "⚠ claims-stale"
+  # The footer says the report is incomplete without saying anything failed.
+  grep -qF "[cairn-doctor] INCOMPLETE" <<<"$output"
+  refute_in_output "[cairn-doctor] FAIL"
 }
 
 # Break: a branch that never returns ok makes the check lie in the other
@@ -2521,8 +2604,12 @@ PY
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
   # current_phase is NOT adopted as a synonym: the check still has no input.
+  # The value moved with 23-01 (warn -> not-applicable); the abstention this
+  # test protects did not, and the assertion is still on the exact value.
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .status' 'warn'
+    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
   # And STATE.md is byte-identical — the doctor is read-only about this.
   run diff "$BATS_TEST_TMPDIR/state-before.md" .planning/STATE.md
   [ "$status" -eq 0 ]

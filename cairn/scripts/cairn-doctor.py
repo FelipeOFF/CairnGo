@@ -394,7 +394,35 @@ EXIT_USAGE = 2
 EXIT_NO_BD = 5
 EXIT_FAILED = 7
 
-SYMBOL = {"ok": "✓", "warn": "⚠", "fail": "✗"}
+# Phase 23 / VOID-01. The fourth status: a check that had nothing to check.
+# The word is not invented here — four `detail` strings already SAID "not
+# applicable" in prose while wearing `ok`; this only moves it into the field
+# tools read.
+NOT_APPLICABLE = "not-applicable"
+
+# ...and the two families of it, which are NOT the same sentence (T-04).
+# The rule that assigns them:
+#   out-of-scope  the input will never exist for this CLASS of repo and
+#                 nothing is wrong — cairn's own manifests in a repo that is
+#                 not cairn. Permanent, ordinary, and it does NOT make the
+#                 report incomplete.
+#   no-input      the input SHOULD exist given what the repo already has, so
+#                 its absence is a gap someone can close — a STATE.md with no
+#                 active_phase, a ROADMAP.md with no phase.
+# Only `no-input` clears summary["ok"]. Without the split, every user repo
+# would trade a permanent false green for a permanent false red, which is the
+# same defect mirrored rather than progress.
+NA_OUT_OF_SCOPE = "out-of-scope"
+NA_NO_INPUT = "no-input"
+
+# The single source of the status vocabulary: main() derives its counting
+# buckets from these keys, so a status with no symbol has nowhere to be
+# counted and cannot slip in unnoticed. Every glyph measures east_asian_width
+# "N" (single column even under a CJK locale) — measured with unicodedata,
+# never eyeballed, and asserted by the suite. ⊘ (U+2298) is the new one; ◌
+# (U+25CC) was rejected on purpose, it is already a step symbol on the status
+# board and reusing it would collide two vocabularies.
+SYMBOL = {"ok": "✓", "not-applicable": "⊘", "warn": "⚠", "fail": "✗"}
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -985,10 +1013,13 @@ def check_claims_stale(issues, milestone, active_phase):
     shallow-clone branch, which likewise cannot check rather than having
     checked and found nothing.
 
-    Phase 23's VOID-01 is introducing `not-applicable` as a first-class
-    verdict; "there is no active_phase to compare against" is one of its
-    cases and THAT is this branch's eventual status. Do not anticipate it
-    here — phase 23 owns the state.
+    PHASE 23 ARRIVED, AND THIS BRANCH IS `not-applicable` / `no-input`.
+    29-07 left `warn` as a placeholder with a note saying so; VOID-01 made
+    `not-applicable` first-class and this is its verdict now. The family is
+    `no-input`, not `out-of-scope`, and the rule that decides it is: STATE.md
+    IS here, it simply lacks a key someone can add. That is a gap, not a repo
+    this check has no business running in — so it DOES clear summary["ok"]
+    (the report is incomplete) while leaving the exit code at 0.
 
     WHICH KEY STATE.md SHOULD CARRY IS NOT DECIDED HERE. `current_phase`
     versus `active_phase` changes what five surfaces read and what every
@@ -998,7 +1029,8 @@ def check_claims_stale(issues, milestone, active_phase):
     is written anywhere.
     """
     if active_phase is None:
-        return {"id": "claims-stale", "status": "warn",
+        return {"id": "claims-stale", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
                 "detail": "cannot check — STATE.md's frontmatter carries no "
                           "'active_phase', so there is nothing to compare "
                           "in_progress claims against (this check has never "
@@ -2390,8 +2422,12 @@ def main():
     has_planning = planning_dir.is_dir()
     has_beads = (root / ".beads").is_dir()
 
-    summary = {"applicable": False, "ok": True, "milestone": None,
-               "active_phase": None, "checks": [], "note": None}
+    # `counts` and `failed` are seeded here so the early not-applicable exits
+    # below emit the same shape as a full run — a consumer should not have to
+    # branch on which kind of repo it is pointed at.
+    summary = {"applicable": False, "ok": True, "failed": False,
+               "milestone": None, "active_phase": None, "checks": [],
+               "counts": {status: 0 for status in SYMBOL}, "note": None}
 
     if not has_planning and not has_beads:
         summary["note"] = ("neither .planning/ nor .beads/ — doctor not "
@@ -2552,10 +2588,39 @@ def main():
         check_req_ledger(root, planning_dir),
     ]
     summary["checks"] = checks
-    n_fail = sum(1 for c in checks if c["status"] == "fail")
-    n_warn = sum(1 for c in checks if c["status"] == "warn")
-    n_ok = len(checks) - n_fail - n_warn
-    summary["ok"] = n_fail == 0
+    # ONE BUCKET PER WORD OF THE VOCABULARY, COUNTED, NEVER SUBTRACTED.
+    # This line used to read `n_ok = len(checks) - n_fail - n_warn`, and that
+    # is precisely where a fourth status would have been born already counted
+    # as success: the footer would have announced eighteen successes with
+    # three checks that compared nothing. The buckets come from SYMBOL's own
+    # keys, so the vocabulary has exactly one source.
+    counts = {status: 0 for status in SYMBOL}
+    for c in checks:
+        if c["status"] not in counts:
+            # Loudly, not quietly, and not approximated into a neighbouring
+            # bucket: between approving in silence and refusing out loud,
+            # this phase exists to pick the second. EXIT_USAGE would be a
+            # lie — nobody misused the CLI, the report simply does not close.
+            die(f"check {c['id']!r} returned unknown status "
+                f"{c['status']!r} — the vocabulary is {sorted(counts)}; a "
+                f"new status needs a symbol in SYMBOL before it can be "
+                f"counted", EXIT_FAILED)
+        counts[c["status"]] += 1
+    n_ok = counts["ok"]
+    n_na = counts[NOT_APPLICABLE]
+    n_warn = counts["warn"]
+    n_fail = counts["fail"]
+    # Only the gap family clears the health key: an out-of-scope absence is
+    # normal and permanent in a user's repo, and must not read as incomplete.
+    n_no_input = sum(1 for c in checks
+                     if c["status"] == NOT_APPLICABLE
+                     and c.get("scope") == NA_NO_INPUT)
+    summary["counts"] = counts
+    # Two different questions, two keys. `failed` is the exact mirror of the
+    # exit code, for the consumer that needs it; `ok` also answers "did every
+    # check inside the doctor's remit actually receive its input".
+    summary["failed"] = n_fail > 0
+    summary["ok"] = n_fail == 0 and n_no_input == 0
 
     lines = [f"[cairn-doctor] {root} — milestone: "
              f"{milestone or 'unresolved'}, active phase: "
@@ -2563,9 +2628,16 @@ def main():
     for c in checks:
         lines.append(f" {SYMBOL[c['status']]} {c['id']:<20} {c['detail']}")
         lines += [f"     - {item}" for item in c["items"]]
-    verdict = "ok" if n_fail == 0 else "FAIL"
-    lines.append(f"[cairn-doctor] {verdict} — {n_ok} ok, {n_warn} "
-                 f"warning(s), {n_fail} failure(s)")
+    # INCOMPLETE never stands in for FAIL: a failure outranks it, because
+    # "something is inconsistent" is the louder sentence.
+    if n_fail:
+        verdict = "FAIL"
+    elif n_no_input:
+        verdict = "INCOMPLETE"
+    else:
+        verdict = "ok"
+    lines.append(f"[cairn-doctor] {verdict} — {n_ok} ok, {n_na} "
+                 f"not-applicable, {n_warn} warning(s), {n_fail} failure(s)")
 
     emit(args.json, summary, lines)
     sys.exit(EXIT_OK if n_fail == 0 else EXIT_FAILED)
