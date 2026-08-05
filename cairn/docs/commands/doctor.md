@@ -129,9 +129,28 @@ this routine health-check flow — see its own section below.
      refused a close (typically an epic whose remaining open child sits in
      a phase that is NOT complete) → close or re-phase that child, or
      re-open the phase.
-   - **orphans** (⚠) — issues labeled for a non-ROADMAP phase, or non-closed
-     with no `phase-*` label → attach the right phase label + stamp, label
-     `backlog`, or close.
+   - **orphans** (⚠; ⊘ when it has no input) — issues labeled for a
+     non-ROADMAP phase, or non-closed with no `phase-*` label → attach the
+     right phase label + stamp, label `backlog`, or close. Two independent
+     axes: the phase-label one needs a ROADMAP that lists phases and reads
+     `⊘` with scope `no-input` when it has none, while the unlabeled-issue
+     axis keeps running either way — so a `⚠` over an empty roadmap is a real
+     finding and the detail still says the other axis could not run.
+     **Exempt: an issue that is closed AND carries at least one `m-*` label
+     AND has every one of them archived under `.planning/milestones/`.** That
+     is what makes the count fall back to zero at the end of a cycle instead
+     of growing at every milestone until the check is noise — measured in
+     cairn's own repo, all 61 findings were closed issues of the four
+     archived milestones. All three conditions, and **all** the milestone
+     labels rather than any one of them, so three things keep warning: an
+     issue still **open** on a cycle that already closed (live work, worth
+     reporting), a closed issue with **no `m-*` label** (no evidence of
+     archiving — exempting there would be approving without comparing), and
+     an issue **carried into the active milestone**, which
+     [milestone.md](milestone.md) documents as a transient orphan until the
+     new roadmap places it. Nothing is exempted in silence: the detail always
+     says how many were suppressed, because a count that quietly reaches zero
+     is indistinguishable from an axis somebody switched off.
    - **label-pairs** (⚠) — step 3 above (`--fix-labels`).
    - **claims-stale** (⚠; ⊘ when it has no input) — in_progress + assigned
      issues outside the active
@@ -394,7 +413,7 @@ A repo whose GSD cannot host the fusion reports it plainly:
 ✗ gsd-capability     GSD 4.x lineage — it has no 'capability' subcommand, so
                      plain /gsd:* does NOT touch bd issues. Install the
                      official core: claude plugin install gsd-core@cairngo
-FAIL — 12 ok, 0 warning(s), 1 failure(s)
+[cairn-doctor] FAIL — 15 ok, 2 not-applicable, 0 warning(s), 1 failure(s)
 ```
 
 Repair label pairs, then re-check:

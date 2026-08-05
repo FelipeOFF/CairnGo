@@ -25,6 +25,19 @@ a time, in the main checkout, exactly the loop this command used to run.
    **not-applicable** note (exit 0 with one side missing — e.g. `.planning/`
    without `.beads/`) also **stops**: route to `/cairn:migrate` to wire the
    missing side, or offer plain `/gsd:autonomous` instead.
+
+   That top-level note is **not** the same thing as the `⊘` a single check
+   can now carry, and the difference decides whether this run continues. A
+   report whose footer reads `INCOMPLETE` — one or more checks that had no
+   input to compare — **does not stop the run**, because the exit code did
+   not change: it is still `0`, and phase 23 kept it that way on purpose,
+   since an absent input is friction and not an inconsistency. Note which
+   checks read `⊘`, say so in the run report, and carry on. It matters
+   because those checks are the ones whose green you cannot bank on later:
+   if verification at the end leans on one of them, it is leaning on a
+   comparison that never happened, and that gap has to be closed by hand
+   (write the roadmap phase, set `active_phase:` in STATE.md) rather than
+   inferred from a passing run.
 2. bd must be available (doctor exit 5 means it isn't) — without bd there is
    no "autonomous through beads": **stop** and offer plain `/gsd:autonomous`
    instead.
