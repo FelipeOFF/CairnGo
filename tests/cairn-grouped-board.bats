@@ -49,10 +49,27 @@ spec.loader.exec_module(cs)
 # `stop`. That boundary is what keeps the footer and the phase panel out, and
 # it also means a group label the render invents (one the model never
 # emitted) terminates the block instead of being quietly accepted.
+#
+# The symbol class the parser matches on is READ OUT OF the script, never
+# retyped here. MEASURED while writing these tests: with the ten symbols
+# hardcoded, swapping one of them for an east_asian_width=A glyph turned SIX
+# tests red instead of one — the parser stopped recognising rows, so every
+# test failed for a parsing reason and the width test's failure said nothing
+# special. Reading the set keeps the width regression landing on the one
+# test that can explain it.
+SYMS_ALL="$(env PYTHONIOENCODING=utf-8 python3 -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('cairn_status', '$CAIRN_STATUS_PY')
+cs = importlib.util.module_from_spec(spec); spec.loader.exec_module(cs)
+for a in (False, True):
+    s = cs.Style({'ascii': a, 'color': 'never'})
+    print(s.s_none + s.s_planned + s.s_doing + s.s_done + s.s_blocked, end='')
+")"
+
 PY_ROWS="
 import json, re
-SYMS = '◌◔◕✓⧗.oOv~'
-ROW = re.compile(r'^(  |      )([' + SYMS + r']) (\S+)  (.*)\$')
+SYMS = '''$SYMS_ALL'''
+ROW = re.compile(r'^(  |      )([' + re.escape(SYMS) + r']) (\S+)  (.*)\$')
 def rows(text, labels):
     out, stop = [], None
     lines = text.split('\n')
@@ -96,6 +113,9 @@ print(json.dumps([g['label'] for g in json.load(sys.stdin)['groups']]))")"
 #            the suffixes and the wrap at once.
 #   brd-202: blocked by TWO issues, because "names the blocker" is only
 #            proved by a row that has more than one to name.
+#   brd-203: a title carrying a single token wider than the body column, so
+#            the ONE case where a row is allowed past the width is a case
+#            the fixture actually contains, not a clause nobody exercises.
 setup() {
   require_bd
   make_tmp_repo
@@ -109,13 +129,22 @@ setup() {
     -l phase-4 --silent >/dev/null
   bd dep brd-002 --blocks brd-202 >/dev/null
   bd dep brd-003 --blocks brd-202 >/dev/null
+  LONG_TOKEN="https://example.invalid/a/path/so/long/that/it/cannot/be/broken/anywhere"
+  bd create "Ship the endpoint $LONG_TOKEN today" --id brd-203 -t task -p 4 \
+    -l phase-3 --silent >/dev/null
 }
 
 # Render into a file and leave the path in $RENDER. Never through a pipe
 # into python: --width already forces the board renderer, and a file keeps
 # the bytes inspectable when a test fails.
+#
+# A FRESH path per call, counted, and not $$ — two renders inside one test
+# share a pid, so a pid-named file makes the second silently overwrite the
+# first and a test comparing them ends up comparing one render with itself.
+RENDER_N=0
 render() {
-  RENDER="$BATS_TEST_TMPDIR/render-$$.txt"
+  RENDER_N=$((RENDER_N + 1))
+  RENDER="$BATS_TEST_TMPDIR/render-$RENDER_N.txt"
   bash "$STATUS_SH" --color=never "$@" > "$RENDER"
 }
 
@@ -257,6 +286,126 @@ assert 'blocked by' in body, body
 named = body.split('blocked by', 1)[1]
 for dep in ('brd-002', 'brd-003'):
     assert dep in named, '%s is not named on the row: %r' % (dep, body)
+"
+  [ "$status" -eq 0 ]
+}
+
+# ─── BOARD-02, criterion 3: the two modes close on the same columns ──────────
+
+# Breaks this test: giving any ASCII stage symbol two characters (`->`,
+# `[]`, `..`), which is the obvious way to write the fallback and the one
+# that silently moves every column right of it in one mode only.
+@test "--ascii swaps the symbols and moves no column" {
+  model_labels
+  render --width 100
+  local uni="$RENDER"
+  render --width 100 --ascii
+  run env PYTHONIOENCODING=utf-8 python3 -c "
+$PY_LOAD
+$PY_ROWS
+labels = json.loads('''$LABELS''')
+u = open('$uni').read().split('\n')
+a = open('$RENDER').read().split('\n')
+ur, ustop = rows(open('$uni').read(), labels)
+ar, astop = rows(open('$RENDER').read(), labels)
+
+# Same rows, same order, same keys: --ascii is a glyph decision, never a
+# content decision.
+assert [(r['kind'], r['key']) for r in ur] == [(r['kind'], r['key'])
+                                               for r in ar]
+
+st = cs.Style({'ascii': False, 'color': 'never'})
+sa = cs.Style({'ascii': True, 'color': 'never'})
+uni_syms = {st.s_none, st.s_planned, st.s_doing, st.s_done, st.s_blocked}
+asc_syms = {sa.s_none, sa.s_planned, sa.s_doing, sa.s_done, sa.s_blocked}
+
+# Every row swapped its symbol for the ASCII one at the same position.
+pairs = dict(zip([st.s_none, st.s_planned, st.s_doing, st.s_done,
+                  st.s_blocked],
+                 [sa.s_none, sa.s_planned, sa.s_doing, sa.s_done,
+                  sa.s_blocked]))
+for ru, ra in zip(ur, ar):
+    if ru['kind'] == 'group':
+        continue
+    assert pairs[ru['sym']] == ra['sym'], (ru['sym'], ra['sym'])
+
+# The block itself: same number of physical lines, and each one the same
+# number of CELLS. This is the mechanical form of 'the columns close
+# aligned in both modes' — it holds only because every stage symbol is one
+# cell in one mode and one character in the other.
+ub = u[:u.index(ustop)]
+ab = a[:a.index(astop)]
+assert len(ub) == len(ab), (len(ub), len(ab))
+for i, (lu, la) in enumerate(zip(ub, ab)):
+    assert cs.display_width(lu) == cs.display_width(la), (
+        i, lu, la, cs.display_width(lu), cs.display_width(la))
+
+# And no glyph leaked the wrong way.
+for line in ab:
+    assert not (set(line) & uni_syms), line
+"
+  [ "$status" -eq 0 ]
+}
+
+# ─── The row stays inside the width it was given ─────────────────────────────
+
+# Breaks this test: wrapping on character count instead of display cells,
+# or forgetting to subtract the prefix from the body budget. Both leave rows
+# a few cells past the edge, which is what the old fixed-width lane cell
+# existed to prevent and what a wrapping row has to prevent by arithmetic.
+#
+# It REPLACES tracker-card's "no card is pushed out of its lane, at any
+# width" with the stronger property the grouped list can carry: nothing is
+# shed to fit, AND nothing overflows — except the single case the code
+# documents, a lone token wider than the body column, which brd-203 makes
+# real instead of hypothetical.
+@test "no row overflows its width, and the one exception is a token that cannot fit" {
+  model_labels
+  for w in 64 72 100 140; do
+    render --width "$w"
+    run python3 -c "
+$PY_LOAD
+$PY_ROWS
+text = open('$RENDER').read()
+labels = json.loads('''$LABELS''')
+rows_, stop = rows(text, labels)
+lines = text.split('\n')
+block = lines[:lines.index(stop)]
+over = [l for l in block if cs.display_width(l) > $w]
+# Every overflowing line must be a prefix plus ONE token: the wrap refuses
+# to split a token, and that is the documented exception.
+for l in over:
+    assert len(l.strip().split()) <= 3, 'row past --width $w: %r' % l
+    assert 'example.invalid' in l, 'unexpected overflow at --width $w: %r' % l
+# The unbreakable token survived whole — split anywhere and this fails.
+assert '$LONG_TOKEN' in text.replace('\n', ''), 'the long token was split'
+"
+    [ "$status" -eq 0 ]
+  done
+}
+
+# ─── Nothing is lost between the lanes and the screen ────────────────────────
+
+# Breaks this test: dropping a bucket, not emitting the unphased group, or
+# a `+k more` that swallows rows without saying so. The multiset comparison
+# catches loss AND duplication; 'contains' would catch neither.
+@test "every open issue on a lane reaches the screen, exactly once" {
+  model_labels
+  render --width 100
+  run bash -c "bash '$STATUS_SH' --json > '$BATS_TEST_TMPDIR/model.json'"
+  [ "$status" -eq 0 ]
+  run python3 -c "
+$PY_ROWS
+labels = json.loads('''$LABELS''')
+rows_, stop = rows(open('$RENDER').read(), labels)
+on_screen = sorted(r['key'] for r in rows_ if r['kind'] == 'issue')
+d = json.load(open('$BATS_TEST_TMPDIR/model.json'))
+on_lanes = sorted(i['id'] for lane in ('ready', 'doing', 'blocked')
+                  for i in d[lane])
+assert on_screen == on_lanes, (
+    'only on lanes: %s | only on screen: %s' % (
+        sorted(set(on_lanes) - set(on_screen)),
+        sorted(set(on_screen) - set(on_lanes))))
 "
   [ "$status" -eq 0 ]
 }
