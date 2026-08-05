@@ -71,3 +71,22 @@ ESCAPE HATCHES (raw passthrough — reach anything the verbs don't wrap)
   /cairn:gsd <cmd> [args] run any GSD command      (e.g. /cairn:gsd debug)
   /cairn:ctx <op> [args]  run any context-mode op  (e.g. /cairn:ctx stats)
 ```
+
+Then print the wrappers, **derived from what is installed** rather than typed
+into the map above:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-wrap.sh" list
+```
+
+Show its output under a `WRAPPED GSD COMMANDS` heading, in the same shape as
+the block above: each line is `/cairn:<name>` delegating to `/gsd:<command>`.
+Every one of them claims the phase's beads, runs the GSD command, and closes —
+and refuses to start when that GSD command is not installed, naming what is
+missing.
+
+Do **not** transcribe that list into the map above. A hand-written list of
+commands is how this page starts lying: `cairn/docs/commands.md` once claimed 22
+commands while 25 were installed, and two of them were reachable and documented
+nowhere. Exit `2` from the script (no commands directory found) is worth one
+line saying so; it is not worth guessing the list.
