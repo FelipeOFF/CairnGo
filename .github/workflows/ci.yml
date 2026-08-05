@@ -79,10 +79,19 @@ jobs:
         run: python3 -m py_compile cairn/scripts/*.py cairn/adapters/*.py cairn/capability/scripts/*.py benchmarks/scripts/*.py
 
       - name: Run tests
-        # -j 4: GitHub's standard runner has 4 cores. A job count above the core
-        # count buys nothing here because the bottleneck is per-test `git init`
-        # and `bd init`, not CPU.
+        # One door, here and locally: cairn-test.sh resolves the job count,
+        # checks what `bats -j` actually needs BEFORE composing the command,
+        # and passes bats' exit code through untranslated (a runner that
+        # swallowed it would paint this job green over a red suite).
+        #
+        # --jobs 4 stays explicit: GitHub's standard runner has 4 cores, and a
+        # job count above the core count buys nothing here because the
+        # bottleneck is per-test `git init` and `bd init`, not CPU.
+        #
+        # `parallel --version` stays too. It is what makes the log say which
+        # of the two paths this run took: with it present the composed command
+        # carries `-j 4`, without it the runner drops the flag and says so.
         run: |
           bd version
           parallel --version | head -1
-          bats -j 4 tests/
+          bash cairn/scripts/cairn-test.sh --jobs 4 tests/

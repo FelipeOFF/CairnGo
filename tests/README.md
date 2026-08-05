@@ -1,6 +1,66 @@
 # Tests
 
-Run: `bats tests/` (needs [bats-core](https://github.com/bats-core/bats-core), `jq`, and `bd` on PATH — bd-dependent tests skip cleanly when it is missing).
+Run: `bash cairn/scripts/cairn-test.sh` (or `bats tests/`, which keeps
+working). Needs [bats-core](https://github.com/bats-core/bats-core), `jq`, and
+`bd` on PATH — bd-dependent tests skip cleanly when it is missing. GNU
+`parallel` is optional and worth having.
+
+The runner picks the job count (`--jobs N`, else `test.jobs` in
+`.cairn/config.json`, else your core count), checks what `bats -j` actually
+requires *before* composing the command, and passes bats' exit code back
+untranslated. `cairn-test.sh --print-command` prints the exact command and
+runs nothing.
+
+## What the suite costs
+
+Measured 2026-08-04, 8 cores, bats 1.14.0:
+
+| what | number |
+|---|---|
+| tests announced by `bats tests/` | **646** |
+| `grep -h '^@test' tests/*.bats \| wc -l` | 648 — count the announcement, not the grep |
+| whole suite at `-j 8` | **20m27s** wall, 209% CPU, ~46 concurrent `bats-exec` processes |
+| `tests/cairn-doctor.bats` alone, serial | **19m05s** for 65 tests |
+| `tests/cairn-map.bats` | 64s serial against 33s at `-j 6` |
+
+The two-test gap is not drift: `bats --count` per file finds it at
+`tests/smoke.bats:100` and `tests/cairn-test.bats:69`, two `@test` lines that
+sit inside heredocs writing a throwaway bats file. The grep counts the
+characters; only bats counts the tests.
+
+The bottleneck is per-test setup — nearly every test builds a throwaway git
+repo and a bd database — so the suite splits across cores well and a job count
+above the core count buys nothing.
+
+## Two traps, both paid for
+
+**`bats -j` without GNU parallel does not run serial. It runs nothing.**
+Measured on bats 1.14.0 with the parallel binary missing:
+
+```
+1..2
+bats-exec-suite: line 323: parallel: command not found
+# bats warning: Executed 0 instead of expected 2 tests
+exit 1
+```
+
+Zero tests executed, reported as a failure. bats has a guard for this at
+`bats-exec-suite:110` and it can never fire — it is written
+`! type -p X && X --version`, whose two clauses cannot both hold. `-j` also
+needs `flock` or `shlock` (`lib/bats-core/semaphore.bash:26-33`); without
+either, same shape, `exit 1` and zero tests. This is why `cairn-test.sh`
+checks both *before* composing the command and drops `-j` rather than passing
+it through.
+
+**`bats -f` with a filter that matches nothing exits 1**, with
+`ERROR: Found no tests`. So a plan's `<verify>` and a CI command invoke whole
+**files**, never `-f` with a test name that might not exist. A typo in a
+filter and a genuinely broken suite are the same exit code.
+
+**And do not read a suite result off `| tail`.** A `bats tests/... | tail -15`
+whose failure scrolled out of the window was called green in this repo on
+2026-08-04; the failing assertion had been red since the commit before. Count
+`^not ok`, or read the plan line.
 
 ## The seam
 
