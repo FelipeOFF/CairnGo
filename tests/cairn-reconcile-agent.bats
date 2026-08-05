@@ -164,6 +164,52 @@ anchor_line() {
 # static check, one layer up).
 #-----------------------------------------------------------------------------
 
+#-----------------------------------------------------------------------------
+# LANG-02 (plan 24-03) — the SECOND of the lifecycle's two own spawn points.
+#
+# The inventory is closed and measured: `grep -rln "subagent\|[Ss]pawn"` over
+# cairn/commands, cairn/skills and cairn/capability/fragments answers exactly
+# two files — autonomous.md (closed by plan 24-01) and this one. A requirement
+# that says EVERY subagent and covers one of the two is a false claim, not a
+# partial plan, which is why this point is closed in the same phase.
+#
+# It counts because this agent's final message is cited prose a human reads
+# ("propose — in plain, cited language"), not a machine-only JSON envelope.
+#-----------------------------------------------------------------------------
+
+@test "command: the response language is read from the script BEFORE the investigator is spawned" {
+  local l_lang l_spawn
+  l_lang="$(anchor_line "get agents.response_language")"
+  l_spawn="$(anchor_line "Spawn the .reconcile-investigator. subagent")"
+  [ -n "$l_lang" ]
+  [ -n "$l_spawn" ]
+  # Breaks if the value is read after the subagent already exists, or not at
+  # all — which is the state that produced the defect this phase closes.
+  [ "$l_lang" -lt "$l_spawn" ]
+
+  # And it is handed over, not merely read.
+  run bash -c "grep -cF -- 'the phase number and that response language' '$COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+}
+
+@test "command: the language never applies to a citation, and never enters the evidence bundle" {
+  # A translated quotation is not a quotation, and a cited proposal is worth
+  # exactly what its citations are worth.
+  run bash -c "grep -cF -- 'a quotation' '$COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+  run bash -c "grep -cF -- 'stay exactly as they are' '$COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+
+  # And the reason it is a separate read rather than a bundle field: the
+  # bundle is what evidence_hash covers, and the cache compares that hash.
+  run bash -c "grep -cF -- 'evidence_hash' '$COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+}
+
 @test "static: neither reconcile.md nor reconcile-investigator.md instructs a direct bd write (bd create/update/close/reopen)" {
   local verb
   for verb in "bd create" "bd update" "bd close" "bd reopen"; do
