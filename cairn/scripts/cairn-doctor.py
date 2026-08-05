@@ -16,7 +16,7 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — sixteen
+                        version output -> WARN. Runs first — seventeen
                         checks in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
@@ -225,11 +225,37 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         unparsable JSON degrades to WARN rather than
                         crashing the whole doctor run over this one check
                         (same degrade shape as check_lease_stale()).
+    16. test-parallel   (AUTO-04) whether this machine can run the bats
+                        suite in parallel, ROUTED from 'cairn-test.py
+                        --check-env' through the CAIRN_TEST env seam rather
+                        than recomputed here — that script owns the
+                        measurement of what `bats -j` actually requires (the
+                        parallel binary at bats-exec-suite:323 AND flock-or-
+                        shlock at lib/bats-core/semaphore.bash:26-33; miss
+                        either one and bats runs ZERO tests and exits 1
+                        rather than degrading to serial). A missing
+                        prerequisite -> WARN, itemizing each absence with
+                        its install command plus the measured cost of
+                        running serial (64s against 33s on
+                        tests/cairn-map.bats at -j 6). No bats at all ->
+                        WARN with a different sentence: the suite cannot run
+                        here at all, so nothing about parallelism can be
+                        concluded (phase 23's `not-applicable`, once it
+                        lands, is the right verdict for that branch).
+                        NEVER fails the run: running the suite slowly is
+                        friction, not a state inconsistency, and spending
+                        exit 7 on friction is how exit 7 stops meaning
+                        anything. APPLIES ONLY when
+                        cairn/.claude-plugin/plugin.json exists under the
+                        project root — same guard and same reason as check
+                        15, since a wired repo has no cairn bats suite to
+                        run. A non-zero exit or unparsable JSON from
+                        cairn-test.py degrades to WARN.
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-
                     escalation reconciliation proposal for phase N. Not one
-                    of the 16 checks above — a fixer, the same category as
+                    of the 17 checks above — a fixer, the same category as
                     --close-completed/--fix-labels/--link-refs, but the only
                     one of the four that always exits on its own rather
                     than falling through to the ordinary report, since its
@@ -324,6 +350,8 @@ CAIRN_JOURNAL = os.environ.get(
 # owns them.
 CAIRN_RELEASE = os.environ.get(
     "CAIRN_RELEASE", str(SCRIPTS_DIR / "cairn-release.py"))
+CAIRN_TEST = os.environ.get(
+    "CAIRN_TEST", str(SCRIPTS_DIR / "cairn-test.py"))
 
 PHASE_LABEL = re.compile(r"^phase-(\d+)$")
 PHASE_HEAD = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\b")
@@ -1619,6 +1647,95 @@ def check_release_versions(root):
             "items": []}
 
 
+def check_test_parallel(root):
+    """Check 16, id "test-parallel" (AUTO-04) — can this machine run the
+    suite in parallel, and if not, what does that cost and what fixes it.
+
+    The absence of GNU parallel is the kind of thing nobody discovers:
+    nothing breaks, everything is slow. So it becomes a doctor check. But
+    what it may NOT become is a doctor FAILURE — running the suite slowly is
+    friction, not a state inconsistency, and spending exit 7 on friction
+    trains everyone to ignore exit 7. This check never returns "fail".
+
+    The verdict is ROUTED, not recomputed: cairn-test.py --check-env owns the
+    knowledge of what `bats -j` actually requires (the parallel binary AND
+    flock-or-shlock, both measured), and this check only turns its report
+    into a status. Same shell-out-to-a-sibling-script shape check_maps_fresh
+    uses for cairn-map.py, check_lease_stale for cairn-lease.py and
+    check_release_versions for cairn-release.py — and the same reason: one
+    file knows the rule, so the rule cannot drift into disagreeing with
+    itself.
+
+    APPLICABILITY, the same trap check_release_versions dodges. The doctor
+    runs in USERS' repos, which have a .planning/ and a .beads/ and no reason
+    on earth to run cairn's bats suite. Warning them about GNU parallel would
+    be noise about a suite they do not have. So this check applies only where
+    cairn's own plugin manifest is — the same marker, for the same reason.
+
+    A machine with no bats at all reports warn with a detail that says the
+    suite cannot run here AT ALL, which is a different sentence from "it will
+    run slowly". Phase 23's VOID-01 is introducing `not-applicable` as a
+    first-class verdict; when it lands, THAT is the right status for this
+    branch, and this comment is the marker. Do not anticipate it here — phase
+    23 owns the state.
+    """
+    if not (root / RELEASE_PLUGIN_MANIFEST).is_file():
+        return {"id": "test-parallel", "status": "ok",
+                "detail": f"not applicable — no {RELEASE_PLUGIN_MANIFEST} "
+                          "under this root (cairn's bats suite is cairn's "
+                          "own, not a wired repo's)",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_TEST, "--check-env", "--project-dir",
+             str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"id": "test-parallel", "status": "warn",
+                "detail": f"could not run cairn-test.py --check-env: {e}",
+                "items": []}
+    if proc.returncode != 0:
+        return {"id": "test-parallel", "status": "warn",
+                "detail": f"cairn-test.py --check-env exited "
+                          f"{proc.returncode}: "
+                          f"{proc.stderr.strip() or '(no stderr)'}",
+                "items": []}
+    try:
+        data = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError as e:
+        return {"id": "test-parallel", "status": "warn",
+                "detail": f"cairn-test.py --check-env did not return valid "
+                          f"JSON: {e}",
+                "items": []}
+    if not isinstance(data, dict):
+        return {"id": "test-parallel", "status": "warn",
+                "detail": "cairn-test.py --check-env returned no report",
+                "items": []}
+
+    if not data.get("bats"):
+        return {"id": "test-parallel", "status": "warn",
+                "detail": "bats is not on PATH — the suite cannot run here "
+                          "at all, so nothing about parallelism can be "
+                          "concluded (brew install bats-core / "
+                          "npm install -g bats)",
+                "items": []}
+    if data.get("can_parallelize"):
+        return {"id": "test-parallel", "status": "ok",
+                "detail": f"the suite can run in parallel "
+                          f"(bats -j {data.get('jobs')}, from "
+                          f"{data.get('jobs_source')})",
+                "items": []}
+
+    items = [f"{b.get('what')} — fix: {b.get('fix')}"
+             for b in data.get("blockers") or []]
+    items.append(f"cost of running serial: {data.get('measured_cost')}")
+    return {"id": "test-parallel", "status": "warn",
+            "detail": "the suite will run serial here — `bats -j` is missing "
+                      "a prerequisite (never a doctor failure: this is "
+                      "friction, not inconsistency)",
+            "items": items}
+
+
 # --------------------------------------------------------------------------- #
 # --apply-reconciliation (ESC-03, Phase 17 Plan 3) — the human-invoked,
 # separate apply command for a verified semantic-escalation reconciliation
@@ -2032,6 +2149,7 @@ def main():
         check_external_ref(root, planning_dir, issues, args.link_refs),
         check_lease_stale(root),
         check_release_versions(root),
+        check_test_parallel(root),
     ]
     summary["checks"] = checks
     n_fail = sum(1 for c in checks if c["status"] == "fail")

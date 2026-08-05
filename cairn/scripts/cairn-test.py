@@ -88,12 +88,22 @@ converted to the shell's own 128+N so the number that leaves this script is
 the number a shell would have reported.
 
 Usage:
-    cairn-test.py [--jobs N] [--print-command] [--project-dir DIR] [paths...]
+    cairn-test.py [--jobs N] [--print-command] [--check-env]
+                  [--project-dir DIR] [paths...]
 
     --jobs N          how many jobs to run; 1 means serial and is honored
                       without comment
     --print-command   print the exact argv that WOULD be executed, one line on
                       stdout, and exit 0 having run nothing
+    --check-env       print a JSON report of what this machine can do (bats,
+                      the job count and its source, every prerequisite that is
+                      missing and its fix) and exit 0. This exists so
+                      cairn-doctor.py can ROUTE the verdict instead of
+                      reimplementing the detection — the same
+                      shell-out-to-a-sibling-script shape the doctor already
+                      uses for cairn-map.py, cairn-lease.py and
+                      cairn-release.py. Knowing what `bats -j` requires lives
+                      in exactly one file, and this is it.
     --project-dir DIR project root the config and the default target resolve
                       from (default: this repo, derived from this file's own
                       location, never the cwd)
@@ -321,6 +331,27 @@ def compose(bats, jobs, blockers, targets):
     return argv
 
 
+def env_report(root, flag):
+    """What this machine can do, as JSON, for a caller that only routes.
+
+    One difference from a run, and it is deliberate: the blockers are computed
+    unconditionally rather than only when the job count is above 1. This is a
+    report about the MACHINE, not about one invocation — `--jobs 1` makes the
+    prerequisites irrelevant to that run, and no less absent from the box.
+    """
+    jobs, source = resolve_jobs(flag, root)
+    blockers = parallel_blockers()
+    return {
+        "bats": shutil.which("bats"),
+        "jobs": jobs,
+        "jobs_source": source,
+        "parallel_binary": parallel_binary_name(),
+        "can_parallelize": not blockers,
+        "blockers": blockers,
+        "measured_cost": MEASURED_COST,
+    }
+
+
 def bats_exit_code(returncode):
     """bats' code as a shell would report it. Python hands back a negative
     number for a signal-terminated child; 128+N is what `$?` would have
@@ -342,6 +373,9 @@ def main():
     parser.add_argument("--print-command", action="store_true",
                         help="print the exact argv that would run, one line "
                              "on stdout, and exit 0 running nothing")
+    parser.add_argument("--check-env", action="store_true",
+                        help="print a JSON report of what this machine can "
+                             "do and exit 0 (what cairn-doctor.py routes)")
     parser.add_argument("--project-dir", metavar="DIR", default=None,
                         help="project root the config and the default target "
                              "resolve from (default: this repo)")
@@ -356,6 +390,13 @@ def main():
     root = Path(args.project_dir).resolve() if args.project_dir else REPO_ROOT
     if not root.is_dir():
         die(f"project directory does not exist: {root}\n{USAGE}", EXIT_USAGE)
+
+    # BEFORE target resolution on purpose: a report about the machine must not
+    # depend on a suite directory existing, and it must be able to say "bats
+    # is not here" rather than exit 5 over it. Reporting is not running.
+    if args.check_env:
+        print(json.dumps(env_report(root, args.jobs)))
+        sys.exit(EXIT_OK)
 
     targets = resolve_targets(args.paths, root)
 

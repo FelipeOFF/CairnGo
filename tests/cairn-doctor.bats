@@ -1865,3 +1865,141 @@ EOF
   [ "$status" -eq 7 ]
   grep -qF "✗ release-versions" <<<"$output"
 }
+
+#-----------------------------------------------------------------------------
+# test-parallel (check 16, AUTO-04) — 29-06
+#
+# The environment dimension is controlled through BATS' OWN seam,
+# BATS_PARALLEL_BINARY_NAME (bats-exec-suite:8), rather than by rebuilding
+# PATH: it is the same variable bats itself reads to decide which binary to
+# fan out through, so pointing it at something that exists (or does not) asks
+# the check exactly the question bats would ask. Rebuilding PATH would also
+# have to keep bd, git and python3 reachable, which is a lot of machinery for
+# a question with a one-variable answer.
+#
+# The two branches that do NOT depend on this machine (no bats at all; the
+# report itself unavailable) go through the CAIRN_TEST seam with a stub
+# reporter, the same way the release check is driven through CAIRN_RELEASE.
+#-----------------------------------------------------------------------------
+
+# Break: drop the applicability guard. Red here — and it would put a warning
+# about GNU parallel in front of every user of a wired repo, about a bats
+# suite they do not have.
+@test "test-parallel: a repo without cairn's plugin manifest reads ok and says not applicable" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .detail | contains("not applicable")' 'true'
+}
+
+@test "test-parallel: with the prerequisites present the check is ok and names the job count" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The FULL set of carriers, not just plugin.json: that file is also check
+  # 15's applicability marker, so writing it alone turns release-versions on
+  # with nothing to agree with and takes the doctor to exit 7 for an
+  # unrelated reason.
+  write_release_carriers 1.5.0
+
+  # `bash` stands in for the parallel binary: it exists on every machine this
+  # suite runs on, so the ok branch is asserted deterministically instead of
+  # depending on whether the developer happens to have GNU parallel.
+  run env BATS_PARALLEL_BINARY_NAME=bash \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .detail | contains("bats -j")' 'true'
+}
+
+@test "test-parallel: a missing parallel binary warns with the fix and the measured cost, and the doctor still exits 0" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The FULL set of carriers, not just plugin.json: that file is also check
+  # 15's applicability marker, so writing it alone turns release-versions on
+  # with nothing to agree with and takes the doctor to exit 7 for an
+  # unrelated reason.
+  write_release_carriers 1.5.0
+
+  run env BATS_PARALLEL_BINARY_NAME=this-binary-does-not-exist \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # Break, and it is the expensive one: turning friction into a blockage.
+  # A slow suite is not a state inconsistency, and spending exit 7 on it
+  # teaches everyone to ignore exit 7.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'warn'
+  assert_json_eq "$output" '.ok' 'true'
+  # Break: a warning that names neither the cost nor the cure.
+  grep -qF "install parallel" <<<"$output"
+  grep -qF "64s serial" <<<"$output"
+
+  run env BATS_PARALLEL_BINARY_NAME=this-binary-does-not-exist \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "⚠ test-parallel" <<<"$output"
+}
+
+@test "test-parallel: no bats at all warns with a different sentence than 'it will be slow'" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The FULL set of carriers, not just plugin.json: that file is also check
+  # 15's applicability marker, so writing it alone turns release-versions on
+  # with nothing to agree with and takes the doctor to exit 7 for an
+  # unrelated reason.
+  write_release_carriers 1.5.0
+
+  local stub="$BATS_TEST_TMPDIR/no-bats-report.py"
+  cat > "$stub" <<'PY'
+import json
+print(json.dumps({"bats": None, "jobs": 8, "jobs_source": "cpu count",
+                  "parallel_binary": "parallel", "can_parallelize": True,
+                  "blockers": [], "measured_cost": "n/a"}))
+PY
+
+  run env CAIRN_TEST="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'warn'
+  # Break: routing "no bats" into the slow-suite branch. can_parallelize is
+  # true in this report, so a check that looked at that field first would
+  # report ok on a machine that cannot run the suite at all.
+  grep -qF "cannot run here at all" <<<"$output"
+}
+
+@test "test-parallel: an unusable environment report degrades to warn, never a crash and never a failure" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The FULL set of carriers, not just plugin.json: that file is also check
+  # 15's applicability marker, so writing it alone turns release-versions on
+  # with nothing to agree with and takes the doctor to exit 7 for an
+  # unrelated reason.
+  write_release_carriers 1.5.0
+
+  local stub="$BATS_TEST_TMPDIR/broken-report.py"
+  printf 'import sys\nsys.stderr.write("boom\\n")\nsys.exit(1)\n' > "$stub"
+
+  run env CAIRN_TEST="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # Break: letting one check's subprocess failure take the whole doctor down,
+  # or promoting it to fail. The other fifteen checks still have answers.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'warn'
+  grep -qF "exited 1" <<<"$output"
+}
