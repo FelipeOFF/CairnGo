@@ -120,6 +120,7 @@ JIRA_KEY = re.compile(r"\b([A-Z][A-Z0-9]+)-\d+\b")
 WEAK_JIRA_SIGNALS = ("git-log",)
 MCP_ATLASSIAN_HINTS = ("atlassian", "jira")
 MAX_JIRA_SAMPLES = 3
+ATLASSIAN_SITE = re.compile(r"https?://[A-Za-z0-9._-]*\.atlassian\.net")
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
 # Checkbox phases come in two shapes. The bold form is the GSD template;
 # the lenient form mirrors cairn-gate's CHECKED_PHASE (any checked line
@@ -694,8 +695,14 @@ def detect_jira(project_dir, planning_dir):
                if any(source in per_source.get(p, ()) for p in prefixes)]
     if any(k.startswith("JIRA_") for k in os.environ):
         signals.append("env")
-    if "atlassian.net" in run_git(["remote", "-v"], project_dir):
+    remotes = run_git(["remote", "-v"], project_dir)
+    if "atlassian.net" in remotes:
         signals.append("remote")
+    # The site URL, when the remotes name one. This is the only place a Jira
+    # base_url can be derived WITHOUT asking, and null is the normal case
+    # (this repo has no atlassian.net remote). cairn-jira.py apply reads it;
+    # keeping the derivation here is what keeps git reading in one script.
+    site_match = ATLASSIAN_SITE.search(remotes)
     mcp = detect_mcp_atlassian(project_dir)
     if mcp["declared"]:
         signals.append("mcp")
@@ -704,6 +711,7 @@ def detect_jira(project_dir, planning_dir):
             "prefixes": prefixes,
             "signals": signals,
             "mcp": mcp,
+            "site": site_match.group(0) if site_match else None,
             "samples": {p: samples[p] for p in prefixes}}
 
 

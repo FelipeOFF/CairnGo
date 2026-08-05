@@ -125,10 +125,17 @@ Keys, and what reads each one:
     |                         |                     |   --cycle K             |
     | autonomous.max_parallel | int >=1, 3          | cairn-parallel.py batch |
     | bookkeep.auto_commit    | bool, false         | cairn-bookkeep.py       |
+    | jira.link               | unset|yes|no,       | cairn-jira.py detect    |
+    |                         |   "unset"           |                         |
     | ship.pr_scope           | phase|milestone|    | cairn-bookkeep.py       |
     |                         |   none, "phase"     |                         |
     | test.jobs               | int >=1 or null     | cairn-test.py           |
     |                         |   (= available CPUs)|                         |
+
+`jira.link` is the record of an ANSWER, not a preference — which is why it
+lives here rather than in `sync.json`. One fact, one owner: `sync.json` says
+HOW to sync, this key says WHETHER we already asked. Storing the same thing in
+both is where the next disagreement starts.
 
 Config cairn keeps ELSEWHERE, listed by `list` and written by nobody here:
 
@@ -196,6 +203,16 @@ SCHEMA = {
         "reader": "cairn-test.py",
         "effect": "the -j the composed test command runs with (null = as "
                   "many as there are CPUs)",
+    },
+    "jira.link": {
+        "type": "enum",
+        "choices": ["unset", "yes", "no"],
+        "default": "unset",
+        "reader": "cairn-jira.py detect",
+        "effect": "whether this repo's bd issues mirror to Jira — and, just "
+                  "as importantly, whether the question was already asked: "
+                  "`unset` means never asked, and BOTH answers stop it being "
+                  "asked again",
     },
 }
 

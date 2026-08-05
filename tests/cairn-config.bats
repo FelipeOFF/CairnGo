@@ -164,17 +164,24 @@ make_config_fixture() {
 # the remaining types.
 #-----------------------------------------------------------------------------
 
-@test "list names EXACTLY the five keys of the schema — and sync_push is not one of them" {
+@test "list names EXACTLY the six keys of the schema — and sync_push is not one of them" {
   make_config_fixture
 
   run bash "$CONFIG" list --project-dir "$ROOT" --json
   [ "$status" -eq 0 ]
-  # An assertion on the SET, not on prose: a sixth key with no reader turns
+  # An assertion on the SET, not on prose: a seventh key with no reader turns
   # this red, and so does the sync_push button, whose absence is a grooming
   # decision rather than an oversight (post-bd-write.sh:126-152 decides the
   # push by the existence of sync.json, and the flag is read by nothing).
+  #
+  # Documented override (plan 29-04): this literal said "five keys" and named
+  # five until `jira.link` landed, and the test's title said five too. The
+  # sixth key arrives WITH its reader in the same cycle — cairn-jira.py, which
+  # writes the answer through `set` and reads it through `get` — which is the
+  # entry rule being satisfied, not bent. The literal moved; the intention (a
+  # key cannot slip in unnoticed) did not.
   assert_json_eq "$output" '[.keys[].key] | sort | join(",")' \
-    'autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,ship.pr_scope,test.jobs'
+    'autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,jira.link,ship.pr_scope,test.jobs'
   assert_json_eq "$output" '[.keys[] | select(.key | test("sync_push"))] | length' '0'
 
   # Every key names the executable that reads it. An empty reader is the
