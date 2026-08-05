@@ -33,7 +33,7 @@ o que está respondendo não conta como pronta.
 ### Linguagem escolhida na instalação (LANG)
 
 - [ ] **LANG-01**: `/cairn:init` pergunta a linguagem de resposta e grava a escolha na config local, com inglês como default
-- [ ] **LANG-02**: A escolha alcança todo subagente spawnado pelo lifecycle, provado por teste que lê o valor no ponto de entrega, não na config
+- [ ] **LANG-02**: A escolha alcança todo subagente spawnado pelo lifecycle **do cairn**, provado por teste que lê o valor **na saída do processo**, nunca na config. O repasse dentro dos workflows do GSD é dependência externa e está fora deste escopo: o GSD já o manda, em `references/execute-phase-response-language.md:3` — *"Pass `response_language: {value}` into every spawned subagent prompt"* — e o que faltava no v1.4 era a chave existir, que é o LANG-01
 
 ### Os wrappers `/cairn:*` (WRAP)
 
