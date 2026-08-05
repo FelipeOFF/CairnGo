@@ -210,6 +210,109 @@ PYEOF
 }
 
 #-----------------------------------------------------------------------------
+# Plan 24-01 / LANG-02 — the response language AT THE DELIVERY POINT.
+#
+# Why these four tests read `prepare`'s payload and not a config file: the
+# defect they exist to close happened with the key ALREADY SET. In the v1.4
+# cycle every subagent this loop spawned answered in English against an
+# all-Portuguese plan while `.planning/config.json:69` said `pt-BR` — so a
+# test asserting "the key is in the file" would have been GREEN on the day it
+# broke. What the prompt assembler actually reads is this payload
+# (cairn/commands/autonomous.md step 2 lists its fields, and the five items of
+# the SUBAGENT-PROMPT block come out of them), so the value is read from here.
+#
+# What is NOT proven here, said plainly rather than left implicit: that the
+# model pastes the value into the Task tool's prompt. bats cannot spawn the
+# Task tool — the same boundary cairn/commands/reconcile.md:29-31 already
+# records for its own gate. The other half of the proof is a region assertion
+# over the delimited prompt block, in tests/cairn-parallel-autonomous.bats.
+#-----------------------------------------------------------------------------
+
+@test "prepare reports the response language from .cairn/config.json when GSD's config does not carry one" {
+  require_bd
+  make_parallel_fixture
+  # The fixture has .planning/ but no config.json — which is exactly the shape
+  # a repo has right after /cairn:init asks and before /gsd:new-project has
+  # written GSD's own config.
+  [ ! -e "$MAIN_ROOT/.planning/config.json" ]
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set agents.response_language \
+    Portuguese --project-dir "$MAIN_ROOT"
+
+  run bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  # Breaks if the key governs nowhere — that is, if it is a declared setting
+  # read by nothing, the exact defect cairn-config.py's entry rule exists for.
+  assert_json_eq "$output" '.response_language' 'Portuguese'
+  assert_json_eq "$output" '.response_language_source' 'file'
+
+  # The operator reads the human render before spawning anything, so the
+  # language has to be visible there too, not only in --json.
+  git -C "$MAIN_ROOT" worktree remove --force "$MAIN_ROOT-phase-2"
+  git -C "$MAIN_ROOT" branch -D phase/2-api
+  run bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "response language: Portuguese" <<<"$output"
+}
+
+@test "prepare reports GSD's response_language when it is set, and names it as the source" {
+  require_bd
+  make_parallel_fixture
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set agents.response_language \
+    Portuguese --project-dir "$MAIN_ROOT"
+  printf '{\n  "response_language": "Japanese"\n}\n' \
+    > "$MAIN_ROOT/.planning/config.json"
+
+  run bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  # Breaks on inverted precedence: cairn's subagents answering Portuguese
+  # while GSD's ~30 workflows answer Japanese in the same run.
+  assert_json_eq "$output" '.response_language' 'Japanese'
+  assert_json_eq "$output" '.response_language_source' 'planning'
+}
+
+@test "prepare reports English by default when neither config carries a language" {
+  require_bd
+  make_parallel_fixture
+  [ ! -e "$MAIN_ROOT/.cairn/config.json" ]
+  [ ! -e "$MAIN_ROOT/.planning/config.json" ]
+
+  run bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  # Breaks if the default stops reaching the delivery point — the payload
+  # would carry null and the prompt would have nothing to copy.
+  assert_json_eq "$output" '.response_language' 'English'
+  assert_json_eq "$output" '.response_language_source' 'default'
+}
+
+@test "a cairn-config that cannot answer degrades to a visible null, and prepare still exits 0" {
+  require_bd
+  make_parallel_fixture
+  local stub="$BATS_TEST_TMPDIR/config-stub.py"
+  cat > "$stub" <<'PYEOF'
+import sys
+sys.exit(3)
+PYEOF
+
+  run env CAIRN_CONFIG="$stub" \
+    bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT" --json
+  # Exit zero is the assertion: a broken config file is not a reason to refuse
+  # to prepare a worktree.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.response_language' 'null'
+  assert_json_eq "$output" '.response_language_source' 'unavailable'
+
+  # And it degrades to null rather than to a guessed "English": a guessed
+  # language would be indistinguishable from a configured one at the exact
+  # point where the difference matters.
+  git -C "$MAIN_ROOT" worktree remove --force "$MAIN_ROOT-phase-2"
+  git -C "$MAIN_ROOT" branch -D phase/2-api
+  run env CAIRN_CONFIG="$stub" \
+    bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "response language: unavailable" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
 # Task 2: batch — a CONSUMER of cairn-status.py's parallelism block, and the
 # bridge to prepare.
 #-----------------------------------------------------------------------------

@@ -151,6 +151,84 @@ prompt_block() {
 }
 
 #-----------------------------------------------------------------------------
+# LANG-02 (plan 24-01) — the response language has to be IN the prompt, for
+# the same reason the three forbidden files do: the prompt is the mechanism.
+#
+# The measured defect: in the v1.4 cycle every subagent this step spawned
+# answered in English against an all-Portuguese plan, WITH
+# `.planning/config.json:response_language` already set to `pt-BR`. The value
+# existed; the hand-over did not. GSD's own standard directive says it out
+# loud in ~30 workflows — "subagent prompts stay in English" — and exactly one
+# file (references/execute-phase-response-language.md) says the opposite. So
+# the hand-over is not something to assume; it is something to write here and
+# assert on.
+#
+# The machine half of this proof — the value coming out of `prepare --json` —
+# lives in tests/cairn-parallel.bats. Neither half claims the model actually
+# pasted it: bats cannot spawn the Task tool (the same boundary
+# cairn/commands/reconcile.md:29-31 records for its own gate).
+#-----------------------------------------------------------------------------
+
+@test "command: the subagent prompt block names the response language and where the value comes from" {
+  # Breaks if the item drifts out of the delimited block into loose prose
+  # elsewhere in the file — which phase 18-04 established as not being proof.
+  run bash -c "sed -n '/SUBAGENT-PROMPT-BEGIN/,/SUBAGENT-PROMPT-END/p' '$COMMAND_FILE' | grep -cF -- 'response_language'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+
+  # Breaks if somebody replaces it with "answer in the project's language",
+  # which is the remembered instruction that already failed once.
+  run bash -c "sed -n '/SUBAGENT-PROMPT-BEGIN/,/SUBAGENT-PROMPT-END/p' '$COMMAND_FILE' | grep -cF -- 'copied literally'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+
+  # And the boundary: translating a path or an id would break the very
+  # reconciliation the report feeds.
+  run bash -c "sed -n '/SUBAGENT-PROMPT-BEGIN/,/SUBAGENT-PROMPT-END/p' '$COMMAND_FILE' | grep -cF -- 'file paths, commands and bd ids stay'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+}
+
+@test "command: the count the prompt block declares matches the number of items it actually carries" {
+  local declared items
+  # "carries all six of these" — the word, not a digit, which is how the file
+  # writes it.
+  run bash -c "sed -n '/SUBAGENT-PROMPT-BEGIN/,/SUBAGENT-PROMPT-END/p' '$COMMAND_FILE' | grep -cF -- 'carries all six of these'"
+  [ "$status" -eq 0 ]
+  declared="$output"
+  [ "$declared" -eq 1 ]
+
+  # Every item is a top-level bullet opening with a bold label.
+  run bash -c "sed -n '/SUBAGENT-PROMPT-BEGIN/,/SUBAGENT-PROMPT-END/p' '$COMMAND_FILE' | grep -c '^- \*\*'"
+  [ "$status" -eq 0 ]
+  items="$output"
+  # Breaks when a seventh item lands and the sentence still says six — the
+  # kind of quiet disagreement between a count and its list that this project
+  # treats as a defect rather than a typo.
+  [ "$items" -eq 6 ]
+}
+
+@test "command: step 2 names response_language among the fields prepare prints" {
+  # The assembler can only copy a field it has been told exists.
+  run bash -c "grep -cF -- '\`planning_files_forbidden\` and' '$COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+
+  local l_prepare l_lang
+  l_prepare="$(anchor_line "$COMMAND_FILE" 'parallel.sh" prepare "$N"')"
+  l_lang="$(anchor_line "$COMMAND_FILE" '`response_language`.')"
+  [ -n "$l_prepare" ]
+  [ -n "$l_lang" ]
+  [ "$l_prepare" -lt "$l_lang" ]
+}
+
+@test "doc: the documentation page also says the subagent is handed its response language" {
+  run bash -c "grep -cF -- 'response_language' '$DOC_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+}
+
+#-----------------------------------------------------------------------------
 # T-18-16 — no merge strategy that picks a winner in silence, in EITHER file.
 # Eight checks rather than two loops over a joined blob, so the failure names
 # the chain and the file.

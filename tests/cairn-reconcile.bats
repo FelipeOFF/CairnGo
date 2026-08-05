@@ -226,6 +226,36 @@ make_phase1_conflict() {
   assert_json_eq "$output" '.git_log | type' 'array'
 }
 
+@test "collect: the bundle carries EXACTLY these keys — nothing that is not evidence gets into the hash" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_corroboration_fixture
+  make_phase1_conflict
+
+  run bash "$RECONCILE" collect 1 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+
+  # An assertion on the SET, added by plan 24-03 for a specific reason. The
+  # response language the reconcile-investigator answers in is passed to it by
+  # /cairn:reconcile step 3, read from cairn-config — deliberately NOT from
+  # here. `evidence_hash` is computed over this dict (cairn-reconcile.py:
+  # 525-531) and step 2 compares it to decide whether a prior proposal can be
+  # reused; a language field in the bundle would invalidate every cached
+  # proposal on every change of language, spending a subagent over something
+  # that changed no evidence at all.
+  #
+  # So this goes red both ways, which is the point: a new field added to the
+  # bundle turns it red, and so does a field silently removed from it.
+  assert_json_eq "$output" '[keys[]] | sort | join(",")' \
+    'context_excerpt,corroboration,evidence_hash,generated_at,git_log,git_shallow,journal,phase,roadmap_excerpt'
+
+  # The two that are added AFTER the hash is taken, named so the boundary of
+  # what the hash covers stays visible in a test rather than only in a comment.
+  assert_json_eq "$output" '.evidence_hash | startswith("sha256:")' 'true'
+  assert_json_eq "$output" '.generated_at | type' 'string'
+}
+
 #-----------------------------------------------------------------------------
 # Task 2 — verify: a fully-correct proposal is valid; a proposal with one
 # bad citation is rejected wholesale (D-03).

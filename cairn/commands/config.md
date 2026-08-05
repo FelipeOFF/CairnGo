@@ -58,6 +58,24 @@ first question of each group):
   with. Leave it unset and it uses as many jobs as there are CPUs.
   Options: *As many as there are CPUs* (`null`) · *2* · *4* · *8*.
 
+### Language
+- **Response language** (`agents.response_language`) — the language every
+  subagent the cairn lifecycle spawns writes its user-facing output in: its
+  report back, the SUMMARY it produces, the questions it asks. Code,
+  identifiers, file paths and commands are unaffected. Any language name is
+  accepted; the default is English.
+  Options: *English* (the default) · *Portuguese* · *Spanish* · *Other* (ask
+  for the name).
+
+  **Read `source` from step 1 before offering this one.** If it reads
+  `planning`, `.planning/config.json:response_language` already carries a
+  value and **that value governs** — GSD's key outranks this one, because it
+  is read by GSD's own workflows as well as by cairn, and honoring the
+  narrower key would make cairn's subagents answer in one language while
+  GSD's answer in another in the same run. Say so instead of offering a
+  choice that will not take effect, and point at `/gsd:config` for changing
+  it.
+
 Describe each option by its **effect**, in one line, rather than by the key
 name alone. Never invent a fourth option for a key whose type is an enum: the
 script refuses anything outside `phase|milestone|none` with exit 3.
@@ -89,7 +107,12 @@ Tell the user, in one line each:
   step 1 rather than typing the list from memory: `.cairn/sync.json`
   (`/cairn:sync-config`), `.cairn/context.json` (`/cairn:context-config`), and
   `cairn.enabled` inside `.planning/config.json`, the capability's activation
-  switch, which stays with GSD's config and is read by `cairn-loop-gate.py`.
+  switch, which stays with GSD's config and is read by `cairn-loop-gate.py`;
+- and, if the language was among the answers: setting it here also wrote
+  `.planning/config.json:response_language`, when that file exists — one
+  answer reaching both the cairn side and the GSD side, rather than two
+  places to keep in agreement by hand. The `set` output says whether the
+  propagation happened and why not, when it did not.
 
 ## What is deliberately NOT here: the sync push
 

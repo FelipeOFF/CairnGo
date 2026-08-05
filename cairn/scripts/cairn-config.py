@@ -110,6 +110,14 @@ Behavior:
           COMMITTED, like `sync.json` and `context.json`, so its diffs are
           read by people.
 
+          A key whose spec names a `planning_key` is ALSO written into GSD's
+          `.planning/config.json`, and only when that file already exists —
+          never creating it (M-1/M-2/M-3 below). `--json` reports
+          `propagated` and `propagation_reason`; the human render says the
+          same in one line, because a silent mechanism is indistinguishable
+          from an absent one. An unreadable GSD config is left untouched and
+          named, rather than overwritten.
+
 Exit codes:
     0  ok
     2  usage error: bad flags, or a key that is not in the schema (the message
@@ -119,23 +127,72 @@ Exit codes:
 
 Keys, and what reads each one:
 
-    | key                     | type/default        | reader                  |
-    |-------------------------|---------------------|-------------------------|
-    | autonomous.max_cycles   | int >=0, 0 = no cap | cairn-parallel.py batch |
-    |                         |                     |   --cycle K             |
-    | autonomous.max_parallel | int >=1, 3          | cairn-parallel.py batch |
-    | bookkeep.auto_commit    | bool, false         | cairn-bookkeep.py       |
-    | jira.link               | unset|yes|no,       | cairn-jira.py detect    |
-    |                         |   "unset"           |                         |
-    | ship.pr_scope           | phase|milestone|    | cairn-bookkeep.py       |
-    |                         |   none, "phase"     |                         |
-    | test.jobs               | int >=1 or null     | cairn-test.py           |
-    |                         |   (= available CPUs)|                         |
+    | key                      | type/default        | reader                  |
+    |--------------------------|---------------------|-------------------------|
+    | agents.response_language | str, "English"      | cairn-parallel.py       |
+    |                          |                     |   prepare               |
+    | autonomous.max_cycles    | int >=0, 0 = no cap | cairn-parallel.py batch |
+    |                          |                     |   --cycle K             |
+    | autonomous.max_parallel  | int >=1, 3          | cairn-parallel.py batch |
+    | bookkeep.auto_commit     | bool, false         | cairn-bookkeep.py       |
+    | jira.link                | unset|yes|no,       | cairn-jira.py detect    |
+    |                          |   "unset"           |                         |
+    | ship.pr_scope            | phase|milestone|    | cairn-bookkeep.py       |
+    |                          |   none, "phase"     |                         |
+    | test.jobs                | int >=1 or null     | cairn-test.py           |
+    |                          |   (= available CPUs)|                         |
 
 `jira.link` is the record of an ANSWER, not a preference — which is why it
 lives here rather than in `sync.json`. One fact, one owner: `sync.json` says
 HOW to sync, this key says WHETHER we already asked. Storing the same thing in
 both is where the next disagreement starts.
+
+THE ONE KEY THAT IS NOT ONLY OURS: `agents.response_language`
+-------------------------------------------------------------
+GSD already carries `response_language` as a top-level key of
+`.planning/config.json`, read by ~30 of its workflows. Two keys naming one
+fact is exactly the disagreement the paragraph above refuses, so this one is
+SUBORDINATE rather than parallel, and the subordination is a mechanism rather
+than a convention: the spec carries `planning_key`, and `effective()` reads
+GSD's key FIRST. Precedence, and `source` says which of the three won:
+
+    .planning/config.json : response_language        -> source "planning"
+    .cairn/config.json    : agents.response_language -> source "file"
+    "English"                                        -> source "default"
+
+GSD's key wins because it governs ~30 GSD workflows AND this one; honoring the
+narrower key when they disagree would make cairn's subagents answer in one
+language and GSD's in another IN THE SAME RUN — the divergence, not the fix.
+
+So why does the cairn key exist at all, when GSD already has one? Because at
+the moment `/cairn:init` ASKS, GSD's file does not exist and cannot be created.
+Three measurements, all made in phase 24:
+
+  M-1  `gsd-tools query config-set response_language X` CREATES `.planning/`
+       when it is absent (exit 0, directory appears holding only config.json).
+  M-2  a `.planning/` holding only `config.json` makes `cairn-migrate.py`
+       `classify()` (which decides on `planning.is_dir()`, line 725-728) answer
+       state **A** instead of **D** — and `cairn/commands/init.md:20-22` makes
+       state A STOP the init and divert to `/cairn:migrate`. Writing GSD's key
+       at ask time would reclassify the greenfield repo cairn itself just
+       touched, and the second run of `/cairn:init` would refuse to continue.
+       `cairn/hooks/session-start.sh:53-57` would start printing the migration
+       nudge for the same reason.
+  M-3  `cairn/commands/init.md:153` forbids it in writing: ".planning/ is
+       created by GSD, not by cairn — do NOT create it yourself."
+
+Asking later instead — once `.planning/` exists — was considered and rejected
+with a measured reason: `/gsd:new-project` spawns its OWN subagents
+(researcher, synthesizer, roadmapper), so asking after it is asking after the
+project's first subagents already answered in the wrong language. That is the
+defect this key exists to prevent. "Chosen at install" means before the first
+subagent.
+
+`planning_value()` never raises and never dies on GSD's file: absent,
+unreadable, invalid JSON or a non-object root all read as "not set". That file
+is GSD's, not ours to validate, and a `get` that died over it would take down
+`cairn-parallel.py batch` and `prepare`, which shell out to this script on
+every run.
 
 Config cairn keeps ELSEWHERE, listed by `list` and written by nobody here:
 
@@ -160,12 +217,28 @@ EXIT_USAGE = 2
 EXIT_VALUE = 3
 
 CONFIG_RELPATH = ".cairn/config.json"
+# GSD's own config. READ ONLY from here (the precedence rule of
+# `agents.response_language`); this script never creates it — see M-1/M-2/M-3
+# in the module docstring.
+PLANNING_CONFIG_RELPATH = ".planning/config.json"
 
 # The closed schema. `reader` is not documentation: it is the entry rule made
 # checkable — a key lands here only when an executable that reads it exists or
 # lands in the same cycle, and tests/cairn-config.bats asserts the exact key
 # SET, so a sixth key cannot slip in unnoticed.
 SCHEMA = {
+    "agents.response_language": {
+        "type": "str",
+        "default": "English",
+        "max_len": 40,
+        # Not documentation: the name of GSD's key, which OUTRANKS this one
+        # whenever it is set. See the docstring section on subordination.
+        "planning_key": "response_language",
+        "reader": "cairn-parallel.py prepare",
+        "effect": "the language every subagent the cairn lifecycle spawns "
+                  "writes its user-facing output in — reports, SUMMARYs, "
+                  "questions; code, paths and commands are unaffected",
+    },
     "autonomous.max_cycles": {
         "type": "int",
         "default": 0,
@@ -296,6 +369,31 @@ def load_file(root):
     return data
 
 
+def planning_config_path(root):
+    return Path(root) / PLANNING_CONFIG_RELPATH
+
+
+def planning_value(root, key):
+    """(value, found) for a top-level key of GSD's .planning/config.json.
+
+    NEVER raises and NEVER dies. Absent file, unreadable file, invalid JSON,
+    a non-object root and a missing key all read the same way: not set. That
+    file belongs to GSD, and a read of ours that died over it would take down
+    every caller that shells out to this script — `cairn-parallel.py batch`
+    does so on every run.
+    """
+    path = planning_config_path(root)
+    if not path.is_file():
+        return None, False
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None, False
+    if not isinstance(data, dict) or key not in data:
+        return None, False
+    return data[key], True
+
+
 def write_file(root, data):
     path = config_path(root)
     try:
@@ -347,6 +445,23 @@ def valid_int(spec, value):
     return low is None or value >= low
 
 
+def valid_str(spec, value):
+    """A one-line, non-empty, bounded string.
+
+    The bounds are not fussiness: this value is pasted into a subagent prompt,
+    so a newline could end the surrounding instruction and start a new one,
+    and an unbounded string could carry a paragraph where a language name
+    belongs. An empty string is rejected because "" is not English — it is a
+    key that says nothing while looking answered.
+    """
+    if not isinstance(value, str):
+        return False
+    if "\n" in value or "\r" in value:
+        return False
+    text = value.strip()
+    return bool(text) and len(text) <= spec.get("max_len", 40)
+
+
 def valid_value(spec, value):
     """Is this already-typed value acceptable for the key? Used on READ, to
     decide whether a hand-edited file value is usable."""
@@ -359,6 +474,8 @@ def valid_value(spec, value):
         return isinstance(value, bool)
     if kind == "enum":
         return value in spec["choices"]
+    if kind == "str":
+        return valid_str(spec, value)
     return False
 
 
@@ -398,21 +515,39 @@ def coerce_value(key, spec, raw):
         die(f"{key} takes one of: {', '.join(spec['choices'])} — got {raw!r}",
             EXIT_VALUE)
 
+    if kind == "str":
+        if valid_str(spec, text):
+            return text
+        limit = spec.get("max_len", 40)
+        die(f"{key} takes a non-empty single-line string of at most {limit} "
+            f"characters, got {raw!r}", EXIT_VALUE)
+
     # Defensive: a schema entry whose type this function does not handle is a
     # bug in the schema, not in the user's input.
     die(f"unhandled type {kind!r} for key {key}", EXIT_USAGE)
 
 
-def effective(data, key):
-    """(value, source): the file's value when present AND valid for the key's
-    type, otherwise the schema default.
+def effective(data, key, root):
+    """(value, source): `planning` -> `file` -> `default`, first one that
+    holds a value valid for the key's type.
 
-    A file value of the wrong type does not fail a read. Reading has to keep
-    working for every caller (`batch` shells out to this on every run), so a
-    bad value degrades to the default and `source` says `default` — the
-    divergence is visible without being fatal.
+    `planning` only ever applies to a key whose spec names a `planning_key`,
+    and it comes FIRST because GSD's `.planning/config.json` governs ~30 GSD
+    workflows as well as this one — see the docstring's subordination section.
+    A key without `planning_key` skips that step entirely and behaves exactly
+    as it did before this step existed.
+
+    A file value of the wrong type does not fail a read, on EITHER side.
+    Reading has to keep working for every caller (`batch` shells out to this
+    on every run), so a bad value degrades to the next source and `source`
+    says which one won — the divergence is visible without being fatal.
     """
     spec = SCHEMA[key]
+    planning_key = spec.get("planning_key")
+    if planning_key:
+        value, found = planning_value(root, planning_key)
+        if found and valid_value(spec, value):
+            return value, "planning"
     value, found = dotted_get(data, key)
     if found and valid_value(spec, value):
         return value, "file"
@@ -437,12 +572,14 @@ def cmd_list(args, root):
     keys = []
     for key in sorted(SCHEMA):
         spec = SCHEMA[key]
-        value, source = effective(data, key)
+        value, source = effective(data, key, root)
         entry = {"key": key, "type": spec["type"], "value": value,
                  "default": spec["default"], "source": source,
                  "reader": spec["reader"], "effect": spec["effect"]}
         if "choices" in spec:
             entry["choices"] = spec["choices"]
+        if "planning_key" in spec:
+            entry["planning_key"] = spec["planning_key"]
         keys.append(entry)
 
     payload = {"path": str(config_path(root)), "keys": keys,
@@ -455,8 +592,14 @@ def cmd_list(args, root):
           f"/cairn:config; both reach the same file")
     width = max(len(k["key"]) for k in keys)
     for k in keys:
-        origin = ("default" if k["source"] == "default"
-                  else f"file, default {scalar_text(k['default'])}")
+        if k["source"] == "default":
+            origin = "default"
+        elif k["source"] == "planning":
+            origin = (f"{PLANNING_CONFIG_RELPATH}:{k['planning_key']}, which "
+                      f"outranks this file, default "
+                      f"{scalar_text(k['default'])}")
+        else:
+            origin = f"file, default {scalar_text(k['default'])}"
         print(f"[cairn-config]   {k['key']:<{width}} = "
               f"{scalar_text(k['value'])}  ({origin}) — read by "
               f"{k['reader']}")
@@ -473,14 +616,56 @@ def cmd_list(args, root):
 
 def cmd_get(args, root):
     spec = spec_for(args.key)
-    value, source = effective(load_file(root), args.key)
+    value, source = effective(load_file(root), args.key, root)
     if args.json:
-        print(json.dumps({"key": args.key, "value": value, "source": source,
-                          "default": spec["default"],
-                          "reader": spec["reader"]}))
+        payload = {"key": args.key, "value": value, "source": source,
+                   "default": spec["default"], "reader": spec["reader"]}
+        if "planning_key" in spec:
+            payload["planning_key"] = spec["planning_key"]
+        print(json.dumps(payload))
     else:
         print(scalar_text(value))
     sys.exit(EXIT_OK)
+
+
+def propagate_to_planning(root, planning_key, value):
+    """Write `value` into GSD's .planning/config.json, but ONLY if that file
+    already exists. Returns (propagated, reason).
+
+    The condition is the whole point, and it is three measurements rather than
+    caution (see the module docstring): creating `.planning/` here would
+    reclassify a greenfield repo from state D to state A for
+    `cairn-migrate.py`, and `cairn/commands/init.md:20-22` makes state A stop
+    the init and divert to `/cairn:migrate`. cairn writing that directory is
+    also forbidden in writing at `init.md:153`.
+
+    An unreadable file is left ALONE rather than overwritten. Rewriting a file
+    we could not parse would destroy whatever was in it, which is the same
+    reason /cairn:config refuses to continue when `list` exits 3.
+
+    MEASURED, on this repository's own 2096-byte `.planning/config.json`:
+    `json.loads` -> `json.dumps(data, indent=2) + "\\n"`, WITHOUT `sort_keys`,
+    round-trips byte for byte. So key order is preserved and the diff of a
+    propagation is exactly the line of the key — which matters because this
+    file is committed and its diffs are read by people. `sort_keys` is
+    deliberately absent here even though write_file() uses it for our own
+    file: ours we own and sort; this one we visit.
+    """
+    path = planning_config_path(root)
+    if not path.is_file():
+        return False, "planning-config-absent"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False, "planning-config-unreadable"
+    if not isinstance(data, dict):
+        return False, "planning-config-unreadable"
+    data[planning_key] = value
+    try:
+        path.write_text(json.dumps(data, indent=2) + "\n")
+    except OSError:
+        return False, "planning-config-unwritable"
+    return True, "propagated"
 
 
 def cmd_set(args, root):
@@ -489,12 +674,34 @@ def cmd_set(args, root):
     data = load_file(root)
     dotted_set(data, args.key, value)
     path = write_file(root, data)
+
+    # A key that GSD also owns is propagated to GSD's file, mechanically. The
+    # defect this closes was "the prose said to hand the value over and nobody
+    # did"; closing it with one more sentence of prose would repeat the cause.
+    planning_key = spec.get("planning_key")
+    if planning_key:
+        propagated, reason = propagate_to_planning(root, planning_key, value)
+    else:
+        propagated, reason = False, "key-is-cairn-only"
+
     if args.json:
-        print(json.dumps({"key": args.key, "value": value, "source": "file",
-                          "path": str(path), "reader": spec["reader"]}))
+        payload = {"key": args.key, "value": value, "source": "file",
+                   "path": str(path), "reader": spec["reader"],
+                   "propagated": propagated, "propagation_reason": reason}
+        if planning_key:
+            payload["planning_key"] = planning_key
+        print(json.dumps(payload))
     else:
         print(f"[cairn-config] {args.key} = {scalar_text(value)} "
               f"({path}) — read by {spec['reader']}")
+        if propagated:
+            print(f"[cairn-config] also written to "
+                  f"{planning_config_path(root)}:{planning_key}, which GSD's "
+                  f"own workflows read")
+        elif planning_key:
+            print(f"[cairn-config] not propagated to "
+                  f"{PLANNING_CONFIG_RELPATH}:{planning_key} ({reason}) — "
+                  f"re-run this exact command once that file exists")
     sys.exit(EXIT_OK)
 
 

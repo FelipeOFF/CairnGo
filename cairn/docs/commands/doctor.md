@@ -347,8 +347,28 @@ this routine health-check flow — see its own section below.
      so degrading there would leave the doctor exiting `0` over a ledger
      nobody managed to read.
 
+   - **response-language** (⚠) — the language chosen at install and the
+     language GSD hands to its subagents have stopped agreeing.
+     `/cairn:init` records the answer in
+     `.cairn/config.json:agents.response_language` — it has to, because when
+     it asks, `.planning/` does not exist yet and cairn is forbidden from
+     creating it — and `cairn-config.sh set` propagates that answer into
+     `.planning/config.json:response_language`, the key GSD's own workflows
+     read, the moment that file exists. Two states are worth a line: the
+     answer was recorded and **never propagated** (the post-hand-off re-run
+     was skipped), or the two files carry **different** values. Both report
+     the exact `set` command that closes it, and the second one also names
+     which value governs — GSD's, because it is read by GSD's workflows as
+     well as by cairn.
+
+     Never a failure. A divergence breaks nothing mechanically; it makes
+     half the subagents of a run answer in one language and half in another,
+     which is exactly what went unnoticed for a whole milestone and exactly
+     why it belongs in a health report rather than in an exit code. The
+     doctor reports it and writes neither file.
+
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — eighteen checks in total.)
+   upgrading bd — nineteen checks in total.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments

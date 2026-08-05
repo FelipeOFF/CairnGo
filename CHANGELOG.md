@@ -5,6 +5,46 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The response language is chosen at installation, and it reaches the
+  subagents mechanically.** `/cairn:init` now asks once, before it hands off to
+  `/gsd:new-project` — the position matters, because that command spawns its own
+  subagents, so a question asked after it is a question asked too late. English
+  is the default, pre-selected and named as such rather than arriving as the
+  silence of an absent key. Re-running the init on a project that already has an
+  answer asks nothing and writes nothing.
+
+  The answer is recorded in `.cairn/config.json` as `agents.response_language`
+  and propagated into `.planning/config.json:response_language` — the key GSD's
+  own workflows read — as soon as that file exists. It is never propagated by
+  creating that file: measured, writing GSD's key into an absent `.planning/`
+  creates the directory, and a `.planning/` holding only `config.json` makes
+  `/cairn:init`'s own state detection answer "existing project" instead of
+  "greenfield", which would stop the next run of the command. When the two
+  files carry a value, GSD's governs, and `cairn-config.sh get` reports which
+  of the two answered.
+
+  `cairn-parallel.sh prepare --json` now carries `response_language` and its
+  source, and the subagent prompt of `/cairn:autonomous` copies the value from
+  there rather than remembering it. `/cairn:reconcile` hands the same value to
+  its investigator, while forbidding any translation of a quoted line — a
+  translated citation is not a citation. `/cairn:doctor` gained a
+  `response-language` check that warns when the two files disagree, or when the
+  install answer never reached GSD's key, and names the exact command that
+  closes it.
+
+  Why this was worth a phase: in the 1.4 cycle every subagent the loop spawned
+  answered in English against an all-Portuguese plan — **with the key already
+  set correctly**. The value existed; the hand-over to the prompt did not.
+
+  What is **not** proven: that the model pastes the value into the prompt it
+  builds. The tests read the value out of `prepare`'s own output and assert that
+  the delimited prompt block instructs copying it from there; no test in this
+  project can spawn a live subagent, and none of them claims to.
+
 ## [1.5.0] - 2026-08-01
 
 cairn stops inferring that a phase is done and starts reporting what each of its

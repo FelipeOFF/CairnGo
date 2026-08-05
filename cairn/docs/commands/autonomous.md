@@ -44,8 +44,10 @@ loop, so every phase also passes through the full bd bookkeeping — claim →
    live holder leaves the batch and the run continues). *Execute* one subagent
    per phase concurrently — each handed its worktree path and branch from
    `prepare`'s own output, told to run `/cairn:work N` and `/cairn:verify N`
-   there, forbidden to touch the three planning files, and told to commit on
-   its branch without merging or pushing. *Reconcile, merge, mark, clean up*
+   there, forbidden to touch the three planning files, told to commit on
+   its branch without merging or pushing, and told which
+   `response_language` to write its user-facing output in — also copied from
+   `prepare`'s output rather than remembered. *Reconcile, merge, mark, clean up*
    in the main checkout: `cairn-parallel.sh reconcile --json` first (exit 6
    stops; `planning_writes` is shown even at exit 0), then one plain
    `git merge --no-ff` per branch, then one `cairn-bookkeep.sh close <N>

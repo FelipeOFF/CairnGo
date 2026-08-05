@@ -164,12 +164,12 @@ make_config_fixture() {
 # the remaining types.
 #-----------------------------------------------------------------------------
 
-@test "list names EXACTLY the six keys of the schema — and sync_push is not one of them" {
+@test "list names EXACTLY the seven keys of the schema — and sync_push is not one of them" {
   make_config_fixture
 
   run bash "$CONFIG" list --project-dir "$ROOT" --json
   [ "$status" -eq 0 ]
-  # An assertion on the SET, not on prose: a seventh key with no reader turns
+  # An assertion on the SET, not on prose: an eighth key with no reader turns
   # this red, and so does the sync_push button, whose absence is a grooming
   # decision rather than an oversight (post-bd-write.sh:126-152 decides the
   # push by the existence of sync.json, and the flag is read by nothing).
@@ -180,8 +180,18 @@ make_config_fixture() {
   # writes the answer through `set` and reads it through `get` — which is the
   # entry rule being satisfied, not bent. The literal moved; the intention (a
   # key cannot slip in unnoticed) did not.
+  #
+  # Documented override (plan 24-01): six -> seven, for
+  # `agents.response_language`. Same rule, same shape: the reader is named
+  # (`cairn-parallel.py prepare`), it is executable, and it lands in the same
+  # cycle — the payload of `prepare --json` carries the value and
+  # tests/cairn-parallel.bats reads it out of that payload. The reason it is a
+  # cairn key at all, when GSD already has `response_language`, is measured
+  # and written in cairn-config.py's docstring (M-1/M-2/M-3): at the moment
+  # /cairn:init asks, `.planning/` does not exist and cairn is forbidden from
+  # creating it.
   assert_json_eq "$output" '[.keys[].key] | sort | join(",")' \
-    'autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,jira.link,ship.pr_scope,test.jobs'
+    'agents.response_language,autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,jira.link,ship.pr_scope,test.jobs'
   assert_json_eq "$output" '[.keys[] | select(.key | test("sync_push"))] | length' '0'
 
   # Every key names the executable that reads it. An empty reader is the
@@ -193,6 +203,321 @@ make_config_fixture() {
     'cairn-bookkeep.py'
   assert_json_eq "$output" '[.keys[] | select(.key == "test.jobs") | .reader][0]' \
     'cairn-test.py'
+  assert_json_eq "$output" \
+    '[.keys[] | select(.key == "agents.response_language") | .reader][0]' \
+    'cairn-parallel.py prepare'
+}
+
+#-----------------------------------------------------------------------------
+# Plan 24-01 — `agents.response_language`: the type, and the precedence.
+#
+# What these tests do NOT claim: that a subagent received the value. That
+# proof lives at the delivery point, in tests/cairn-parallel.bats, reading the
+# payload of `prepare --json` — because the defect this phase exists to close
+# happened WITH the key correctly set (.planning/config.json:69 already said
+# pt-BR), so an assertion about config bytes would have been green on the day
+# it broke.
+#-----------------------------------------------------------------------------
+
+@test "the language key defaults to English, and says so explicitly rather than by omission" {
+  make_config_fixture
+
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "English" ]
+
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.value' 'English'
+  # Explicit, not implicit: `source` names where English came from. A key that
+  # was merely absent would answer the same value with no way to tell the two
+  # apart, which is the "silent default wins until somebody notices" the
+  # roadmap card names.
+  assert_json_eq "$output" '.source' 'default'
+  assert_json_eq "$output" '.planning_key' 'response_language'
+}
+
+@test "with only .cairn/config.json — the state a fresh install is actually in — the cairn key governs" {
+  make_config_fixture
+  # No .planning/ at all. This is not a contrived state: /cairn:init asks
+  # BEFORE the /gsd:new-project hand-off, so this is the repo at the moment
+  # the answer is given. If the key did not govern here it would govern
+  # nowhere, which is the "declared and read by nothing" defect.
+  [ ! -e "$ROOT/.planning" ]
+
+  bash "$CONFIG" set agents.response_language Portuguese --project-dir "$ROOT"
+
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.value' 'Portuguese'
+  assert_json_eq "$output" '.source' 'file'
+}
+
+@test "GSD's .planning/config.json outranks the cairn key, and source names the winner" {
+  make_config_fixture
+  bash "$CONFIG" set agents.response_language Portuguese --project-dir "$ROOT"
+  mkdir -p "$ROOT/.planning"
+  printf '{\n  "response_language": "Japanese"\n}\n' \
+    > "$ROOT/.planning/config.json"
+
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  # Breaks if the precedence is inverted — the case where cairn's subagents
+  # answer in one language and GSD's ~30 workflows answer in another IN THE
+  # SAME RUN, which is the divergence, not the fix.
+  assert_json_eq "$output" '.value' 'Japanese'
+  assert_json_eq "$output" '.source' 'planning'
+
+  run bash "$CONFIG" list --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "which outranks this file" <<<"$output"
+}
+
+@test "a corrupt .planning/config.json degrades to the cairn key instead of taking the read down" {
+  make_config_fixture
+  bash "$CONFIG" set agents.response_language Portuguese --project-dir "$ROOT"
+  mkdir -p "$ROOT/.planning"
+  printf 'this is not json at all\n' > "$ROOT/.planning/config.json"
+
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT" --json
+  # Exit zero is the assertion. GSD's file is not ours to validate, and a die
+  # here would take down cairn-parallel.py batch and prepare, both of which
+  # shell out to this script on every run.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.value' 'Portuguese'
+  assert_json_eq "$output" '.source' 'file'
+}
+
+@test "a .planning value of the wrong type falls through instead of winning" {
+  make_config_fixture
+  bash "$CONFIG" set agents.response_language Portuguese --project-dir "$ROOT"
+  mkdir -p "$ROOT/.planning"
+  # null is GSD's own "unset" for this key (config-loader.cjs:755 emits null),
+  # and an empty string is a key that looks answered while saying nothing.
+  printf '{\n  "response_language": null\n}\n' > "$ROOT/.planning/config.json"
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.value' 'Portuguese'
+  assert_json_eq "$output" '.source' 'file'
+
+  printf '{\n  "response_language": ""\n}\n' > "$ROOT/.planning/config.json"
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.value' 'Portuguese'
+  assert_json_eq "$output" '.source' 'file'
+}
+
+@test "an empty, multi-line or over-long language exits 3 and leaves the file exactly as it was" {
+  make_config_fixture
+  bash "$CONFIG" set agents.response_language Portuguese --project-dir "$ROOT"
+  cp "$ROOT/.cairn/config.json" "$BATS_TEST_TMPDIR/before.json"
+
+  local bad
+  for bad in "" "   " "$(printf 'pt\nBR')" "$(python3 -c 'print("x"*41)')"; do
+    run bash "$CONFIG" set agents.response_language "$bad" --project-dir "$ROOT"
+    [ "$status" -eq 3 ]
+  done
+
+  # Validation happens BEFORE the write, so a rejected value is not a write
+  # that got undone — it is a write that never happened.
+  run diff "$BATS_TEST_TMPDIR/before.json" "$ROOT/.cairn/config.json"
+  [ "$status" -eq 0 ]
+
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "Portuguese" ]
+}
+
+#-----------------------------------------------------------------------------
+# Plan 24-02 — the propagation into GSD's own config.
+#
+# Mechanism rather than prose: the defect this phase closes was "the prose
+# said to hand the value over and nobody did", so the hand-over from cairn's
+# key to GSD's is done by `set` itself. Its ONE condition — the GSD file must
+# already exist — is three measurements, not caution:
+#
+#   M-1  `gsd-tools query config-set response_language X` CREATES `.planning/`
+#        when absent (measured: exit 0, directory appears with only
+#        config.json in it).
+#   M-2  a `.planning/` holding only config.json makes cairn-migrate.py
+#        classify() answer state A instead of D — and init.md:20-22 makes
+#        state A STOP the init and divert to /cairn:migrate.
+#   M-3  init.md:153 forbids it in writing.
+#-----------------------------------------------------------------------------
+
+# A .planning/config.json with several keys, in GSD's own 2-space shape and
+# WITHOUT response_language — the state a project is in right after
+# /gsd:new-project has run.
+write_planning_config() {
+  mkdir -p "$ROOT/.planning"
+  cat > "$ROOT/.planning/config.json" <<'JSONEOF'
+{
+  "model_profile": "balanced",
+  "commit_docs": true,
+  "git": {
+    "branching_strategy": "none"
+  },
+  "zzz_last_key": "stays last"
+}
+JSONEOF
+}
+
+@test "set of the language never creates .planning/ when it is absent, and says it did not propagate" {
+  make_config_fixture
+  [ ! -e "$ROOT/.planning" ]
+
+  run bash "$CONFIG" set agents.response_language Portuguese \
+    --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.propagated' 'false'
+  assert_json_eq "$output" '.propagation_reason' 'planning-config-absent'
+
+  # The assertion this test exists for. Creating the directory here would
+  # flip cairn-migrate's state letter from D to A on the very repo cairn just
+  # touched, and the next /cairn:init would refuse to continue (M-1/M-2/M-3).
+  [ ! -e "$ROOT/.planning" ]
+  # And the answer itself was still recorded — the propagation failing is not
+  # the write failing.
+  run bash "$CONFIG" get agents.response_language --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "Portuguese" ]
+}
+
+@test "set of the language writes GSD's key when its file exists, touching only the new key's boundary and reordering nothing" {
+  make_config_fixture
+  write_planning_config
+  cp "$ROOT/.planning/config.json" "$BATS_TEST_TMPDIR/planning-before.json"
+
+  run bash "$CONFIG" set agents.response_language Portuguese \
+    --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.propagated' 'true'
+
+  run jq -r '.response_language' "$ROOT/.planning/config.json"
+  [ "$status" -eq 0 ]
+  [ "$output" = "Portuguese" ]
+
+  # The exact cost of the propagation, measured rather than claimed. Plan
+  # 24-02 said "a diff of exactly one line"; the measurement corrected it and
+  # the correction is written here instead of the sentence quietly changing:
+  # appending a key to a JSON object necessarily puts a comma on the line that
+  # used to be last, so the honest shape is ONE line removed and TWO added,
+  # and both of them concern the boundary of the new key. Nothing else moves.
+  run bash -c "diff '$BATS_TEST_TMPDIR/planning-before.json' '$ROOT/.planning/config.json' | grep -c '^>'"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 2 ]
+  run bash -c "diff '$BATS_TEST_TMPDIR/planning-before.json' '$ROOT/.planning/config.json' | grep -c '^<'"
+  [ "$output" -eq 1 ]
+  run bash -c "diff '$BATS_TEST_TMPDIR/planning-before.json' '$ROOT/.planning/config.json' | grep -F 'zzz_last_key' | grep -c ."
+  [ "$output" -eq 2 ]
+
+  # And the strong half: strip the key we added and the file is the ORIGINAL
+  # again, key for key, value for value, IN ORDER. Breaks on re-serialization
+  # that reorders or reindents a file whose diffs other people read — which is
+  # why sort_keys is deliberately absent from the propagating write even
+  # though our own file uses it.
+  run python3 -c '
+import json, sys
+before = json.load(open(sys.argv[1]))
+after = json.load(open(sys.argv[2]))
+assert "response_language" in after, "the key was not written"
+del after["response_language"]
+assert list(after.items()) == list(before.items()), "other keys moved or changed"
+print("identical")
+' "$BATS_TEST_TMPDIR/planning-before.json" "$ROOT/.planning/config.json"
+  [ "$status" -eq 0 ]
+  [ "$output" = "identical" ]
+
+  # Key order preserved on disk, not just semantically.
+  run jq -r 'keys_unsorted | .[0]' "$ROOT/.planning/config.json"
+  [ "$output" = "model_profile" ]
+  run jq -r 'keys_unsorted | .[3]' "$ROOT/.planning/config.json"
+  [ "$output" = "zzz_last_key" ]
+}
+
+@test "a second set replaces GSD's value instead of duplicating the key" {
+  make_config_fixture
+  write_planning_config
+  bash "$CONFIG" set agents.response_language Portuguese --project-dir "$ROOT"
+  local before
+  before="$(wc -l < "$ROOT/.planning/config.json")"
+
+  run bash "$CONFIG" set agents.response_language Japanese \
+    --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.propagated' 'true'
+
+  run jq -r '.response_language' "$ROOT/.planning/config.json"
+  [ "$output" = "Japanese" ]
+  [ "$(wc -l < "$ROOT/.planning/config.json")" -eq "$before" ]
+  run bash -c "grep -c 'response_language' '$ROOT/.planning/config.json'"
+  [ "$output" -eq 1 ]
+}
+
+@test "an unreadable .planning/config.json is left exactly as it was, and set still exits 0" {
+  make_config_fixture
+  mkdir -p "$ROOT/.planning"
+  printf 'half a file {{{ not json\n' > "$ROOT/.planning/config.json"
+  cp "$ROOT/.planning/config.json" "$BATS_TEST_TMPDIR/corrupt-before"
+
+  run bash "$CONFIG" set agents.response_language Portuguese \
+    --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.propagated' 'false'
+  assert_json_eq "$output" '.propagation_reason' 'planning-config-unreadable'
+
+  # Rewriting a file we could not parse would destroy whatever was in it.
+  run diff "$BATS_TEST_TMPDIR/corrupt-before" "$ROOT/.planning/config.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "a key with no counterpart in GSD's config never touches that file" {
+  make_config_fixture
+  write_planning_config
+  cp "$ROOT/.planning/config.json" "$BATS_TEST_TMPDIR/untouched-before.json"
+
+  run bash "$CONFIG" set ship.pr_scope milestone --project-dir "$ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.propagated' 'false'
+  assert_json_eq "$output" '.propagation_reason' 'key-is-cairn-only'
+
+  # Breaks if propagation ever became a property of `set` rather than of the
+  # key: five of the seven keys are nobody's business but cairn's.
+  run diff "$BATS_TEST_TMPDIR/untouched-before.json" \
+    "$ROOT/.planning/config.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "the /cairn:config command offers the language and says which file wins when the two disagree" {
+  local cmd="$CAIRN_REPO_ROOT/cairn/commands/config.md"
+  [ -f "$cmd" ]
+
+  grep -qF "agents.response_language" "$cmd"
+  # The default has to be named as the default, not left as the first item of
+  # a list — "inglês nunca é o silêncio de uma chave ausente".
+  grep -qF "the default is English" "$cmd"
+  # Breaks if the two doors start telling different stories about precedence,
+  # which is the disagreement the subordination exists to prevent.
+  grep -qF "that value governs" "$cmd"
+  grep -qF "GSD's key outranks this one" "$cmd"
+}
+
+@test "the human render of a propagating set names the other file, and of a non-propagating one says why" {
+  make_config_fixture
+  write_planning_config
+
+  run bash "$CONFIG" set agents.response_language Portuguese \
+    --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF ".planning/config.json:response_language" <<<"$output"
+
+  rm -rf "$ROOT/.planning"
+  run bash "$CONFIG" set agents.response_language Portuguese \
+    --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  # A silent mechanism is indistinguishable from an absent one.
+  grep -qF "not propagated" <<<"$output"
+  grep -qF "planning-config-absent" <<<"$output"
 }
 
 @test "list also inventories the config cairn keeps elsewhere, by file and by owner" {

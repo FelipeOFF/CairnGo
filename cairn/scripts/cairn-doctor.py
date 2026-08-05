@@ -403,11 +403,36 @@ and "something never ran" are different questions and get different keys.
                         does not change the exit code, so degrading here
                         would leave the doctor exiting 0 over a ledger
                         nobody read. Writes nothing.
+    18. response-language  (LANG-02) the two homes of the one answer still
+                        agree. `/cairn:init` records the installation's
+                        choice in `.cairn/config.json:agents.
+                        response_language` — it must, since at the moment
+                        it asks, `.planning/` does not exist and cairn is
+                        forbidden from creating it — and `cairn-config.py
+                        set` propagates it into `.planning/config.json:
+                        response_language`, which is the key GSD's own ~30
+                        workflows read when they spawn subagents. On a
+                        greenfield install that propagation depends on one
+                        re-run after the `/gsd:new-project` hand-off, and a
+                        step in prose is exactly the thing that gets
+                        skipped. WARN, never FAIL, and the reason is
+                        written rather than assumed: a disagreement breaks
+                        nothing mechanically, it makes half a run's
+                        subagents answer in one language and half in
+                        another — which is what nobody noticed in v1.4.
+                        Spending exit 7 on it would train people to ignore
+                        exit 7. It reads the two files RAW, the one place
+                        this repository's usual "shell out to the script
+                        that owns the rule" would be wrong: `cairn-config.
+                        py get` returns the RESOLVED value, so asking it
+                        would report a single agreeing answer in exactly
+                        the situation this check exists to catch. Writes
+                        nothing.
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-
                     escalation reconciliation proposal for phase N. Not one
-                    of the 17 checks above — a fixer, the same category as
+                    of the 19 checks above — a fixer, the same category as
                     --close-completed/--fix-labels/--link-refs, but the only
                     one of the four that always exits on its own rather
                     than falling through to the ordinary report, since its
@@ -2394,6 +2419,107 @@ def req_ledger_unavailable(why):
             "items": []}
 
 
+def check_response_language(root):
+    """Check 18, id "response-language" (LANG-02) — the two homes of the one
+    answer still agree.
+
+    `/cairn:init` records the installation's answer in
+    `.cairn/config.json:agents.response_language` (it must: at the moment it
+    asks, `.planning/` does not exist and cairn is forbidden from creating
+    it), and `cairn-config.py set` propagates it into
+    `.planning/config.json:response_language` the moment that file exists —
+    because THAT is the key GSD's own ~30 workflows read when they spawn their
+    subagents. The propagation of a greenfield install therefore depends on
+    one re-run of that command after the `/gsd:new-project` hand-off, and a
+    step in prose is exactly the thing that gets skipped. This check is the
+    net under it.
+
+    WARN, never FAIL, and the reason is written rather than assumed: a
+    disagreement breaks nothing mechanically. It makes half the subagents of a
+    run answer in one language and half in another — which is precisely what
+    nobody noticed last time, and precisely why it deserves a line in a health
+    report instead of silence. Spending exit 7 on it would train people to
+    ignore exit 7.
+
+    Read-only. It never writes either file: the doctor reports, and
+    `cairn-config.py set` is what writes.
+
+    AND IT READS THE TWO FILES RAW, which is the one place this repository's
+    usual "shell out to the script that owns the rule" would be wrong.
+    `cairn-config.py get` returns the RESOLVED value — GSD's key when it is
+    set, cairn's otherwise — so asking it would report a single, agreeing
+    answer in exactly the situation this check exists to catch. The resolver
+    hides the disagreement on purpose; the doctor's job is to see it. There is
+    no second resolver here: nothing below decides which value wins, it only
+    reports that two files say different things and which one governs.
+    """
+    cairn_path = root / ".cairn" / "config.json"
+    planning_path = root / ".planning" / "config.json"
+
+    def _read_json(path):
+        if not path.is_file():
+            return None
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    cairn_data = _read_json(cairn_path)
+    cairn_value = None
+    if isinstance(cairn_data, dict):
+        agents = cairn_data.get("agents")
+        if isinstance(agents, dict):
+            candidate = agents.get("response_language")
+            if isinstance(candidate, str) and candidate.strip():
+                cairn_value = candidate
+
+    if cairn_value is None:
+        return {"id": "response-language", "status": "ok",
+                "detail": "no installation answer recorded in "
+                          ".cairn/config.json — nothing to keep in agreement",
+                "items": []}
+
+    planning_data = _read_json(planning_path)
+    if planning_data is None:
+        return {"id": "response-language", "status": "ok",
+                "detail": f"'{cairn_value}' recorded; "
+                          ".planning/config.json is absent or unreadable, so "
+                          "there is nothing to propagate into yet",
+                "items": []}
+
+    planning_raw = planning_data.get("response_language")
+    planning_value = (planning_raw
+                      if isinstance(planning_raw, str) and planning_raw.strip()
+                      else None)
+    fix = (f"bash cairn/scripts/cairn-config.sh set "
+           f"agents.response_language '{cairn_value}'")
+
+    if planning_value is None:
+        return {"id": "response-language", "status": "warn",
+                "detail": f"'{cairn_value}' was chosen at install but never "
+                          f"reached .planning/config.json:response_language, "
+                          f"which is the key GSD's own workflows read when "
+                          f"they spawn subagents",
+                "items": [f"run: {fix}"]}
+
+    if planning_value != cairn_value:
+        return {"id": "response-language", "status": "warn",
+                "detail": f"the two disagree: .planning/config.json says "
+                          f"'{planning_value}', .cairn/config.json says "
+                          f"'{cairn_value}'. GSD's key governs, so every "
+                          f"subagent answers in '{planning_value}'",
+                "items": [f"to make cairn's record agree: {fix}",
+                          "to change the language for everything: "
+                          "/gsd:config, which writes GSD's key"]}
+
+    return {"id": "response-language", "status": "ok",
+            "detail": f"'{cairn_value}' in both .cairn/config.json and "
+                      f".planning/config.json — every spawned subagent "
+                      f"answers in it",
+            "items": []}
+
+
 def check_req_ledger(root, planning_dir):
     """Check 17, id "req-ledger" (AUTO-07) — the chain nobody was validating:
     an active requirement has a row in the coverage table, the table's row
@@ -2939,6 +3065,7 @@ def main():
         check_release_versions(root),
         check_test_parallel(root),
         check_req_ledger(root, planning_dir),
+        check_response_language(root),
     ]
     summary["checks"] = checks
     # ONE BUCKET PER WORD OF THE VOCABULARY, COUNTED, NEVER SUBTRACTED.
