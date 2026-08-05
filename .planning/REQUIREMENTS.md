@@ -11,7 +11,7 @@ o que está respondendo não conta como pronta.
 
 ### O board que situa (BOARD)
 
-- [ ] **BOARD-01**: O **modelo** carrega a hierarquia milestone → fase → tarefa: milestones abertos primeiro, trabalho sem milestone em grupo próprio e por último
+- [x] **BOARD-01**: O **modelo** carrega a hierarquia milestone → fase → tarefa: milestones abertos primeiro, trabalho sem milestone em grupo próprio e por último
 - [ ] **BOARD-06**: O **board renderiza** agrupado — milestones abertos primeiro, fases dentro deles, trabalho sem milestone por último
 - [ ] **BOARD-02**: Cada linha carrega a etapa (não planejada, planejada, em execução, feita, bloqueada) num símbolo de largura simples, com fallback ASCII sob `--ascii`
 - [ ] **BOARD-03**: O título de uma tarefa não é truncado no render humano, em nenhuma largura de terminal em que a linha caiba
@@ -62,14 +62,15 @@ o que está respondendo não conta como pronta.
 
 ### Nada mecânico continua manual (AUTO)
 
-- [ ] **AUTO-01**: O bookkeeping de fim de fase — marcar a fase completa, marcar seus requisitos completos, mexer os contadores do STATE, atualizar o mapa, liberar o lease — é **um comando**, e nenhuma dessas edições volta a ser feita à mão
+- [x] **AUTO-01**: O bookkeeping de fim de fase — marcar a fase completa, marcar seus requisitos completos, mexer os contadores do STATE, atualizar o mapa, liberar o lease — é **um comando**, e nenhuma dessas edições volta a ser feita à mão
 - [x] **AUTO-02**: O Jira é **detectado, confirmado e então configurado pelo cairn** — híbrido: ele procura o MCP do Atlassian e chaves `ABC-123` em branch e commits, mostra o que achou, pergunta **uma vez**, e a partir do "sim" grava a configuração sozinho. O usuário confirma; nunca digita chave, projeto ou credencial
-- [ ] **AUTO-03**: Um card do Jira associado a uma fase ou a uma issue aparece no board sem que o caminho padrão faça chamada de rede
-- [ ] **AUTO-04**: A suíte roda em paralelo quando o ambiente permite, e diz claramente quando não permite em vez de rodar serial em silêncio
-- [ ] **AUTO-05**: O cairn tem config própria, perguntada como o GSD pergunta **e** editável à mão no `.json` — as duas portas para o mesmo lugar, nunca só uma
-- [ ] **AUTO-07**: Uma checagem valida a cadeia inteira do registro de requisitos — requisito ativo → linha na tabela de Cobertura → número afirmado no rodapé — que hoje **ninguém** valida
-- [ ] **AUTO-08**: O `STATE.md` passa a falar o dialeto que o cairn de fato lê — hoje ele escreve `current_phase`, que nenhum arquivo do cairn lê, enquanto cinco leem `active_phase`
-- [ ] **AUTO-06**: A config cobre o que hoje não tem onde morar: commit automático, PR por fase ou por milestone, teto de ciclos e de laços do run autônomo, e o que já está espalhado em `.cairn/` passa a ser listado num lugar só
+- [x] **AUTO-03**: Um card do Jira associado a uma fase ou a uma issue aparece no board sem que o caminho padrão faça chamada de rede
+- [x] **AUTO-04**: A suíte roda em paralelo quando o ambiente permite, e diz claramente quando não permite em vez de rodar serial em silêncio
+- [x] **AUTO-05**: O cairn tem config própria, perguntada como o GSD pergunta **e** editável à mão no `.json` — as duas portas para o mesmo lugar, nunca só uma
+- [x] **AUTO-07**: Uma checagem valida a cadeia inteira do registro de requisitos — requisito ativo → linha na tabela de Cobertura → número afirmado no rodapé — que hoje **ninguém** valida
+- [x] **AUTO-08**: Nenhuma checagem do doctor volta a dizer `ok` por não ter conseguido checar — uma checagem sem insumo diz que está sem insumo, nomeia o que falta e roteia para quem decide, sem bloquear
+- [x] **AUTO-06**: A config cobre o que hoje não tem onde morar: commit automático, PR por fase ou por milestone, teto de ciclos e de laços do run autônomo, e o que já está espalhado em `.cairn/` passa a ser listado num lugar só
+- [ ] **AUTO-10**: O `STATE.md` fala o dialeto que o cairn de fato lê — hoje o cairn **escreve** `current_phase`, chave que nenhum arquivo dele lê, enquanto cinco leem `active_phase`. Qual dialeto vence é decisão de regra de negócio, aberta em grooming, e a escolha muda o comportamento de todo repositório que já tem `STATE.md` escrito
 
 ## Deferred (v2)
 

@@ -31,7 +31,7 @@ não conta como pronta.
 
 ### 🚧 v1.5 Legible State — onde você está (Phases 20-29)
 
-- [ ] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-08) — **roda primeiro**
+- [x] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-08) — **roda primeiro** — completed 2026-08-05
 - [x] Phase 20: Group model (BOARD-01) — completed 2026-08-03
 - [ ] Phase 21: The grouped board (BOARD-06, BOARD-02, BOARD-03, BOARD-05)
 - [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
@@ -105,9 +105,9 @@ sem mexer nas chaves que os consumidores leem.
 
 **Plans:** 3 plans
 
-- [ ] 20-01-PLAN.md — grava a referência do render do código intocado, com a prova de que a comparação está viva
-- [ ] 20-02-PLAN.md — `roadmap_milestones()`, `phase_groups()` e a chave de topo `groups` no `--json`
-- [ ] 20-03-PLAN.md — as bordas da D-03, o isolamento do ciclo arquivado e os travões de contrato do `--json`
+- [x] 20-01-PLAN.md — grava a referência do render do código intocado, com a prova de que a comparação está viva
+- [x] 20-02-PLAN.md — `roadmap_milestones()`, `phase_groups()` e a chave de topo `groups` no `--json`
+- [x] 20-03-PLAN.md — as bordas da D-03, o isolamento do ciclo arquivado e os travões de contrato do `--json`
 
 ---
 
@@ -269,7 +269,7 @@ fase; o nome da branch de uma fase muda quando o diretório aparece depois do
 CHANGELOG já em 1.5.0 e os manifestos em 1.4.2, o `marketplace` levou `ok`
 carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
 
-**Requirements**: FIX-01, FIX-02, FIX-03, FIX-04, FIX-05
+**Requirements**: FIX-01, FIX-02, FIX-03, FIX-04, FIX-05, AUTO-10
 
 **Success criteria:**
 
@@ -292,8 +292,19 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
    `discovered-from` para issue fechada de fase arquivada e afirma que a fase
    dependente segue `runnable`.
 
+5. **AUTO-10, herdado da fase 29:** o `STATE.md` passa a falar **um** dialeto, e o
+   cairn para de escrever chave que ele próprio não lê. Medido em 2026-08-05: o
+   `cairn-bookkeep.py` escreve `current_phase` no `close`, `grep -rn current_phase
+   cairn/` devolve zero **leitores**, e cinco arquivos leem `active_phase`
+   (`cairn-status.py`, `cairn-doctor.py`, `cairn-lease.py`, `cairn-migrate.py`,
+   `hooks/session-start.sh`). Qual dialeto vence é **regra de negócio, não
+   mecânica** — a escolha muda o comportamento de todo repositório que já tem
+   `STATE.md` escrito, e por isso está em grooming. **Esta fase não pode ser
+   planejada antes de a decisão estar tomada.** Um teste prova que o `claims-stale`
+   deixa de reportar falta de insumo quando o dialeto escolhido chega ao arquivo.
+
 **Research durante o planejamento:** não precisa. Os três carregam a medição na
-própria issue do bd.
+própria issue do bd. O AUTO-10 depende de decisão de grooming, não de pesquisa.
 
 **Depende de:** nada.
 
@@ -419,7 +430,7 @@ A linha que separa o que se automatiza do que se pergunta é a do `/groom-me`:
 **mudança de regra de negócio se conversa antes; mecânica se automatiza e pronto.**
 Nada nesta fase cruza essa linha.
 
-**Requirements**: AUTO-01 … AUTO-08
+**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, AUTO-06, AUTO-07, AUTO-08
 
 **Success criteria:**
 
@@ -545,7 +556,7 @@ roadmap passa a demonstrar isso.
 - [x] 29-02-PLAN.md — o caminho de escrita completo: fase, requisitos, tabela, rodapé, contadores, mapa e lease num comando
 - [x] 29-03-PLAN.md — config própria do cairn, duas portas, e nenhuma chave sem leitor executável
 - [x] 29-04-PLAN.md — o detector de Jira para de mentir, e o cairn pergunta uma vez e grava sozinho
-- [ ] 29-05-PLAN.md — o card do rastreador no board, com prova executável de que nada toca a rede
+- [x] 29-05-PLAN.md — o card do rastreador no board, com prova executável de que nada toca a rede
 - [x] 29-06-PLAN.md — a suíte roda em paralelo quando dá, e detecta a ausência do parallel antes de invocar o bats
 - [x] 29-07-PLAN.md — `req-ledger`, e o fim do `ok` sobre checagem que não conseguiu checar
 
@@ -578,6 +589,7 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | FIX-03 | Phase 25 | Pending |
 | FIX-04 | Phase 25 | Pending |
 | FIX-05 | Phase 25 | Pending |
+| AUTO-10 | Phase 25 | Pending |
 | WRAP-01 | Phase 26 | Pending |
 | WRAP-02 | Phase 26 | Pending |
 | WRAP-03 | Phase 26 | Pending |
@@ -586,14 +598,16 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | DJOUR-01 | Phase 28 | Pending |
 | DJOUR-02 | Phase 28 | Pending |
 | DJOUR-03 | Phase 28 | Pending |
-| AUTO-01 | Phase 29 | Pending |
-| AUTO-02 | Phase 29 | Pending |
-| AUTO-03 | Phase 29 | Pending |
-| AUTO-04 | Phase 29 | Pending |
-| AUTO-07 | Phase 29 | Pending |
-| AUTO-08 | Phase 29 | Pending |
+| AUTO-01 | Phase 29 | Complete |
+| AUTO-02 | Phase 29 | Complete |
+| AUTO-03 | Phase 29 | Complete |
+| AUTO-04 | Phase 29 | Complete |
+| AUTO-07 | Phase 29 | Complete |
+| AUTO-08 | Phase 29 | Complete |
+| AUTO-05 | Phase 29 | Complete |
+| AUTO-06 | Phase 29 | Complete |
 
-29 requisitos, 29 mapeados.
+36 requisitos, 36 mapeados.
 
 ## Ordem de dependência
 
