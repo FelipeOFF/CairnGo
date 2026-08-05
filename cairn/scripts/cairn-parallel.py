@@ -95,6 +95,27 @@ STATE.md / ROADMAP.md / REQUIREMENTS.md inside a phase worktree, which
 `prepare` reports back as `planning_files_forbidden` for whoever assembles the
 subagent's prompt.
 
+
+WHY `prepare` REPORTS THE RESPONSE LANGUAGE (phase 24, LANG-02)
+----------------------------------------------------------------
+The prompt assembler reads this payload and nothing else about the phase, so
+anything the subagent must be told has to come out of here. The language is
+one of those things, and the reason it is mechanical rather than remembered is
+a measured defect: in the v1.4 cycle every subagent this loop spawned answered
+in English against an all-Portuguese plan, and it did so with
+`.planning/config.json:response_language` ALREADY SET to `pt-BR`. A test
+asserting "the key is in the file" would have been GREEN on the exact day the
+defect happened — which is why the phase-24 test reads the value out of THIS
+payload instead.
+
+The value is resolved by cairn-config.py (`agents.response_language`, which
+GSD's own `response_language` outranks when set); it is not resolved a second
+time here, for the same reason independence is not recomputed here. The
+fallback when the subprocess fails is `(None, "unavailable")` and deliberately
+NOT `("English", ...)`: repeating the default here would be the second place
+it lives, and one setting with two defaults is where the next disagreement
+starts. A null is visible in both renders; a guessed "English" would not be.
+
 The opposite was also measured: `bd list` AND `bd create`/`bd update` from a
 second worktree resolve to the MAIN repo's database — no local DB, no daemon,
 no global registry. That is what makes the lease work across worktrees at all
@@ -501,7 +522,8 @@ Behavior:
                worktree is not what any of this names. Resolves slug, branch
                and path; runs the four-step acquisition above; reports:
                  {phase, slug, branch, worktree, base_commit, created,
-                  lease: {holder, acquired_at}, planning_files_forbidden[]}
+                  lease: {holder, acquired_at}, planning_files_forbidden[],
+                  response_language, response_language_source}
                Idempotent: an existing worktree at the expected path, on the
                expected branch, re-acquires (already ours -> exit 0) and
                reports `created: false`. A path that exists but is NOT a
@@ -965,6 +987,10 @@ def cmd_prepare(args, top):
                     rolled_back, args.json)
 
     _, base_commit, _ = run_git(worktree, ["rev-parse", "HEAD"])
+    # Read from the MAIN checkout, never from the freshly created worktree:
+    # the config the operator configured is the one that governs, and a
+    # worktree is a copy of a commit, not a place anyone configured.
+    language, language_source = config_language(top)
     out = {
         "phase": phase,
         "slug": layout["slug"],
@@ -975,6 +1001,8 @@ def cmd_prepare(args, top):
         "lease": {"holder": entry.get("holder"),
                   "acquired_at": entry.get("acquired_at")},
         "planning_files_forbidden": list(PLANNING_FILES_FORBIDDEN),
+        "response_language": language,
+        "response_language_source": language_source,
     }
     if args.json:
         print(json.dumps(out))
@@ -987,6 +1015,14 @@ def cmd_prepare(args, top):
               f"{out['lease']['acquired_at']}")
         print(f"[cairn-parallel] forbidden in this worktree (D-03): "
               f"{', '.join(PLANNING_FILES_FORBIDDEN)}")
+        if language is None:
+            print("[cairn-parallel] response language: unavailable "
+                  "(cairn-config could not be read) — say so in the "
+                  "announcement rather than guessing one")
+        else:
+            print(f"[cairn-parallel] response language: {language} "
+                  f"({language_source}) — the subagent's user-facing output "
+                  f"goes in it")
     sys.exit(EXIT_OK)
 
 
@@ -1055,6 +1091,38 @@ def config_value(top, key, fallback):
     if not isinstance(data, dict) or "value" not in data:
         return fallback
     return data["value"]
+
+
+def config_language(top):
+    """(value, source) for `agents.response_language`, or (None,
+    "unavailable").
+
+    Same defensive shape as config_value(): a subprocess that cannot start, a
+    nonzero exit, unparsable JSON, or a payload missing either field degrades.
+    It degrades to a NULL rather than to the string "English" on purpose — see
+    the docstring: the default lives in cairn-config.py's schema and nowhere
+    else, and a guessed language would be indistinguishable from a configured
+    one at the point where it matters.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(CAIRN_CONFIG), "get",
+             "agents.response_language", "--json", "--project-dir", str(top)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None, "unavailable"
+    if proc.returncode != 0:
+        return None, "unavailable"
+    try:
+        data = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        return None, "unavailable"
+    if not isinstance(data, dict):
+        return None, "unavailable"
+    value, source = data.get("value"), data.get("source")
+    if not isinstance(value, str) or not value or not isinstance(source, str):
+        return None, "unavailable"
+    return value, source
 
 
 def config_int(top, key, fallback, minimum):
