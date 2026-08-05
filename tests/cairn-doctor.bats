@@ -5,8 +5,8 @@
 #   applicable, 2 usage / refused --fix-labels, 5 bd unavailable, 7 any
 #   check failed.
 #
-# Each test starts from the HEALTHY wired fixture (all ten checks ✓) and
-# breaks exactly one check, asserting on that check's reported status.
+# Each test starts from the HEALTHY wired fixture (all seventeen checks ✓)
+# and breaks exactly one check, asserting on that check's reported status.
 #
 # Assertion style note: a failing `[[ ]]` or `! cmd` mid-test does NOT fail
 # a bats test on this bash, so substring checks use grep -qF and negative
@@ -109,7 +109,16 @@ EOF
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '16'
+  # The count is hardcoded ON PURPOSE: it is the canary for a check that was
+  # written and never registered in main()'s `checks` list. 16 -> 17 here
+  # came with check 16, test-parallel (29-06).
+  #
+  # It is also the assertion that caught the reporting failure it was built
+  # for. It stayed red through a `bats tests/cairn-doctor.bats` whose log was
+  # read through `tail -15`, so the failure line scrolled out and the run was
+  # called green. The full-suite run through cairn-test.sh is what surfaced
+  # it. A number read off the end of a truncated log is not a measurement.
+  assert_json_eq "$output" '.checks | length' '17'
   assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
 }
 
