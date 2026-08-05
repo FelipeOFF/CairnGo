@@ -2527,3 +2527,125 @@ PY
   run diff "$BATS_TEST_TMPDIR/state-before.md" .planning/STATE.md
   [ "$status" -eq 0 ]
 }
+
+#-----------------------------------------------------------------------------
+# LANG-02 (plan 24-03) — check 18, response-language: the net under the one
+# step of the install flow that is prose.
+#
+# /cairn:init records the answer in .cairn/config.json (it must: when it asks,
+# .planning/ does not exist and cairn is forbidden from creating it), and the
+# propagation into .planning/config.json:response_language — the key GSD's own
+# workflows read — fires when cairn-config.py `set` runs again after the
+# /gsd:new-project hand-off. A step in prose is the thing that gets skipped,
+# and that skip is invisible: nothing breaks, half the subagents just answer
+# in the wrong language. That is what this check makes visible.
+#
+# Every assertion below is on the EXACT status value, never on a negation.
+#-----------------------------------------------------------------------------
+
+# Write .cairn/config.json's language ($1) and/or .planning/config.json's ($2).
+# An empty argument means "leave that file without the key".
+write_language_pair() {
+  mkdir -p .cairn .planning
+  if [ -n "$1" ]; then
+    printf '{\n  "agents": {\n    "response_language": "%s"\n  }\n}\n' "$1" \
+      > .cairn/config.json
+  else
+    printf '{}\n' > .cairn/config.json
+  fi
+  if [ -n "$2" ]; then
+    printf '{\n  "response_language": "%s"\n}\n' "$2" > .planning/config.json
+  else
+    printf '{\n  "commit_docs": true\n}\n' > .planning/config.json
+  fi
+}
+
+@test "response-language: the two files agreeing is ok, and says the language out loud" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "Portuguese" "Portuguese"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'ok'
+  # Breaks on a check that warns when everything is right — noise trains
+  # people to stop reading the report.
+  grep -qF "Portuguese" <<<"$output"
+}
+
+@test "response-language: an install answer that never reached GSD's config warns and names the exact command" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "Portuguese" ""
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # THE case this check exists for: step 6 of /cairn:init skipped. Breaks if
+  # the skip passes in silence, which is the whole defect.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'warn'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .items | length' '1'
+  grep -qF "set agents.response_language 'Portuguese'" <<<"$output"
+
+  # warn, not fail: a divergence breaks nothing mechanically, and spending
+  # exit 7 on it would train everyone to ignore exit 7.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "response-language" <<<"$output"
+}
+
+@test "response-language: two different values warn, showing both and naming which one governs" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "Portuguese" "Japanese"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'warn'
+  # Both values shown, and the winner named: GSD's key governs, so leaving the
+  # reader to guess would reproduce the confusion the check reports.
+  grep -qF "'Japanese'" <<<"$output"
+  grep -qF "'Portuguese'" <<<"$output"
+  grep -qF "/gsd:config" <<<"$output"
+}
+
+@test "response-language: no recorded answer at all is ok, not a warning" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "" ""
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # Breaks on a check that nags every repo that never ran /cairn:init's
+  # language step — there is nothing to keep in agreement.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'ok'
+}
+
+@test "response-language: the doctor writes neither file, in any of the states" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "Portuguese" "Japanese"
+  cp .cairn/config.json "$BATS_TEST_TMPDIR/cairn-before.json"
+  cp .planning/config.json "$BATS_TEST_TMPDIR/planning-before.json"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'warn'
+
+  # The doctor reports; cairn-config.py set is what writes. Breaks on a check
+  # that "helpfully" fixes the divergence it found.
+  run diff "$BATS_TEST_TMPDIR/cairn-before.json" .cairn/config.json
+  [ "$status" -eq 0 ]
+  run diff "$BATS_TEST_TMPDIR/planning-before.json" .planning/config.json
+  [ "$status" -eq 0 ]
+}
