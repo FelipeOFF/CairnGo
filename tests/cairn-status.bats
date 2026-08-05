@@ -264,7 +264,18 @@ print("ok column %d" % cols.pop())
   refute_in_output '…'
 }
 
-@test "--width 50 degrades to stacked lanes (no grid, headers kept)" {
+# REWRITTEN 2026-08-05 (plan 21-02). There is no stacked degrade any more:
+# it existed because three columns do not fit in 50, and one column does.
+# What the test guarded — at 50 columns the board is still a readable board,
+# with the counts and the next action, and no grid — is asserted of the list.
+#
+# The proof here is the three positive greps, NOT the refutes. Plan 21-02
+# also removed the box-drawing glyphs from Style, so `┌` and `│` no longer
+# exist anywhere in cairn-status.py and those two lines cannot go red from
+# any change to this renderer. They are kept as REINTRODUCTION guards — a
+# future phase that brings a grid back trips them — and are labelled as such
+# so nobody reads them as evidence that the list rendered.
+@test "--width 50 renders the same list, wrapped sooner" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -272,15 +283,26 @@ print("ok column %d" % cols.pop())
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 50
   [ "$status" -eq 0 ]
-  grep -qF 'READY (2)' <<<"$output"
-  grep -qF 'DOING (1)' <<<"$output"
-  grep -qF 'BLOCKED (1)' <<<"$output"
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
   grep -qF "▶ next: continue $ST_DOING" <<<"$output"
   refute_in_output '┌'
   refute_in_output '│'
+  refute_in_output 'READY ('
 }
 
-@test "--width 30 degrades to the raw LANE id title list" {
+# REWRITTEN 2026-08-05 (plan 21-02). The raw degrade printed `LANE  id  title`
+# whole and let the terminal wrap it. The specific thing it guarded — at a
+# width where nothing fits, the id and the title still arrive INTACT — is
+# still true, now because the row wraps itself instead of overflowing. At 30
+# columns the id keeps its own line and the title hangs beneath it
+# (NARROW_BODY), so the assertions join the row before comparing.
+#
+# Same caveat as the 50-column test above: the two refutes are
+# reintroduction guards, not the proof. The proof is that every id and every
+# title survives the join, and that no visible ROW carries an ellipsis.
+@test "--width 30 keeps every id and title intact, wrapping instead of cutting" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -288,11 +310,32 @@ print("ok column %d" % cols.pop())
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 30
   [ "$status" -eq 0 ]
-  grep -qF "READY  $ST_READY1  Gate regex hardening" <<<"$output"
-  grep -qF "DOING  $ST_DOING  Status board renderer" <<<"$output"
-  grep -qF "BLOCKED  $ST_BLOCKED  Docs index page" <<<"$output"
   refute_in_output '┌'
   refute_in_output '│'
+  run python3 -c '
+import sys
+lines = sys.stdin.read().splitlines()
+text = " ".join(l.strip() for l in lines)
+for iid, title in ((sys.argv[1], "Gate regex hardening"),
+                   (sys.argv[2], "Status board renderer"),
+                   (sys.argv[3], "Docs index page")):
+    assert iid in text, "id %s never reached the board" % iid
+    assert title in text, "title %r came back cut" % title
+# The ellipsis check belongs to the LIST rows, not the whole render: the
+# footer truncates its own `next:` line at max(20, width - 10) and has since
+# Phase 10, and the PENDING PHASES table is fixed-width by design. A blanket
+# refute here would be asserting about those while claiming to assert about
+# the list. The list ends where the footer meta line begins, and that line
+# is the only one carrying "done: ".
+end = [i for i, l in enumerate(lines) if "done: " in l]
+assert end, "the footer never rendered — the boundary below is guesswork"
+rows = [l for l in lines[:end[0]] if l.startswith("  ")]
+assert rows, "no row rendered at --width 30"
+bad = [l for l in rows if "…" in l or "..." in l]
+assert not bad, "a row came back truncated: %r" % bad
+print("ok %d rows" % len(rows))
+' "$ST_READY1" "$ST_DOING" "$ST_BLOCKED" <<<"$output"
+  [ "$status" -eq 0 ]
 }
 
 @test "color: --color=always emits SGR; NO_COLOR strips it; the flag wins" {

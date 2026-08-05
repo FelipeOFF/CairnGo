@@ -447,12 +447,11 @@ for i, line in enumerate(sys.stdin.read().splitlines(), 1):
     got = sum(cw(c) for c in line)
     assert got <= limit, "board line %d is %d cells wide at --width %d: %r" % (
         i, got, limit, line)
-# Below STACK_BELOW the stacked and raw degrades render neither a grid nor a
-# six-space row, so this filter genuinely describes nothing there — it did
-# not before either, and saying so is better than widening it until it
-# passes. Plan 21-02 collapses those degrades into the same list, and this
-# exemption goes out with them.
-assert limit < 64 or seen > 0, "no board line found at --width %d" % limit
+# The exemption `limit < 64` that stood here until 2026-08-05 is GONE with
+# the degrades plan 21-02 removed: one list serves every width, so a board
+# line exists at every width and a filter that matched nothing is always a
+# bug in the filter.
+assert seen > 0, "no board line found at --width %d" % limit
 print("ok %d board lines" % seen)
 ' "$w" <<<"$output"
     [ "$status" -eq 0 ]
