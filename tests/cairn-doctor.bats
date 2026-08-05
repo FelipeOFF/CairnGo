@@ -724,6 +724,136 @@ PY
   refute_in_output "$todo"
 }
 
+# VOID-03's second half, and the proof is DIFFERENTIAL, not a bare "the count
+# reached zero" — that would also pass if someone switched the whole axis off
+# by accident. The SAME repo with the SAME issues is run twice and exactly one
+# thing changes between the runs: whether the milestone's archived ROADMAP is
+# on disk.
+#
+# Break: exempt without looking at .planning/milestones/ at all — above all
+# the most tempting shortcut, "every closed issue is exempt", which passes the
+# second run and fails the first.
+@test "orphans: a closed issue is exempt only because its milestone is archived (differential)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local old
+  old="$(bd create "Delivered last cycle" -t task -l phase-9,m-v0.9 --silent)"
+  bd close "$old" >/dev/null
+
+  # Run 1: no archive on disk. The issue is an orphan, exactly as before.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
+  grep -qF "$old" <<<"$output"
+
+  # The single variable: /gsd:complete-milestone's own archive artifact.
+  mkdir -p .planning/milestones
+  echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
+
+  # Run 2: same repo, same issues, same labels.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .items | length' '0'
+  refute_in_output "$old"
+  # Break: exempt in SILENCE. A repo with sixty-one historical issues would
+  # then be indistinguishable from a repo with none, and the phase would have
+  # traded a permanent noise for a permanent silence.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .detail | test("1 .*archiv")' 'true'
+}
+
+# Break: write the predicate with "any archived milestone label" instead of
+# "ALL of them". This is the contour that the naive version passes every other
+# test on and fails only here — and it is the one milestone.md documents as
+# EXPECTED behaviour: a carried-over issue shows as a transient orphan until
+# the new roadmap places it, and that warning must survive.
+@test "orphans: an issue carried into the active milestone is NOT exempt" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  mkdir -p .planning/milestones
+  echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
+  local carried
+  carried="$(bd create "Carried over, not yet placed" -t task \
+    -l phase-9,m-v0.9,m-v1.0 --silent)"
+  bd close "$carried" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
+  grep -qF "$carried" <<<"$output"
+}
+
+# Break: exempt on the archive alone, forgetting the issue is still live.
+# Work left hanging off a cycle that already closed is precisely a finding
+# worth reporting, not historical noise.
+@test "orphans: an OPEN issue of an archived milestone is NOT exempt" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  mkdir -p .planning/milestones
+  echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
+  local live
+  live="$(bd create "Never finished last cycle" -t task -l phase-9,m-v0.9 \
+    --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
+  grep -qF "$live" <<<"$output"
+}
+
+# Break: exempt by absence of evidence. With no m-* label there is no proof of
+# archiving at all, and exempting anyway is the same reasoning as approving
+# because nothing was compared — the defect this whole phase removes.
+@test "orphans: a closed issue with no milestone label is NOT exempt" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  mkdir -p .planning/milestones
+  echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
+  local unstamped
+  unstamped="$(bd create "Closed, never stamped" -t task -l phase-9 --silent)"
+  bd close "$unstamped" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
+  grep -qF "$unstamped" <<<"$output"
+}
+
+# THE INVARIANT OF THE WHOLE PHASE, and the one test that would go red if a
+# fifth state were ever added without coming through here. It asserts nothing
+# about any single check on purpose.
+@test "status vocabulary invariant: four states, every ⊘ scoped, counters summing to the check count" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # 1. Closed vocabulary: subtracting the four leaves nothing.
+  assert_json_eq "$output" \
+    '[.checks[].status] - ["ok","not-applicable","warn","fail"] | length' '0'
+  # 2. Every not-applicable carries one of the two families, and nothing else
+  #    carries a scope at all.
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status=="not-applicable") | select((.scope=="out-of-scope" or .scope=="no-input") | not)] | length' \
+    '0'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status!="not-applicable") | select(has("scope"))] | length' \
+    '0'
+  # 3. The four counters sum to the number of registered checks.
+  assert_json_eq "$output" \
+    '[.counts | to_entries[] | .value] | add' \
+    "$(jq -r '.checks | length' <<<"$output")"
+  assert_json_eq "$output" '.counts | length' '4'
+}
+
 # VOID-02 / criterion 2 of the phase's ROADMAP entry, end to end. This is THE
 # proof of the phase: a repo whose roadmap lists nothing must not hand back a
 # perfectly green board.
@@ -1840,9 +1970,27 @@ EOF
   refute_in_output "Traceback"
   assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .status' 'warn'
   grep -qF "lease staleness could not be computed" <<<"$output"
-  # The failure stayed scoped to lease-stale — nothing else regressed.
+  # The failure stayed scoped to lease-stale — nothing else regressed. The
+  # assertion used to read `.status != "ok"`, which phase 23 broke two plans
+  # before this one: 23-02 gave this fixture — a USER's repo, carrying none of
+  # cairn's manifests — a legitimate ⊘ on release-versions and test-parallel,
+  # and `!= "ok"` counts a ⊘ as a regression. Measured at that commit: this
+  # test returned 2 where it expected 0.
+  #
+  # So it now asks the question it always meant: did any OTHER check turn warn
+  # or fail. Named exactly, never by negating "ok" — a negation of ok is
+  # satisfied by warn, which is precisely the confusion this phase exists to
+  # remove. The two ⊘ are then pinned by id AND by family, so a THIRD one
+  # appearing (a real regression into the fourth state) still fails here.
   assert_json_eq "$output" \
-    '[.checks[] | select(.id != "lease-stale" and .status != "ok")] | length' '0'
+    '[.checks[] | select(.id != "lease-stale")
+                | select(.status == "warn" or .status == "fail")] | length' '0'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status == "not-applicable") | .id] | sort | join(",")' \
+    'release-versions,test-parallel'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status == "not-applicable") | .scope] | sort | join(",")' \
+    'out-of-scope,out-of-scope'
 }
 
 # --------------------------------------------------------------------------- #

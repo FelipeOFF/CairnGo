@@ -158,7 +158,18 @@ and "something never ran" are different questions and get different keys.
                         WARNs, and only a run with nothing from either axis
                         is NOT-APPLICABLE / no-input. Refusing the whole
                         check would swallow axis 2's findings — trading a
-                        false green for a new silence.
+                        false green for a new silence. Axis 1 EXEMPTS an
+                        issue that is closed AND carries at least one m-*
+                        label AND has every one of them archived under
+                        .planning/milestones/ (VOID-03's second half), so
+                        the historical count falls to zero at the end of a
+                        cycle instead of growing forever. All three
+                        conditions, and ALL milestones not ANY: an open
+                        issue, an issue with no m-* label, and an issue
+                        carried into the active milestone all keep warning.
+                        The detail always says how many were exempted — a
+                        silent exemption is indistinguishable from a
+                        switched-off axis.
     7. label-pairs      issues with a phase-* label but no m-* label ->
                         WARN. --fix-labels repairs them via
                         'cairn-relabel.py pair --milestone <active>' BEFORE
@@ -546,6 +557,10 @@ TABLE_PHASE = re.compile(r"^\s*\|\s*0*(\d+)[.)\s][^|]*\|.*\|\s*Complete\s*\|",
 REQ_LINE = re.compile(r"^\*\*Requirements\*\*\s*:(.*)$")
 REQ_ID = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
+# The filename /gsd:complete-milestone leaves in .planning/milestones/ when it
+# archives a cycle. Anchored on both ends: the archived ROADMAP is the
+# evidence, and a REQUIREMENTS file or a phases/ directory is not (T-18).
+ARCHIVED_ROADMAP = re.compile(r"^(v\d+(?:\.\d+)*)-ROADMAP\.md$")
 DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
 PR_NUMBER = re.compile(r"\(#(\d+)\)")
 
@@ -604,6 +619,32 @@ def roadmap_milestone(planning_dir):
             if m:
                 return m.group(0)
     return None
+
+
+def archived_milestones(planning_dir):
+    """Milestone keys ('v1.1', 'v1.2', ...) whose ROADMAP sits archived under
+    .planning/milestones/ — the on-disk evidence that a cycle actually closed.
+
+    /gsd:complete-milestone archives the ROADMAP, the REQUIREMENTS and the
+    phase tree there when it closes a milestone (cairn/commands/milestone.md),
+    so the archived roadmap is the most direct and the cheapest proof that the
+    cycle is over. Nothing is inferred from position in a list, from recency,
+    or from STATE.md — the same discipline cairn-status already holds by
+    reading the milestone list off the roadmap itself (phase 23, T-18).
+
+    Returns an empty set and never raises when the directory is absent, which
+    is the ordinary case in a user's repo that has not closed a cycle yet.
+    """
+    keys = set()
+    try:
+        entries = list((planning_dir / "milestones").iterdir())
+    except OSError:
+        return keys
+    for entry in entries:
+        m = ARCHIVED_ROADMAP.match(entry.name)
+        if m:
+            keys.add(m.group(1))
+    return keys
 
 
 def roadmap_phases_and_reqs(planning_dir):
@@ -837,6 +878,44 @@ def in_milestone(issue, milestone):
     label at all (legacy stray)."""
     m_labels = [lb for lb in issue["labels"] if lb.startswith("m-")]
     return milestone is None or not m_labels or f"m-{milestone}" in m_labels
+
+
+def milestone_keys(issue):
+    """Milestone keys from the issue's m-<key> labels, read the same way
+    phase_nums() reads phase-<N> — one shape for reading a label, not a
+    third one invented here."""
+    return {lb[2:] for lb in issue["labels"]
+            if lb.startswith("m-") and lb[2:]}
+
+
+def in_archived_milestone(issue, archived):
+    """True when this issue belongs entirely to cycles that already closed —
+    the exemption VOID-03's second half grants the orphans check, so the
+    count of historical findings falls to zero at the end of a cycle instead
+    of growing forever until the operator learns to ignore the check.
+
+    THREE conditions, all at once (phase 23, T-19), and each exclusion is a
+    finding somebody still wants:
+
+      closed          work still live on a cycle that already closed is
+                      exactly a finding worth reporting, not historical noise.
+      has an m-* label
+                      with no milestone label there is no evidence of
+                      archiving at all, and exempting anyway is the same
+                      reasoning as approving because nothing was compared —
+                      the defect this whole phase removes.
+      ALL of them archived, not ANY
+                      the same ALL/ANY distinction in_done_phase and
+                      --close-completed already hold. milestone.md documents
+                      that an issue carried into the NEW cycle shows up as a
+                      transient orphan until the new roadmap places it, and
+                      says that warning is expected: one active-milestone
+                      label is enough to keep it.
+    """
+    if issue.get("status") != "closed":
+        return False
+    keys = milestone_keys(issue)
+    return bool(keys) and keys <= set(archived)
 
 
 # --------------------------------------------------------------------------- #
@@ -1076,13 +1155,14 @@ def check_phase_complete_open(issues, completed, disk_done, milestone,
             "detail": detail, "items": items}
 
 
-def check_orphans(issues, roadmap_phases):
+def check_orphans(issues, roadmap_phases, archived=frozenset()):
     """Check 6, id "orphans" — TWO INDEPENDENT AXES in one loop, and keeping
     them distinguishable is the whole difficulty of this function.
 
       axis 1  an issue LABELED phase-<N> where N is not a ROADMAP phase.
               Needs the roadmap; with an empty one there is nothing to
-              compare against and the axis cannot run.
+              compare against and the axis cannot run. Exempts an issue whose
+              cycles all closed (in_archived_milestone) — see below.
       axis 2  a non-closed issue with NO phase-* label at all (minus the
               NO_PHASE_EXEMPT labels). Never touches the roadmap, and works
               perfectly well with an empty one.
@@ -1097,18 +1177,44 @@ def check_orphans(issues, roadmap_phases):
     axis reports not-applicable. Either way the detail SAYS axis 1 could not
     run, so that fact is never lost — not even when there is a warning to
     print on top of it.
+
+    VOID-03's second half, the archived-milestone exemption on axis 1. Every
+    closed cycle leaves its phases behind, so the population axis 1 sweeps
+    grows at every milestone and never shrinks: measured in this repo on
+    2026-08-05, all 61 findings were closed issues of the four archived
+    milestones. A warning that only grows becomes noise and the operator
+    learns to ignore the check — the same death by desensitization this phase
+    fights from the other side. in_archived_milestone() holds the predicate
+    and names the three cases deliberately left OUT of it.
+
+    The exemption is never silent: `exempted` counts the issues that WOULD
+    have been reported and the detail says so. A repo with sixty-one
+    historical issues has to stay distinguishable from a repo with none,
+    otherwise the phase would have traded a permanent noise for a permanent
+    silence — and an exemption nobody can see is indistinguishable from an
+    axis somebody switched off.
     """
     unplaced = []           # axis 1 findings
     unlabeled = []          # axis 2 findings
+    exempted = 0            # axis 1 findings suppressed by archiving
     for iss in issues:
         nums = phase_nums(iss)
         if nums:
             if roadmap_phases:
-                for n in nums:
-                    if n not in roadmap_phases:
-                        unplaced.append(f"{iss.get('id', '?')}: labeled "
-                                        f"phase-{n} but ROADMAP.md has no "
-                                        f"phase {n}")
+                missing = [n for n in nums if n not in roadmap_phases]
+                if not missing:
+                    continue
+                # Counted only for an issue axis 1 would otherwise have
+                # reported, so the number the detail prints is the number of
+                # warnings actually suppressed — not a tally of every closed
+                # issue in the tracker.
+                if in_archived_milestone(iss, archived):
+                    exempted += 1
+                    continue
+                for n in missing:
+                    unplaced.append(f"{iss.get('id', '?')}: labeled "
+                                    f"phase-{n} but ROADMAP.md has no "
+                                    f"phase {n}")
         elif (iss.get("status") != "closed"
                 and not NO_PHASE_EXEMPT.intersection(iss["labels"])):
             unlabeled.append(f"{iss.get('id', '?')}: no phase-* label "
@@ -1130,8 +1236,12 @@ def check_orphans(issues, roadmap_phases):
                           f"{len(issues)} issue(s)",
                 "items": []}
 
+    # The exemption is stated wherever it applied, warning or not: the reader
+    # of a count that just fell to zero has to be able to see WHY it fell.
+    exempt_note = (f" (+{exempted} closed issue(s) of archived milestone(s) "
+                   f"exempted)" if exempted else "")
     detail = (f"{len(items)} orphan issue(s)" if items
-              else f"{len(issues)} issue(s), no orphans")
+              else f"{len(issues)} issue(s), no orphans") + exempt_note
     return {"id": "orphans", "status": "warn" if items else "ok",
             "detail": detail, "items": items}
 
@@ -2816,7 +2926,8 @@ def main():
         check_phase_complete_open(issues, completed_set, disk_done,
                                   milestone, closed_n, closed_phases,
                                   disk_reasons, close_failures),
-        check_orphans(issues, roadmap_phases),
+        check_orphans(issues, roadmap_phases,
+                      archived_milestones(planning_dir)),
         check_label_pairs(issues, milestone, fixed, fix_error),
         check_claims_stale(issues, milestone, active_phase),
         check_bd_doctor(root),
