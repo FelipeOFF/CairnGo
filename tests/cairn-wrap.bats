@@ -477,6 +477,30 @@ PY
   assert_json_eq "$output" '.missing_pages | length' '0'
 }
 
+@test "/cairn:help derives its wrapper list instead of transcribing one" {
+  # The help map is the page users read most, and it is hand-written ASCII —
+  # exactly the shape that ages. It must DELEGATE the wrapper list rather than
+  # carry a copy of it.
+  local file="$CAIRN_REPO_ROOT/cairn/commands/help.md"
+  grep -qF 'cairn-wrap.sh" list' "$file"
+
+  # And it must not have transcribed the list: no wrapper name may appear in
+  # the hand-written map block. Deleting the delegation and pasting thirteen
+  # lines in fails here.
+  local mapblock="$BATS_TEST_TMPDIR/help.map"
+  awk '/^```text/{f=1;next} /^```/{f=0} f' "$file" > "$mapblock"
+
+  run bash "$WRAP" list --commands-dir "$CAIRN_REPO_ROOT/cairn/commands" --json
+  [ "$status" -eq 0 ]
+  local count i name
+  count="$(jq -r '.wrappers | length' <<<"$output")"
+  local listing="$output"
+  for ((i = 0; i < count; i++)); do
+    name="$(jq -r ".wrappers[$i].command" <<<"$listing")"
+    refute_in_file "/cairn:$name" "$mapblock"
+  done
+}
+
 @test "the real command reference states no hand-written total" {
   # The direct guard against the measured defect: this page said "22 in total"
   # with 25 commands on disk, and doctor.md said "fifteen checks" with sixteen
