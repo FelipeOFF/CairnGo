@@ -61,10 +61,13 @@ está ao fim dela.
 
 1. O modelo carrega, por milestone aberto, suas fases; e o trabalho sem milestone
    num grupo próprio, ordenado por último.
+
 2. Um repositório sem milestone aberto produz zero grupos de milestone e um grupo
    de trabalho solto — nunca um grupo nomeado com o último ciclo arquivado.
+
 3. `--json` ganha a estrutura de grupos sem que nenhuma chave existente mude de
    nome, de tipo ou de significado; a suíte atual passa sem edição.
+
 4. Um teste renderiza o board antes e depois da fase e prova que a saída é
    **byte a byte idêntica** — a mudança é de modelo, não de superfície.
 
@@ -125,13 +128,16 @@ duas ficam vazias. Esta fase troca a forma: uma lista, agrupada pelo modelo da f
 
 1. Nenhum título é truncado em nenhuma largura de terminal em que a linha caiba, e
    um teste prova isso com um título longo de verdade.
+
 2. Os símbolos de etapa são todos de largura simples. **Medido no discuss e não
    presumido:** `○` (U+25CB), `◑` (U+25D1) e `◆` (U+25C6) são
    `east_asian_width=A`, ou seja largura 2 em terminal com locale CJK, e por isso
    foram descartados. O conjunto adotado é `◌ ◔ ◕ ✓ ⧗`, todos `N`. Um teste afirma
    a propriedade por `unicodedata`, não pela aparência.
+
 3. `--ascii` produz um conjunto equivalente sem nenhum caractere fora de ASCII, e
    as colunas fecham alinhadas nos dois modos.
+
 4. Uma linha bloqueada nomeia o bloqueador na própria linha, sem exigir um segundo
    comando para descobrir quem é.
 
@@ -159,11 +165,14 @@ atual.
 
 1. `--plain` é byte a byte o que é hoje, provado contra uma saída de referência
    commitada — o contrato externo não se move.
+
 2. Sem TTY e sem flag, a saída é a lista agrupada em texto puro: sem box-drawing,
    sem sequência ANSI, e legível por humano.
+
 3. O cabeçalho nomeia o milestone aberto, e diz que não há nenhum quando não há.
    Um teste arquiva um milestone e afirma que o board para de citá-lo — o caso real
    medido em 2026-08-03, dez minutos após o arquivamento do v1.4.
+
 4. `tests/cairn-status.bats:208` afirma hoje que `--plain` é **byte a byte
    idêntico** ao default de não-TTY. Esse teste é o contrato do acoplamento que
    esta fase desfaz: ele é **reescrito em duas asserções separadas**, nunca
@@ -200,10 +209,13 @@ sinal que o v1.4 existiu para eliminar.
 
 1. `not-applicable` é um estado distinto de `ok` no `--json` e no resumo, e a linha
    final do doctor conta os dois separadamente em vez de somá-los.
+
 2. Um repositório com roadmap vazio produz zero `ok` nas três checagens acima e
    três `not-applicable`, e o board **não** lê como saudável.
+
 3. `orphans` para de sinalizar issue fechada de milestone arquivado (`CairnGo-xhy`);
    um teste arquiva um ciclo e afirma que a contagem zera em vez de crescer.
+
 4. Cada checagem que ganhar o estado novo diz, na sua própria mensagem, **o que**
    faltou para ela poder checar.
 
@@ -230,8 +242,10 @@ até alguém notar.
 
 1. `/cairn:init` pergunta a linguagem e grava a escolha, com inglês como default
    explícito — nunca um default implícito por omissão.
+
 2. Um teste lê o valor **no ponto de entrega ao subagente**, não na config: provar
    que o arquivo tem a chave não prova que o agente a recebeu.
+
 3. Um projeto já instalado não é alterado sem pedido; rodar o init de novo é
    idempotente e não sobrescreve escolha existente.
 
@@ -261,10 +275,13 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
 
 1. Cada um dos três tem um teste que reproduz o defeito **antes** do conserto, com a
    medição original citada no próprio teste.
+
 2. O campo `status` do `cairn-release --json` ou passa a significar "está correto",
    ou é renomeado para o que de fato significa — nunca fica ambíguo.
+
 3. Nenhum dos consertos muda o código de saída de um caminho que hoje é verde
    legitimamente.
+
 4. **FIX-04, achado no pré-flight deste ciclo:** a fase 26 aparece como "waits on
    phase 9", um ciclo arquivado dois milestones atrás. Dois defeitos somados em
    `cairn-status.py` — `dep_target_ids()` coleta toda aresta de `dependencies` sem
@@ -297,9 +314,11 @@ a mais independente de todas — nada depende dela e ela não depende de nada.
 
 1. Cada wrapper existe, delega ao comando GSD correspondente, e faz claim/close das
    issues bd da fase ativa como os comandos existentes já fazem.
+
 2. Um wrapper cujo comando GSD correspondente não existe **falha nomeando o que
    falta**. Sair 0 em silêncio é o defeito que o v1.2 encontrou e que este projeto
    não repete.
+
 3. A lista na documentação é derivada do que está instalado, não escrita à mão — uma
    lista manual envelhece e passa a mentir sozinha.
 
@@ -327,6 +346,7 @@ agora, é saber para onde a coisa vem andando.
 
 1. Um comando de leitura mostra a evolução da discordância entre fontes ao longo dos
    milestones arquivados.
+
 2. Todo número vem de artefato arquivado; nenhum é digitado à mão em lugar nenhum.
 3. Com dado insuficiente o comando **diz isso** e não desenha uma linha — uma
    tendência sobre dois pontos é ruído com aparência de sinal.
@@ -357,8 +377,10 @@ fase começa por essa pesquisa e só depois escreve código.
 1. A alternativa de hash-chain é decidida **antes** de qualquer implementação, com o
    que foi medido escrito — e se a conclusão for que não vale, isso também é
    resultado e a fase entrega a decisão em vez de código.
+
 2. Dois journals divergentes de máquinas diferentes são mesclados sem reordenar e
    sem perder registro, provado por teste que constrói a divergência.
+
 3. Apagar o journal continua não mudando veredito nenhum. A propriedade que o v1.4
    travou — o journal explica história e nunca é autoridade sobre o presente —
    sobrevive a ele virar versionado.
@@ -406,6 +428,7 @@ Nada nesta fase cruza essa linha.
    e é idempotente, porque rodar duas vezes é o caso normal num loop autônomo. Um
    teste roda a fase inteira do bookkeeping contra um fixture e compara com o
    resultado esperado; nenhuma edição manual sobrevive nos comandos.
+
 2. O Jira é **detectado, confirmado e então configurado pelo cairn** — o fluxo é
    híbrido de propósito: detectar sozinho e configurar sozinho seria adivinhar
    sobre a ferramenta de outra pessoa; pedir configuração é o pecado que esta fase
@@ -416,10 +439,12 @@ Nada nesta fase cruza essa linha.
    a partir do "sim" grava tudo sozinho. O usuário confirma, e nunca digita chave,
    projeto nem credencial. Um projeto sem sinal nenhum jamais é perguntado, e um
    "não" é gravado com a mesma força de um "sim".
+
 3. Um card associado a uma fase ou issue aparece no board **sem chamada de rede no
    caminho padrão** — o vínculo mora no `external_ref` do bd e no roadmap, e buscar
    título ou status no Jira ao vivo é opcional e atrás de flag. O board offline
    continua offline.
+
 4. A suíte roda em paralelo quando o ambiente permite. Medido em 2026-08-03:
    `bats -j 6 tests/cairn-map.bats` leva 33s contra 64s serial, porque cada teste
    constrói um repo git e um banco bd e o gargalo é setup, não CPU. Quando o
@@ -434,6 +459,7 @@ Nada nesta fase cruza essa linha.
    rodou, reportada como falha de infraestrutura em vez de suíte vazia. O critério
    passa a ser: o cairn detecta a ausência **antes** de invocar o bats, e diz que
    vai rodar serial — nunca deixa o bats executar zero testes.
+
 5. **Nada valida a cadeia do registro de requisitos, e por isso ela derivou.**
    Medido em 2026-08-03 neste próprio repositório: **33** requisitos ativos em
    `REQUIREMENTS.md`, **31** linhas na tabela de Cobertura do ROADMAP (faltam
@@ -465,6 +491,7 @@ Nada nesta fase cruza essa linha.
    nasceram no meio do planejamento da própria fase. Eles ficam registrados como
    medição datada; a regra é **re-medir na execução**, e nenhum plano carimba esses
    números em teste.
+
 6. O cairn ganha config própria, com **duas portas para o mesmo lugar**: perguntada
    como o `/gsd:config` pergunta, e editável à mão no `.json`. Hoje o GSD expõe mais
    de trinta chaves e o cairn **zero** — o que existe está espalhado entre
@@ -473,6 +500,7 @@ Nada nesta fase cruza essa linha.
    teto de ciclos e de laços do run autônomo. Um teste altera uma chave pela
    pergunta e lê o efeito **no ponto de consumo**, não no arquivo — ter a chave
    gravada não prova que alguém a lê.
+
 7. **O `STATE.md` fala um dialeto e o cairn lê outro, e a checagem que deveria
    perceber isso está morta há o projeto inteiro.** Medido em 2026-08-03:
    `grep -rn current_phase cairn/` devolve **zero**, enquanto `active_phase` é lido
@@ -511,15 +539,15 @@ preferência de sequência é o cálculo errado.
 wrappers existirem. Ordem de execução e número de fase são coisas diferentes, e este
 roadmap passa a demonstrar isso.
 
-**Plans:** 7 plans
+**Plans:** 6/7 plans executed
 
-- [ ] 29-01-PLAN.md — congela a discordância real como fixture e lê os três arquivos sem pressupor consistência
-- [ ] 29-02-PLAN.md — o caminho de escrita completo: fase, requisitos, tabela, rodapé, contadores, mapa e lease num comando
-- [ ] 29-03-PLAN.md — config própria do cairn, duas portas, e nenhuma chave sem leitor executável
-- [ ] 29-04-PLAN.md — o detector de Jira para de mentir, e o cairn pergunta uma vez e grava sozinho
+- [x] 29-01-PLAN.md — congela a discordância real como fixture e lê os três arquivos sem pressupor consistência
+- [x] 29-02-PLAN.md — o caminho de escrita completo: fase, requisitos, tabela, rodapé, contadores, mapa e lease num comando
+- [x] 29-03-PLAN.md — config própria do cairn, duas portas, e nenhuma chave sem leitor executável
+- [x] 29-04-PLAN.md — o detector de Jira para de mentir, e o cairn pergunta uma vez e grava sozinho
 - [ ] 29-05-PLAN.md — o card do rastreador no board, com prova executável de que nada toca a rede
-- [ ] 29-06-PLAN.md — a suíte roda em paralelo quando dá, e detecta a ausência do parallel antes de invocar o bats
-- [ ] 29-07-PLAN.md — `req-ledger`, e o fim do `ok` sobre checagem que não conseguiu checar
+- [x] 29-06-PLAN.md — a suíte roda em paralelo quando dá, e detecta a ausência do parallel antes de invocar o bats
+- [x] 29-07-PLAN.md — `req-ledger`, e o fim do `ok` sobre checagem que não conseguiu checar
 
 **Ondas:** 1 → 29-01, 29-03 · 2 → 29-02, 29-06 · 3 → 29-04, 29-07 · 4 → 29-05.
 O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`, e
@@ -579,6 +607,7 @@ Depois dela, só duas arestas reais no ciclo inteiro:
 
 - **20 → 21 → 22**, a corrente do board. O modelo antes do render, o render antes do
   caminho não-TTY que o emite.
+
 - **23 → 27**, porque uma série temporal que não distingue "não-aplicável" de "ok"
   mede a própria cegueira.
 

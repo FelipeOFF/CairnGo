@@ -63,7 +63,7 @@ o que está respondendo não conta como pronta.
 ### Nada mecânico continua manual (AUTO)
 
 - [ ] **AUTO-01**: O bookkeeping de fim de fase — marcar a fase completa, marcar seus requisitos completos, mexer os contadores do STATE, atualizar o mapa, liberar o lease — é **um comando**, e nenhuma dessas edições volta a ser feita à mão
-- [ ] **AUTO-02**: O Jira é **detectado, confirmado e então configurado pelo cairn** — híbrido: ele procura o MCP do Atlassian e chaves `ABC-123` em branch e commits, mostra o que achou, pergunta **uma vez**, e a partir do "sim" grava a configuração sozinho. O usuário confirma; nunca digita chave, projeto ou credencial
+- [x] **AUTO-02**: O Jira é **detectado, confirmado e então configurado pelo cairn** — híbrido: ele procura o MCP do Atlassian e chaves `ABC-123` em branch e commits, mostra o que achou, pergunta **uma vez**, e a partir do "sim" grava a configuração sozinho. O usuário confirma; nunca digita chave, projeto ou credencial
 - [ ] **AUTO-03**: Um card do Jira associado a uma fase ou a uma issue aparece no board sem que o caminho padrão faça chamada de rede
 - [ ] **AUTO-04**: A suíte roda em paralelo quando o ambiente permite, e diz claramente quando não permite em vez de rodar serial em silêncio
 - [ ] **AUTO-05**: O cairn tem config própria, perguntada como o GSD pergunta **e** editável à mão no `.json` — as duas portas para o mesmo lugar, nunca só uma
