@@ -125,17 +125,65 @@ Behavior:
        list and the model falls silent — zero milestone groups, every issue
        in the unphased group — which is the correct failure mode, and the
        reason the rule is written to fall that way rather than to guess.
-    5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
-       gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
-       list (< 40 cols). Non-TTY without an output flag: --plain
-       automatically (gh model — zero escape bytes, tab-separated,
-       untruncated). --width N forces the board renderer at that width
-       (deterministic for tests and pipes); --color=always likewise opts
-       into the board renderer when piped, so the flag is never silently
-       ignored (--ascii alone does not force it). All bd/STATE.md text is
-       passed through clean(), which strips C0/C1 control bytes — titles
-       from remote trackers can't inject escape sequences or forge rows.
-    5b. Below the columned/stacked board, `phase_panel_lines()` prints a
+    5. Render. TTY: ONE grouped list, at every width. The hierarchy is the
+       step-4 `groups` model read straight down — open milestone, then its
+       phases in roadmap order, then that phase's tasks, with `unphased`
+       last so work nobody routed is visible instead of lost. There is no
+       width degrade: three columns did not fit a narrow terminal and one
+       column fits any, so the columns/stacked/raw ladder (>= 64 / >= 40 /
+       < 40 cols) that stood here until Phase 21 had nothing left to solve
+       and went out with the renderers it chose between.
+
+       Row shape. A stage symbol of exactly ONE cell, then the key (phase
+       number or issue id) padded to the widest key AMONG THE VISIBLE ROWS,
+       then the body. The title is never truncated: it wraps per cell with
+       the continuation aligned under the body, and a single token wider
+       than the column overflows rather than being split — a cut token is
+       a lie about the title, an overflowing one is the terminal's own
+       wrap. Below NARROW_BODY cells of body room the row stops trying to
+       sit the body beside the key and drops it to its own indented lines
+       (MEASURED at --width 30 with an 11-cell id: 9 cells inline versus 22
+       stacked; nothing is truncated either way, so this is a legibility
+       decision and it carries its own test). Each bucket is capped at
+       --max-rows with a dim `+k more`, and the counts line at the top is
+       the same text `--brief` prints.
+
+       MEASURED 2026-08-05 (unicodedata.east_asian_width): the five stage
+       symbols `◌ ◔ ◕ ✓ ⧗` are all `N` — one cell in every locale. `○`
+       U+25CB, `◑` U+25D1 and `◆` U+25C6 were the obvious candidates and
+       all three are `A`: one cell in a Latin locale, TWO in a CJK one.
+       char_width() returns 2 only for W and F, so an `A` symbol counts 1
+       here and draws 2 there, and this script cannot tell the difference
+       (it reads no locale, and inventing that read would be inventing a
+       source of truth). The defense is to not use `A` at all.
+
+       MEASURED 2026-08-05, and NOT fixed here: the `A`-width glyphs that
+       REMAIN in this file outside the stage symbols — `▶` (g_next), `◆`
+       (g_who), `·` (g_stale and sep) and `…` (ell). The board still
+       misaligns in a CJK locale because of them. Recorded as a finding
+       with an issue, not silently absorbed.
+
+       ASSUMED, not proved: that one issue reaches the list at most twice
+       (once in_progress, once blocked), because `bd list --status
+       in_progress` and `bd blocked` are independent queries. The FIFO in
+       group_rows() does not depend on the number — the assumption is only
+       about what is observed in practice.
+
+       DELIBERATE: a phase row never carries the blocked symbol. A phase is
+       not blocked by the same mechanism an issue is, and FIX-04 (phase
+       25's repair) is where "archived phase counted as complete" gets
+       fixed; borrowing the blocked glyph here would encode a state this
+       model does not actually compute.
+
+       Non-TTY without an output flag: --plain automatically (gh model —
+       zero escape bytes, tab-separated, untruncated). --width N forces the
+       board renderer at that width (deterministic for tests and pipes);
+       --color=always likewise opts into the board renderer when piped, so
+       the flag is never silently ignored (--ascii alone does not force
+       it). All bd/STATE.md text is passed through clean(), which strips
+       C0/C1 control bytes — titles from remote trackers can't inject
+       escape sequences or forge rows.
+    5b. Below the grouped list, `phase_panel_lines()` prints a
        PENDING PHASES table (`#`, `phase`, `state`, `rsch`, `plans`, `issues`,
        `verify`, `waits`, `next` — the same step-4d/4c fields the HTML page
        renders) and a PURPOSE list keyed by phase number, each line pairing
@@ -148,6 +196,16 @@ Behavior:
        `phase: None` pair (`/cairn:ship`, `/cairn:milestone complete`) prints
        there with no phase-number prefix, so the terminal never shows less
        than `--json` or the HTML page.
+
+       An unresolved tension, recorded rather than papered over (D-08 of
+       the Phase 21 context): step 5 promises a task title is never cut,
+       and this table still cuts a PHASE title — at --width 50 the `phase`
+       column comes out as a bare `…`. The table is fixed-width by design
+       and MEASURED 2026-08-05 it has a floor of 92 cells, so it overflows
+       at EVERY width from 64 to 90 as well — including widths that were
+       already on the wide path before Phase 21, which is what makes this a
+       pre-existing defect of this function rather than a cost of the
+       grouped list. No criterion of Phase 21 reaches it; it has an issue.
     6. When .cairn/sync.json exists, append a sync-staleness line from the
        last-pull watermarks in .cairn/state.json (missing or older than 24h
        → suggest /cairn:sync-pull).
@@ -183,8 +241,12 @@ Behavior:
                 truncation
     --brief     three lines: position, counts, next action
     --width N   render the board at N columns (overrides terminal size)
-    --max-rows N  cap rows per lane (default 15); overflow shows "+k more"
-    --ascii     +-| borders and "..." (also automatic on non-UTF-8 stdout)
+    --max-rows N  cap rows per bucket (default 15); overflow shows "+k more".
+                Per BUCKET since Phase 21, not per lane: the cap follows the
+                thing the list actually groups by
+    --ascii     one-character stage symbols and "..." (also automatic on
+                non-UTF-8 stdout). The +-| border set it used to swap in
+                went out with the box-drawing renderer
     --color     always|never; default: auto. Precedence: --color >
                 CAIRN_NO_COLOR > NO_COLOR (present and non-empty, even "0")
                 > TERM=dumb > isatty(stdout). `always` also opts a piped
@@ -2218,9 +2280,12 @@ def render_groups(data, width, max_rows, style):
         prefix_w = sum(display_width(t) for t, _ in prefix)
         if width - prefix_w < NARROW_BODY:
             # Too narrow to sit the body beside the id: the id keeps its own
-            # line and the body drops below it, hanging off CONT_INDENT.
-            # Nothing is lost either way — this is the same bytes in a shape
-            # a 30-column terminal can actually read.
+            # line and the body drops below it, hanging two cells past this
+            # row's own indent. Nothing is lost either way — these are the
+            # same bytes in a shape a 30-column terminal can actually read.
+            # The hang is deliberately 2 past the row indent and not the
+            # body column: at these widths the body column IS most of the
+            # line, so aligning to it would leave nowhere to wrap into.
             lines.append(render_spans(prefix, style).rstrip())
             hang = indent + "  "
             hang_w = display_width(hang)
