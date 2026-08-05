@@ -95,6 +95,13 @@ from `make_board_fixture`. `tests/cairn-board-invariance.bats` compares the
 live render against them byte for byte — that is how a phase can claim it
 changed the model and moved nothing on screen.
 
+And it cuts the other way too. Phase 21 changed the render on purpose, so
+three of the seven had to move; what the reference bought there was that the
+change could not happen in silence. The rule that follows is the same rule
+from the other side: regenerating is an act you perform after reading the
+diff and writing down what moved in each file and why, never a step you take
+to make a red test go green.
+
 Regenerate them **only** when a render change is intentional and reviewed:
 
 ```

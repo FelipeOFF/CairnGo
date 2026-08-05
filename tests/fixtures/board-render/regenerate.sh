@@ -46,7 +46,12 @@ render w100     --width 100
 render w50      --width 50
 render w38      --width 38
 render ascii100 --width 100 --ascii
-render maxrows  --width 100 --max-rows 2
+# --max-rows 1, not 2: Phase 21 moved the cap from a LANE to a BUCKET, and
+# the biggest bucket this fixture builds holds two issues. At --max-rows 2
+# nothing overflows and this file comes out byte-identical to w100.txt,
+# which is the exact "the reference became noise" trap plan 20-01 wrote
+# down when it chose the value in the first place.
+render maxrows  --width 100 --max-rows 1
 render plain    --plain
 render brief    --brief
 
