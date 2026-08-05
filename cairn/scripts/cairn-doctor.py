@@ -16,7 +16,7 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — seventeen
+                        version output -> WARN. Runs first — eighteen
                         checks in total.
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
@@ -25,6 +25,17 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         (issues from other milestones are ignored;
                         m-*-less legacy issues count, same semantics as
                         cairn-gate). Missing -> FAIL.
+                        WHERE IT STOPS, measured 2026-08-04: it can only
+                        count the ids it manages to READ off a phase's
+                        '**Requirements**:' line, so in this repo it
+                        reported `ok :: 29 requirement(s) mapped to
+                        issues` against 35 active requirements —
+                        ROADMAP.md:400 reads '**Requirements**: AUTO-01 …
+                        AUTO-08' and an ellipsis is prose, not a
+                        separator, so six ids never entered the count.
+                        Not a mapping bug: the limit of the source it
+                        reads, and exactly the limit check 17
+                        (req-ledger) covers.
     2. frontmatter-ids  every id in a non-superseded PLAN.md's 'beads:'
                         frontmatter exists in bd and carries the plan's
                         phase-<N> label. Dangling id or wrong label -> FAIL.
@@ -251,6 +262,50 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         15, since a wired repo has no cairn bats suite to
                         run. A non-zero exit or unparsable JSON from
                         cairn-test.py degrades to WARN.
+    17. req-ledger      (AUTO-07) the requirement ledger's own chain, the
+                        one nothing was validating: every ACTIVE
+                        requirement has a row in the coverage table, the
+                        table's row count is the number the coverage
+                        footer claims, each phase's '**Requirements**:'
+                        line actually yields the ids the ledger assigns
+                        it, and a plan whose SUMMARY is on disk has its
+                        ROADMAP checkbox ticked. Requirements under
+                        `## Deferred` / `## Out of Scope` are outside the
+                        table BY RULE and never counted as gaps — the
+                        detail says how many were excluded that way,
+                        because an unexplained absence is the same defect
+                        pointing the other way. Read by shelling out to
+                        cairn-bookkeep.py `reconcile --json` through the
+                        CAIRN_BOOKKEEP seam (same pattern as checks 3, 15,
+                        16); the ledger is NEVER re-parsed here, since a
+                        second reader is a fifth number for one quantity.
+                        WHERE IT STOPS vs check 1: check 1 goes
+                        requirement -> bd issue and can only count the ids
+                        it manages to read; this one goes active
+                        requirement -> coverage row -> footer claim, and
+                        covers the legibility of the very line check 1
+                        reads. Measured 2026-08-04 in this repo: 35 active
+                        requirements, 33 coverage rows (AUTO-05 and
+                        AUTO-06 have none), a footer still claiming '29
+                        requisitos, 29 mapeados.', and check 1 reporting
+                        29 from an unrelated cause — three numbers for one
+                        quantity, two wrong, meeting at 29 by accident,
+                        both wearing a green check. A broken link -> FAIL
+                        (exit 7), routed by name to `cairn-bookkeep.sh
+                        reconcile --apply`. A disagreement reconcile names
+                        OUTSIDE these links (STATE.md's counters and its
+                        free-text narrative) is surfaced as WARN and never
+                        spends exit 7 on a check called req-ledger. No
+                        coverage view at all (no '## Cobertura' in
+                        ROADMAP.md, no '## Traceability' in
+                        REQUIREMENTS.md) -> ok, not applicable, the same
+                        semantics checks 15/16 use, since the doctor runs
+                        in USERS' repos. The ledger being UNREADABLE
+                        (script gone, exit outside the (0, 3) allowlist,
+                        unparsable JSON) -> FAIL, never WARN: a warning
+                        does not change the exit code, so degrading here
+                        would leave the doctor exiting 0 over a ledger
+                        nobody read. Writes nothing.
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-

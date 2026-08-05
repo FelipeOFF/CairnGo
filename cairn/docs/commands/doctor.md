@@ -181,9 +181,62 @@ this routine health-check flow — see its own section below.
      never a doctor failure. Shells to `cairn-lease.py status --all
      --json`; a non-zero exit or unparsable JSON degrades this check to a
      warn rather than crashing the doctor run.
+   - **release-versions** (✗) — the plugin version's carriers disagree
+     (`cairn/.claude-plugin/plugin.json` `version`,
+     `.claude-plugin/marketplace.json` **nested** `metadata.version`, the
+     first released CHANGELOG heading, the `v<version>` git tag) → run
+     `cairn-release.sh check` and align the carrier named in the item.
+     Applies only inside cairn's own repo; a wired repo carries none of
+     those manifests and reads ok/not applicable.
+   - **test-parallel** (⚠) — this machine cannot run the bats suite in
+     parallel (GNU `parallel`, or `flock`/`shlock`, missing) → install what
+     the item names. Never fails the run: a slow suite is friction, not a
+     state inconsistency. Applies only inside cairn's own repo.
+   - **req-ledger** (✗; ⚠ outside its own links) — the requirement ledger's
+     chain disagrees with itself: an **active** requirement with no row in
+     the coverage table, a coverage **footer** claiming a different number
+     than the table holds, a phase whose `**Requirements**:` line does not
+     yield the ids the ledger assigns it, or a plan whose `SUMMARY.md` is
+     on disk while its ROADMAP checkbox still reads `- [ ]` → run
+     `cairn-bookkeep.sh reconcile --apply` (reading is the default; the
+     writing sits behind that flag). Requirements under `## Deferred` or
+     `## Out of Scope` are outside the table **by rule** and are never
+     counted as gaps — the detail line says how many were excluded that
+     way, because an unexplained absence is the same defect facing the
+     other direction.
+
+     **Where it stops, and where `req-issue` stops.** `req-issue` (check 1)
+     goes requirement → **bd issue**, and it can only count the ids it
+     manages to *read* off a phase's `**Requirements**:` line. `req-ledger`
+     goes active requirement → **row in the coverage table** → **the number
+     the footer claims**, plus the **legibility of that same line** and the
+     **plan checkboxes** of the phase.
+
+     That boundary is not theoretical. Measured 2026-08-04 in this
+     repository: **35** active requirements, **33** coverage rows (`AUTO-05`
+     and `AUTO-06` had none), a footer still reading `29 requisitos, 29
+     mapeados.`, and `req-issue` reporting `ok :: 29 requirement(s) mapped
+     to issues` — because `ROADMAP.md:400` read `**Requirements**: AUTO-01 …
+     AUTO-08` and an ellipsis is prose, not a separator, so six ids never
+     entered its count. Three numbers for one quantity, two of them wrong
+     from unrelated causes that met at 29 by coincidence, both wearing a
+     green check, for days. `req-ledger` is what would have said so.
+
+     The ledger is read **once**, by shelling out to `cairn-bookkeep.py
+     reconcile --json` — the doctor never re-parses it, because a second
+     reader is a fifth number for the same quantity. A disagreement
+     `reconcile` names *outside* these links (STATE.md's counters, its
+     free-text narrative) is surfaced as a **warning** and never spends
+     exit `7` on a check called `req-ledger`. A roadmap with no coverage
+     view at all reads ok/not applicable — the doctor runs in users' repos,
+     and most carry no coverage table. But the ledger being **unreadable**
+     (the script missing, an unexpected exit, unparsable JSON) is a
+     **failure**, never a warning: a warning does not change the exit code,
+     so degrading there would leave the doctor exiting `0` over a ledger
+     nobody managed to read.
 
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — fifteen checks in total.)
+   upgrading bd — eighteen checks in total.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
@@ -219,7 +272,8 @@ cairn doctor — root: ~/Projects/app · milestone: v1.0 · active phase: 3
 ✓ superseded-released ✓ phase-complete-open ✓ orphans
 ✓ label-pairs        ✓ claims-stale        ✓ bd-doctor
 ✓ gsd-capability      ✓ phase-corroboration ✓ phase-artifacts
-✓ external-ref        ✓ lease-stale
+✓ external-ref        ✓ lease-stale         ✓ release-versions
+✓ test-parallel       ✓ req-ledger
 ok (1 warning)
 ```
 
@@ -242,7 +296,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 
 `--apply-reconciliation N` is the human-invoked, separate command that
 applies a semantic-escalation reconciliation proposal `/cairn:reconcile N`
-wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 15 checks
+wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 18 checks
 above and does not run alongside them — it always exits on its own instead
 of falling through to the ordinary report.
 
