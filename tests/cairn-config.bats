@@ -488,6 +488,20 @@ print("identical")
   [ "$status" -eq 0 ]
 }
 
+@test "the /cairn:config command offers the language and says which file wins when the two disagree" {
+  local cmd="$CAIRN_REPO_ROOT/cairn/commands/config.md"
+  [ -f "$cmd" ]
+
+  grep -qF "agents.response_language" "$cmd"
+  # The default has to be named as the default, not left as the first item of
+  # a list — "inglês nunca é o silêncio de uma chave ausente".
+  grep -qF "the default is English" "$cmd"
+  # Breaks if the two doors start telling different stories about precedence,
+  # which is the disagreement the subordination exists to prevent.
+  grep -qF "that value governs" "$cmd"
+  grep -qF "GSD's key outranks this one" "$cmd"
+}
+
 @test "the human render of a propagating set names the other file, and of a non-propagating one says why" {
   make_config_fixture
   write_planning_config

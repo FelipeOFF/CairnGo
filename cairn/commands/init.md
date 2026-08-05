@@ -131,6 +131,50 @@ nagging, then stop (the rest of setup needs bd):
 mkdir -p "$CLAUDE_PLUGIN_DATA" && touch "$CLAUDE_PLUGIN_DATA/bd-install.skip"
 ```
 
+## 3.5. Ask the response language — before anything spawns a subagent
+
+The position of this step is the decision, not a detail. Step 6 hands off to
+`/gsd:new-project`, which **spawns its own subagents** (researcher, synthesizer,
+roadmapper). Asking after that hand-off is asking after the project's first
+subagents already answered in the wrong language. "Chosen at install" means
+before the first subagent, and that is here.
+
+Read the current state from the script, never from memory:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-config.sh" get agents.response_language --json
+```
+
+**If `source` is already `file` or `planning`**, a choice exists. Say which one,
+in one line, and move on — **do not ask, and do not write anything**. An
+installed project is not changed without being asked, and the mechanism for
+that is exactly this: the only door that writes is the question, and the
+question does not open.
+
+**If `source` is `default`**, ask once with `AskUserQuestion`.
+**English is the default, and it is pre-selected and named as such** — never
+offered as merely the first item of a list. Describe the effect rather than the
+key: it is the language every subagent writes its user-facing output in —
+reports, SUMMARY files, the questions it asks you — while code, identifiers,
+file paths and commands stay as they are. Offer the common languages and make
+clear that any language name is accepted; GSD's own schema takes any
+(`references/planning-config.md`: "Any language name").
+
+Then write it:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-config.sh" set agents.response_language "<the answer>"
+```
+
+The script propagates the value into `.planning/config.json:response_language`
+by itself, and only if that file already exists. At this point in a greenfield
+run it does not, so the output will say `planning-config-absent` — that is
+expected, and step 6 is where the same command is run again. **Never write
+`.planning/config.json` yourself here**: `gsd-tools query config-set` creates
+`.planning/` when it is absent, and a `.planning/` holding only `config.json`
+makes step 0's `detect` answer **A** instead of **D**, which would make the
+next run of this very command stop and divert to `/cairn:migrate`.
+
 ## 4. Wire git + beads
 
 Run the bootstrap script (idempotent — safe to re-run):
@@ -155,6 +199,20 @@ the interactive roadmap interview now:
 ```text
 /gsd:new-project
 ```
+
+**As soon as it returns, re-run the language write from step 3.5, unchanged:**
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-config.sh" set agents.response_language "<the same answer>"
+```
+
+`.planning/config.json` exists now, so this time the propagation fires and
+GSD's own `response_language` carries the choice — that key is what GSD's
+workflows read when they spawn their subagents. Same command, same value:
+idempotent by construction, and running it when the value is already there
+changes nothing. If this step is ever skipped, `/cairn:doctor` reports it and
+names this exact command; it is not left to memory.
+
 After the roadmap exists, follow the `cairn` skill: create one bd issue per
 requirement, stamped with the `gsd` metadata and the `m-<milestone>` +
 `phase-<N>` label pair; generate each `NN-BEADS-MAP.md` with
