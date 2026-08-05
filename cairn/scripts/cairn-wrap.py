@@ -485,8 +485,9 @@ def build_block(wrappers, own, doc_text, doc_pages_dir):
 
     total = len(wrappers) + len(own)
     lines = [START_MARKER, HEADER_LINE, ""]
+    verb = "wraps" if len(wrappers) == 1 else "wrap"
     lines.append(
-        f"cairn ships **{total}** commands: **{len(wrappers)}** wrap a "
+        f"cairn ships **{total}** commands: **{len(wrappers)}** {verb} a "
         f"`/gsd:*` command (listed below, derived from each command file's "
         f"`wraps:` frontmatter) and **{len(own)}** are cairn's own (grouped "
         f"above)."

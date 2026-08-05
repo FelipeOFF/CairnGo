@@ -244,3 +244,195 @@ add_cairn_command() {
   grep -qF 'phase-3' "$file"
   grep -qF 'phase-03' "$file"
 }
+
+# ---------------------------------------------------------------------------
+# docs — WRAP-03. The list is derived; the page is a VIEW of the disk.
+# ---------------------------------------------------------------------------
+
+# A doc fixture with hand-written prose on both sides of where the block goes.
+make_doc_fixture() {
+  WRAP_DOC="$(mktemp -d "${BATS_TEST_TMPDIR:-/tmp}/cairn-doc.XXXXXX")/commands.md"
+  mkdir -p "$(dirname "$WRAP_DOC")/commands"
+  cat > "$WRAP_DOC" <<'DOC'
+# Command reference
+
+Hand-written intro that must survive regeneration.
+
+| Command | Description |
+|---|---|
+| [`/cairn:solo`](./commands/solo.md) | a cairn command of its own |
+
+## See also
+
+Hand-written outro that must survive too.
+DOC
+  WRAP_DOC_PAGES="$(dirname "$WRAP_DOC")/commands"
+}
+
+@test "docs: adding a wrapper makes the page list it, with no prose edited" {
+  # THE test for WRAP-03. Swapping the derivation for a literal list makes the
+  # third wrapper never appear, and this fails.
+  make_cairn_commands "alpha:plan-phase:phase" "beta:cleanup:milestone"
+  make_doc_fixture
+
+  run bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES"
+  [ "$status" -eq 0 ]
+  grep -qF '/cairn:alpha' "$WRAP_DOC"
+  grep -qF '/cairn:beta' "$WRAP_DOC"
+
+  # Freeze everything outside the markers, byte for byte.
+  local before_outside="$BATS_TEST_TMPDIR/outside.before"
+  sed '/cairn:generated:start/,/cairn:generated:end/d' "$WRAP_DOC" \
+    > "$before_outside"
+
+  # A wrapper arrives. Nobody edits prose.
+  add_cairn_command "gamma:ui-phase:phase"
+  run bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES"
+  [ "$status" -eq 0 ]
+  grep -qF '/cairn:gamma' "$WRAP_DOC"
+  grep -qF '`/gsd:ui-phase`' "$WRAP_DOC"
+
+  local after_outside="$BATS_TEST_TMPDIR/outside.after"
+  sed '/cairn:generated:start/,/cairn:generated:end/d' "$WRAP_DOC" \
+    > "$after_outside"
+  diff "$before_outside" "$after_outside"
+}
+
+@test "docs --check: a wrapper the page has not seen is stale (3), with a diff" {
+  make_cairn_commands "alpha:plan-phase:phase"
+  make_doc_fixture
+  bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" >/dev/null
+
+  add_cairn_command "gamma:ui-phase:phase"
+  run bash "$WRAP" docs --check --commands-dir "$WRAP_COMMANDS" \
+    --doc "$WRAP_DOC" --doc-pages-dir "$WRAP_DOC_PAGES"
+  [ "$status" -eq 3 ]
+  echo "$output" | grep -qF 'gamma'
+  echo "$output" | grep -qF '+++'
+}
+
+@test "docs --check: current is 0" {
+  # Without this pair, the test above would pass against a --check that always
+  # exits 3.
+  make_cairn_commands "alpha:plan-phase:phase"
+  make_doc_fixture
+  bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" >/dev/null
+
+  run bash "$WRAP" docs --check --commands-dir "$WRAP_COMMANDS" \
+    --doc "$WRAP_DOC" --doc-pages-dir "$WRAP_DOC_PAGES"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs: everything outside the markers survives, and the block is placed once" {
+  make_cairn_commands "alpha:plan-phase:phase"
+  make_doc_fixture
+  bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" >/dev/null
+
+  grep -qF 'Hand-written intro that must survive regeneration.' "$WRAP_DOC"
+  grep -qF 'Hand-written outro that must survive too.' "$WRAP_DOC"
+  grep -qF '/cairn:solo' "$WRAP_DOC"
+  [ "$(grep -c 'cairn:generated:start' "$WRAP_DOC")" -eq 1 ]
+  [ "$(grep -c 'cairn:generated:end' "$WRAP_DOC")" -eq 1 ]
+
+  # A second run must not append a second block.
+  bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" >/dev/null
+  [ "$(grep -c 'cairn:generated:start' "$WRAP_DOC")" -eq 1 ]
+}
+
+@test "docs: a no-op run writes nothing — measured by sha256 AND mtime" {
+  # A byte-identical rewrite is still a write. cairn-bookkeep.py set this bar.
+  make_cairn_commands "alpha:plan-phase:phase"
+  make_doc_fixture
+  bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" >/dev/null
+
+  local sha1 mtime1 sha2 mtime2
+  sha1="$(shasum -a 256 "$WRAP_DOC" | cut -d' ' -f1)"
+  mtime1="$(stat -f %m "$WRAP_DOC" 2>/dev/null || stat -c %Y "$WRAP_DOC")"
+  sleep 1
+  bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" >/dev/null
+  sha2="$(shasum -a 256 "$WRAP_DOC" | cut -d' ' -f1)"
+  mtime2="$(stat -f %m "$WRAP_DOC" 2>/dev/null || stat -c %Y "$WRAP_DOC")"
+
+  [ "$sha1" = "$sha2" ]
+  [ "$mtime1" = "$mtime2" ]
+}
+
+@test "docs: a command with no row anywhere is NAMED, and the warning clears" {
+  # This is how /cairn:config and /cairn:reconcile stayed invisible for weeks.
+  # A generator that quietly omitted them would have preserved that.
+  make_cairn_commands "alpha:plan-phase:phase" "ghost::"
+  make_doc_fixture
+
+  run bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" --json
+  [ "$status" -eq 0 ]
+  # `solo` is a link with no command file — that is the ORPHAN direction, not
+  # this one. `ghost` is a command file with no link, which is what
+  # /cairn:config and /cairn:reconcile were.
+  assert_json_eq "$output" '[.undocumented[]] | join(",")' 'ghost'
+  grep -qF 'Not documented: `/cairn:ghost`' "$WRAP_DOC"
+
+  # Give both a row in the hand-written table; the warning goes on its own.
+  python3 - "$WRAP_DOC" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+row = "| [`/cairn:ghost`](./commands/ghost.md) | a real row |\n"
+s = s.replace("| [`/cairn:solo`](./commands/solo.md) | a cairn command of its own |\n",
+              "| [`/cairn:solo`](./commands/solo.md) | a cairn command of its own |\n" + row)
+open(p, "w").write(s)
+PY
+  run bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.undocumented | length' '0'
+  refute_in_file 'Not documented' "$WRAP_DOC"
+}
+
+@test "docs: a doc page for no installed command is NAMED as an orphan" {
+  make_cairn_commands "alpha:plan-phase:phase"
+  make_doc_fixture
+  touch "$WRAP_DOC_PAGES/ancient.md"
+
+  run bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.orphan_pages[]] | join(",")' 'ancient'
+  grep -qF 'Orphan page: `commands/ancient.md`' "$WRAP_DOC"
+}
+
+# ---------------------------------------------------------------------------
+# The real page. These are the guards that keep it from ageing again.
+# ---------------------------------------------------------------------------
+
+@test "the real command reference is current, and documents every command" {
+  run bash "$WRAP" docs --check --commands-dir "$CAIRN_REPO_ROOT/cairn/commands" \
+    --doc "$CAIRN_REPO_ROOT/cairn/docs/commands.md" \
+    --doc-pages-dir "$CAIRN_REPO_ROOT/cairn/docs/commands"
+  [ "$status" -eq 0 ]
+
+  run bash "$WRAP" docs --check --json \
+    --commands-dir "$CAIRN_REPO_ROOT/cairn/commands" \
+    --doc "$CAIRN_REPO_ROOT/cairn/docs/commands.md" \
+    --doc-pages-dir "$CAIRN_REPO_ROOT/cairn/docs/commands"
+  assert_json_eq "$output" '.undocumented | length' '0'
+}
+
+@test "the real command reference states no hand-written total" {
+  # The direct guard against the measured defect: this page said "22 in total"
+  # with 25 commands on disk, and doctor.md said "fifteen checks" with sixteen
+  # registered. A digit followed by "in total" outside the generated block is
+  # a number nobody validates.
+  local outside="$BATS_TEST_TMPDIR/commands.outside"
+  sed '/cairn:generated:start/,/cairn:generated:end/d' \
+    "$CAIRN_REPO_ROOT/cairn/docs/commands.md" > "$outside"
+  refute_in_file ' in total' "$outside"
+}
