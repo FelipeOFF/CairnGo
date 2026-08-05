@@ -156,7 +156,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-parallel.sh" prepare "$N" --json
 once per phase in `selected[]`. It creates the worktree `batch` already named
 (`<repo>-phase-<N>`, on branch `phase/<N>-<slug>`), takes that phase's lease
 pointing **at** that worktree, and prints `worktree`, `branch`, `base_commit`,
-the resulting `lease.holder` and `planning_files_forbidden`.
+the resulting `lease.holder`, `planning_files_forbidden` and
+`response_language`.
 
 Exit 3 means a live holder already owns the phase: report the holder and the
 time from the output, drop that one phase from the batch, and **carry on with
@@ -175,7 +176,7 @@ Spawn the subagents together, one per prepared phase, so they actually run
 concurrently. This is the step the announcement exists to precede.
 
 <!-- SUBAGENT-PROMPT-BEGIN -->
-Each subagent's prompt carries all five of these, literally:
+Each subagent's prompt carries all six of these, literally:
 
 - **Where it works.** The absolute worktree path and the branch name, copied
   from that phase's `prepare` output. Every command runs with that worktree as
@@ -199,6 +200,13 @@ Each subagent's prompt carries all five of these, literally:
   the bd ids closed — plus any step that failed and why. The report is
   narrative; nothing in moment 4 depends on it for a path, a branch name or a
   file list, all of which are discovered from git.
+- **What language it answers in.** The `response_language` from that phase's
+  `prepare` output, copied literally — read from the output, never remembered
+  and never inferred from the repository. Every user-facing line the subagent
+  writes goes in that language: its report back, the SUMMARY it produces, any
+  question it asks. Code, identifiers, file paths, commands and bd ids stay
+  exactly as they are. A `null` value means `prepare` could not read the
+  config: say so in the announcement instead of guessing a language.
 <!-- SUBAGENT-PROMPT-END -->
 
 **The failure of one parallel phase does not stop the others.** Report it with
