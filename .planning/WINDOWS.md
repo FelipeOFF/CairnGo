@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 0
 waived_count: 0
-fixed_count: 0
+fixed_count: 1
 total_count: 1
-last_updated: 2026-08-04T01:44:05.715Z
+last_updated: 2026-08-05T01:41:10.738Z
 ---
 
 # Broken Windows Ledger
@@ -15,7 +15,7 @@ last_updated: 2026-08-04T01:44:05.715Z
 
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
-| 1 | 29 | todo | cairn/scripts/cairn-config.py |  | Tres chaves entraram no schema com leitor NOMEADO mas ainda nao implementado (bookkeep.auto_commit, ship.pr_scope -> 29-02; test.jobs -> 29-06). Se o ciclo fechar com alguma delas nao lida, a chave deve ser apagada — e o estado exato do cairn.sync_push. | open |  | 2026-08-04T01:44:05.715Z |  |
+| 1 | 29 | todo | cairn/scripts/cairn-config.py |  | Tres chaves entraram no schema com leitor NOMEADO mas ainda nao implementado (bookkeep.auto_commit, ship.pr_scope -> 29-02; test.jobs -> 29-06). Se o ciclo fechar com alguma delas nao lida, a chave deve ser apagada — e o estado exato do cairn.sync_push. | fixed |  | 2026-08-04T01:44:05.715Z | 2026-08-05T01:41:10.738Z |
 
 ````json
 [
@@ -26,10 +26,10 @@ last_updated: 2026-08-04T01:44:05.715Z
     "file": "cairn/scripts/cairn-config.py",
     "line": null,
     "description": "Tres chaves entraram no schema com leitor NOMEADO mas ainda nao implementado (bookkeep.auto_commit, ship.pr_scope -> 29-02; test.jobs -> 29-06). Se o ciclo fechar com alguma delas nao lida, a chave deve ser apagada — e o estado exato do cairn.sync_push.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-04T01:44:05.715Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-05T01:41:10.738Z"
   }
 ]
 ````
