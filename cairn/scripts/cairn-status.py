@@ -125,17 +125,65 @@ Behavior:
        list and the model falls silent — zero milestone groups, every issue
        in the unphased group — which is the correct failure mode, and the
        reason the rule is written to fall that way rather than to guess.
-    5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
-       gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
-       list (< 40 cols). Non-TTY without an output flag: --plain
-       automatically (gh model — zero escape bytes, tab-separated,
-       untruncated). --width N forces the board renderer at that width
-       (deterministic for tests and pipes); --color=always likewise opts
-       into the board renderer when piped, so the flag is never silently
-       ignored (--ascii alone does not force it). All bd/STATE.md text is
-       passed through clean(), which strips C0/C1 control bytes — titles
-       from remote trackers can't inject escape sequences or forge rows.
-    5b. Below the columned/stacked board, `phase_panel_lines()` prints a
+    5. Render. TTY: ONE grouped list, at every width. The hierarchy is the
+       step-4 `groups` model read straight down — open milestone, then its
+       phases in roadmap order, then that phase's tasks, with `unphased`
+       last so work nobody routed is visible instead of lost. There is no
+       width degrade: three columns did not fit a narrow terminal and one
+       column fits any, so the columns/stacked/raw ladder (>= 64 / >= 40 /
+       < 40 cols) that stood here until Phase 21 had nothing left to solve
+       and went out with the renderers it chose between.
+
+       Row shape. A stage symbol of exactly ONE cell, then the key (phase
+       number or issue id) padded to the widest key AMONG THE VISIBLE ROWS,
+       then the body. The title is never truncated: it wraps per cell with
+       the continuation aligned under the body, and a single token wider
+       than the column overflows rather than being split — a cut token is
+       a lie about the title, an overflowing one is the terminal's own
+       wrap. Below NARROW_BODY cells of body room the row stops trying to
+       sit the body beside the key and drops it to its own indented lines
+       (MEASURED at --width 30 with an 11-cell id: 9 cells inline versus 22
+       stacked; nothing is truncated either way, so this is a legibility
+       decision and it carries its own test). Each bucket is capped at
+       --max-rows with a dim `+k more`, and the counts line at the top is
+       the same text `--brief` prints.
+
+       MEASURED 2026-08-05 (unicodedata.east_asian_width): the five stage
+       symbols `◌ ◔ ◕ ✓ ⧗` are all `N` — one cell in every locale. `○`
+       U+25CB, `◑` U+25D1 and `◆` U+25C6 were the obvious candidates and
+       all three are `A`: one cell in a Latin locale, TWO in a CJK one.
+       char_width() returns 2 only for W and F, so an `A` symbol counts 1
+       here and draws 2 there, and this script cannot tell the difference
+       (it reads no locale, and inventing that read would be inventing a
+       source of truth). The defense is to not use `A` at all.
+
+       MEASURED 2026-08-05, and NOT fixed here: the `A`-width glyphs that
+       REMAIN in this file outside the stage symbols — `▶` (g_next), `◆`
+       (g_who), `·` (g_stale and sep) and `…` (ell). The board still
+       misaligns in a CJK locale because of them. Recorded as a finding
+       with an issue, not silently absorbed.
+
+       ASSUMED, not proved: that one issue reaches the list at most twice
+       (once in_progress, once blocked), because `bd list --status
+       in_progress` and `bd blocked` are independent queries. The FIFO in
+       group_rows() does not depend on the number — the assumption is only
+       about what is observed in practice.
+
+       DELIBERATE: a phase row never carries the blocked symbol. A phase is
+       not blocked by the same mechanism an issue is, and FIX-04 (phase
+       25's repair) is where "archived phase counted as complete" gets
+       fixed; borrowing the blocked glyph here would encode a state this
+       model does not actually compute.
+
+       Non-TTY without an output flag: --plain automatically (gh model —
+       zero escape bytes, tab-separated, untruncated). --width N forces the
+       board renderer at that width (deterministic for tests and pipes);
+       --color=always likewise opts into the board renderer when piped, so
+       the flag is never silently ignored (--ascii alone does not force
+       it). All bd/STATE.md text is passed through clean(), which strips
+       C0/C1 control bytes — titles from remote trackers can't inject
+       escape sequences or forge rows.
+    5b. Below the grouped list, `phase_panel_lines()` prints a
        PENDING PHASES table (`#`, `phase`, `state`, `rsch`, `plans`, `issues`,
        `verify`, `waits`, `next` — the same step-4d/4c fields the HTML page
        renders) and a PURPOSE list keyed by phase number, each line pairing
@@ -148,6 +196,16 @@ Behavior:
        `phase: None` pair (`/cairn:ship`, `/cairn:milestone complete`) prints
        there with no phase-number prefix, so the terminal never shows less
        than `--json` or the HTML page.
+
+       An unresolved tension, recorded rather than papered over (D-08 of
+       the Phase 21 context): step 5 promises a task title is never cut,
+       and this table still cuts a PHASE title — at --width 50 the `phase`
+       column comes out as a bare `…`. The table is fixed-width by design
+       and MEASURED 2026-08-05 it has a floor of 92 cells, so it overflows
+       at EVERY width from 64 to 90 as well — including widths that were
+       already on the wide path before Phase 21, which is what makes this a
+       pre-existing defect of this function rather than a cost of the
+       grouped list. No criterion of Phase 21 reaches it; it has an issue.
     6. When .cairn/sync.json exists, append a sync-staleness line from the
        last-pull watermarks in .cairn/state.json (missing or older than 24h
        → suggest /cairn:sync-pull).
@@ -183,8 +241,12 @@ Behavior:
                 truncation
     --brief     three lines: position, counts, next action
     --width N   render the board at N columns (overrides terminal size)
-    --max-rows N  cap rows per lane (default 15); overflow shows "+k more"
-    --ascii     +-| borders and "..." (also automatic on non-UTF-8 stdout)
+    --max-rows N  cap rows per bucket (default 15); overflow shows "+k more".
+                Per BUCKET since Phase 21, not per lane: the cap follows the
+                thing the list actually groups by
+    --ascii     one-character stage symbols and "..." (also automatic on
+                non-UTF-8 stdout). The +-| border set it used to swap in
+                went out with the box-drawing renderer
     --color     always|never; default: auto. Precedence: --color >
                 CAIRN_NO_COLOR > NO_COLOR (present and non-empty, even "0")
                 > TERM=dumb > isatty(stdout). `always` also opts a piped
@@ -237,11 +299,12 @@ USAGE = ("usage: cairn-status.py [--json] [--plain] [--brief] [--width N] "
          "[--max-rows N] [--ascii] [--color=always|never] "
          "[--planning-dir <dir>] [--html <path>]")
 
-MIN_INNER = 18          # narrowest readable lane content
-MAX_INNER = 40          # widest useful lane content
-N_LANES = 3
-STACK_BELOW = N_LANES * (MIN_INNER + 2) + (N_LANES + 1)   # 64 cols
-RAW_BELOW = 40
+# MIN_INNER / MAX_INNER / N_LANES / STACK_BELOW / RAW_BELOW lived here until
+# Phase 21. They sized a three-column kanban and the two width degrades it
+# needed (columns >= 64 -> stacked lanes >= 40 -> raw list), all of which
+# existed for one reason: three columns do not fit in a narrow terminal. One
+# column fits in any terminal, so the degrades had nothing left to solve and
+# went out with the constants.
 SYNC_STALE_SECONDS = 24 * 3600
 DEFAULT_MAX_ROWS = 15
 
@@ -1820,6 +1883,55 @@ def truncate(s, width, ell):
     return "".join(out).rstrip() + ell
 
 
+def wrap_spans(spans, width):
+    """Greedy wrap of styled spans at `width` DISPLAY CELLS.
+
+    The grouped list (Phase 21) never truncates a title, so it needs the
+    other answer to "the text is longer than the room": a continuation line.
+    textwrap cannot give it — textwrap counts characters, and this module
+    measures everything with display_width(). Using two rulers in one file is
+    how a CJK title silently overflows a column that says it fits.
+
+    Breaks on whitespace only. A single token wider than `width` OVERFLOWS on
+    a line of its own rather than being split: cutting an id or a URL in half
+    is a form of truncation, and BOARD-03 excludes exactly the case where the
+    line cannot fit. Leading whitespace is dropped from every continuation
+    line and trailing whitespace from every line, so a wrapped line never
+    carries padding it did not ask for.
+
+    Returns a list of span lists (always at least one), each element having
+    the same (text, sgr) shape render_spans() consumes — the styling of the
+    dim tracker key and the dim done-phase marker survives the wrap.
+    """
+    if width <= 0:
+        return [list(spans)]
+    tokens = []
+    for text, sgr in spans:
+        for part in re.split(r"(\s+)", text):
+            if part:
+                tokens.append((part, sgr))
+    lines, cur, used = [], [], 0
+    for tok, sgr in tokens:
+        w = display_width(tok)
+        if tok.isspace():
+            if cur:                       # never open a line with a space
+                cur.append((tok, sgr))
+                used += w
+            continue
+        if cur and used + w > width:
+            while cur and cur[-1][0].isspace():
+                cur.pop()
+            lines.append(cur)
+            cur, used = [], 0
+        cur.append((tok, sgr))
+        used += w
+    while cur and cur[-1][0].isspace():
+        cur.pop()
+    if cur:
+        lines.append(cur)
+    return lines or [[("", None)]]
+
+
 # C0 (minus \t and \n, which the whitespace collapse turns into spaces),
 # DEL, and C1 — ESC, CSI, OSC and friends. Titles can come from remote
 # trackers via sync-pull, so control bytes are attacker-reachable.
@@ -1869,18 +1981,27 @@ class Style:
         self.ascii = opts["ascii"] or "utf" not in enc
         self.color = self._color_enabled(opts)
         if self.ascii:
-            self.tl, self.tm, self.tr = "+", "+", "+"
-            self.bl, self.bm, self.br = "+", "+", "+"
-            self.h, self.v = "-", "|"
+            # The box-drawing vocabulary (tl/tm/tr, bl/bm/br, h, v) lived
+            # here until Phase 21. Its only reader was render_board, and the
+            # AST says nothing else in this file — not render_plain, not the
+            # phase panel, not the HTML — ever read one. Write-only state is
+            # worse than absent state: it tells the next reader a grid still
+            # exists somewhere.
             self.ell, self.sep = "...", " | "
             self.g_next, self.g_dep, self.g_who = ">", "<-", "@"
             self.g_stale = "*"
             self.g_conflict, self.g_informs = "x", "!"
             self.g_card = "#"
+            # Stage symbols, ASCII fallback: exactly ONE character each, which
+            # is what makes "the columns close aligned in both modes" a
+            # mechanical claim — every column of the grouped block lands on
+            # the same cell as its Unicode counterpart, because 1 cell == 1
+            # char. `x`, `!`, `*` and `#` were rejected not on taste but on
+            # collision inside the same output: they already are g_conflict,
+            # g_informs, g_stale and g_card.
+            self.s_none, self.s_planned, self.s_doing = ".", "o", "O"
+            self.s_done, self.s_blocked = "v", "~"
         else:
-            self.tl, self.tm, self.tr = "┌", "┬", "┐"
-            self.bl, self.bm, self.br = "└", "┴", "┘"
-            self.h, self.v = "─", "│"
             self.ell, self.sep = "…", " · "
             self.g_next, self.g_dep, self.g_who = "▶", "⧗", "◆"
             self.g_stale = "·"
@@ -1889,6 +2010,19 @@ class Style:
             # ⧗ already used for dependencies — one cell everywhere, so it
             # can never widen a lane on a CJK terminal.
             self.g_card = "⧉"
+            # Stage symbols (Phase 21, BOARD-02). MEASURED 2026-08-05 with
+            # unicodedata.east_asian_width: all five are `N`, i.e. one cell
+            # everywhere. `○` U+25CB, `◑` U+25D1 and `◆` U+25C6 were the
+            # obvious candidates and all three are `A` — one cell in a Latin
+            # locale, TWO in a CJK one. char_width() above returns 2 only for
+            # W and F, so an `A` symbol counts 1 here and draws 2 there, and
+            # nothing in this script can detect the difference (it reads no
+            # locale, and inventing that read would be inventing a source of
+            # truth). The defense is to not use `A` at all, which is why
+            # tests/cairn-grouped-board.bats asserts the property through
+            # unicodedata and never through how the glyph looks.
+            self.s_none, self.s_planned, self.s_doing = "◌", "◔", "◕"
+            self.s_done, self.s_blocked = "✓", "⧗"
 
     def asciify(self, text):
         """Downgrade the punctuation this script itself injects. Issue titles
@@ -1927,112 +2061,244 @@ def render_spans(spans, style):
     return "".join(style.paint(text, sgr) for text, sgr in spans)
 
 
-def make_cell(lane, iss, inner, style):
-    """One card as spans: `id  title` (+ ⧗ dep on BLOCKED, ◆ assignee on
-    DOING, + ⧉ external tracker key on any lane that has one). Only glyphs
-    and high-priority ids get color — never the whole card. The id is capped
-    at inner - 8 cells so a long bd prefix can never push the card past the
-    lane (the title keeps at least a sliver).
+# --------------------------------------------------------- the grouped list
+#
+# Phase 21 replaces the three-lane kanban on the human render path. The lanes
+# spent the terminal's width divided by three and cut every title at ~28
+# cells; with 40 tasks READY became 40 rows and the other two lanes stood
+# empty. What goes in its place is ONE list, grouped by the model Phase 20
+# built (open milestone -> phase -> task), each row carrying its stage in a
+# single-cell symbol and its title whole.
 
-    The tracker suffix is strictly conditional on `external_ref` being
-    present: an issue without one renders the exact bytes it rendered before
-    this existed, which is what keeps the committed reference boards in
-    tests/fixtures/board-render/ valid. It also falls out FIRST when the lane
-    is too narrow — the title outranks every suffix, and among the suffixes
-    the tracker key is the one a reader can lose without losing what the card
-    IS.
+GROUP_INDENT = ""
+PHASE_INDENT = "  "
+ISSUE_INDENT = "      "
+NO_WORK_TEXT = "(no open work)"
+# Below this many cells left for the body, the row stops trying to put the
+# title beside the id and drops it to its own indented lines. MEASURED at
+# --width 30 with an 11-cell id: the inline budget is 9 cells, so every word
+# lands on a line of its own — nothing truncated, and nothing readable
+# either. The stacked form gives the same row 22 cells. 24 is the smallest
+# budget that still holds a short phrase per line.
+NARROW_BODY = 24
+
+
+def stage_symbol(kind, obj, style):
+    """The stage of one row, as (symbol, sgr). ONE decision point.
+
+    A phase row reads its own disk state: complete or `verified` -> done,
+    `executed` -> in progress, `planned` -> planned, `none` -> not planned.
+
+    A task row reads the LANE it arrived on: BLOCKED -> blocked, DOING -> in
+    progress, READY -> planned.
+
+    A phase row DELIBERATELY never renders the blocked symbol, even when
+    `blocked_by` is non-empty. MEASURED 2026-08-03 and still true: phase 26
+    renders as blocked by phase 9, a cycle archived two milestones earlier,
+    because dep_target_ids() counts every edge without looking at its type
+    and the pending filter tests against a completed-phase set an archived
+    phase is never part of (FIX-04, phase 25's repair). phase_groups()
+    refused to read edges for exactly this reason — its own docstring says
+    so — and painting a phase blocked from the same data would import the
+    whole confusion into a new surface. A phase symbol describes progress on
+    disk and nothing else; the `waits` column of the phase panel keeps
+    telling the other story where it is already understood.
     """
-    iid = truncate(clean(iss.get("id", "?")), max(1, inner - 8), style.ell)
-    title = clean(iss.get("title", ""))
-    id_sgr = SGR_BOLD if issue_priority(iss) <= 1 else None
-
-    suffix = []
-    if lane == "DOING" and iss.get("assignee"):
-        who = truncate(clean(iss["assignee"]), 12, style.ell)
-        suffix = [("  ", None), (style.g_who, SGR_YELLOW), (" " + who, None)]
-    elif lane == "BLOCKED" and as_str_list(iss.get("blocked_by")):
-        dep = clean(as_str_list(iss.get("blocked_by"))[0])
-        suffix = [("  ", None), (style.g_dep, SGR_RED), (" " + dep, None)]
-    if iss.get("_stale"):
-        # Discreet roadmap-complete marker (see docstring step 4b) — dim,
-        # ASCII-safe under --ascii, dropped like any suffix when too narrow.
-        suffix += [("  ", None), (style.g_stale + "done-phase", SGR_DIM)]
-
-    card = []
-    if iss.get("external_ref"):
-        key = truncate(tracker_key(iss["external_ref"]), 16, style.ell)
-        if key:
-            card = [("  ", None), (style.g_card, SGR_DIM),
-                    (" " + key, SGR_DIM)]
-
-    used = display_width(iid) + 2
-    span_w = lambda ss: sum(display_width(t) for t, _ in ss)  # noqa: E731
-    tail = suffix + card
-    if tail and inner - used - span_w(tail) < 6:
-        tail = suffix             # the tracker key falls out first
-    if tail and inner - used - span_w(tail) < 6:
-        tail = []                 # then the rest — the title always wins
-    suffix, suffix_w = tail, span_w(tail)
-    title_t = truncate(title, inner - used - suffix_w, style.ell)
-    spans = [(iid, id_sgr), ("  ", None), (title_t, None)] + suffix
-    pad = inner - sum(display_width(t) for t, _ in spans)
-    if pad > 0:
-        spans.append((" " * pad, None))
-    return spans
+    if kind == "phase":
+        if obj.get("complete") or obj.get("disk_state") == "verified":
+            return style.s_done, SGR_GREEN
+        return ({"executed": style.s_doing,
+                 "planned": style.s_planned}.get(obj.get("disk_state"),
+                                                 style.s_none), SGR_DIM)
+    lane_sgr = dict(LANES).get(kind)
+    return ({"BLOCKED": style.s_blocked,
+             "DOING": style.s_doing}.get(kind, style.s_planned), lane_sgr)
 
 
-def lane_rows(lane, items, inner, max_rows, style):
-    """Visible cells for a lane, with a dim `+k more` overflow row."""
-    rows = [make_cell(lane, i, inner, style) for i in items[:max_rows]]
-    extra = len(items) - max_rows
-    if extra > 0:
-        text = f"+{extra} more"
-        rows.append([(text, SGR_DIM), (" " * (inner - len(text)), None)])
+def group_rows(data, max_rows):
+    """The grouped list as rows, with no width and no color decided yet.
+
+    Structure comes from `data["groups"]` — the Phase 20 model — and is never
+    re-derived here: open milestones in the roadmap's order, buckets by
+    ascending phase, `unphased` last. Each row is one of:
+
+        {"kind": "group", "label": str}
+        {"kind": "phase", "number": int, "phase": <model row>}
+        {"kind": "issue", "lane": str,   "issue": <raw bd dict>}
+        {"kind": "more",  "count": int}
+
+    An id is resolved to its issue through a FIFO queue per id, filled from
+    `data["_lanes"]` in (READY, DOING, BLOCKED) order. That is not
+    bookkeeping fussiness, it is phase_groups()' documented contract: it
+    places PER INPUT OCCURRENCE and does not deduplicate, because
+    `bd list --status in_progress` and `bd blocked` are independent queries
+    and one issue can legitimately arrive twice. Consuming a per-id queue in
+    the order the ids appear reproduces the exact (occurrence, lane) pairing
+    without inventing a second placement — which is the one thing this file
+    exists to prevent. An id with no queue left (unreachable today:
+    phase_groups() is only ever handed what the lanes produced) still renders,
+    on the READY lane, from a minimal dict — never dropped in silence.
+
+    `max_rows` caps issues PER BUCKET, with the same `+k more` row the lanes
+    used. A lane was the container; a bucket is the container now. Group and
+    phase rows are never capped: they are the structure, not the content.
+    """
+    queues = {}
+    for (lane, _), items in zip(LANES, data.get("_lanes") or []):
+        for iss in items:
+            queues.setdefault(str(iss.get("id") or "?"), []).append(
+                (lane, iss))
+
+    by_number = {p["number"]: p for p in (data.get("phases") or [])}
+    rows = []
+    for group in data.get("groups") or []:
+        rows.append({"kind": "group", "label": group["label"]})
+        for bucket in group["items"]:
+            n = bucket["phase"]
+            if n is not None and n in by_number:
+                rows.append({"kind": "phase", "number": n,
+                             "phase": by_number[n]})
+            ids = bucket["issues"]
+            for iid in ids[:max_rows]:
+                queue = queues.get(iid)
+                lane, iss = queue.pop(0) if queue else ("READY", {"id": iid})
+                rows.append({"kind": "issue", "lane": lane, "issue": iss})
+            if len(ids) > max_rows:
+                rows.append({"kind": "more", "count": len(ids) - max_rows})
     return rows
 
 
-def lane_header_text(name, count, seg_w, style):
-    text = f"{name} ({count})"
-    if display_width(text) > seg_w - 3:
-        name_t = truncate(name, seg_w - 3 - display_width(f" ({count})"),
-                          style.ell)
-        text = f"{name_t} ({count})"
-    return text
+def counts_parts(data, style):
+    """`ready N · doing N · blocked N · done N` as spans.
+
+    ONE spelling, two surfaces: --brief has printed this line since Phase 10,
+    and the grouped list needs it because the lane headers that used to carry
+    the four numbers (`READY (3)`) are gone. Extracted rather than copied —
+    a second copy is a second thing that can drift.
+    """
+    c = data["counts"]
+    return [("ready ", None), (str(c["ready"]), None), (style.sep, SGR_DIM),
+            ("doing ", None), (str(c["doing"]), SGR_YELLOW),
+            (style.sep, SGR_DIM),
+            ("blocked ", None), (str(c["blocked"]), SGR_RED),
+            (style.sep, SGR_DIM),
+            ("done ", None), (str(c["closed"]), SGR_GREEN)]
 
 
-def render_board(lanes_items, counts, inner, max_rows, style):
-    seg_w = inner + 2
-    lines = []
+def issue_body_spans(lane, iss, style):
+    """A task row's text after the id: the title, then its suffixes.
 
-    # Top border with embedded lane headers: ┌─ READY (2) ──┬─ DOING (1) ─...
-    spans = [(style.tl, SGR_BORDER)]
-    for idx, ((name, sgr), items) in enumerate(zip(LANES, lanes_items)):
-        text = lane_header_text(name, counts[idx], seg_w, style)
-        fill = seg_w - 3 - display_width(text)
-        spans += [(style.h + " ", SGR_BORDER), (text, sgr), (" ", None),
-                  (style.h * fill, SGR_BORDER)]
-        spans.append((style.tm if idx < N_LANES - 1 else style.tr,
-                      SGR_BORDER))
-    lines.append(render_spans(spans, style))
+    Everything here WRAPS and nothing here is ever dropped. The lane cell was
+    a fixed width, so make_cell() had to rank its suffixes and shed them
+    (the tracker key first, then the rest, the title always winning); a row
+    that wraps has nothing to rank. The property that replaces that
+    precedence is stronger: at every width, every suffix is on the line.
 
-    per_lane = [lane_rows(name, items, inner, max_rows, style)
-                for (name, _), items in zip(LANES, lanes_items)]
-    n_rows = max(1, max(len(r) for r in per_lane))
-    empty = [(" " * inner, None)]
-    for r in range(n_rows):
-        spans = [(style.v, SGR_BORDER)]
-        for cells in per_lane:
-            cell = cells[r] if r < len(cells) else empty
-            spans += [(" ", None)] + cell + [(" ", None),
-                                             (style.v, SGR_BORDER)]
-        lines.append(render_spans(spans, style))
+    A blocked row names EVERY blocker, not just the first, and names them in
+    words rather than reusing the hourglass the stage symbol already spent —
+    success criterion 4 is that the row says who blocks it without a second
+    command, and `blocked by brd-001, brd-007` says it.
+    """
+    spans = [(clean(iss.get("title", "")), None)]
+    if lane == "BLOCKED" and as_str_list(iss.get("blocked_by")):
+        names = ", ".join(clean(b)
+                          for b in as_str_list(iss.get("blocked_by")))
+        spans += [("  ", None), (f"blocked by {names}", SGR_RED)]
+    elif lane == "DOING" and iss.get("assignee"):
+        spans += [("  ", None), (style.g_who, SGR_YELLOW),
+                  (" " + clean(iss["assignee"]), None)]
+    if iss.get("_stale"):
+        spans += [("  ", None), (style.g_stale + "done-phase", SGR_DIM)]
+    if iss.get("external_ref"):
+        key = tracker_key(iss["external_ref"])
+        if key:
+            spans += [("  ", None), (style.g_card, SGR_DIM),
+                      (" " + key, SGR_DIM)]
+    return spans
 
-    spans = [(style.bl, SGR_BORDER)]
-    for idx in range(N_LANES):
-        spans.append((style.h * seg_w, SGR_BORDER))
-        spans.append((style.bm if idx < N_LANES - 1 else style.br,
-                      SGR_BORDER))
-    lines.append(render_spans(spans, style))
+
+def render_groups(data, width, max_rows, style):
+    """The grouped list: counts, then open milestone -> phase -> task.
+
+    Column widths are computed once over every row that will actually print,
+    so every title starts on the same cell whatever the id lengths are. The
+    prefix (indent + symbol + id/number) is fixed width; the body wraps into
+    what is left with wrap_spans(), and each continuation line is indented to
+    the body column. Nothing is truncated at any width — that is BOARD-03,
+    and it is why `truncate()` no longer appears on this path even though it
+    still serves the phase panel and the footer.
+
+    No count is printed on a group or phase row. A count is len(), and the
+    numbers are already spelled once at the top and once in the phase panel;
+    a third spelling is a third thing that can disagree, which is the reason
+    phase_groups() refused to store one in the first place.
+    """
+    rows = group_rows(data, max_rows)
+    lines = [render_spans(counts_parts(data, style), style)]
+    if not rows:
+        lines.append("")
+        lines.append(render_spans([(PHASE_INDENT + NO_WORK_TEXT, SGR_DIM)],
+                                  style))
+        lines.append("")
+        return lines
+
+    ids = [clean(str(r["issue"].get("id") or "?"))
+           for r in rows if r["kind"] == "issue"]
+    id_w = max((display_width(i) for i in ids), default=0)
+    num_w = max((len(str(r["number"])) for r in rows if r["kind"] == "phase"),
+                default=1)
+
+    for row in rows:
+        if row["kind"] == "group":
+            lines.append("")
+            lines.append(render_spans(
+                [(GROUP_INDENT + style.asciify(clean(row["label"])),
+                  SGR_BOLD)], style))
+            continue
+        if row["kind"] == "more":
+            lines.append(render_spans(
+                [(ISSUE_INDENT + f"+{row['count']} more", SGR_DIM)], style))
+            continue
+        if row["kind"] == "phase":
+            p = row["phase"]
+            glyph, sgr = stage_symbol("phase", p, style)
+            indent = PHASE_INDENT
+            prefix = [(indent, None), (glyph, sgr), (" ", None),
+                      (str(row["number"]).rjust(num_w), None), ("  ", None)]
+            body = [(style.asciify(clean(p.get("title") or "(untitled)")),
+                     None)]
+        else:
+            iss = row["issue"]
+            glyph, sgr = stage_symbol(row["lane"], iss, style)
+            iid = clean(str(iss.get("id") or "?"))
+            indent = ISSUE_INDENT
+            prefix = [(indent, None), (glyph, sgr), (" ", None),
+                      (iid.ljust(id_w + len(iid) - display_width(iid)),
+                       SGR_BOLD if issue_priority(iss) <= 1 else None),
+                      ("  ", None)]
+            body = issue_body_spans(row["lane"], iss, style)
+        prefix_w = sum(display_width(t) for t, _ in prefix)
+        if width - prefix_w < NARROW_BODY:
+            # Too narrow to sit the body beside the id: the id keeps its own
+            # line and the body drops below it, hanging two cells past this
+            # row's own indent. Nothing is lost either way — these are the
+            # same bytes in a shape a 30-column terminal can actually read.
+            # The hang is deliberately 2 past the row indent and not the
+            # body column: at these widths the body column IS most of the
+            # line, so aligning to it would leave nowhere to wrap into.
+            lines.append(render_spans(prefix, style).rstrip())
+            hang = indent + "  "
+            hang_w = display_width(hang)
+            for cont in wrap_spans(body, width - hang_w):
+                lines.append(render_spans([(hang, None)] + cont,
+                                          style).rstrip())
+            continue
+        wrapped = wrap_spans(body, width - prefix_w)
+        lines.append(render_spans(prefix + wrapped[0], style).rstrip())
+        for cont in wrapped[1:]:
+            lines.append(render_spans([(" " * prefix_w, None)] + cont,
+                                      style).rstrip())
+    lines.append("")
     return lines
 
 
@@ -2358,33 +2624,6 @@ def footer_lines(data, width, style):
     return lines
 
 
-def render_stacked(data, width, max_rows, style):
-    """Lanes stacked vertically for narrow terminals (>= 40 cols)."""
-    lines = []
-    for (name, sgr), items in zip(LANES, data["_lanes"]):
-        lines.append(render_spans(
-            [(f"{name} ({len(items)})", sgr)], style))
-        for iss in items[:max_rows]:
-            cell = make_cell(name, iss, width - 2, style)
-            lines.append("  " + render_spans(cell, style).rstrip())
-        extra = len(items) - max_rows
-        if extra > 0:
-            lines.append("  " + render_spans([(f"+{extra} more", SGR_DIM)],
-                                             style))
-        lines.append("")
-    return lines + footer_lines(data, width, style)
-
-
-def render_raw(data, style):
-    """Bare `LANE  id  title` list for very narrow terminals (< 40 cols)."""
-    lines = []
-    for (name, _), items in zip(LANES, data["_lanes"]):
-        for iss in items:
-            lines.append(f"{name}  {clean(iss.get('id', '?'))}  "
-                         f"{clean(iss.get('title', ''))}")
-    return lines + footer_lines(data, 80, style)
-
-
 def render_plain(data):
     """Tab-separated, escape-free, untruncated — the machine default."""
     lines = []
@@ -2422,7 +2661,6 @@ def render_plain(data):
 
 
 def render_brief(data, style):
-    c = data["counts"]
     head = render_spans([("[cairn-status] ", None)] +
                         meta_parts(data, style, include_done=False), style)
     if data["sync"]["configured"] and data["sync"]["stale"]:
@@ -2435,13 +2673,9 @@ def render_brief(data, style):
                   else "stale phases")
         head += render_spans([(style.sep, SGR_DIM), (marker, SGR_RED)],
                              style)
-    counts = render_spans(
-        [("ready ", None), (str(c["ready"]), None), (style.sep, SGR_DIM),
-         ("doing ", None), (str(c["doing"]), SGR_YELLOW),
-         (style.sep, SGR_DIM),
-         ("blocked ", None), (str(c["blocked"]), SGR_RED),
-         (style.sep, SGR_DIM),
-         ("done ", None), (str(c["closed"]), SGR_GREEN)], style)
+    # The same spans the grouped list prints at its top — one spelling of the
+    # four numbers, shared, so the two surfaces cannot disagree.
+    counts = render_spans(counts_parts(data, style), style)
     nxt = render_spans([(style.g_next, SGR_GREEN), (" next: ", SGR_BOLD),
                         (style.asciify(data["next"]["text"]), None)], style)
     return [head, counts, nxt]
@@ -3453,19 +3687,14 @@ def main():
         # never be silently ignored.
         lines = render_plain(data)
     else:
+        # ONE human renderer, every width. The two width degrades this branch
+        # used to pick between existed because three columns do not fit in a
+        # narrow terminal; a single grouped list fits everywhere and simply
+        # wraps sooner.
         cols = opts["width"] if opts["width"] is not None else terminal_cols()
-        if cols < RAW_BELOW:
-            lines = render_raw(data, style)
-        elif cols < STACK_BELOW:
-            lines = render_stacked(data, cols, opts["max_rows"], style)
-        else:
-            inner = max(MIN_INNER,
-                        min(MAX_INNER, (cols - (N_LANES + 1)) // N_LANES - 2))
-            counts = [len(ready), len(doing), len(blocked)]
-            lines = render_board(data["_lanes"], counts, inner,
-                                 opts["max_rows"], style)
-            lines += footer_lines(data, cols, style)
-            lines += phase_panel_lines(data, cols, style)
+        lines = render_groups(data, cols, opts["max_rows"], style)
+        lines += footer_lines(data, cols, style)
+        lines += phase_panel_lines(data, cols, style)
     out = "\n".join(lines)
     try:
         print(out)

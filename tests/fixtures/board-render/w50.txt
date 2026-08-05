@@ -1,13 +1,31 @@
-READY (3)
-  brd-001  Read the roadmap into a phase model
-  brd-002  Fill the screen at any width
-  brd-003  Sweep the backlog
+ready 3 · doing 1 · blocked 1 · done 1
 
-DOING (1)
-  brd-004  Hold the lease while ex…  ◆ cairn-tests
+v1.1 Surface
+  ◔ 3  Phase model — read what a phase actually is
+      ◔ brd-001  Read the roadmap into a phase
+                 model
+      ◕ brd-004  Hold the lease while executing  ◆
+                 cairn-tests
+  ◌ 4  Board fills the screen
+      ◔ brd-002  Fill the screen at any width
+      ⧗ brd-005  Wait on the phase model  blocked
+                 by brd-001
 
-BLOCKED (1)
-  brd-005  Wait on the phase model  ⧗ brd-001
+No milestone
+      ◔ brd-003  Sweep the backlog
 
 phase 3/4 Phase model — read what a phase actually is · v1.0 · done: 1
 ▶ next: continue brd-004 — Hold the lease while…
+
+PENDING PHASES  2
+  #  phase  state             rsch   plans   issues   verify            waits    next
+  3  …  planned           —      0/1 p…  0/2      —                 —        /cairn:work 3
+  4  …  not planned       —      —       0/2      —                 3        /cairn:plan 4
+
+PURPOSE
+  3  Phase model — read what a phase actually is —
+     nothing blocks it, and phase 4 waits on it
+  4  Board fills the screen — waits on phase 3
+
+  One phase can move: /cairn:work 3. Phase 4
+  waits.

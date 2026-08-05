@@ -87,8 +87,15 @@ assert_reference_intact() {
 # ─── The reference renders ───────────────────────────────────────────────────
 
 # One file per mode, because each one fails for a different reason: the
-# column board, the two width degrades, the ASCII glyph set, the per-lane
-# overflow cut, and the two flag-selected formats.
+# list at three widths, the ASCII glyph set, the per-bucket overflow cut,
+# and the two flag-selected formats.
+#
+# UPDATED 2026-08-05 (plan 21-02). w50 and w38 used to be the two width
+# DEGRADES — different renderers, hence different failure modes. They are
+# now the same renderer wrapping sooner, which sounds like it makes two of
+# these files redundant and does not: w50 is the only file where a title
+# wraps beside its id, and w38 is the only one where the body drops to its
+# own line under NARROW_BODY. Three widths, three shapes.
 #
 # --json is deliberately NOT in this matrix. Phase 20 adds a key to it on
 # purpose, so freezing its bytes here would freeze the phase against itself;
@@ -98,11 +105,11 @@ assert_reference_intact() {
   assert_render_matches w100 --width 100
 }
 
-@test "the stacked degrade renders the reference bytes" {
+@test "the list wrapping beside the id renders the reference bytes" {
   assert_render_matches w50 --width 50
 }
 
-@test "the raw degrade renders the reference bytes" {
+@test "the list with the body dropped below the id renders the reference bytes" {
   assert_render_matches w38 --width 38
 }
 
@@ -110,8 +117,12 @@ assert_reference_intact() {
   assert_render_matches ascii100 --width 100 --ascii
 }
 
-@test "the lane overflow cut renders the reference bytes" {
-  assert_render_matches maxrows --width 100 --max-rows 2
+# --max-rows 1 since Phase 21: the cap moved from a lane to a bucket, and at
+# --max-rows 2 no bucket of this fixture overflows, so the reference would
+# come out identical to w100.txt and stop guarding anything. Kept in step
+# with tests/fixtures/board-render/regenerate.sh, which says the same.
+@test "the bucket overflow cut renders the reference bytes" {
+  assert_render_matches maxrows --width 100 --max-rows 1
 }
 
 @test "the machine format renders the reference bytes" {
@@ -147,11 +158,34 @@ assert_reference_intact() {
 }
 
 @test "no reference file is empty or has lost its structure" {
-  assert_reference_intact w100 "PENDING PHASES" "┌─ READY (3) ─" "PURPOSE"
-  assert_reference_intact w50 "DOING (1)" "▶ next: "
-  assert_reference_intact w38 "BLOCKED  brd-005" "▶ next: "
-  assert_reference_intact ascii100 "PENDING PHASES" "+- READY (3) -" "PURPOSE"
-  assert_reference_intact maxrows "+1 more" "PENDING PHASES"
+  # w100, ascii100 and maxrows carry Phase 21 anchors: the counts line the
+  # lane headers used to hold, the open cycle's group label, the loose group,
+  # and one stage symbol.
+  #
+  # w50 and w38 anchored on `DOING (1)` and `BLOCKED  brd-005` until
+  # 2026-08-05 — the lane header of the stacked degrade and the lane column
+  # of the raw one. Plan 21-02 removed both renderers, so both anchors now
+  # describe bytes that cannot be produced. They are replaced by anchors on
+  # what makes each of those two files DIFFERENT from w100, which is the
+  # only reason either file still earns a slot: in w50 a title wraps beside
+  # its id, in w38 the body drops to its own line. Anchoring them on
+  # something w100 also contains would let either file silently become a
+  # copy of w100 and still pass.
+  assert_reference_intact w100 "PENDING PHASES" "PURPOSE" \
+    "ready 3 · doing 1 · blocked 1 · done 1" "v1.1 Surface" "No milestone" \
+    "◔ brd-001  Read the roadmap into a phase model" \
+    "blocked by brd-001"
+  assert_reference_intact w50 "▶ next: " \
+    "      ◔ brd-001  Read the roadmap into a phase" \
+    "                 model"
+  assert_reference_intact w38 "▶ next: " \
+    "      ◔ brd-001" \
+    "        Read the roadmap into a phase"
+  assert_reference_intact ascii100 "PENDING PHASES" "PURPOSE" \
+    "ready 3 | doing 1 | blocked 1 | done 1" "v1.1 Surface" "No milestone" \
+    "o brd-001  Read the roadmap into a phase model" \
+    "blocked by brd-001"
+  assert_reference_intact maxrows "+1 more" "PENDING PHASES" "v1.1 Surface"
   assert_reference_intact plain "$(printf 'READY\tbrd-001')" \
     "$(printf 'MILESTONE\tv1.0')"
   assert_reference_intact brief "[cairn-status] phase 3/4" "▶ next: "
