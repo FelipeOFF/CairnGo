@@ -316,6 +316,12 @@ UNPHASED_LABEL = "No milestone"
 DETAIL_PHASE_HEADING = re.compile(r"^###\s+Phase\s+0*(\d+)\b")
 CARD_LABEL = re.compile(r"^\*\*Card:\*\*\s*(.*)$")
 GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
+# The external tracker key of a whole phase, same block, same single pass.
+# The label is `Tracker`, not `Card`: `**Card:**` already means the phase's
+# one-sentence purpose in this roadmap, and reusing the word inside the same
+# block would make the parser and the reader disagree about which one a line
+# is.
+TRACKER_LABEL = re.compile(r"^\*\*Tracker:\*\*\s*(.*)$")
 # Recognizes ANY bold label line, both the colon-inside shape (`**Card:**`)
 # and the colon-outside shape used by `**Requirements**:` elsewhere in the
 # same blocks. Used only to know when to STOP collecting continuation text
@@ -332,6 +338,12 @@ BOLD_LABEL = re.compile(r"^\*\*[^*]+\*\*:|^\*\*[^*]+:\*\*")
 # Inline **bold** / __bold__ / *italic* / _italic_ inside a Card or Goal, with
 # the marked words kept. Applied only to the purpose text, never to a label.
 INLINE_EMPHASIS = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_")
+
+# Backend half of an `external_ref`, as cairn's own writers emit it:
+# cairn-doctor.py --link-refs writes `gh-<number>`, a Jira sync writes
+# `jira-<KEY>`. Stripped for DISPLAY only — see tracker_key().
+TRACKER_BACKEND_PREFIX = re.compile(r"^(?:jira|gh|github|gl|gitlab|linear)-",
+                                    re.IGNORECASE)
 
 
 def die(msg, code):
@@ -476,11 +488,19 @@ def in_done_phase(iss, done_set):
 
 
 def trim_issue(iss):
-    """Stable, minimal issue dict for the JSON summary."""
+    """Stable, minimal issue dict for the JSON summary.
+
+    `external_ref` is bd's own field, carried RAW — prefix included, exactly
+    the bytes `bd update --external-ref` stored (`cairn-doctor.py --link-refs`
+    already writes it in production, as `gh-<n>`). The board strips the
+    backend prefix for display via tracker_key(); this dict never does. A
+    consumer that reads the JSON gets the datum, not a rendering of it.
+    """
     return {"id": str(iss.get("id") or "?"),
             "title": iss.get("title", ""),
             "priority": issue_priority(iss),
             "assignee": iss.get("assignee") or None,
+            "external_ref": iss.get("external_ref") or None,
             "labels": as_str_list(iss.get("labels")),
             "blocked_by": as_str_list(iss.get("blocked_by"))}
 
@@ -1797,6 +1817,34 @@ def clean(text):
     return re.sub(r"\s+", " ", CONTROL_CHARS.sub("", str(text))).strip()
 
 
+def tracker_key(ref):
+    """The human half of an `external_ref`, for display on the board.
+
+    `jira-DTP-142` is two things joined: a backend name nobody quotes and the
+    key everybody does. The board shows the second. A ref that is already bare
+    (`DTP-142`) shows as it is.
+
+    DELIBERATE DEVIATION from 29-05-PLAN.md, which lists `gh-` among the
+    prefixes to strip unconditionally. MEASURED: cairn-doctor.py --link-refs
+    writes `gh-<number>` in production, so the most common real ref in this
+    repository is `gh-42`, and stripping it leaves `42` — a bare digit sitting
+    next to an issue id on a fixed-width board, naming nothing. So the prefix
+    comes off only when what survives still identifies the issue on its own,
+    which a pure number does not: `jira-DTP-142` -> `DTP-142`, while `gh-42`
+    keeps its prefix.
+
+    Display only. The stored ref is never rewritten — `--json` carries it raw,
+    prefix included, so nothing downstream has to guess what was cut.
+    """
+    ref = clean(ref)
+    if not ref:
+        return ""
+    stripped = TRACKER_BACKEND_PREFIX.sub("", ref, count=1)
+    if stripped and not stripped.isdigit():
+        return stripped
+    return ref
+
+
 # ------------------------------------------------------------------ rendering
 
 class Style:
@@ -1814,6 +1862,7 @@ class Style:
             self.g_next, self.g_dep, self.g_who = ">", "<-", "@"
             self.g_stale = "*"
             self.g_conflict, self.g_informs = "x", "!"
+            self.g_card = "#"
         else:
             self.tl, self.tm, self.tr = "┌", "┬", "┐"
             self.bl, self.bm, self.br = "└", "┴", "┘"
@@ -1822,6 +1871,10 @@ class Style:
             self.g_next, self.g_dep, self.g_who = "▶", "⧗", "◆"
             self.g_stale = "·"
             self.g_conflict, self.g_informs = "✗", "⚠"
+            # External tracker card. U+29C9 is east-asian-width N, like the
+            # ⧗ already used for dependencies — one cell everywhere, so it
+            # can never widen a lane on a CJK terminal.
+            self.g_card = "⧉"
 
     def asciify(self, text):
         """Downgrade the punctuation this script itself injects. Issue titles
@@ -1862,9 +1915,19 @@ def render_spans(spans, style):
 
 def make_cell(lane, iss, inner, style):
     """One card as spans: `id  title` (+ ⧗ dep on BLOCKED, ◆ assignee on
-    DOING). Only glyphs and high-priority ids get color — never the whole
-    card. The id is capped at inner - 8 cells so a long bd prefix can never
-    push the card past the lane (the title keeps at least a sliver)."""
+    DOING, + ⧉ external tracker key on any lane that has one). Only glyphs
+    and high-priority ids get color — never the whole card. The id is capped
+    at inner - 8 cells so a long bd prefix can never push the card past the
+    lane (the title keeps at least a sliver).
+
+    The tracker suffix is strictly conditional on `external_ref` being
+    present: an issue without one renders the exact bytes it rendered before
+    this existed, which is what keeps the committed reference boards in
+    tests/fixtures/board-render/ valid. It also falls out FIRST when the lane
+    is too narrow — the title outranks every suffix, and among the suffixes
+    the tracker key is the one a reader can lose without losing what the card
+    IS.
+    """
     iid = truncate(clean(iss.get("id", "?")), max(1, inner - 8), style.ell)
     title = clean(iss.get("title", ""))
     id_sgr = SGR_BOLD if issue_priority(iss) <= 1 else None
@@ -1881,10 +1944,21 @@ def make_cell(lane, iss, inner, style):
         # ASCII-safe under --ascii, dropped like any suffix when too narrow.
         suffix += [("  ", None), (style.g_stale + "done-phase", SGR_DIM)]
 
+    card = []
+    if iss.get("external_ref"):
+        key = truncate(tracker_key(iss["external_ref"]), 16, style.ell)
+        if key:
+            card = [("  ", None), (style.g_card, SGR_DIM),
+                    (" " + key, SGR_DIM)]
+
     used = display_width(iid) + 2
-    suffix_w = sum(display_width(t) for t, _ in suffix)
-    if suffix and inner - used - suffix_w < 6:
-        suffix, suffix_w = [], 0      # too narrow — the title wins
+    span_w = lambda ss: sum(display_width(t) for t, _ in ss)  # noqa: E731
+    tail = suffix + card
+    if tail and inner - used - span_w(tail) < 6:
+        tail = suffix             # the tracker key falls out first
+    if tail and inner - used - span_w(tail) < 6:
+        tail = []                 # then the rest — the title always wins
+    suffix, suffix_w = tail, span_w(tail)
     title_t = truncate(title, inner - used - suffix_w, style.ell)
     spans = [(iid, id_sgr), ("  ", None), (title_t, None)] + suffix
     pad = inner - sum(display_width(t) for t, _ in spans)

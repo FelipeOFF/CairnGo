@@ -37,3 +37,38 @@ contadores e narrativa do STATE. Uma linha ao fechar a fase 29 resolve.
 **Não consertado aqui porque:** é anterior ao 29-04, tem dono declarado, e
 editar a narrativa de estado de outra fase de dentro deste plano seria
 exatamente o tipo de escrita silenciosa que este milestone existe para acabar.
+
+---
+
+## O rodapé e a tabela `PENDING PHASES` do board estouram o `--width` pedido
+
+**Achado em:** 29-05, Task 1, ao escrever a varredura de largura
+**Onde:** `cairn/scripts/cairn-status.py` — `footer_lines()` e
+`phase_panel_lines()`
+
+**Medido** na fixture `make_board_fixture`, **antes e depois** de qualquer
+`external_ref` (números idênticos nas duas medições, ou seja: nada disto vem
+deste plano):
+
+| `--width` | linhas acima do limite | pior caso |
+| --------- | ---------------------- | --------- |
+| 38 | 6 | `READY  brd-001  Read the roadmap into a phase model` = 51 células |
+| 40–58 | 1 | rodapé `phase 3/4 … · v1.0 · done: 1` = 70 células |
+| 64 | 4 | rodapé (70) + cabeçalho da tabela (85) + linha de fase (90) |
+| 72–80 | 3 | tabela `PENDING PHASES` = 85–90 células |
+| 100–200 | 0 | — |
+
+A grade de raias (`┌ │ └`) **respeita** o limite em todas as larguras, com e
+sem card — é essa a invariante que o `tests/cairn-tracker-card.bats` afirma, e
+está escrito lá que ela é só sobre a grade, junto com o motivo.
+
+Quem estoura são três renderizadores com regras próprias de largura: o modo
+`raw` (< 40 colunas) imprime título inteiro por contrato, o rodapé não trunca,
+e a tabela do painel tem colunas de largura fixa (`RSCH_W`, `PLANS_W`,
+`ISSUES_W`, `VERIFY_W`, `WAITS_W`, `NEXT_W`) que somam mais que uma janela
+estreita antes de qualquer conteúdo.
+
+**Não consertado aqui porque:** é anterior a este plano, não é alcançável por
+nenhuma mudança dele, e decidir o que um rodapé de 70 células faz numa janela
+de 40 (trunca? quebra? some?) é decisão de produto sobre três renderizadores
+que este plano não abre.
