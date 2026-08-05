@@ -79,6 +79,32 @@ ok  orphans  ::  122 issue(s), no orphans (+61 closed issue(s) of archived miles
 
 Os 61 saíram da lista e apareceram no texto. Nenhum deles some em silêncio.
 
+**Re-medido ao fim da execução, depois de fechar as três issues da fase** — e o
+resultado merece ser lido com cuidado, porque parece um retrocesso e não é:
+
+```
+warn  orphans  ::  3 orphan issue(s) (+61 closed issue(s) of archived milestone(s) exempted)
+```
+
+Os três itens são, literalmente:
+
+```
+CairnGo-cdx: no phase-* label (open: A tabela PENDING PHASES tem piso de 92 celulas …)
+CairnGo-hbo: no phase-* label (open: Glifos east_asian_width=A … desalinham o board …)
+CairnGo-uz6: no phase-* label (open: Sem secao ## Milestones no ROADMAP …)
+```
+
+Todos os três são achados do **eixo 2** — issue aberta sem nenhum rótulo de fase —
+criados por uma frente irmã (o trabalho de board da fase 21) depois da minha medição.
+O **eixo 1 continua em zero** e a isenção dos 61 continua de pé, como o próprio texto
+do veredito mostra.
+
+Isso é a arquitetura funcionando exatamente como projetada, e vale registrar: a
+isenção do eixo 1 **não** criou silêncio no eixo 2. Um `warn` legítimo continua
+aparecendo sobre trabalho vivo, com o número de suprimidas ao lado. Era esse o risco
+nomeado no plano 03 — recusar o check inteiro engoliria o eixo 2 — e a re-medição
+mostra os dois eixos convivendo no mesmo veredito.
+
 ## A prova: o teste diferencial
 
 O teste central roda o doctor **duas vezes sobre o mesmo repositório**, com as
