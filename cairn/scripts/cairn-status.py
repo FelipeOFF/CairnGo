@@ -237,11 +237,12 @@ USAGE = ("usage: cairn-status.py [--json] [--plain] [--brief] [--width N] "
          "[--max-rows N] [--ascii] [--color=always|never] "
          "[--planning-dir <dir>] [--html <path>]")
 
-MIN_INNER = 18          # narrowest readable lane content
-MAX_INNER = 40          # widest useful lane content
-N_LANES = 3
-STACK_BELOW = N_LANES * (MIN_INNER + 2) + (N_LANES + 1)   # 64 cols
-RAW_BELOW = 40
+# MIN_INNER / MAX_INNER / N_LANES / STACK_BELOW / RAW_BELOW lived here until
+# Phase 21. They sized a three-column kanban and the two width degrades it
+# needed (columns >= 64 -> stacked lanes >= 40 -> raw list), all of which
+# existed for one reason: three columns do not fit in a narrow terminal. One
+# column fits in any terminal, so the degrades had nothing left to solve and
+# went out with the constants.
 SYNC_STALE_SECONDS = 24 * 3600
 DEFAULT_MAX_ROWS = 15
 
@@ -1918,9 +1919,12 @@ class Style:
         self.ascii = opts["ascii"] or "utf" not in enc
         self.color = self._color_enabled(opts)
         if self.ascii:
-            self.tl, self.tm, self.tr = "+", "+", "+"
-            self.bl, self.bm, self.br = "+", "+", "+"
-            self.h, self.v = "-", "|"
+            # The box-drawing vocabulary (tl/tm/tr, bl/bm/br, h, v) lived
+            # here until Phase 21. Its only reader was render_board, and the
+            # AST says nothing else in this file — not render_plain, not the
+            # phase panel, not the HTML — ever read one. Write-only state is
+            # worse than absent state: it tells the next reader a grid still
+            # exists somewhere.
             self.ell, self.sep = "...", " | "
             self.g_next, self.g_dep, self.g_who = ">", "<-", "@"
             self.g_stale = "*"
@@ -1936,9 +1940,6 @@ class Style:
             self.s_none, self.s_planned, self.s_doing = ".", "o", "O"
             self.s_done, self.s_blocked = "v", "~"
         else:
-            self.tl, self.tm, self.tr = "┌", "┬", "┐"
-            self.bl, self.bm, self.br = "└", "┴", "┘"
-            self.h, self.v = "─", "│"
             self.ell, self.sep = "…", " · "
             self.g_next, self.g_dep, self.g_who = "▶", "⧗", "◆"
             self.g_stale = "·"
@@ -1998,115 +1999,6 @@ def render_spans(spans, style):
     return "".join(style.paint(text, sgr) for text, sgr in spans)
 
 
-def make_cell(lane, iss, inner, style):
-    """One card as spans: `id  title` (+ ⧗ dep on BLOCKED, ◆ assignee on
-    DOING, + ⧉ external tracker key on any lane that has one). Only glyphs
-    and high-priority ids get color — never the whole card. The id is capped
-    at inner - 8 cells so a long bd prefix can never push the card past the
-    lane (the title keeps at least a sliver).
-
-    The tracker suffix is strictly conditional on `external_ref` being
-    present: an issue without one renders the exact bytes it rendered before
-    this existed, which is what keeps the committed reference boards in
-    tests/fixtures/board-render/ valid. It also falls out FIRST when the lane
-    is too narrow — the title outranks every suffix, and among the suffixes
-    the tracker key is the one a reader can lose without losing what the card
-    IS.
-    """
-    iid = truncate(clean(iss.get("id", "?")), max(1, inner - 8), style.ell)
-    title = clean(iss.get("title", ""))
-    id_sgr = SGR_BOLD if issue_priority(iss) <= 1 else None
-
-    suffix = []
-    if lane == "DOING" and iss.get("assignee"):
-        who = truncate(clean(iss["assignee"]), 12, style.ell)
-        suffix = [("  ", None), (style.g_who, SGR_YELLOW), (" " + who, None)]
-    elif lane == "BLOCKED" and as_str_list(iss.get("blocked_by")):
-        dep = clean(as_str_list(iss.get("blocked_by"))[0])
-        suffix = [("  ", None), (style.g_dep, SGR_RED), (" " + dep, None)]
-    if iss.get("_stale"):
-        # Discreet roadmap-complete marker (see docstring step 4b) — dim,
-        # ASCII-safe under --ascii, dropped like any suffix when too narrow.
-        suffix += [("  ", None), (style.g_stale + "done-phase", SGR_DIM)]
-
-    card = []
-    if iss.get("external_ref"):
-        key = truncate(tracker_key(iss["external_ref"]), 16, style.ell)
-        if key:
-            card = [("  ", None), (style.g_card, SGR_DIM),
-                    (" " + key, SGR_DIM)]
-
-    used = display_width(iid) + 2
-    span_w = lambda ss: sum(display_width(t) for t, _ in ss)  # noqa: E731
-    tail = suffix + card
-    if tail and inner - used - span_w(tail) < 6:
-        tail = suffix             # the tracker key falls out first
-    if tail and inner - used - span_w(tail) < 6:
-        tail = []                 # then the rest — the title always wins
-    suffix, suffix_w = tail, span_w(tail)
-    title_t = truncate(title, inner - used - suffix_w, style.ell)
-    spans = [(iid, id_sgr), ("  ", None), (title_t, None)] + suffix
-    pad = inner - sum(display_width(t) for t, _ in spans)
-    if pad > 0:
-        spans.append((" " * pad, None))
-    return spans
-
-
-def lane_rows(lane, items, inner, max_rows, style):
-    """Visible cells for a lane, with a dim `+k more` overflow row."""
-    rows = [make_cell(lane, i, inner, style) for i in items[:max_rows]]
-    extra = len(items) - max_rows
-    if extra > 0:
-        text = f"+{extra} more"
-        rows.append([(text, SGR_DIM), (" " * (inner - len(text)), None)])
-    return rows
-
-
-def lane_header_text(name, count, seg_w, style):
-    text = f"{name} ({count})"
-    if display_width(text) > seg_w - 3:
-        name_t = truncate(name, seg_w - 3 - display_width(f" ({count})"),
-                          style.ell)
-        text = f"{name_t} ({count})"
-    return text
-
-
-def render_board(lanes_items, counts, inner, max_rows, style):
-    seg_w = inner + 2
-    lines = []
-
-    # Top border with embedded lane headers: ┌─ READY (2) ──┬─ DOING (1) ─...
-    spans = [(style.tl, SGR_BORDER)]
-    for idx, ((name, sgr), items) in enumerate(zip(LANES, lanes_items)):
-        text = lane_header_text(name, counts[idx], seg_w, style)
-        fill = seg_w - 3 - display_width(text)
-        spans += [(style.h + " ", SGR_BORDER), (text, sgr), (" ", None),
-                  (style.h * fill, SGR_BORDER)]
-        spans.append((style.tm if idx < N_LANES - 1 else style.tr,
-                      SGR_BORDER))
-    lines.append(render_spans(spans, style))
-
-    per_lane = [lane_rows(name, items, inner, max_rows, style)
-                for (name, _), items in zip(LANES, lanes_items)]
-    n_rows = max(1, max(len(r) for r in per_lane))
-    empty = [(" " * inner, None)]
-    for r in range(n_rows):
-        spans = [(style.v, SGR_BORDER)]
-        for cells in per_lane:
-            cell = cells[r] if r < len(cells) else empty
-            spans += [(" ", None)] + cell + [(" ", None),
-                                             (style.v, SGR_BORDER)]
-        lines.append(render_spans(spans, style))
-
-    spans = [(style.bl, SGR_BORDER)]
-    for idx in range(N_LANES):
-        spans.append((style.h * seg_w, SGR_BORDER))
-        spans.append((style.bm if idx < N_LANES - 1 else style.br,
-                      SGR_BORDER))
-    lines.append(render_spans(spans, style))
-    return lines
-
-
 # --------------------------------------------------------- the grouped list
 #
 # Phase 21 replaces the three-lane kanban on the human render path. The lanes
@@ -2120,6 +2012,13 @@ GROUP_INDENT = ""
 PHASE_INDENT = "  "
 ISSUE_INDENT = "      "
 NO_WORK_TEXT = "(no open work)"
+# Below this many cells left for the body, the row stops trying to put the
+# title beside the id and drops it to its own indented lines. MEASURED at
+# --width 30 with an 11-cell id: the inline budget is 9 cells, so every word
+# lands on a line of its own — nothing truncated, and nothing readable
+# either. The stacked form gives the same row 22 cells. 24 is the smallest
+# budget that still holds a short phrase per line.
+NARROW_BODY = 24
 
 
 def stage_symbol(kind, obj, style):
@@ -2301,7 +2200,8 @@ def render_groups(data, width, max_rows, style):
         if row["kind"] == "phase":
             p = row["phase"]
             glyph, sgr = stage_symbol("phase", p, style)
-            prefix = [(PHASE_INDENT, None), (glyph, sgr), (" ", None),
+            indent = PHASE_INDENT
+            prefix = [(indent, None), (glyph, sgr), (" ", None),
                       (str(row["number"]).rjust(num_w), None), ("  ", None)]
             body = [(style.asciify(clean(p.get("title") or "(untitled)")),
                      None)]
@@ -2309,12 +2209,25 @@ def render_groups(data, width, max_rows, style):
             iss = row["issue"]
             glyph, sgr = stage_symbol(row["lane"], iss, style)
             iid = clean(str(iss.get("id") or "?"))
-            prefix = [(ISSUE_INDENT, None), (glyph, sgr), (" ", None),
+            indent = ISSUE_INDENT
+            prefix = [(indent, None), (glyph, sgr), (" ", None),
                       (iid.ljust(id_w + len(iid) - display_width(iid)),
                        SGR_BOLD if issue_priority(iss) <= 1 else None),
                       ("  ", None)]
             body = issue_body_spans(row["lane"], iss, style)
         prefix_w = sum(display_width(t) for t, _ in prefix)
+        if width - prefix_w < NARROW_BODY:
+            # Too narrow to sit the body beside the id: the id keeps its own
+            # line and the body drops below it, hanging off CONT_INDENT.
+            # Nothing is lost either way — this is the same bytes in a shape
+            # a 30-column terminal can actually read.
+            lines.append(render_spans(prefix, style).rstrip())
+            hang = indent + "  "
+            hang_w = display_width(hang)
+            for cont in wrap_spans(body, width - hang_w):
+                lines.append(render_spans([(hang, None)] + cont,
+                                          style).rstrip())
+            continue
         wrapped = wrap_spans(body, width - prefix_w)
         lines.append(render_spans(prefix + wrapped[0], style).rstrip())
         for cont in wrapped[1:]:
@@ -2644,33 +2557,6 @@ def footer_lines(data, width, style):
             [("note: ", SGR_DIM), (style.asciify(data["note"]), None)],
             style))
     return lines
-
-
-def render_stacked(data, width, max_rows, style):
-    """Lanes stacked vertically for narrow terminals (>= 40 cols)."""
-    lines = []
-    for (name, sgr), items in zip(LANES, data["_lanes"]):
-        lines.append(render_spans(
-            [(f"{name} ({len(items)})", sgr)], style))
-        for iss in items[:max_rows]:
-            cell = make_cell(name, iss, width - 2, style)
-            lines.append("  " + render_spans(cell, style).rstrip())
-        extra = len(items) - max_rows
-        if extra > 0:
-            lines.append("  " + render_spans([(f"+{extra} more", SGR_DIM)],
-                                             style))
-        lines.append("")
-    return lines + footer_lines(data, width, style)
-
-
-def render_raw(data, style):
-    """Bare `LANE  id  title` list for very narrow terminals (< 40 cols)."""
-    lines = []
-    for (name, _), items in zip(LANES, data["_lanes"]):
-        for iss in items:
-            lines.append(f"{name}  {clean(iss.get('id', '?'))}  "
-                         f"{clean(iss.get('title', ''))}")
-    return lines + footer_lines(data, 80, style)
 
 
 def render_plain(data):
@@ -3736,15 +3622,14 @@ def main():
         # never be silently ignored.
         lines = render_plain(data)
     else:
+        # ONE human renderer, every width. The two width degrades this branch
+        # used to pick between existed because three columns do not fit in a
+        # narrow terminal; a single grouped list fits everywhere and simply
+        # wraps sooner.
         cols = opts["width"] if opts["width"] is not None else terminal_cols()
-        if cols < RAW_BELOW:
-            lines = render_raw(data, style)
-        elif cols < STACK_BELOW:
-            lines = render_stacked(data, cols, opts["max_rows"], style)
-        else:
-            lines = render_groups(data, cols, opts["max_rows"], style)
-            lines += footer_lines(data, cols, style)
-            lines += phase_panel_lines(data, cols, style)
+        lines = render_groups(data, cols, opts["max_rows"], style)
+        lines += footer_lines(data, cols, style)
+        lines += phase_panel_lines(data, cols, style)
     out = "\n".join(lines)
     try:
         print(out)
