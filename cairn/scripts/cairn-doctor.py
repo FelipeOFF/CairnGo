@@ -99,8 +99,18 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         unresolvable.
     8. claims-stale     in_progress issues with an assignee whose phase-<N>
                         label differs from STATE.md's active_phase -> WARN
-                        (possible stale claim). Skipped when active_phase
-                        is unresolvable.
+                        (possible stale claim). When active_phase is
+                        unresolvable the check CANNOT RUN, and that is
+                        reported as WARN naming the missing key, the five
+                        cairn surfaces that read it, and CairnGo-rq0 where
+                        the current_phase-vs-active_phase decision lives —
+                        never `ok`. Measured 2026-08-04 before the change:
+                        `claims-stale :: ok :: skipped — no active_phase in
+                        STATE.md`, a check that had never run once in this
+                        project's life while wearing the success marker
+                        (AUTO-08). Still never FAIL: a check with no input
+                        is friction, not a state inconsistency, and exit 7
+                        spent on friction stops meaning anything.
     9. bd-doctor        run 'bd doctor'; first line captured as the
                         summary, pass/fail as bd reports it (exit 0 -> ok,
                         else FAIL).
@@ -937,10 +947,68 @@ def check_label_pairs(issues, milestone, fixed, fix_error):
             "detail": detail, "items": items}
 
 
+# Every cairn surface that READS STATE.md's active_phase, measured
+# 2026-08-04 (`grep -rln active_phase cairn/`, docstring-only mentions
+# excluded): naming them is what makes the no-input verdict below routable
+# instead of a shrug.
+ACTIVE_PHASE_READERS = ("cairn-status.py", "cairn-doctor.py",
+                        "cairn-lease.py", "cairn-migrate.py",
+                        "hooks/session-start.sh")
+
+# Where the decision this check is waiting on actually lives. A non-ok state
+# with no address becomes noise in two weeks.
+ACTIVE_PHASE_ISSUE = "CairnGo-rq0"
+
+
 def check_claims_stale(issues, milestone, active_phase):
+    """Check 8, id "claims-stale" — in_progress issues assigned outside the
+    active phase.
+
+    THE NO-INPUT BRANCH IS NOT `ok`, AND THAT IS THE POINT (AUTO-08).
+    Measured before this change, in this very repository:
+
+        ✓ claims-stale   skipped — no active_phase in STATE.md
+
+    A check that has never run once in this project's life, wearing the
+    success marker. STATE.md here carries `current_phase` (what GSD writes)
+    and every cairn reader looks for `active_phase`, so the input has never
+    arrived — and `ok` said everything was fine about a comparison that
+    never happened. A phase about tools reporting false green cannot leave
+    standing the purest specimen the repo owns.
+
+    NOT `fail` EITHER, and the line is deliberate: this is a check with no
+    INPUT, not a state inconsistency. Spending exit 7 on friction is how
+    exit 7 stops meaning anything (the same line check 16 draws, and the
+    same one check 14 draws for a reclaimable lease). So: `warn`, with the
+    missing key named, the five readers named, and the open decision
+    addressed by id — the shape check_external_ref() already uses for its
+    shallow-clone branch, which likewise cannot check rather than having
+    checked and found nothing.
+
+    Phase 23's VOID-01 is introducing `not-applicable` as a first-class
+    verdict; "there is no active_phase to compare against" is one of its
+    cases and THAT is this branch's eventual status. Do not anticipate it
+    here — phase 23 owns the state.
+
+    WHICH KEY STATE.md SHOULD CARRY IS NOT DECIDED HERE. `current_phase`
+    versus `active_phase` changes what five surfaces read and what every
+    repo with a STATE.md already on disk means; that is a business rule, it
+    is grooming, and it is open in CairnGo-rq0. Not one line here takes a
+    side: nothing is renamed, nothing is migrated, and no `active_phase` key
+    is written anywhere.
+    """
     if active_phase is None:
-        return {"id": "claims-stale", "status": "ok",
-                "detail": "skipped — no active_phase in STATE.md",
+        return {"id": "claims-stale", "status": "warn",
+                "detail": "cannot check — STATE.md's frontmatter carries no "
+                          "'active_phase', so there is nothing to compare "
+                          "in_progress claims against (this check has never "
+                          "run here). "
+                          f"{len(ACTIVE_PHASE_READERS)} cairn surfaces read "
+                          f"that key ({', '.join(ACTIVE_PHASE_READERS)}); "
+                          f"which key STATE.md should carry is open in "
+                          f"{ACTIVE_PHASE_ISSUE}. Not a failure: a check "
+                          "with no input is friction, not a state "
+                          "inconsistency",
                 "items": []}
     items = []
     for iss in issues:

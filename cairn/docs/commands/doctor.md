@@ -81,6 +81,22 @@ this routine health-check flow — see its own section below.
    - **claims-stale** (⚠) — in_progress + assigned issues outside the active
      phase → finish and close, release the claim, or correct `active_phase:`
      in STATE.md.
+
+     It also warns when it **cannot run at all**, which is its state in this
+     repository today: STATE.md's frontmatter carries no `active_phase`, so
+     there is nothing to compare the claims against. That is reported, named
+     and addressed rather than skipped in silence — measured 2026-08-04, it
+     used to read `✓ claims-stale  skipped — no active_phase in STATE.md`, a
+     check that had never run once in this project's life while wearing the
+     success marker. Five cairn surfaces read that key (`cairn-status.py`,
+     `cairn-doctor.py`, `cairn-lease.py`, `cairn-migrate.py`,
+     `hooks/session-start.sh`) and **which key `STATE.md` should carry —
+     `current_phase`, what GSD writes, or `active_phase`, what cairn reads —
+     is open in `CairnGo-rq0`**: it changes what all five read and what every
+     STATE.md already on disk means, so it is a grooming decision, not a
+     rename. Never a failure either: a check with no input is friction, not a
+     state inconsistency, and exit `7` spent on friction stops meaning
+     anything.
    - **bd-doctor** (✗) — beads' own diagnostics failed → run `bd doctor`
      directly and follow its advice.
    - **gsd-capability** (✗) — the cairn capability is not registered with the

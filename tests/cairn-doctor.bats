@@ -2400,3 +2400,130 @@ write_bookkeep_stub() {
   assert_json_eq "$output" '[.checks[].id] | index("req-ledger") != null' \
     'true'
 }
+
+#-----------------------------------------------------------------------------
+# claims-stale with no input (check 8, AUTO-08's mechanical half) — 29-07
+#
+# The purest specimen of the defect this phase removes, measured 2026-08-04
+# in cairn's own repo: `✓ claims-stale  skipped — no active_phase in
+# STATE.md` — a check that had never run once in the project's life, wearing
+# the success marker. The verdict changes; the DIALECT does not. Which key
+# STATE.md should carry (`current_phase`, what GSD writes, or `active_phase`,
+# what cairn reads) is a business rule open in CairnGo-rq0, and no test here
+# takes a side.
+#-----------------------------------------------------------------------------
+
+# Remove the frontmatter key entirely — the state of every repo whose
+# STATE.md was written by GSD.
+drop_state_active_phase() {
+  python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r'^active_phase: ".*?"\n', "", p.read_text(),
+                    flags=re.MULTILINE))
+PY
+}
+
+# Break (twice over): keep the `ok` — the state of this check before 29-07 —
+# or promote a missing input to a blocking failure.
+@test "claims-stale: no active_phase is not ok, names the key and CairnGo-rq0, and never blocks" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  drop_state_active_phase
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # A check with no input is friction, not a state inconsistency: exit 7
+  # spent on friction stops meaning anything.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.ok' 'true'
+  # The exact value, never "is not ok": the old verdict WAS ok, and a
+  # negation would also accept a fail that has no business being one.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'warn'
+  grep -qF "cannot check" <<<"$output"
+  grep -qF "active_phase" <<<"$output"
+  grep -qF "CairnGo-rq0" <<<"$output"
+  # The finding routes: it names the surfaces that read the key.
+  grep -qF "cairn-lease.py" <<<"$output"
+  grep -qF "hooks/session-start.sh" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "⚠ claims-stale" <<<"$output"
+  refute_in_output "✓ claims-stale"
+}
+
+# Break: a branch that never returns ok makes the check lie in the other
+# direction. This is the first proof in this project that it approves when it
+# actually has something to compare.
+@test "claims-stale: with active_phase present the check really runs and returns ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  # The fixture ships active_phase: "2"; DOC_P2 is the phase-2 issue, so an
+  # in_progress claim on it is INSIDE the active phase and must not flag.
+  bd update "$DOC_P2" --status in_progress --assignee tester >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .detail' \
+    'no assigned in_progress issues outside phase 2'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .items | length' '0'
+}
+
+# Break: delete the check instead of fixing its verdict — the lazy way out,
+# and the one the id list catches.
+@test "claims-stale: no verdict change removes a check from the report" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  drop_state_active_phase
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks | length' '18'
+  assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
+    'true'
+}
+
+# Break: take a side on the dialect. Writing `active_phase` into STATE.md (or
+# teaching any cairn surface to read `current_phase`) resolves the symptom by
+# deciding a business rule that belongs to grooming, and it silently changes
+# what every repo with a STATE.md already on disk means.
+@test "claims-stale: the doctor never writes active_phase and never reads current_phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  drop_state_active_phase
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".planning/STATE.md")
+lines = p.read_text().splitlines(keepends=True)
+lines.insert(1, 'current_phase: "2"\n')   # the dialect GSD actually writes
+p.write_text("".join(lines))
+PY
+  cp .planning/STATE.md "$BATS_TEST_TMPDIR/state-before.md"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # current_phase is NOT adopted as a synonym: the check still has no input.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'warn'
+  # And STATE.md is byte-identical — the doctor is read-only about this.
+  run diff "$BATS_TEST_TMPDIR/state-before.md" .planning/STATE.md
+  [ "$status" -eq 0 ]
+}
