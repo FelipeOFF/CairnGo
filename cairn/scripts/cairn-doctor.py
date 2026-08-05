@@ -833,8 +833,20 @@ def check_req_issue(issues, reqs_by_phase, milestone):
                 items.append(f"{req} (phase {n}): no issue with "
                              f"metadata.gsd.req == {req}")
     if not total:
-        detail = "no '**Requirements**:' lists found in ROADMAP.md"
-    elif items:
+        # Phase 23 / VOID-02 (CairnGo-ca3). This used to read `ok` with the
+        # detail "no '**Requirements**:' lists found" — a check announcing
+        # success over a comparison it never made. `no-input`, not
+        # `out-of-scope`: the mapping requirement -> issue is a guarantee this
+        # project WANTS, it has simply never been verified here, and writing
+        # the line in ROADMAP.md is a concrete thing the operator can do.
+        return {"id": "req-issue", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": "nothing to compare — ROADMAP.md lists no phase "
+                          "with a '**Requirements**:' line, so no requirement "
+                          "was ever checked against an issue here; add the "
+                          "line to a phase's section in ROADMAP.md",
+                "items": []}
+    if items:
         detail = f"{len(items)} of {total} requirement(s) unmapped"
     else:
         detail = f"{total} requirement(s) mapped to issues"
@@ -894,6 +906,22 @@ def check_maps_fresh(root, planning_dir, issues):
             first = text.splitlines()[0] if text else ""
             items.append(f"phase {n}: cairn-map --check exit "
                          f"{proc.returncode}: {first}")
+    if not checked:
+        # Phase 23 / VOID-02. This used to read `ok :: 0 phase map(s)
+        # current`, which is a count of nothing announced as a clean bill of
+        # health. MEASURED CORRECTION to the plan that asked for this: the
+        # insumo here is NOT the roadmap — this function never reads it — it
+        # is `.planning/phases/` on disk. An empty roadmap leaves this check
+        # running for real, and only an empty phases/ tree silences it.
+        # `no-input`: a project with phases should have maps, and generating
+        # them is one command away.
+        return {"id": "maps-fresh", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": "nothing to compare — no phase directory under "
+                          f"{planning_dir.name}/phases/ carries either an "
+                          "issue or a generated map, so no map's freshness "
+                          "was ever checked here",
+                "items": []}
     detail = (f"{len(items)} of {checked} phase map(s) need attention"
               if items else f"{checked} phase map(s) current")
     return {"id": "maps-fresh", "status": "warn" if items else "ok",
@@ -981,21 +1009,59 @@ def check_phase_complete_open(issues, completed, disk_done, milestone,
 
 
 def check_orphans(issues, roadmap_phases):
-    items = []
+    """Check 6, id "orphans" — TWO INDEPENDENT AXES in one loop, and keeping
+    them distinguishable is the whole difficulty of this function.
+
+      axis 1  an issue LABELED phase-<N> where N is not a ROADMAP phase.
+              Needs the roadmap; with an empty one there is nothing to
+              compare against and the axis cannot run.
+      axis 2  a non-closed issue with NO phase-* label at all (minus the
+              NO_PHASE_EXEMPT labels). Never touches the roadmap, and works
+              perfectly well with an empty one.
+
+    Phase 23 / VOID-02 + VOID-03's first half. Before it, an empty roadmap
+    made axis 1 silently skip and the whole check report `ok :: N issue(s),
+    no orphans` — approval for a comparison that never happened. The naive
+    promotion is to refuse the CHECK when the roadmap is empty; that would
+    swallow every axis-2 finding, and a phase that exists to remove false
+    green cannot go creating new silence. So the verdict depends on axis 2:
+    an axis-2 finding still WARNs, and only a run with nothing from either
+    axis reports not-applicable. Either way the detail SAYS axis 1 could not
+    run, so that fact is never lost — not even when there is a warning to
+    print on top of it.
+    """
+    unplaced = []           # axis 1 findings
+    unlabeled = []          # axis 2 findings
     for iss in issues:
         nums = phase_nums(iss)
         if nums:
             if roadmap_phases:
                 for n in nums:
                     if n not in roadmap_phases:
-                        items.append(f"{iss.get('id', '?')}: labeled "
-                                     f"phase-{n} but ROADMAP.md has no "
-                                     f"phase {n}")
+                        unplaced.append(f"{iss.get('id', '?')}: labeled "
+                                        f"phase-{n} but ROADMAP.md has no "
+                                        f"phase {n}")
         elif (iss.get("status") != "closed"
                 and not NO_PHASE_EXEMPT.intersection(iss["labels"])):
-            items.append(f"{iss.get('id', '?')}: no phase-* label "
-                         f"({iss.get('status')}: "
-                         f"{iss.get('title', '')})")
+            unlabeled.append(f"{iss.get('id', '?')}: no phase-* label "
+                             f"({iss.get('status')}: "
+                             f"{iss.get('title', '')})")
+    items = unplaced + unlabeled
+
+    if not roadmap_phases:
+        blind = ("the phase-label axis could not run — ROADMAP.md lists no "
+                 "phase to compare labels against")
+        if items:
+            return {"id": "orphans", "status": "warn",
+                    "detail": f"{len(items)} orphan issue(s), and {blind}",
+                    "items": items}
+        return {"id": "orphans", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": f"nothing to compare — {blind}; the unlabeled-issue "
+                          f"axis ran and found nothing over "
+                          f"{len(issues)} issue(s)",
+                "items": []}
+
     detail = (f"{len(items)} orphan issue(s)" if items
               else f"{len(issues)} issue(s), no orphans")
     return {"id": "orphans", "status": "warn" if items else "ok",

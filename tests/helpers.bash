@@ -310,6 +310,33 @@ Before declaring plan complete:
 EOF
 }
 
+# Rewrite make_gsd_fixture's ROADMAP.md so it lists NO phase at all, keeping
+# everything else about the fixture intact. This is the VOID-02 scenario: a
+# repo whose roadmap has nothing to compare against, where a check that counts
+# zero must not read as success.
+#
+# It EDITS the standard fixture rather than standing up a parallel one on
+# purpose — two fixtures for the same repo shape diverge inside a month, and
+# then a test proves something about a repo nobody has.
+#
+# NOTE, measured: this affects the checks that read ROADMAP.md (req-issue,
+# orphans, phase-complete-open), and NOT maps-fresh, which walks the phase
+# DIRECTORIES on disk. Emptying `.planning/phases/` is a different lever.
+make_roadmap_without_phases() {
+  local dir="${1:-$PWD}"
+  cat > "$dir/.planning/ROADMAP.md" <<'EOF'
+# Roadmap: Fixture Project
+
+## Overview
+
+The phases have not been written down yet.
+
+## Phases
+
+## Phase Details
+EOF
+}
+
 # Initialize bd in DIR (default prefix "tst") and create four issues:
 #   BD_EPIC          epic, P1
 #   BD_CHILD_OPEN    task, child of the epic, open

@@ -724,6 +724,110 @@ PY
   refute_in_output "$todo"
 }
 
+# VOID-02 / criterion 2 of the phase's ROADMAP entry, end to end. This is THE
+# proof of the phase: a repo whose roadmap lists nothing must not hand back a
+# perfectly green board.
+#
+# Break: any one of the named checks going back to approving the void. Each is
+# asserted by id, on the exact value — `!= "ok"` would be satisfied by `warn`,
+# and that is how a false green nearly walked past a test written against
+# false greens in phase 29.
+@test "empty roadmap: the checks that compared nothing say so, and the footer says the report is incomplete" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  make_roadmap_without_phases
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # The verdict moved where it is READ, not where it decides to block.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.failed' 'false'
+  assert_json_eq "$output" '.ok' 'false'
+
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-issue") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-issue") | .scope' 'no-input'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .scope' 'no-input'
+
+  # MEASURED CORRECTION to the plan: maps-fresh walks the phase DIRECTORIES on
+  # disk and never reads ROADMAP.md, so an empty roadmap leaves it with its
+  # input intact — it runs for real and reports what it FOUND (the two
+  # generated maps went stale the moment the roadmap changed under them).
+  # Asserting the exact `warn` is what proves the correction: a check that
+  # still has something to compare must keep comparing, not get swept into
+  # the promotion because a neighbouring check lost its input.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="maps-fresh") | .status' 'warn'
+
+  # Each one says WHAT was missing, not just that it gave up.
+  grep -qF "ROADMAP.md lists no phase" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "[cairn-doctor] INCOMPLETE" <<<"$output"
+  refute_in_output "✓ req-issue"
+  refute_in_output "✓ orphans"
+}
+
+# Break, and it is the expensive one: refusing check_orphans AS A WHOLE when
+# the roadmap is empty. That is the tempting, naive version of the promotion,
+# and it would hide every finding of the second axis — a phase that exists to
+# remove false green would have created new silence instead.
+@test "orphans with an empty roadmap: the axis that still works keeps reporting" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  make_roadmap_without_phases
+  local loose
+  loose="$(bd create "Loose end nobody placed" -t task --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # The exact value: warn, because there IS a finding — not not-applicable.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .status' 'warn'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .items | length' '1'
+  grep -qF "$loose" <<<"$output"
+  # And the information that the other axis never ran is NOT lost just
+  # because there was something to warn about.
+  grep -qF "ROADMAP.md lists no phase" <<<"$output"
+}
+
+# Break: wire this promotion to the roadmap. maps-fresh walks
+# `.planning/phases/` on disk and never reads ROADMAP.md, so emptying the
+# phases tree is the only lever that silences it — a promotion hung off the
+# roadmap would never fire here, and would fire in the test above where the
+# check still has work to do.
+#
+# This is also the shape of a project on day one: a roadmap not yet written
+# and no phase directories. It must not read as a clean bill of health.
+@test "maps-fresh: no phase directory at all is not-applicable/no-input, not '0 maps current'" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  make_roadmap_without_phases
+  rm -rf .planning/phases/*
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="maps-fresh") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="maps-fresh") | .scope' 'no-input'
+  grep -qF "no phase directory" <<<"$output"
+  # The report as a whole says it is incomplete, and still does not block.
+  assert_json_eq "$output" '.ok' 'false'
+  assert_json_eq "$output" '.failed' 'false'
+}
+
 @test "label-pairs: phase-only label warns, --fix-labels repairs, re-run clean" {
   require_bd
   make_tmp_repo
