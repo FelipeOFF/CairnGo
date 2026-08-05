@@ -49,7 +49,8 @@ o que está respondendo não conta como pronta.
 ### Journal durável (DJOUR)
 
 - [ ] **DJOUR-01**: A alternativa de hash-chain é pesquisada e decidida **antes** de qualquer código: um `merge=union` cru reordena e deduplica registros, e isso precisa estar resolvido
-- [ ] **DJOUR-02**: O journal sobrevive entre máquinas sem que merge reordene ou perca registro, provado por teste que mescla dois journals divergentes
+- [ ] **DJOUR-02**: O journal atravessa máquinas e sessões **sem que nada precise ser mesclado** — cada checkout escreve na sua própria partição e a leitura une as partições sem depender de acordo de relógio. Provado por dois testes: um que constrói divergência real, e um que prova que compactação concorrente não descarta a história alheia
+- [ ] **DJOUR-04**: O registro carrega de onde veio — máquina, checkout e ator — porque hoje carrega só `actor`, que é o mesmo usuário em todos os checkouts e em todas as máquinas. Registro antigo sem esses campos é lido como desconhecido, nunca com valor inventado
 - [ ] **DJOUR-03**: O journal versionado continua sem ser autoridade sobre o estado corrente — apagá-lo não muda veredito nenhum
 
 ### Limpeza medida (FIX)

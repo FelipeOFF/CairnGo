@@ -6,7 +6,7 @@
 - ✅ **v1.2 GSD Core** — Phases 7-9, shipped 2026-07-28 · [archive](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Status Panel** — Phases 10-12, shipped 2026-07-28 · [archive](./milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 Honest State** — Phases 13-19, shipped 2026-08-01 como cairn 1.5.0 · [archive](./milestones/v1.4-ROADMAP.md)
-- 🚧 **v1.5 Legible State** — Phases 20-29, em andamento
+- 🚧 **v1.5 Legible State** — Phases 20-30, em andamento
 
 ## Milestone: v1.5 Legible State 🚧
 
@@ -29,7 +29,7 @@ não conta como pronta.
 
 ## Phases
 
-### 🚧 v1.5 Legible State — onde você está (Phases 20-29)
+### 🚧 v1.5 Legible State — onde você está (Phases 20-30)
 
 - [x] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-08) — **roda primeiro** — completed 2026-08-05
 - [x] Phase 20: Group model (BOARD-01) — completed 2026-08-03
@@ -40,7 +40,7 @@ não conta como pronta.
 - [ ] Phase 25: Measured cleanup (FIX-01 … FIX-05)
 - [ ] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03)
 - [ ] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02)
-- [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03)
+- [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03, DJOUR-04)
 - [ ] Phase 30: Did it land (PR-01, PR-02, PR-03, PR-04)
 
 ## Detalhe das fases
@@ -236,7 +236,7 @@ critério 3 existe para zerar.
 
 **Plans:** 4 plans
 
-- [ ] 23-01-PLAN.md — a contagem para de aprovar por default, e uma checagem atravessa a pilha inteira (tracer)
+- [x] 23-01-PLAN.md — a contagem para de aprovar por default, e uma checagem atravessa a pilha inteira (tracer)
 - [ ] 23-02-PLAN.md — as guardas que já diziam a palavra em prosa, e as anotações que esperavam esta fase
 - [ ] 23-03-PLAN.md — o idioma da contagem zero, decidido checagem a checagem, e a prova no roadmap vazio
 - [ ] 23-04-PLAN.md — issue fechada de milestone arquivado deixa de ser órfã, e o fecho do contrato
@@ -398,28 +398,69 @@ reordena e deduplica registros, e o journal existe justamente para preservar ord
 duplicata. A alternativa nomeada foi hash-chain, e ela nunca foi pesquisada. Esta
 fase começa por essa pesquisa e só depois escreve código.
 
-**Requirements**: DJOUR-01, DJOUR-02, DJOUR-03
+**A pesquisa rodou (2026-08-05) e redefiniu a fase, que era exatamente o risco que
+este bloco previa.** `28-RESEARCH.md`, 17 experimentos em repositórios temporários:
+
+| afirmação do `DJOUR-01` | medido |
+|---|---|
+| `union` reordena | **verdadeiro** — vira bloco de A, depois bloco de B |
+| `union` deduplica | verdadeiro só para linhas byte-idênticas — e o `nonce` uuid4 que a fase 16 escreve torna isso impossível. Metade do requisito descrevia um bug já consertado |
+| `union` perde registro | **falso** para append puro (8/8); **verdadeiro** com compactação |
+| hash-chain resolve | **falso** — a cadeia quebra na primeira linha da outra máquina: duas cabeças, não uma |
+
+**Hash-chain foi rejeitada, e perde duas vezes:** quebra sob merge, e colide com o
+`DJOUR-03`, porque cadeia de hash é a estrutura de dados da *autoridade* e este
+artefato não decide nada. Integridade criptográfica em artefato descartável é teatro.
+
+Três medições que decidem o desenho:
+
+- `cairn-journal.py:442` já declara a premissa que o `DJOUR-02` antigo quebrava:
+  *"file order IS chronological order; no re-sort needed here, unlike a
+  hypothetically git-merged file"*. Rodando o script de produção sobre um arquivo
+  mesclado, `last-moved` devolveu `complete` quando a verdade era `archived`.
+- **Duas máquinas compactando ao mesmo tempo descartam a história inteira de uma
+  delas** — sem conflito, sem erro, com JSONL válido no fim. Ordenar por `ts` dá a
+  resposta errada na presença de compactação. Desvio NTP medido: −16,7 ms; gap mínimo
+  entre registros: 10,8 ms.
+- **Nada em `.cairn/` é versionado hoje** (`git ls-files .cairn/` vazio;
+  `.gitignore:8` cobre o journal), e o registro **não carrega proveniência**: os
+  campos são `actor, event, from, nonce, phase, source, to, ts`, e `actor` é o
+  usuário do git, idêntico em todo checkout e em toda máquina. Medido ao vivo neste
+  repositório: quatro checkouts simultâneos com 141, 58, 1 e 1 registros — quatro
+  histórias que nunca se alcançam, na mesma máquina.
+
+**Decisão do Felipe (2026-08-05):** o cairn roda em mais de uma máquina **e** em mais
+de uma sessão. Isso elimina "manter local" como resposta e força o desenho
+particionado: uma partição por checkout, para que o merge nunca precise ordenar entre
+arquivos, e a compactação nunca alcance a história alheia.
+
+**Requirements**: DJOUR-01, DJOUR-02, DJOUR-03, DJOUR-04
 
 **Success criteria:**
 
-1. A alternativa de hash-chain é decidida **antes** de qualquer implementação, com o
-   que foi medido escrito — e se a conclusão for que não vale, isso também é
-   resultado e a fase entrega a decisão em vez de código.
+1. O `DJOUR-01` está fechado pela pesquisa commitada — a decisão é o entregável, e a
+   hash-chain sai rejeitada com a medição ao lado, não com uma opinião.
 
-2. Dois journals divergentes de máquinas diferentes são mesclados sem reordenar e
-   sem perder registro, provado por teste que constrói a divergência.
+2. O registro carrega proveniência: máquina, checkout e ator. É pré-requisito de tudo
+   o mais, porque a partição que o desenho exige **não pode ser construída a partir
+   do dado que existe hoje**. Registro antigo sem esses campos lê como desconhecido,
+   nunca com valor inventado.
 
-3. Apagar o journal continua não mudando veredito nenhum. A propriedade que o v1.4
-   travou — o journal explica história e nunca é autoridade sobre o presente —
-   sobrevive a ele virar versionado.
+3. Cada checkout escreve na sua própria partição, e a leitura une as partições sem
+   depender de acordo de relógio — provado por teste que constrói divergência real.
 
-**Research durante o planejamento:** **precisa, e é a única fase do ciclo em que a
-pesquisa pode mudar o entregável.** Se a hash-chain não resolver reordenação sob
-merge sem custo desproporcional, o resultado honesto é a decisão registrada de
-manter o journal local.
+4. Compactação concorrente **nunca** descarta a história de outra partição. É o
+   defeito medido que mata o desenho ingênuo, e o teste que o prova é o mais
+   importante da fase.
 
-**Depende de:** nada tecnicamente, mas fica por último por ser a de maior risco: é a
-única cujo escopo a própria pesquisa pode redefinir.
+5. Apagar o journal continua não mudando veredito nenhum — o `DJOUR-03` sobrevive
+   intacto ao desenho novo.
+
+**Research durante o planejamento:** **já feita.** `28-RESEARCH.md` é a autoridade;
+replanejar a partir de zero seria descartar 17 experimentos.
+
+**Depende de:** nada tecnicamente. Continua por último: é a única fase cujo escopo a
+pesquisa redefiniu, e agora carrega uma mudança de schema em arquivo append-only.
 
 ---
 
@@ -676,6 +717,7 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | DJOUR-01 | Phase 28 | Pending |
 | DJOUR-02 | Phase 28 | Pending |
 | DJOUR-03 | Phase 28 | Pending |
+| DJOUR-04 | Phase 28 | Pending |
 | AUTO-01 | Phase 29 | Complete |
 | AUTO-02 | Phase 29 | Complete |
 | AUTO-03 | Phase 29 | Complete |
@@ -689,7 +731,7 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | PR-03 | Phase 30 | Pending |
 | PR-04 | Phase 30 | Pending |
 
-40 requisitos, 40 mapeados.
+41 requisitos, 41 mapeados.
 
 ## Ordem de dependência
 
