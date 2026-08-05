@@ -110,6 +110,14 @@ Behavior:
           COMMITTED, like `sync.json` and `context.json`, so its diffs are
           read by people.
 
+          A key whose spec names a `planning_key` is ALSO written into GSD's
+          `.planning/config.json`, and only when that file already exists —
+          never creating it (M-1/M-2/M-3 below). `--json` reports
+          `propagated` and `propagation_reason`; the human render says the
+          same in one line, because a silent mechanism is indistinguishable
+          from an absent one. An unreadable GSD config is left untouched and
+          named, rather than overwritten.
+
 Exit codes:
     0  ok
     2  usage error: bad flags, or a key that is not in the schema (the message
@@ -620,18 +628,80 @@ def cmd_get(args, root):
     sys.exit(EXIT_OK)
 
 
+def propagate_to_planning(root, planning_key, value):
+    """Write `value` into GSD's .planning/config.json, but ONLY if that file
+    already exists. Returns (propagated, reason).
+
+    The condition is the whole point, and it is three measurements rather than
+    caution (see the module docstring): creating `.planning/` here would
+    reclassify a greenfield repo from state D to state A for
+    `cairn-migrate.py`, and `cairn/commands/init.md:20-22` makes state A stop
+    the init and divert to `/cairn:migrate`. cairn writing that directory is
+    also forbidden in writing at `init.md:153`.
+
+    An unreadable file is left ALONE rather than overwritten. Rewriting a file
+    we could not parse would destroy whatever was in it, which is the same
+    reason /cairn:config refuses to continue when `list` exits 3.
+
+    MEASURED, on this repository's own 2096-byte `.planning/config.json`:
+    `json.loads` -> `json.dumps(data, indent=2) + "\\n"`, WITHOUT `sort_keys`,
+    round-trips byte for byte. So key order is preserved and the diff of a
+    propagation is exactly the line of the key — which matters because this
+    file is committed and its diffs are read by people. `sort_keys` is
+    deliberately absent here even though write_file() uses it for our own
+    file: ours we own and sort; this one we visit.
+    """
+    path = planning_config_path(root)
+    if not path.is_file():
+        return False, "planning-config-absent"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False, "planning-config-unreadable"
+    if not isinstance(data, dict):
+        return False, "planning-config-unreadable"
+    data[planning_key] = value
+    try:
+        path.write_text(json.dumps(data, indent=2) + "\n")
+    except OSError:
+        return False, "planning-config-unwritable"
+    return True, "propagated"
+
+
 def cmd_set(args, root):
     spec = spec_for(args.key)
     value = coerce_value(args.key, spec, args.value)
     data = load_file(root)
     dotted_set(data, args.key, value)
     path = write_file(root, data)
+
+    # A key that GSD also owns is propagated to GSD's file, mechanically. The
+    # defect this closes was "the prose said to hand the value over and nobody
+    # did"; closing it with one more sentence of prose would repeat the cause.
+    planning_key = spec.get("planning_key")
+    if planning_key:
+        propagated, reason = propagate_to_planning(root, planning_key, value)
+    else:
+        propagated, reason = False, "key-is-cairn-only"
+
     if args.json:
-        print(json.dumps({"key": args.key, "value": value, "source": "file",
-                          "path": str(path), "reader": spec["reader"]}))
+        payload = {"key": args.key, "value": value, "source": "file",
+                   "path": str(path), "reader": spec["reader"],
+                   "propagated": propagated, "propagation_reason": reason}
+        if planning_key:
+            payload["planning_key"] = planning_key
+        print(json.dumps(payload))
     else:
         print(f"[cairn-config] {args.key} = {scalar_text(value)} "
               f"({path}) — read by {spec['reader']}")
+        if propagated:
+            print(f"[cairn-config] also written to "
+                  f"{planning_config_path(root)}:{planning_key}, which GSD's "
+                  f"own workflows read")
+        elif planning_key:
+            print(f"[cairn-config] not propagated to "
+                  f"{PLANNING_CONFIG_RELPATH}:{planning_key} ({reason}) — "
+                  f"re-run this exact command once that file exists")
     sys.exit(EXIT_OK)
 
 
