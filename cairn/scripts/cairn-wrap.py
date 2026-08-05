@@ -43,6 +43,9 @@ Commands:
                 the very defect `docs` exists to remove, moved one file over.
     docs        Regenerate the derived block inside the command reference,
                 between the house markers. Everything outside them survives.
+                Three kinds of gap are NAMED in the block rather than hidden:
+                a command with no row (undocumented), a row whose page does
+                not exist (missing page), and a page for no command (orphan).
 
 Exit codes:
     0  ok — the command is installed / the block is current.
@@ -468,10 +471,20 @@ FAMILY_TITLES = {
 def build_block(wrappers, own, doc_text, doc_pages_dir):
     """The generated block: the count sentence, the table, and the leftovers.
 
-    The leftovers are NAMED rather than hidden. A command with no row anywhere
-    on the page is exactly how /cairn:config and /cairn:reconcile stayed
-    invisible; a generator that quietly omitted them would preserve that. The
-    warning disappears on its own once the row exists.
+    THE LEFTOVERS ARE NAMED RATHER THAN HIDDEN. Three of them, and each is a
+    different way for this page to lie:
+
+      undocumented  a command with no row anywhere. Exactly how /cairn:config
+                    and /cairn:reconcile stayed invisible; a generator that
+                    quietly omitted them would have preserved that.
+      missing_page  a row whose link points at a page that does not exist. The
+                    generator itself can produce these — it writes a row per
+                    wrapper whether or not anyone wrote the page — so a table
+                    of broken links is a lie this tool is capable of authoring,
+                    which is why it must report it.
+      orphan_page   a page documenting no installed command.
+
+    Every warning disappears on its own once the gap is closed.
     """
     linked = set(DOC_LINK.findall(doc_text))
     wrapper_names = {w["command"] for w in wrappers}
@@ -482,6 +495,7 @@ def build_block(wrappers, own, doc_text, doc_pages_dir):
         pages = {p.stem for p in doc_pages_dir.glob("*.md")}
     all_commands = wrapper_names | {c["command"] for c in own}
     orphan_pages = sorted(pages - all_commands)
+    missing_pages = sorted(all_commands - pages)
 
     total = len(wrappers) + len(own)
     lines = [START_MARKER, HEADER_LINE, ""]
@@ -517,14 +531,17 @@ def build_block(wrappers, own, doc_text, doc_pages_dir):
     for name in undocumented:
         lines.append(f"⚠ Not documented: `/cairn:{name}` exists in "
                      f"`cairn/commands/` and has no row on this page.")
+    for name in missing_pages:
+        lines.append(f"⚠ Missing page: `commands/{name}.md` is linked and "
+                     f"does not exist.")
     for name in orphan_pages:
         lines.append(f"⚠ Orphan page: `commands/{name}.md` documents no "
                      f"installed command.")
-    if undocumented or orphan_pages:
+    if undocumented or missing_pages or orphan_pages:
         lines.append("")
 
     lines.append(END_MARKER)
-    return "\n".join(lines), undocumented, orphan_pages
+    return "\n".join(lines), undocumented, missing_pages, orphan_pages
 
 
 def splice(text, block):
@@ -551,14 +568,14 @@ def do_docs(opts):
 
     wrappers, own = collect(commands_dir)
     current = doc.read_text(encoding="utf-8")
-    block, undocumented, orphan_pages = build_block(
+    block, undocumented, missing_pages, orphan_pages = build_block(
         wrappers, own, current, doc_pages_dir)
     updated = splice(current, block)
     changed = updated != current
 
     payload = {"doc": str(doc), "wrappers": [w["command"] for w in wrappers],
-               "undocumented": undocumented, "orphan_pages": orphan_pages,
-               "changed": changed}
+               "undocumented": undocumented, "missing_pages": missing_pages,
+               "orphan_pages": orphan_pages, "changed": changed}
 
     if opts["check"]:
         if opts["json"]:
@@ -587,6 +604,8 @@ def do_docs(opts):
         print(f"[cairn-wrap] {doc} {verb} — {len(wrappers)} wrapper(s)")
         for name in undocumented:
             print(f"[cairn-wrap] ⚠ not documented: /cairn:{name}")
+        for name in missing_pages:
+            print(f"[cairn-wrap] ⚠ missing page: commands/{name}.md")
         for name in orphan_pages:
             print(f"[cairn-wrap] ⚠ orphan page: commands/{name}.md")
     sys.exit(EXIT_OK)

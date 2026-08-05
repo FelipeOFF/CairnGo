@@ -1,13 +1,25 @@
 # What gsd-core brings, and what cairn does with it
 
-gsd-core ships **71** commands under `/gsd:`. cairn's own wrappers reference 18
-of them. This page records an explicit decision for each of the remaining **54**
-— wrapped, use directly, or out of scope — so the answer to "why isn't there a
-`/cairn:` version of this?" is written down rather than re-argued.
+gsd-core ships **71** commands under `/gsd:`. This page records an explicit
+decision for the **54** cairn's own loop does not already drive — wrapped, use
+directly, or out of scope — so the answer to "why isn't there a `/cairn:`
+version of this?" is written down rather than re-argued.
 
 Counted against `open-gsd/gsd-core@v1.8.0`. The earlier research note said 24;
-that was a partial read. The real figure is 54, of which 41 are not mentioned
-anywhere in cairn today.
+that was a partial read.
+
+**Re-derived 2026-08-05, with the recipe at the foot of this page:** 71
+commands, **31** referenced somewhere in `cairn/`, **40** referenced nowhere,
+and every one of those 40 carries a decision in a table below. The referenced
+figure moved from 18 to 31 when phase 26 built the thirteen wrappers.
+
+Two arithmetic notes, because a page about counting should not be caught
+miscounting. First, `18 + 54 = 72`, one more than the 71 that exist: `config`
+sat in the *use directly* table while `cairn/commands/config.md` already
+mentioned `/gsd:config`, so it was on both sides of the split. Second, the
+thirteen wrapped commands are now referenced too — so "unreferenced" and
+"has a decision here" have stopped being the same set, and only the second is
+what this page promises.
 
 ## The rule
 
@@ -39,10 +51,17 @@ These touch phase or milestone state, so bd must follow.
 | `review-backlog` | Promotes backlog items into the active milestone | Creates tracked work, which must arrive as bd issues with the label pair. |
 | `audit-milestone` | Audits a milestone before archiving | Belongs to the `/cairn:milestone complete` gate, which already refuses to archive over non-closed issues. |
 
-**Status: decided, not yet built.** This phase records the decision; the
-wrappers are follow-up work. Until they exist, run these as `/gsd:*` and then
-`/cairn:doctor` — it catches the drift they would have prevented (orphans,
-stale maps, missing `beads:` frontmatter).
+**Status: decided and built.** Phase 26 shipped all thirteen. Each one runs
+`cairn-wrap.sh preflight <command>` first and **refuses to start** when the
+delegate is not installed, naming what is missing and where it looked — rather
+than exiting 0 in silence, the defect v1.2 found.
+
+The list of them in [the command reference](./commands.md#wrapped-gsd-commands)
+is **derived from what is installed**, not typed: `cairn-wrap.sh docs`
+regenerates it from each command file's `wraps:` frontmatter, and
+`cairn-wrap.sh docs --check` exits `3` when the page and the disk disagree. The
+table below states the *decision*; that one states the *installation*, and
+they are checked against each other by the suite.
 
 ## Use the GSD command directly — 39
 
@@ -102,6 +121,11 @@ ls "$GC/commands/gsd/" | sed 's/\.md$//' | sort > /tmp/all.txt
 grep -rhoE "/gsd:[a-z0-9-]+" cairn/ | sed 's|/gsd:||' | sort -u > /tmp/ref.txt
 comm -23 /tmp/all.txt /tmp/ref.txt
 ```
+
+The marketplace segment differs per install — on a cairn-installed machine the
+path is `~/.claude/plugins/cache/cairngo/gsd-core/<version>`. `installPath` in
+`~/.claude/plugins/installed_plugins.json` is the one that is always right, and
+it is what `cairn-wrap.sh preflight` reads.
 
 A command that appears in that output and not in a table above has no decision
 recorded yet.

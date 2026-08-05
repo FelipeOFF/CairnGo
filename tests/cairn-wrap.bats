@@ -217,14 +217,41 @@ add_cairn_command() {
   done
 }
 
-@test "the installed wrapper set is exactly what is on disk" {
-  # An exact count, never `>=`: a lost wrapper is the defect this phase is
-  # about, and an inequality would hide it. This number moves as the phase
-  # builds out, and moving it deliberately is the point.
+@test "the installed wrappers are exactly the thirteen GSD-05 decided" {
+  # An exact count and an exact SET, never `>=`: a lost wrapper is the defect
+  # this phase is about, and an inequality would hide it. The thirteen names
+  # are written HERE and nowhere else — this test is what asserts agreement
+  # with decision GSD-05 (see cairn/docs/gsd-core-commands.md). The script
+  # itself still derives; a wrapper removed, or one wrapping a command outside
+  # the decision, fails here naming which.
   run bash "$WRAP" list --commands-dir "$CAIRN_REPO_ROOT/cairn/commands" --json
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.wrappers | length' '1'
-  assert_json_eq "$output" '[.wrappers[].command] | join(",")' 'phase'
+  assert_json_eq "$output" '.wrappers | length' '13'
+  assert_json_eq "$output" '[.wrappers[].wraps] | sort | join(",")' \
+    'ai-integration-phase,audit-milestone,cleanup,discuss-phase,mvp-phase,phase,plan-review-convergence,review-backlog,secure-phase,spec-phase,ui-phase,ultraplan-phase,validate-phase'
+}
+
+@test "every wrapper delegates to a GSD command that is actually installed" {
+  # WRAP-02 turned on the whole set: not "the check exists", but "the check
+  # passes for all thirteen on this machine". A wrapper naming a command the
+  # installed gsd-core does not have fails here with its exit 6.
+  run bash "$WRAP" list --commands-dir "$CAIRN_REPO_ROOT/cairn/commands" --json
+  [ "$status" -eq 0 ]
+
+  local count i wraps
+  count="$(jq -r '.wrappers | length' <<<"$output")"
+  local listing="$output"
+  for ((i = 0; i < count; i++)); do
+    wraps="$(jq -r ".wrappers[$i].wraps" <<<"$listing")"
+    run bash "$WRAP" preflight "$wraps"
+    if [ "$status" -eq 5 ]; then
+      skip "no GSD command surface on this machine — nothing to check against"
+    fi
+    [ "$status" -eq 0 ] || {
+      echo "preflight $wraps exited $status" >&2
+      return 1
+    }
+  done
 }
 
 @test "/cairn:phase declares what it wraps in its frontmatter" {
@@ -409,6 +436,28 @@ PY
   grep -qF 'Orphan page: `commands/ancient.md`' "$WRAP_DOC"
 }
 
+@test "docs: a row linking a page that does not exist is NAMED as missing" {
+  # The generator writes a row per wrapper whether or not anyone wrote the
+  # page, so a table of broken links is a lie this tool can author itself.
+  # Reporting it is not optional.
+  make_cairn_commands "alpha:plan-phase:phase"
+  make_doc_fixture
+
+  run bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.missing_pages[]] | join(",")' 'alpha'
+  grep -qF 'Missing page: `commands/alpha.md`' "$WRAP_DOC"
+
+  # Write the page; the warning goes on its own.
+  touch "$WRAP_DOC_PAGES/alpha.md"
+  run bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.missing_pages | length' '0'
+  refute_in_file 'Missing page' "$WRAP_DOC"
+}
+
 # ---------------------------------------------------------------------------
 # The real page. These are the guards that keep it from ageing again.
 # ---------------------------------------------------------------------------
@@ -424,6 +473,8 @@ PY
     --doc "$CAIRN_REPO_ROOT/cairn/docs/commands.md" \
     --doc-pages-dir "$CAIRN_REPO_ROOT/cairn/docs/commands"
   assert_json_eq "$output" '.undocumented | length' '0'
+  # Every row on the page links a page that exists — no broken links.
+  assert_json_eq "$output" '.missing_pages | length' '0'
 }
 
 @test "the real command reference states no hand-written total" {
