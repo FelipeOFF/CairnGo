@@ -12,7 +12,48 @@ Usage:
                     [--close-completed] [--link-refs]
                     [--apply-reconciliation N]
 
-Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
+Checks (each reported as {id, status: ok|not-applicable|warn|fail, detail,
+items[]}, plus `scope` when and only when the status is not-applicable):
+
+THE FOURTH STATUS, `not-applicable` (phase 23, VOID-01). It says the check had
+nothing to check — as opposed to `ok`, which says it compared something and
+found it consistent. The word is not new: four detail strings already wrote
+"not applicable" in prose while wearing `ok`, and this only moves it into the
+field tools read.
+
+It carries a `scope`, because two very different absences were wearing one
+word. MEASURED (2026-08-05), and the reason the split exists: the suite's own
+healthy fixture is a USER's repo, with no cairn manifests, so three checks are
+absent there by construction. Making every absence mean "incomplete" would
+have handed every user repo a permanent false red — the same defect as the
+false green, mirrored.
+
+  out-of-scope  the input will never exist for this class of repo and nothing
+                is wrong (cairn's own manifests in a repo that is not cairn).
+                Permanent, ordinary, and it leaves the report complete.
+  no-input      the input SHOULD exist given what the repo already has, so the
+                absence is a gap someone can close (a STATE.md present but
+                carrying no active_phase; a ROADMAP.md present but listing no
+                phase). This one, and only this one, clears the top-level `ok`.
+
+ASSIGNMENT IS A WRITTEN DECISION, NOT A MEASUREMENT: each branch's family is
+chosen by the rule above and recorded at the branch. What WAS measured is the
+symbol: `⊘` (U+2298) reports east_asian_width "N", one column even under a CJK
+locale, checked with unicodedata and asserted by the suite — never eyeballed.
+`◌` (U+25CC) was rejected on purpose: it is already a step symbol on the
+status board, and reusing it would collide two vocabularies.
+
+COUNTING. The footer counts one bucket per word of the vocabulary, and the
+buckets are SYMBOL's own keys, so a status with no symbol has nowhere to be
+counted and die()s instead of landing in the success bucket. Nothing is
+derived by subtraction — that shape is exactly how a fourth status would have
+arrived pre-approved. The four counters sum to the number of registered
+checks, always.
+
+The top-level keys that carry the verdict: `counts` (the four numbers),
+`failed` (the exact mirror of the exit code) and `ok` (which also answers "did
+every check inside the doctor's remit receive its input"). "Something failed"
+and "something never ran" are different questions and get different keys.
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
@@ -239,9 +280,11 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         which carry none of these manifests, and a naive
                         version of this check would report `missing` and
                         drive every one of them to exit 7. Elsewhere it
-                        reports ok with a "not applicable" detail, the
-                        same "0 = ok, or not applicable" semantics the
-                        exit-code table below already documents. A
+                        reports not-applicable / out-of-scope: the carriers
+                        are cairn's own and will never exist there, so
+                        nothing is missing and the report stays complete.
+                        Exit stays 0, the same "0 = ok, or not applicable"
+                        semantics the exit-code table below documents. A
                         non-zero-and-not-6 cairn-release.py exit or
                         unparsable JSON degrades to WARN rather than
                         crashing the whole doctor run over this one check
@@ -259,17 +302,21 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         its install command plus the measured cost of
                         running serial (64s against 33s on
                         tests/cairn-map.bats at -j 6). No bats at all ->
-                        WARN with a different sentence: the suite cannot run
-                        here at all, so nothing about parallelism can be
-                        concluded (phase 23's `not-applicable`, once it
-                        lands, is the right verdict for that branch).
+                        NOT-APPLICABLE / no-input, a different sentence: the
+                        suite cannot run here at all, so nothing about
+                        parallelism was concluded. `no-input` because the
+                        guard below already proved we are inside cairn's own
+                        tree, where the suite exists — a missing tool is a
+                        gap someone can close, so it makes the report read
+                        INCOMPLETE.
                         NEVER fails the run: running the suite slowly is
                         friction, not a state inconsistency, and spending
                         exit 7 on friction is how exit 7 stops meaning
                         anything. APPLIES ONLY when
                         cairn/.claude-plugin/plugin.json exists under the
                         project root — same guard and same reason as check
-                        15, since a wired repo has no cairn bats suite to
+                        15, and same verdict: not-applicable / out-of-scope,
+                        since a wired repo has no cairn bats suite to
                         run. A non-zero exit or unparsable JSON from
                         cairn-test.py degrades to WARN.
     17. req-ledger      (AUTO-07) the requirement ledger's own chain, the
@@ -308,9 +355,11 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         spends exit 7 on a check called req-ledger. No
                         coverage view at all (no '## Cobertura' in
                         ROADMAP.md, no '## Traceability' in
-                        REQUIREMENTS.md) -> ok, not applicable, the same
-                        semantics checks 15/16 use, since the doctor runs
-                        in USERS' repos. The ledger being UNREADABLE
+                        REQUIREMENTS.md), and no REQUIREMENTS.md at all ->
+                        NOT-APPLICABLE / out-of-scope, the same verdict
+                        checks 15/16 use, since the doctor runs in USERS'
+                        repos and keeping no coverage view is a method
+                        choice, not a gap. The ledger being UNREADABLE
                         (script gone, exit outside the (0, 3) allowlist,
                         unparsable JSON) -> FAIL, never WARN: a warning
                         does not change the exit code, so degrading here
@@ -366,7 +415,14 @@ Exit codes:
        .beads/ absent — the doctor is for wired repos. When exactly one
        side exists the note suggests /cairn:migrate. ALSO:
        --apply-reconciliation's own "phase N is no longer in conflict"
-       refusal — nothing left to apply is not a failure.
+       refusal — nothing left to apply is not a failure. ALSO: any number
+       of checks reporting `not-applicable`, of EITHER family, including a
+       run whose footer reads INCOMPLETE. That is deliberate, not an
+       oversight: an absent input is friction, not a state inconsistency,
+       and spending exit 7 on friction is how exit 7 stops meaning
+       anything. The verdict of an incomplete report moved where it is
+       READ (the footer word, the symbol, the top-level `ok` key), never
+       where it decides to block.
     2  usage error, or --fix-labels refused (milestone unresolvable), or
        --apply-reconciliation found no proposal for phase N (missing
        .cairn/conflicts.json, or its own 'phase' field doesn't match N).
@@ -1747,10 +1803,14 @@ def check_release_versions(root):
     `missing: cairn/.claude-plugin/plugin.json does not exist` and drive
     every user's doctor to exit 7 over a file that has no business being
     there. So it applies ONLY when cairn/.claude-plugin/plugin.json exists
-    under the project root; everywhere else it reports "ok" with a "not
-    applicable" detail — the same "0 = ok, or not applicable" semantics the
-    module docstring's exit-code table already documents for the doctor as
-    a whole.
+    under the project root; everywhere else it reports `not-applicable` with
+    scope `out-of-scope` (phase 23) — the word used to sit in the detail
+    prose while the status said `ok`, and this is the same sentence in the
+    field tools read. `out-of-scope`, not `no-input`: these manifests are
+    cairn's own and will NEVER exist in a wired repo, so nothing is missing
+    and the report stays complete. Still exit 0, for the reason the module
+    docstring's exit-code table already gives: an absent input is friction,
+    not a state inconsistency.
 
     Inside THIS repo a divergence is "fail", not "warn": it is an
     inconsistency that blocks a release, and only "fail" reaches exit 7.
@@ -1759,10 +1819,11 @@ def check_release_versions(root):
     doctor run over this one check.
     """
     if not (root / RELEASE_PLUGIN_MANIFEST).is_file():
-        return {"id": "release-versions", "status": "ok",
-                "detail": f"not applicable — no {RELEASE_PLUGIN_MANIFEST} "
-                          "under this root (the version carriers are "
-                          "cairn's own, not a wired repo's)",
+        return {"id": "release-versions", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": f"no {RELEASE_PLUGIN_MANIFEST} under this root "
+                          "(the version carriers are cairn's own, not a "
+                          "wired repo's)",
                 "items": []}
     try:
         proc = subprocess.run(
@@ -1835,18 +1896,26 @@ def check_test_parallel(root):
     be noise about a suite they do not have. So this check applies only where
     cairn's own plugin manifest is — the same marker, for the same reason.
 
-    A machine with no bats at all reports warn with a detail that says the
-    suite cannot run here AT ALL, which is a different sentence from "it will
-    run slowly". Phase 23's VOID-01 is introducing `not-applicable` as a
-    first-class verdict; when it lands, THAT is the right status for this
-    branch, and this comment is the marker. Do not anticipate it here — phase
-    23 owns the state.
+    A machine with no bats at all says the suite cannot run here AT ALL, which
+    is a different sentence from "it will run slowly" — and phase 23 gave that
+    sentence its own status. 29-06 left it as `warn` with a note pointing here;
+    it is now `not-applicable` / `no-input`. `no-input` and not `out-of-scope`,
+    because the manifest guard below has ALREADY filtered: we are inside
+    cairn's own tree, where the suite exists and should be runnable, so a
+    missing tool is a gap someone can close, not a repo this check has no
+    business running in. It therefore makes the report read INCOMPLETE — and
+    still never touches the exit code.
+
+    THE GUARD ITSELF is the other family: no cairn manifest means no cairn
+    suite, permanently and correctly, so it is `out-of-scope` and leaves the
+    report complete.
     """
     if not (root / RELEASE_PLUGIN_MANIFEST).is_file():
-        return {"id": "test-parallel", "status": "ok",
-                "detail": f"not applicable — no {RELEASE_PLUGIN_MANIFEST} "
-                          "under this root (cairn's bats suite is cairn's "
-                          "own, not a wired repo's)",
+        return {"id": "test-parallel", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": f"no {RELEASE_PLUGIN_MANIFEST} under this root "
+                          "(cairn's bats suite is cairn's own, not a wired "
+                          "repo's)",
                 "items": []}
     try:
         proc = subprocess.run(
@@ -1876,7 +1945,8 @@ def check_test_parallel(root):
                 "items": []}
 
     if not data.get("bats"):
-        return {"id": "test-parallel", "status": "warn",
+        return {"id": "test-parallel", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
                 "detail": "bats is not on PATH — the suite cannot run here "
                           "at all, so nothing about parallelism can be "
                           "concluded (brew install bats-core / "
@@ -1952,11 +2022,18 @@ REQ_LEDGER_OUT_OF_REMIT_KINDS = (
 # "This repo has no coverage view at all" is not a broken ledger, it is no
 # ledger. The doctor runs in USERS' repos, and a naive version of this check
 # would drive every roadmap without a coverage table to exit 7 — the same
-# trap check_release_versions() documents. Phase 23's VOID-01 is introducing
-# `not-applicable` as a first-class verdict, and this branch is one of its
-# cases; until it lands this uses the doctor's existing not-applicable idiom
-# (ok plus a detail that says so), the same one checks 15 and 16 use. Do not
-# anticipate the new state here — phase 23 owns it.
+# trap check_release_versions() documents. Phase 23 landed, and this branch is
+# `not-applicable` with scope `out-of-scope`.
+#
+# `out-of-scope`, not `no-input`, and the reason is right here in this
+# comment: keeping no coverage view is a METHOD CHOICE a project is entitled
+# to make, and most user repos make it. Calling it a gap would leave every one
+# of them reading INCOMPLETE forever over a table they deliberately do not
+# keep — a permanent false red where there used to be a permanent false green,
+# which is the same defect mirrored rather than removed. The exit code does
+# not move: the "0 = ok, or not applicable" semantics of the exit-code table
+# stayed true through this phase; what changed is that "not applicable" now
+# has a place of its own in the report instead of disguising itself as `ok`.
 #
 # ACCEPTED GAP, named rather than hidden: with no coverage view the plan
 # checkbox link (link 4) goes unchecked too, because the check is refused as
@@ -2086,7 +2163,12 @@ def check_req_ledger(root, planning_dir):
       * only findings outside this check's remit
         (STATE.md's counters and narrative)        -> "warn", surfaced and
                                                       routed, never exit 7
-      * no coverage view in this repo at all       -> "ok", not applicable
+      * no REQUIREMENTS.md, or no coverage view
+        in this repo at all                        -> "not-applicable",
+                                                      scope "out-of-scope"
+                                                      (phase 23; it used to
+                                                      be "ok" with the words
+                                                      in the prose)
       * the ledger could not be READ (script gone,
         unexpected exit, unparsable JSON)          -> "fail", never "warn"
 
@@ -2097,8 +2179,11 @@ def check_req_ledger(root, planning_dir):
     absent = [name for name in REQ_LEDGER_SOURCES
               if not (planning_dir / name).is_file()]
     if absent:
-        return {"id": "req-ledger", "status": "ok",
-                "detail": f"not applicable — {planning_dir.name}/ carries no "
+        # Same family and same reason as the coverage-view branch below: a
+        # repo that keeps no REQUIREMENTS.md keeps no ledger, on purpose.
+        return {"id": "req-ledger", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": f"{planning_dir.name}/ carries no "
                           f"{', '.join(absent)}, so there is no requirement "
                           f"ledger to cross-check",
                 "items": []}
@@ -2129,8 +2214,9 @@ def check_req_ledger(root, planning_dir):
 
     findings = report.get("disagreements") or []
     if any(f.get("kind") == REQ_LEDGER_VOID_KIND for f in findings):
-        return {"id": "req-ledger", "status": "ok",
-                "detail": "not applicable — this roadmap has no coverage "
+        return {"id": "req-ledger", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "this roadmap has no coverage "
                           "view (no '## Cobertura' table in ROADMAP.md and "
                           "no '## Traceability' table in REQUIREMENTS.md), "
                           "so there is no requirement ledger to cross-check",

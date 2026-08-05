@@ -93,7 +93,7 @@ EOF
   fi
 }
 
-@test "healthy wired fixture: exit 0, every check ✓" {
+@test "healthy wired fixture: exit 0, nothing warns or fails, and it still reads ok" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -101,6 +101,11 @@ EOF
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
+  # `ok`, not INCOMPLETE. This fixture IS a user's repo — it carries none of
+  # cairn's own manifests — so 23-02 gave it ⊘ checks. Every one of them is
+  # out-of-scope, and the footer must still read ok: this assertion is the
+  # mechanical proof that the phase did not trade a permanent false green for
+  # a permanent false red in every repo that uses cairn.
   grep -qF "[cairn-doctor] ok" <<<"$output"
   refute_in_output "⚠"
   refute_in_output "✗"
@@ -120,10 +125,18 @@ EOF
   # called green. The full-suite run through cairn-test.sh is what surfaced
   # it. A number read off the end of a truncated log is not a measurement.
   assert_json_eq "$output" '.checks | length' '18'
-  assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
+  # The exact ordered set, not "unique == ok": after 23-02 this fixture has
+  # two ⊘ checks (cairn's own manifests are absent by construction), and an
+  # assertion that merely tolerated extra values would stop proving anything.
+  assert_json_eq "$output" \
+    '[.checks[].status] | unique | sort | join(",")' 'not-applicable,ok'
   # `.failed` is the exact mirror of the exit code, and it is NOT `.ok`'s
   # complement: `.ok` also answers "did every check in scope actually run".
   assert_json_eq "$output" '.failed' 'false'
+  # And the load-bearing half: not one of those ⊘ is a gap.
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status=="not-applicable" and .scope=="no-input")] | length' \
+    '0'
 }
 
 # Break: derive any counter as `len(checks) - the others`, the shape
@@ -1921,7 +1934,7 @@ EOF
 # Break: make the absence of the plugin manifests a failure. Red here — and it
 # would have turned every user's doctor red too, since no wired repo carries
 # cairn's own manifests.
-@test "release-versions: a repo without cairn's plugin manifests reads ok and never fails the doctor" {
+@test "release-versions: a repo without cairn's plugin manifests is out-of-scope, never a failure and never incomplete" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -1929,11 +1942,19 @@ EOF
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
+  # Was `ok` with the words "not applicable" buried in the prose; 23-02 moved
+  # them into the field. The exact value, never a negation.
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="release-versions") | .status' 'ok'
+    '.checks[] | select(.id=="release-versions") | .status' 'not-applicable'
+  # Break, and it is the one that would hurt every user of cairn: marking this
+  # `no-input`. The manifests will NEVER exist in a wired repo, so calling it
+  # a gap would leave every user repo permanently INCOMPLETE — a false red
+  # traded for a false green, which is the same defect mirrored.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="release-versions") | .scope' 'out-of-scope'
   assert_json_eq "$output" \
     '.checks[] | select(.id=="release-versions") | .items | length' '0'
-  grep -qF "not applicable" <<<"$output"
+  assert_json_eq "$output" '.ok' 'true'
 }
 
 # Break: register the check as `warn`, or forget to add it to the `checks`
@@ -1989,7 +2010,7 @@ EOF
 # Break: drop the applicability guard. Red here — and it would put a warning
 # about GNU parallel in front of every user of a wired repo, about a bats
 # suite they do not have.
-@test "test-parallel: a repo without cairn's plugin manifest reads ok and says not applicable" {
+@test "test-parallel: a repo without cairn's plugin manifest is out-of-scope, and the report stays complete" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -1998,9 +2019,12 @@ EOF
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="test-parallel") | .status' 'ok'
+    '.checks[] | select(.id=="test-parallel") | .status' 'not-applicable'
+  # Same break as check 15's guard: `no-input` here would make every wired
+  # repo read INCOMPLETE forever over a bats suite it does not have.
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="test-parallel") | .detail | contains("not applicable")' 'true'
+    '.checks[] | select(.id=="test-parallel") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
 }
 
 @test "test-parallel: with the prerequisites present the check is ok and names the job count" {
@@ -2056,7 +2080,7 @@ EOF
   grep -qF "⚠ test-parallel" <<<"$output"
 }
 
-@test "test-parallel: no bats at all warns with a different sentence than 'it will be slow'" {
+@test "test-parallel: no bats at all is not-applicable/no-input, a different sentence than 'it will be slow'" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -2077,8 +2101,19 @@ PY
 
   run env CAIRN_TEST="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
+  # Break: keep the `warn` 29-06 left here with a comment saying this branch
+  # belongs to phase 23. Nothing about parallelism was concluded, so `warn`
+  # ("it will be slow") states a fact the check never established.
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="test-parallel") | .status' 'warn'
+    '.checks[] | select(.id=="test-parallel") | .status' 'not-applicable'
+  # `no-input`, NOT `out-of-scope`: the manifest guard above already proved we
+  # are inside cairn's own tree, where the suite exists and should be runnable.
+  # A missing tool is a gap someone can close, so it DOES make the report
+  # incomplete — while still never touching the exit code.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .scope' 'no-input'
+  assert_json_eq "$output" '.ok' 'false'
+  assert_json_eq "$output" '.failed' 'false'
   # Break: routing "no bats" into the slow-suite branch. can_parallelize is
   # true in this report, so a check that looked at that field first would
   # report ok on a machine that cannot run the suite at all.
@@ -2418,7 +2453,7 @@ write_bookkeep_stub() {
 # Break: fail a repo that keeps no coverage view. Every user's roadmap without
 # a coverage table would go to exit 7 over a table that has no business being
 # there — the trap check 15 documents, one check over.
-@test "req-ledger: a roadmap with no coverage view is not applicable, never a failure" {
+@test "req-ledger: a roadmap with no coverage view is out-of-scope, never a failure and never incomplete" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -2431,8 +2466,37 @@ write_bookkeep_stub() {
     bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="req-ledger") | .status' 'ok'
+    '.checks[] | select(.id=="req-ledger") | .status' 'not-applicable'
+  # Break: calling this a gap. Keeping no coverage view is a METHOD choice a
+  # project is entitled to make — the comment on REQ_LEDGER_VOID_KIND says so
+  # — and marking it `no-input` would make every such repo read INCOMPLETE
+  # forever over a table it deliberately does not keep.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
   grep -qF "no coverage view" <<<"$output"
+}
+
+# Break: convert this guard and leave it unproved. It is the branch a repo
+# that keeps no REQUIREMENTS.md at all lands on, and before 23-02 no test
+# touched it — a promotion nobody proves is a promotion nobody notices
+# regressing.
+@test "req-ledger: a .planning/ with no REQUIREMENTS.md is out-of-scope, never a failure" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  rm .planning/REQUIREMENTS.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .scope' 'out-of-scope'
+  # It still names WHAT is missing — the routing survives the promotion.
+  grep -qF "REQUIREMENTS.md" <<<"$output"
 }
 
 # Break: silently drop a disagreement this check does not claim. An
