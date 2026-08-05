@@ -333,25 +333,36 @@ assert_output_lacks() {
   [ "$status" -eq 0 ]
 }
 
-@test "the marked card line keeps its width — the suffix eats padding" {
+# REWRITTEN 2026-08-05 (Phase 21). The old claim was "the line keeps its
+# width — the suffix eats padding", which only makes sense inside a cell of
+# fixed width. The grouped row has no padding to eat: the card makes the row
+# genuinely longer, and the property that matters is the one underneath —
+# a suffix that display_width() does not count pushes the row past --width.
+# That is asserted directly now, over the row this test always owned.
+@test "the marked card lengthens its row and never passes --width" {
   local before="$BATS_TEST_TMPDIR/before.txt"
   local after="$BATS_TEST_TMPDIR/after.txt"
   bash "$STATUS_SH" --width 100 --color=never > "$before"
   mark_ref brd-001 jira-DTP-142
   bash "$STATUS_SH" --width 100 --color=never > "$after"
-  # Character counts of the one changed line, before and after. A suffix that
-  # is not counted into display_width() shows up here as a longer line, which
-  # is the same defect as a card pushed out of its lane.
   run python3 -c '
-import sys
-def w(path):
+import sys, unicodedata
+def cw(ch):
+    if unicodedata.combining(ch):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+def row(path):
     for line in open(path, encoding="utf-8"):
-        if "brd-001" in line:
-            return len(line.rstrip("\n"))
-    raise AssertionError("brd-001 is not on the board in %s" % path)
-b, a = w(sys.argv[1]), w(sys.argv[2])
-assert b == a, "line width moved from %d to %d" % (b, a)
-print("ok %d" % a)
+        if line.startswith("      ") and "brd-001" in line:
+            return line.rstrip("\n")
+    raise AssertionError("brd-001 is not a task row in %s" % path)
+b, a = row(sys.argv[1]), row(sys.argv[2])
+assert "DTP-142" not in b, "the key was already there before the mark: %r" % b
+assert "⧉ DTP-142" in a, "the mark did not render: %r" % a
+assert sum(cw(c) for c in a) <= 100, "the row ran past --width 100: %r" % a
+# The key is what grew the row, and only the key.
+assert a.replace("  ⧉ DTP-142", "") == b, (b, a)
+print("ok %d -> %d" % (sum(cw(c) for c in b), sum(cw(c) for c in a)))
 ' "$before" "$after"
   [ "$status" -eq 0 ]
 }
@@ -413,59 +424,79 @@ def cw(ch):
     if unicodedata.combining(ch):
         return 0
     return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+# REWRITTEN 2026-08-05 (Phase 21). Two things changed here.
+#
+# 1. The board region is no longer only grid lines. At and above
+#    STACK_BELOW it is the grouped list, whose task rows start with six
+#    spaces; below it the stacked and raw degrades are still alive (plan
+#    21-02 collapses them), so the grid characters stay in the filter.
+# 2. The old filter was `line[:1] not in "┌│└+|"`, and in Python an EMPTY
+#    string is a substring of every string — so a blank line counted as a
+#    board line. MEASURED: with the grid gone, that alone kept this test
+#    green at every width above 64 while it inspected nothing at all. The
+#    filter now rejects the empty line explicitly.
+def is_board_line(line):
+    if not line:
+        return False
+    return line[0] in "┌│└+|" or line.startswith("      ")
 seen = 0
 for i, line in enumerate(sys.stdin.read().splitlines(), 1):
-    if line[:1] not in "┌│└+|":
+    if not is_board_line(line):
         continue
     seen += 1
     got = sum(cw(c) for c in line)
-    assert got <= limit, "grid line %d is %d cells wide at --width %d: %r" % (
+    assert got <= limit, "board line %d is %d cells wide at --width %d: %r" % (
         i, got, limit, line)
-# Below STACK_BELOW the grid does not exist; above it, a filter that matched
-# nothing would pass this test forever.
-assert limit < 64 or seen > 0, "no grid line found at --width %d" % limit
-print("ok %d grid lines" % seen)
+# Below STACK_BELOW the stacked and raw degrades render neither a grid nor a
+# six-space row, so this filter genuinely describes nothing there — it did
+# not before either, and saying so is better than widening it until it
+# passes. Plan 21-02 collapses those degrades into the same list, and this
+# exemption goes out with them.
+assert limit < 64 or seen > 0, "no board line found at --width %d" % limit
+print("ok %d board lines" % seen)
 ' "$w" <<<"$output"
     [ "$status" -eq 0 ]
   done
 }
 
-@test "when the lane is too narrow the card falls out and the title stays" {
-  # MEASURED, and it is the whole precedence rule in one render at --width
-  # 100 (lane inner 30 cells):
-  #   brd-001 sits on READY with no suffix of its own — the key fits, and
-  #           renders;
-  #   brd-004 sits on DOING with `◆ cairn-tests` — both do not fit, so the
-  #           key is the one that goes, and the assignee and the title stay.
-  # One render carries both the drop and the proof that the feature is alive,
-  # so the drop can never be a feature that simply never renders.
+# REWRITTEN 2026-08-05 (Phase 21), and this one REPLACES a property with a
+# STRONGER one rather than restating it — so an audit reading this later does
+# not count it as coverage lost.
+#
+# It used to be "when the lane is too narrow the card falls out and the title
+# stays", and it pinned make_cell()'s precedence: the tracker key was shed
+# first, then the rest, the title always winning. That precedence existed
+# because the lane cell was a fixed width and something HAD to go. A row that
+# wraps has nothing to rank, so the rule it enforced is now: nothing goes.
+# The same render still carries the proof that the feature is alive (the key
+# renders), and now also that the row it competed with keeps everything.
+@test "no suffix falls out to make room: the row wraps instead" {
   mark_ref brd-001 jira-DTP-142
   mark_ref brd-004 jira-DTP-142
   run bash "$STATUS_SH" --width 100 --color=never
   [ "$status" -eq 0 ]
 
-  # Per CELL, not per line: the three lanes share one row, so a whole-line
-  # check would read brd-001's key while asserting about brd-004's card.
   run python3 -c '
 import sys
-cells = {}
+rows = {}
 for line in sys.stdin.read().splitlines():
-    if line[:1] != "│":
+    if not line.startswith("      "):
         continue
-    for cell in line.strip("│").split("│"):
-        for iid in ("brd-001", "brd-004"):
-            # startswith, not `in`: BLOCKED renders `⧗ brd-001` as its
-            # dependency suffix, and a substring match would read that cell
-            # as the card OF brd-001 (no apostrophe here on purpose — this
-            # block is inside a single-quoted bash argument).
-            if cell.strip().startswith(iid):
-                cells[iid] = cell
-ready, doing = cells.get("brd-001"), cells.get("brd-004")
-assert ready and doing, "both cards must be on the grid: %r" % cells
-assert "⧉ DTP-142" in ready, "the unencumbered card lost its key: %r" % ready
-assert "⧉" not in doing, "the key did not fall out first: %r" % doing
-assert "cairn-tests" in doing, "the assignee was dropped instead: %r" % doing
-assert "Hold" in doing, "the title was sacrificed to a suffix: %r" % doing
+    for iid in ("brd-001", "brd-004"):
+        # startswith on the stripped row, not `in`: a blocked row names
+        # brd-001 as its blocker, and a substring match would read that row
+        # as the row OF brd-001 (no apostrophe here on purpose — this block
+        # is inside a single-quoted bash argument).
+        body = line.strip()
+        if body[2:].startswith(iid):
+            rows[iid] = body
+ready, doing = rows.get("brd-001"), rows.get("brd-004")
+assert ready and doing, "both rows must be on the board: %r" % rows
+assert "⧉ DTP-142" in ready, "the plain row lost its key: %r" % ready
+assert "⧉ DTP-142" in doing, "the key fell out of the busy row: %r" % doing
+assert "cairn-tests" in doing, "the assignee was dropped: %r" % doing
+assert "Hold the lease while executing" in doing, (
+    "the title was cut to fit a suffix: %r" % doing)
 print("ok")
 ' <<<"$output"
   if [ "$status" -ne 0 ]; then
