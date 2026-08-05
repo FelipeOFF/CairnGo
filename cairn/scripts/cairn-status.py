@@ -853,23 +853,23 @@ def roadmap_phase_rows(planning_dir):
         return rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [], "purpose": None,
+            "requirements": [], "purpose": None, "tracker": None,
         })
 
     # State machine for the "## Detalhe das fases" prose blocks, tracked
     # across the same single pass below (no second file read): detail_phase
     # is the `### Phase N:` block currently open (or None), collecting is
-    # None/"card"/"goal" naming which label is being gathered, buffer holds
-    # its continuation lines so far. card_text/goal_text are resolved once
-    # after the loop, per phase number.
+    # None/"card"/"goal"/"tracker" naming which label is being gathered,
+    # buffer holds its continuation lines so far. card_text/goal_text/
+    # tracker_text are resolved once after the loop, per phase number.
     detail_phase = None
     collecting = None
     buffer = []
-    card_text, goal_text = {}, {}
+    card_text, goal_text, tracker_text = {}, {}, {}
 
     def flush():
         # Joins the buffered continuation lines into one cleaned string and
-        # files it under the label ("card"/"goal") currently being
+        # files it under the label ("card"/"goal"/"tracker") currently being
         # collected, keyed by the detail block it belongs to. A no-op when
         # nothing is being collected.
         nonlocal collecting, buffer
@@ -883,7 +883,8 @@ def roadmap_phase_rows(planning_dir):
             # that distinction is worth carrying into the card.
             text = INLINE_EMPHASIS.sub(
                 lambda m: next(g for g in m.groups() if g is not None), text)
-            target = card_text if collecting == "card" else goal_text
+            target = {"card": card_text, "goal": goal_text,
+                      "tracker": tracker_text}[collecting]
             target[detail_phase] = text
         collecting = None
         buffer = []
@@ -907,6 +908,14 @@ def roadmap_phase_rows(planning_dir):
             if m:
                 flush()
                 collecting = "goal"
+                buffer = [m.group(1).strip()]
+                continue
+            m = TRACKER_LABEL.match(line)
+            if m:
+                # Same machine, same pass, same flush() — a third label, not
+                # a second read of the file.
+                flush()
+                collecting = "tracker"
                 buffer = [m.group(1).strip()]
                 continue
             if collecting is not None:
@@ -968,7 +977,7 @@ def roadmap_phase_rows(planning_dir):
                 row["completed_on"] = cell
     flush()  # a Card/Goal block running to EOF with no trailing `---`
 
-    for n in set(card_text) | set(goal_text):
+    for n in set(card_text) | set(goal_text) | set(tracker_text):
         slot(n)
         card, goal = card_text.get(n), goal_text.get(n)
         if card:
@@ -981,6 +990,11 @@ def roadmap_phase_rows(planning_dir):
         else:
             purpose = None
         rows[n]["purpose"] = clean(purpose) if purpose else None
+        # A phase with a Tracker and no Card/Goal joins the union above and
+        # gets `purpose = None` — which is what slot() already gave it, so
+        # nothing that existed before this label moves.
+        tracker = tracker_text.get(n)
+        rows[n]["tracker"] = (clean(tracker) or None) if tracker else None
 
     return rows
 
@@ -1110,7 +1124,7 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
         rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [], "purpose": None,
+            "requirements": [], "purpose": None, "tracker": None,
         })
     dir_to_number = {d.name: n for n, d in dirs.items()}
     bd_edges = issue_phase_deps(issues or [])
@@ -2057,6 +2071,10 @@ STATE_TABLE_FLOOR = 16       # enough for "x conflict -" (12 cells) plus a
                               # and unicode (1-cell ellipsis)
 RSCH_W, PLANS_W, ISSUES_W = 5, 6, 7
 VERIFY_W, WAITS_W, NEXT_W = 16, 7, 16   # 16: fits "needs-revision" (14) whole
+# Cells the phase TITLE must keep before a `**Tracker:**` key is allowed to
+# reserve room beside it. 12 is a readable abbreviation ("Phase model…");
+# below it the key falls out and the title takes the whole column back.
+TRACKER_TITLE_FLOOR = 12
 
 
 def phase_panel_lines(data, width, style):
@@ -2120,6 +2138,12 @@ def phase_panel_lines(data, width, style):
             rows.append({
                 "p": p, "state_raw": state_raw, "state_sgr": sgr,
                 "title": style.asciify(p["title"] or "(untitled)"),
+                # Rendered into the `phase` column below, never as a column
+                # of its own: a new column prints its header and its empty
+                # cells on EVERY board, which would move the committed
+                # reference renders for phases that carry no tracker at all.
+                "tracker": tracker_key(p["tracker"]) if p.get("tracker")
+                else None,
                 "rsch": phase_research_text(p),
                 "plans": phase_progress_text(p) or "—",
                 "issues": phase_issues_text(p),
@@ -2162,11 +2186,33 @@ def phase_panel_lines(data, width, style):
             p = r["p"]
             state_text = style.asciify(
                 truncate(r["state_raw"], state_w, style.ell))
+            # The tracker key rides beside the title, which is what already
+            # identifies the phase. Unlike make_cell()'s card suffix, here
+            # the key gets its budget RESERVED and the title truncates around
+            # it, because MEASURED: `phase` is a squeezed column (8 cells at
+            # --width 100, 50 at 140), the title is already truncated in it
+            # at every ordinary terminal size, and a suffix that only fits
+            # when nothing else needs the room shows up above ~160 columns
+            # and nowhere else — a feature nobody would ever see. The key is
+            # short and fixed; the title is long and already cut. Reserving
+            # for the short one costs a few characters of a name that is
+            # abbreviated anyway.
+            #
+            # The floor is what stops that from going absurd: below
+            # TRACKER_TITLE_FLOOR cells left for the title, the key falls out
+            # instead, so a narrow board never renders `Ph…  ⧉ DTP-777`.
+            phase_cell = r["title"]
+            if r["tracker"]:
+                key = f"  {style.g_card} {r['tracker']}"
+                key_w = display_width(key)
+                if phase_w - key_w >= TRACKER_TITLE_FLOOR:
+                    phase_cell = truncate(r["title"], phase_w - key_w,
+                                          style.ell) + key
             lines.append(render_spans([
                 ("  ", None),
                 (str(p["number"]).rjust(num_w), None),
                 ("  ", None),
-                (truncate(r["title"], phase_w, style.ell).ljust(phase_w),
+                (truncate(phase_cell, phase_w, style.ell).ljust(phase_w),
                  None),
                 ("  ", None),
                 (state_text.ljust(state_w), r["state_sgr"]),

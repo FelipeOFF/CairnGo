@@ -29,6 +29,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" [flags]
      `⧗ <dep-id>` marker).
    - **Roadmap position** — ROADMAP.md and STATE.md parsed leniently (completed
      phases, 🚧 milestone marker, `active_phase` / `milestone` frontmatter).
+   - **External tracker cards** — read from two places that are already local,
+     with no network call of any kind (see
+     [The board never touches the network](#the-board-never-touches-the-network)):
+     - per issue, from bd's own `external_ref` field (`bd update <id>
+       --external-ref jira-DTP-142`, which `/cairn:doctor --link-refs` already
+       writes as `gh-<n>`). It renders as a `⧉ <key>` suffix on the card;
+     - per phase, from an optional `**Tracker:**` line inside that phase's
+       `### Phase N:` block in ROADMAP.md, beside `**Card:**` and `**Goal:**`
+       (see [What the board reads from ROADMAP.md](#what-the-board-reads-from-roadmapmd)).
    - **Sync staleness** — when `.cairn/sync.json` exists, checked against the
      last-pull watermark in `.cairn/state.json`.
 2. Renders a three-lane kanban board on one shared box-drawing grid (never a
@@ -215,12 +224,65 @@ $ bash cairn/scripts/cairn-status.sh --json | jq -r .parallelism.note
 
 | Key | Shape |
 |---|---|
-| `phases[]` | `{number, title, milestone, complete, completed_on, plans_done, plans_total, requirements[], dir, disk_state, depends_on[], blocked_by[], next_command}` |
+| `ready[] / doing[] / blocked[]` | `{id, title, priority, assignee, external_ref, labels[], blocked_by[]}` — `external_ref` is bd's own field, carried **raw** (backend prefix included); the board strips the prefix for display only |
+| `phases[]` | `{number, title, milestone, complete, completed_on, plans_done, plans_total, requirements[], purpose, tracker, dir, disk_state, depends_on[], blocked_by[], next_command}` — `tracker` is the `**Tracker:**` line, also raw |
 | `next_commands[]` | `{command, phase, title, reason, blocked}`, ordered — unblocked first |
 | `parallelism` | `{runnable[], blocked[], declared, note}`; `declared` is false when no dependency is recorded anywhere, and the note says so |
 
 `/cairn:autonomous` reads exactly these keys to resolve and **announce** the
 order it runs phases in, instead of deciding silently.
+
+## What the board reads from ROADMAP.md
+
+Inside a phase block (`### Phase N: <title>`), three bold labels are read, all
+in the same single pass over the file:
+
+| Label | Meaning | Where it shows |
+| --- | --- | --- |
+| `**Card:**` | The phase purpose, one sentence, verbatim | The PURPOSE list |
+| `**Goal:**` | Fallback purpose when there is no `Card` — first sentence only | The PURPOSE list |
+| `**Tracker:**` | The external tracker key of the whole phase (`DTP-142`, `jira-DTP-142`) | Beside the phase title in PENDING PHASES, as `⧉ <key>` |
+
+```markdown
+### Phase 7: Billing
+
+**Card:** invoices reconcile against the ledger without a human.
+**Tracker:** jira-DTP-142
+```
+
+The label is `Tracker` and not `Card` because `**Card:**` already means the
+phase purpose in this grammar — reusing the word inside the same block would
+make the parser and the reader disagree about which one a line is.
+
+A phase with no `**Tracker:**` line renders exactly as it did before the label
+existed. The key rides beside the title and takes its room from it; when the
+`phase` column is too narrow to leave the title 12 readable cells, the key is
+dropped and the title takes the column back.
+
+## The board never touches the network
+
+Every card on the board comes from data that is already on the machine: bd's
+local database and `ROADMAP.md`. Nothing is fetched — not a title, not a
+status, not an avatar.
+
+That is not a promise, it is a test. `tests/cairn-tracker-card.bats` renders
+the whole board under two independent tripwires and asserts what each one
+covers:
+
+| Layer | What it catches | Its negative control |
+| --- | --- | --- |
+| A `sitecustomize` that raises on `socket.connect` | Any `urllib` / `http.client` / raw socket opened **inside** the renderer | A one-line `python3` that opens a connection under the same `PYTHONPATH` and must fail |
+| A `PATH` holding only `bd`, `git`, `python3`, `jq`, plus a trapped `curl`/`wget` that log their argv | Any network tool run **outside** the process, in a child that does not inherit the socket patch | A one-line `python3` that runs `curl` under the same `PATH` and must appear in the log |
+
+The second layer exists because the first one does not cover the case that
+matters. MEASURED: with the socket tripwire installed, `subprocess.run(['curl',
+…])` in the same process returns **200** — a child process does not inherit
+a patched `socket` module, and `cairn-status.py` shells out in four places. A
+live fetch added later as a subprocess would sail past a socket-only test.
+
+**ASSUMED, and out of reach of both layers:** what `bd` itself does inside its
+own process. It is a third-party Go binary on the allowlist; what is proved is
+that *this script* opens no socket and invokes no network tool.
 
 ## Files touched
 

@@ -417,7 +417,7 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   [ "$output" = "blocked,counts,doing,groups,lease,milestone,next,next_commands,note,parallelism,phase,phases,ready,stale_complete,sync" ]
 }
 
-@test "every phases[] row carries exactly the 22 keys it always did" {
+@test "every phases[] row carries exactly the 23 keys it always did" {
   render_json
 
   # The aggregation is the point, so the premise gets asserted rather than
@@ -436,7 +436,15 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   # group structure nested inside a phases[] row — in one row is enough —
   # adds a key here and this goes red. That is the only mechanical proof of
   # "a new key BESIDE the existing ones, never inside them" (D-02).
-  [ "$output" = "blocked_by,complete,completed_on,conflicts,corroboration,depends_on,dir,disk_state,evidence,issues_done,issues_total,milestone,needs_doctor,next_command,number,plans_done,plans_total,purpose,requirements,research_done,title,verify_status" ]
+  #
+  # EDITED by plan 29-05, deliberately and once: `tracker` joins the set as
+  # the 23rd key — the phase half of AUTO-03, read from the roadmap's
+  # optional `**Tracker:**` line. The literal is edited rather than loosened
+  # to a subset, because a subset assertion is exactly the one that stops
+  # catching a key renamed out from under it, and catching that is why this
+  # test exists. Intent unchanged: this set is a CONTRACT, and a red here is
+  # a contract change asking to be discussed.
+  [ "$output" = "blocked_by,complete,completed_on,conflicts,corroboration,depends_on,dir,disk_state,evidence,issues_done,issues_total,milestone,needs_doctor,next_command,number,plans_done,plans_total,purpose,requirements,research_done,title,tracker,verify_status" ]
 }
 
 @test "disk_state still carries only its four values" {
