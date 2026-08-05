@@ -72,6 +72,13 @@ o que está respondendo não conta como pronta.
 - [x] **AUTO-06**: A config cobre o que hoje não tem onde morar: commit automático, PR por fase ou por milestone, teto de ciclos e de laços do run autônomo, e o que já está espalhado em `.cairn/` passa a ser listado num lugar só
 - [ ] **AUTO-10**: O `STATE.md` fala o dialeto que o cairn de fato lê — hoje o cairn **escreve** `current_phase`, chave que nenhum arquivo dele lê, enquanto cinco leem `active_phase`. Qual dialeto vence é decisão de regra de negócio, aberta em grooming, e a escolha muda o comportamento de todo repositório que já tem `STATE.md` escrito
 
+### O que entrou na branch (PR)
+
+- [ ] **PR-01**: O board diz, por fase e por tarefa, se o trabalho já entrou na branch de controle — respondido do git local, sem rede, e a branch é detectada, confirmada uma vez e gravada, nunca digitada
+- [ ] **PR-02**: A PR associada aparece quando é descobrível; quando não é, o estado é `desconhecido` e diz o que faltou — nunca "sem PR", que é o verde falso na direção oposta
+- [ ] **PR-03**: O estado de revisão vem do `gh`/`glab` atrás de config, nunca no caminho padrão, e o board diz que o dado é de cache e de quando
+- [ ] **PR-04**: Uma fase marcada completa cujo trabalho não entrou na branch de controle vira achado nomeado do doctor
+
 ## Deferred (v2)
 
 - **CORR-09**: Severidade de conflito com allowlist configurável — segue adiado. Exige corpus real de tipos de conflito; inventar níveis sobre zero dado é o erro que a pesquisa do v1.4 descreve.

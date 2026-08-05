@@ -41,6 +41,7 @@ não conta como pronta.
 - [ ] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03)
 - [ ] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02)
 - [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03)
+- [ ] Phase 30: Did it land (PR-01, PR-02, PR-03, PR-04)
 
 ## Detalhe das fases
 
@@ -422,6 +423,67 @@ manter o journal local.
 
 ---
 
+### Phase 30: Did it land
+
+**Card:** o board passa a responder "isto entrou?" — se o trabalho de uma fase já
+está na branch de controle, e qual PR o levou até lá.
+
+**Goal:** pedido do Felipe em 2026-08-05, com a motivação literal: *mapear se uma
+determinada feature foi concluída, se entrou na branch (dev, develop, ou qualquer
+outra branch de controle de gitflow)*. Medido antes de abrir a fase: o board **não
+sabe nada de PR** — `grep -rniE "pull.?request|gh pr|merged"` em `cairn-status.py`
+devolve dois hits, os dois sobre junção de dados, e o único arquivo do cairn que
+fala com o `gh` é o hook de sincronização.
+
+São **duas perguntas com confianças diferentes**, e confundi-las é o erro que a fase
+precisa não cometer. "Entrou na branch de controle?" se responde com
+`git merge-base --is-ancestor`, offline e exato. "Qual PR, em que estado?" não: no
+histórico deste repositório, **6 de 14** merge commits nomeiam PR e 14 commits squash
+carregam `(#N)` — mas a PR #21, que trouxe o milestone v1.4 inteiro, virou
+`7fa133c v1.4 Honest State: …` e **não deixou rastro nenhum**. A PR mais importante
+do repositório é invisível offline.
+
+A prova de aceitação já é verdadeira hoje e não precisa de fixture: a fase 29 está
+completa no disco e `git merge-base --is-ancestor 6545a5c origin/main` devolve falso.
+Nenhuma superfície do cairn diz isso.
+
+**Requirements**: PR-01, PR-02, PR-03, PR-04
+
+**Success criteria:**
+
+1. O board diz, por fase e por tarefa, se o trabalho entrou na branch de controle,
+   respondido do git local. Um teste prova que o caminho padrão não faz rede,
+   reusando as três camadas que o `29-05` já construiu — o tripwire de socket não
+   basta, porque `subprocess.run(['curl', …])` no mesmo processo devolveu 200.
+
+2. A branch de controle é detectada, mostrada, confirmada **uma** vez e gravada, no
+   padrão do `AUTO-02`. **Medido:** `git symbolic-ref refs/remotes/origin/HEAD` está
+   vazio neste repositório, então a fonte mais óbvia não existe e a detecção degrada
+   em vez de morrer. Gitflow real tem duas branches de controle ao mesmo tempo, e
+   "entrou na develop, ainda não na main" é informação, não ambiguidade.
+
+3. PR não descobrível produz `desconhecido` com o motivo nomeado, **nunca** "sem PR".
+   O teste usa a #21 como caso: qualquer implementação que reporte "sem PR" para o
+   merge do milestone v1.4 falhou, mesmo com a suíte verde.
+
+4. Uma fase completa cujo trabalho não entrou na branch de controle vira achado
+   nomeado do doctor. Severidade `warn` — trabalho não empurrado é atrito, não
+   inconsistência. **Exceção que vale `fail`:** fase completa de milestone
+   **arquivado** cujo trabalho nunca entrou, que é um ciclo fechado sobre trabalho
+   ausente da branch de controle.
+
+5. Os sete renders de referência da fase 20 continuam byte a byte idênticos quando
+   não há dado: o sufixo só existe quando o dado existe, exatamente como o `29-05`.
+
+**Research durante o planejamento:** não precisa. A ancestralidade do git e o
+histórico de merges foram medidos ao abrir a fase.
+
+**Depende de:** Phase 23 — o estado `desconhecido` do critério 3 é o
+`not-applicable` daquela fase, e inventar um paralelo aqui seria o quarto idioma
+para a mesma coisa.
+
+---
+
 ### Phase 29: Nothing mechanical stays manual
 
 **Card:** o que é mecânica pura e não tem regra de negócio dentro para de ser feito
@@ -622,8 +684,12 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | AUTO-08 | Phase 29 | Complete |
 | AUTO-05 | Phase 29 | Complete |
 | AUTO-06 | Phase 29 | Complete |
+| PR-01 | Phase 30 | Pending |
+| PR-02 | Phase 30 | Pending |
+| PR-03 | Phase 30 | Pending |
+| PR-04 | Phase 30 | Pending |
 
-36 requisitos, 36 mapeados.
+40 requisitos, 40 mapeados.
 
 ## Ordem de dependência
 
