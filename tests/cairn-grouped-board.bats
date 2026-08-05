@@ -69,22 +69,29 @@ for a in (False, True):
 PY_ROWS="
 import json, re
 SYMS = '''$SYMS_ALL'''
-ROW = re.compile(r'^(  |      )([' + re.escape(SYMS) + r']) (\S+)  (.*)\$')
+CLS = '[' + re.escape(SYMS) + ']'
+# Two row shapes, because render_groups() has two. The wide one carries the
+# body beside the id; below NARROW_BODY cells of room the id keeps its own
+# line and the body hangs under it. Continuations sit at 4, 8 or >=11 spaces
+# and never at 2 or 6, so a continuation can never be read as a row.
+ROW = re.compile(r'^(  |      )(' + CLS + r') (\S+)  (.*)\$')
+ROW_NARROW = re.compile(r'^(  |      )(' + CLS + r') (\S+)\$')
 def rows(text, labels):
     out, stop = [], None
     lines = text.split('\n')
     for line in lines[1:]:            # line 0 is the counts line
         if not line.strip():
             continue
-        m = ROW.match(line)
+        m = ROW.match(line) or ROW_NARROW.match(line)
         if m:
-            out.append({'kind': 'phase' if m.group(1) == '  ' else 'issue',
-                        'sym': m.group(2), 'key': m.group(3),
-                        'body': m.group(4)})
+            g = m.groups()
+            out.append({'kind': 'phase' if g[0] == '  ' else 'issue',
+                        'sym': g[1], 'key': g[2],
+                        'body': g[3] if len(g) > 3 else ''})
             continue
         if (out and out[-1]['kind'] != 'group'
-                and re.match(r'^ {8,}\S', line)):
-            out[-1]['body'] += ' ' + line.strip()
+                and re.match(r'^ {4,}\S', line)):
+            out[-1]['body'] = (out[-1]['body'] + ' ' + line.strip()).strip()
             continue
         if not line.startswith(' ') and line in labels:
             out.append({'kind': 'group', 'sym': '', 'key': '', 'body': line})
@@ -241,15 +248,14 @@ assert not (set(asc) & taken), set(asc) & taken
 # suffix be dropped so the row fits. Both would leave the row inside the
 # width and both would lose bytes the reader asked for.
 #
-# The widths start at 64 and not lower ON PURPOSE: below STACK_BELOW the
-# render still degrades to the stacked lanes, which plan 21-01 leaves alive
-# and which DO truncate. Measured at --width 60: the output is still
-# `READY (3)` / `DOING (2)` / `BLOCKED (2)`. Plan 21-02 collapses those
-# degrades into this same list and widens this loop; asserting the property
-# here at 60 would be asserting it of code this plan did not write.
+# WIDENED 2026-08-05 (plan 21-02) from `64 80 100 140` down to 30. The loop
+# started at 64 because below STACK_BELOW the render degraded to the stacked
+# lanes, which DID truncate — measured at --width 60: `READY (3)` /
+# `DOING (2)` / `BLOCKED (2)`. Those degrades are gone, so BOARD-03 now holds
+# at every width and the loop says so.
 @test "a genuinely long title is never truncated, at any width that holds a word" {
   model_labels
-  for w in 64 80 100 140; do
+  for w in 30 38 50 60 64 80 100 140; do
     render --width "$w"
     run python3 -c "
 $PY_ROWS
@@ -361,7 +367,7 @@ for line in ab:
 # real instead of hypothetical.
 @test "no row overflows its width, and the one exception is a token that cannot fit" {
   model_labels
-  for w in 64 72 100 140; do
+  for w in 30 38 50 64 72 100 140; do
     render --width "$w"
     run python3 -c "
 $PY_LOAD
@@ -371,7 +377,15 @@ labels = json.loads('''$LABELS''')
 rows_, stop = rows(text, labels)
 lines = text.split('\n')
 block = lines[:lines.index(stop)]
-over = [l for l in block if cs.display_width(l) > $w]
+# ROWS, which is what this test claims: a phase row indents by two, a task
+# row by six, and every continuation by four or more. The counts line and
+# the group labels start at column zero and are not rows — the counts line
+# does run past a 30-column terminal, the same way the footer's own meta
+# line has since Phase 13, and both are logged as a pre-existing overflow
+# of the non-row renderers rather than quietly folded into this assertion.
+rows_lines = [l for l in block if l.startswith('  ')]
+assert rows_lines, 'no task or phase row at --width $w'
+over = [l for l in rows_lines if cs.display_width(l) > $w]
 # Every overflowing line must be a prefix plus ONE token: the wrap refuses
 # to split a token, and that is the documented exception.
 for l in over:
@@ -406,6 +420,184 @@ assert on_screen == on_lanes, (
     'only on lanes: %s | only on screen: %s' % (
         sorted(set(on_lanes) - set(on_screen)),
         sorted(set(on_screen) - set(on_lanes))))
+"
+  [ "$status" -eq 0 ]
+}
+
+# ─── The edges ───────────────────────────────────────────────────────────────
+
+# Breaks this test: returning [] early from render_groups() when there are no
+# rows. MEASURED 2026-08-05 by doing exactly that — the human render loses
+# its counts line and its `(no open work)` line and prints the footer with a
+# blank space above it, so an empty board becomes indistinguishable from a
+# board that failed to render. The three empty lanes used to say "nothing
+# here" by being drawn; a list with nothing in it has to SAY it.
+#
+# The fixture is a fresh repo with bd initialised and zero issues, not the
+# setup() fixture with everything closed: `done: N` should be zero here, and
+# closing six issues would make it 6 and hide a counts-line bug behind a
+# number that happened to look plausible.
+@test "a board with no open work says so, and still prints its counts" {
+  make_tmp_repo
+  bd init -q --prefix emp --non-interactive >/dev/null 2>&1
+  render --width 60
+  run python3 -c "
+$PY_ROWS
+rows_, stop = rows(open('$RENDER').read(), [])
+text = open('$RENDER').read()
+lines = text.split('\n')
+
+assert lines[0] == 'ready 0 · doing 0 · blocked 0 · done 0', repr(lines[0])
+assert '(no open work)' in text, text
+
+# Nothing that could be read as a task or phase row. This is the half that
+# an early [] would still pass, which is why it is not the whole assertion.
+assert rows_ == [], rows_
+"
+  [ "$status" -eq 0 ]
+}
+
+# Breaks this test: deduplicating by id in group_rows(), or resolving an id
+# to one issue instead of consuming a per-id FIFO — either one collapses the
+# two occurrences into one row, and the reader loses the fact that the thing
+# being worked on is also blocked.
+#
+# MEASURED 2026-08-05 before writing the assertions, because the plan
+# required proving the fixture can even produce this case: with dup-002 set
+# in_progress AND blocked by dup-001, `bd list --status in_progress` returns
+# ['dup-002'] and `bd blocked` returns ['dup-002'] — the same id from two
+# independent queries, on THIS machine's bd. The render then carries it
+# twice, once with the doing symbol and once with the blocked symbol naming
+# dup-001. The assertions below state that measured behaviour and nothing
+# beyond it.
+@test "an issue that arrives on two lanes is rendered once per arrival" {
+  make_tmp_repo
+  bd init -q --prefix dup --non-interactive >/dev/null 2>&1
+  bd create "blocker task" --id dup-001 -t task -p 2 --silent >/dev/null
+  bd create "double duty" --id dup-002 -t task -p 2 --silent >/dev/null
+  bd dep dup-001 --blocks dup-002 >/dev/null
+  bd update dup-002 --status in_progress >/dev/null 2>&1
+
+  # The premise first. If this machine's bd ever stops returning the id from
+  # both queries, this test must fail HERE, naming the changed premise —
+  # never further down, where it would look like a renderer regression.
+  run bash -c "bash '$STATUS_SH' --json > '$BATS_TEST_TMPDIR/dup.json'"
+  [ "$status" -eq 0 ]
+  run python3 -c "
+import json
+d = json.load(open('$BATS_TEST_TMPDIR/dup.json'))
+doing = [i['id'] for i in d['doing']]
+blocked = [i['id'] for i in d['blocked']]
+assert doing == ['dup-002'], ('premise changed: doing is %r' % doing)
+assert blocked == ['dup-002'], ('premise changed: blocked is %r' % blocked)
+"
+  [ "$status" -eq 0 ]
+
+  render --width 90
+  run python3 -c "
+$PY_LOAD
+$PY_ROWS
+rows_, stop = rows(open('$RENDER').read(), ['No milestone'])
+issues = [r for r in rows_ if r['kind'] == 'issue']
+keys = [r['key'] for r in issues]
+assert keys == ['dup-001', 'dup-002', 'dup-002'], keys
+
+st = cs.Style({'ascii': False, 'color': 'never'})
+by_sym = {r['sym']: r for r in issues if r['key'] == 'dup-002'}
+assert set(by_sym) == {st.s_doing, st.s_blocked}, sorted(by_sym)
+# The FIFO handed each occurrence its OWN lane, which is the whole claim:
+# only the blocked arrival names the blocker.
+assert 'blocked by dup-001' in by_sym[st.s_blocked]['body'], by_sym
+assert 'blocked by' not in by_sym[st.s_doing]['body'], by_sym
+"
+  [ "$status" -eq 0 ]
+}
+
+# Breaks this test: computing id_w over `bucket['issues']` (every id in the
+# bucket) instead of over the rows group_rows() actually emitted. An id
+# hidden behind `+k more` would then pad the id column of every VISIBLE row,
+# so the title column of the whole board would move because of a row nobody
+# can see.
+#
+# The measurement that makes this concrete: brd-9999999999999999 is 20 cells
+# against brd-00N's 7, so the wrong denominator moves the title column 13
+# cells to the right — not a subtle drift.
+@test "an id hidden behind +k more does not widen the id column" {
+  # -p 4, not a lower rank: MEASURED 2026-08-05, `bd create -p 9` is
+  # rejected outright ("invalid priority \"9\" (expected 0-4 or P0-P4)"), and
+  # a fixture line that fails is a test that proves nothing while looking
+  # red for the wrong reason. 4 is the bottom of the scale, which is all this
+  # row needs — the assertion below states that the long id was cut and
+  # fails loudly with the visible keys if it was not.
+  bd create "Hidden behind the cut" --id brd-9999999999999999 -t task -p 4 \
+    -l phase-3 --silent >/dev/null
+  model_labels
+  # --max-rows 1: phase 3's bucket holds more than one issue, so exactly one
+  # survives the cut and the rest go behind `+k more`.
+  render --width 100 --max-rows 1
+  run python3 -c "
+$PY_ROWS
+text = open('$RENDER').read()
+rows_, stop = rows(text, json.loads('''$LABELS'''))
+keys = [r['key'] for r in rows_ if r['kind'] == 'issue']
+assert 'brd-9999999999999999' not in keys, 'the long id was not cut: %r' % keys
+assert '+' in text and 'more' in text, 'nothing was cut at all — the fixture ' \
+    'stopped overflowing and this test is measuring nothing'
+
+# Where the body starts on every visible task row, measured from the bytes.
+starts = set()
+for line in text.split('\n'):
+    for r in rows_:
+        if r['kind'] != 'issue' or not r['body']:
+            continue
+        marker = '      ' + r['sym'] + ' ' + r['key']
+        if line.startswith(marker):
+            starts.add(len(line) - len(line[len(marker):].lstrip()))
+assert len(starts) == 1, ('the title column is not one column: %r' % starts)
+# 6 indent + 1 symbol + 1 space + len(id) + 2 == the body column, IF the
+# widest id among the visible rows is what set it. brd-00N is 7.
+assert starts.pop() == 6 + 1 + 1 + 7 + 2, starts
+"
+  [ "$status" -eq 0 ]
+}
+
+# Breaks this test: removing NARROW_BODY, i.e. letting a row sit its body
+# beside the id at every width. MEASURED 2026-08-05 at --width 30 with an
+# 11-cell id: the inline body budget is 9 cells and single words land alone
+# on their lines ("de", "com", "—"); with the drop it is 22. Nothing is
+# truncated in either shape — this is purely about how much of the title a
+# reader gets per line, which is why it needs its own test instead of riding
+# along on the BOARD-03 assertions, all of which stay green with NARROW_BODY
+# gone.
+@test "a narrow width drops the body under the id instead of squeezing it" {
+  model_labels
+  render --width 30
+  run python3 -c "
+$PY_LOAD
+$PY_ROWS
+text = open('$RENDER').read()
+rows_, stop = rows(text, json.loads('''$LABELS'''))
+issues = [r for r in rows_ if r['kind'] == 'issue']
+assert issues, 'no task row at --width 30'
+
+lines = text.split('\n')
+end = lines.index(stop)
+# In the narrow shape the id line ends AT the id: no body beside it.
+bare = [l for l in lines[:end]
+        if any(l.rstrip() == '      ' + r['sym'] + ' ' + r['key']
+               for r in issues)]
+assert len(bare) == len(issues), (
+    'only %d of %d task rows dropped their body' % (len(bare), len(issues)))
+
+# And what that buys: every continuation line gets more than the inline
+# budget would have left it. The inline budget is 30 - (6 + 1 + 1 + id + 2).
+id_w = max(cs.display_width(r['key']) for r in issues)
+inline_budget = 30 - (6 + 1 + 1 + id_w + 2)
+widest = max(cs.display_width(l.strip()) for l in lines[:end]
+             if l.startswith('        ') and l.strip())
+assert widest > inline_budget, (
+    'the drop bought nothing: widest continuation %d cells vs inline budget '
+    '%d' % (widest, inline_budget))
 "
   [ "$status" -eq 0 ]
 }
