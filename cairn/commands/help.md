@@ -56,6 +56,11 @@ CONFIG (three commands, three files — they do not overlap)
                           → .cairn/config.json
   /cairn:sync-config      which backends bd mirrors to (GitHub/GitLab/Jira/
                           Asana/Azure Boards)        → .cairn/sync.json
+                          Jira is detected first: it shows the key it found
+                          and where, asks once, and writes the backend from
+                          your yes — you never type a key or a credential.
+                          No signal means no question, and a no is recorded
+                          (jira.link in .cairn/config.json) so it stays no.
   /cairn:context-config   context-mode scope template + capacity threshold
                                                      → .cairn/context.json
   Each writes a file you can also edit by hand, and /cairn:config ends by

@@ -21,15 +21,38 @@ tools never sync to each other.
 2. **Seeds or edits the config:** if `.cairn/sync.json` does not exist, it is
    seeded from `${CLAUDE_PLUGIN_ROOT}/templates/sync.json.example`; otherwise
    it is edited in place, preserving existing values.
-3. **Pre-detects Jira usage:** runs
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-migrate.sh" detect --json`.
-   When the JSON carries `external.jira` with `detected: true` (the repo
-   already references Jira issue keys; `prefixes` lists the key prefixes
-   found, most frequent first, and `signals` says where), the **Jira** backend
-   is pre-selected in the next step and `project_key` pre-filled with the
-   most frequent prefix — the user confirms or overrides both. Without a
-   detection the question is asked cold.
-4. **Asks which backends to enable** (multi-select) and collects each one's
+3. **Detects Jira first, then asks — once, and only when there is something
+   to ask about:** runs
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-jira.sh" detect --json` and
+   takes one of four routes off `reason`:
+   - `"no signal"` — nothing in the repo points at Jira, so **nothing is
+     asked about it**. Not a default: the rule.
+   - `"already answered: yes"` / `": no"` — the question was answered before.
+     The command says which answer is on record and how to change it
+     (`cairn-config.sh set jira.link unset`) and does **not** re-ask. A `no`
+     is as durable as a `yes`.
+   - `"signal found, no answer on record"` — the command **shows the
+     evidence** (the key, how many branches and commits carry it, with real
+     names and subjects quoted, and any Atlassian MCP server declared, naming
+     the file that declares it), then asks **one** `AskUserQuestion` — link /
+     do not link, with the found prefixes as the options when there is more
+     than one. From a yes it runs `cairn-jira.sh apply --key <detected>`,
+     which writes the backend; from a no, `cairn-jira.sh decline`. **Nobody
+     types a key, a project or a credential.**
+   - `"signal found, no key to confirm"` — an Atlassian MCP server is
+     declared but the repo's history names no issue key. The command says so;
+     this is the one case where linking needs a key typed, because there is
+     nothing to confirm.
+
+   The detection itself lives in `cairn-migrate.py detect --json` and nowhere
+   else — `cairn-jira.py` is a consumer of it, so the two can never disagree
+   about the same repository. Three guards keep local requirement ids out of
+   it: frequency (≥ 3 of the same prefix), a denylist built from the active
+   **and archived** requirement files, and a weak-signal rule where a key
+   found only in commit messages is reported but never detects (measured on
+   this repo: 21/21 false positives).
+4. **Asks which of the remaining backends to enable** (multi-select) and
+   collects each one's
    `config` fields, setting `"enabled": true`:
    - **github** — `repo` (owner/name). Uses the `gh` CLI's existing auth; no
      token field.

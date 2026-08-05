@@ -342,6 +342,56 @@ EOF
   [ ! -e .cairn/config.json ]
 }
 
+@test "the three routes are distinguishable by reason, and the command names them" {
+  # WHAT THIS PROVES: that the seam between script and prose is real — the
+  # three decisions carry distinct, stable `reason` strings, and
+  # /cairn:sync-config names every one of them plus the exact invocation it
+  # answers with. Rename a reason without touching the command and this goes
+  # red, which is the drift worth catching.
+  #
+  # WHAT IT DOES NOT PROVE: that the conversation is any good.
+  # AskUserQuestion does not run under bats, so nothing here shows that the
+  # user is shown the evidence, asked once, or asked well. That layer is
+  # prose, and asserting a green over it would be the "write_set_complete:
+  # true" verde falso this phase already measured once. It is left honestly
+  # unproven rather than dishonestly covered.
+  make_tmp_repo
+  make_gsd_fixture "$CAIRN_TMP_REPO"
+
+  # route 1 — no signal
+  git commit -q --allow-empty -m "chore: nothing that looks like a tracker"
+  run JIRA detect --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.reason' "no signal"
+
+  # route 3 — signal, no answer yet
+  seed_jira_signals
+  run JIRA detect --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.reason' "signal found, no answer on record"
+
+  # route 2 — already answered
+  run JIRA decline
+  [ "$status" -eq 0 ]
+  run JIRA detect --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.reason' "already answered: no"
+
+  cmd="$CAIRN_REPO_ROOT/cairn/commands/sync-config.md"
+  # A thin wrapper: the decision comes from the script, and the prose says so
+  # by naming the invocation rather than describing detection in words.
+  grep -qF 'scripts/cairn-jira.sh" detect --json' "$cmd"
+  grep -qF 'scripts/cairn-jira.sh" apply --key' "$cmd"
+  grep -qF 'scripts/cairn-jira.sh" decline' "$cmd"
+  # ...and the three routes, by the literal reason each one keys off.
+  grep -qF '"no signal"' "$cmd"
+  grep -qF 'already answered: yes' "$cmd"
+  grep -qF 'signal found, no key to confirm' "$cmd"
+  # The two properties the success criterion states in words.
+  grep -qF "A project with no signal is never asked" "$cmd"
+  grep -qF "never ask for" "$cmd"
+}
+
 @test "cairn-jira.sh with no subcommand exits 2 and names the three verbs" {
   make_tmp_repo
 
