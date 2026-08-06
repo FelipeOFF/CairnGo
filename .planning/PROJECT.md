@@ -84,6 +84,47 @@ A ordem numérica põe no fim o que pode ser cortado inteiro: a 26 (wrappers) é
 maior em volume e não é pré-requisito de nada, e a 28 (journal durável) é a única
 cujo escopo a própria pesquisa pode redefinir.
 
+## Próximo Milestone: v1.6 — o bd vira dono do estado
+
+Decidido pelo Felipe em 2026-08-06. Detalhamento e medições em `CairnGo-dhl`.
+
+**A divisão.** O GSD fica com o que ele faz bem, que é o workflow: discuss, plan,
+execute, verify, e os agentes deles. O bd fica com o estado: construção de tarefa,
+PRDs, `STATE`, `ROADMAP`, `REQUIREMENTS`.
+
+A divisão sai de medição, não de preferência. As duas corrupções que o v1.5
+encontrou vieram da **escrita** do gsd-tools, nenhuma do workflow:
+`state.record-metric` gravou `current_phase: 18`, fase de milestone arquivado, duas
+vezes, lendo prosa obsoleta; e o `_normalizeMd` produziu `+43/−7` no ROADMAP para
+virar cinco checkboxes.
+
+**O `.planning/` deixa de ser fonte e vira saída gerada.** Medido: **53 dos 91**
+workflows do gsd-core leem `ROADMAP.md`, `REQUIREMENTS.md` ou `STATE.md`. O dado não
+pode simplesmente sair de lá. Então o bd passa a ser a fonte, o cairn renderiza os
+`.md` logo antes de invocar o GSD, e os arquivos entram no `.gitignore`. O GSD não
+percebe diferença e ninguém precisa forká-lo.
+
+Isso resolve a migração melhor do que ignorar o diretório: usuário novo recebe do
+`init` a informação de que a fonte é o bd; usuário antigo tem o `.planning` existente
+importado **uma** vez pelo `doctor`, e dali em diante regenerado.
+
+**O que motivou, em tokens medidos:** `.planning/` na raiz custa 21.725 tokens em
+todo contexto de agente. O `STATE.md` sozinho custa 3.490, dos quais 2.513 são o
+bloco `Accumulated Context` com decisões das fases 1 a 6 do v1.1, milestone publicado
+em 27 de julho. As ferramentas leem 126 tokens de frontmatter.
+
+**O que não migra.** Fato migra: fase completa, requisito mapeado, plano executado,
+veredito de verificação. É pequeno, estruturado, consultável, e é o que deriva.
+Argumento fica em markdown: por que `◑` foi descartado, por que hash-chain perde duas
+vezes, o que foi recusado e por quê. Prosa em coluna de banco continua prosa e perde
+`git diff`, grep e review de PR.
+
+**O ganho não é mágico, é de custo.** Com fato em banco, "fase fechada sem evento de
+verificação" é uma consulta. Em markdown foi a fase 29 inteira, sete planos, para
+validar uma cadeia que em consulta é um join. E foi exatamente esse o defeito que
+passou: sete fases fechadas sem verificação, descoberto só quando a fase 27 foi ler a
+série.
+
 ## Context
 
 - Brownfield: mapa da codebase em `.planning/codebase/` (7 docs, 2026-07-25).

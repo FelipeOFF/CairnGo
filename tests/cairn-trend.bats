@@ -115,7 +115,9 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   add_verified v1.1 03 gaps_found
 
   trend --json
-  [ "$status" -eq 0 ]
+  # 4 and not 0: one comparable cycle is fewer than a series needs, so the
+  # sufficiency verdict is already in force. Exact value, never a negation.
+  [ "$status" -eq 4 ]
   [ "$(tjq '.cycles[0].state')" = "comparable" ]
   [ "$(tjq '.cycles[0].scope')" = "null" ]
   [ "$(tjq '.cycles[0].status_counts.passed')" -eq 2 ]
@@ -130,7 +132,7 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   add_bare v1.2 09
 
   trend --json
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 4 ]
   # Exact values on both fields: `no-input` here would be the misreading that
   # erases the fact — the input exists, the format does not.
   [ "$(tjq '.cycles[0].state')" = "not-applicable" ]
@@ -147,7 +149,7 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   add_unverified v1.0 01
 
   trend --json
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 4 ]
   [ "$(tjq '.cycles[0].state')" = "not-applicable" ]
   [ "$(tjq '.cycles[0].scope')" = "no-input" ]
 }
@@ -162,7 +164,7 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
     > "$dir/01-VERIFICATION.md"
 
   trend --json
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 4 ]
   [ "$(tjq '.cycles[0].scope')" = "no-verdict" ]
   [ "$(tjq '.cycles[0].with_frontmatter')" -eq 1 ]
 }
@@ -217,7 +219,7 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   add_verified v1.5 20 passed
 
   trend --json
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 4 ]
   [ "$(tjq '.cycles[0].cycle')" = "v1.4" ]
   [ "$(tjq '.cycles[0].open')" = "false" ]
   [ "$(tjq '.cycles[1].cycle')" = "v1.5" ]
@@ -261,7 +263,7 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   add_bare v1.2 08
 
   trend
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 4 ]
   local na_line
   na_line="$(printf '%s' "$output" | grep -F ' v1.2 ')"
   printf '%s' "$na_line" | grep -qF "not-applicable / no-frontmatter"
@@ -388,6 +390,222 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   reported="$(printf '%s' "$output" | jq -r \
     '[.cycles[] | select(.scope == "no-frontmatter") | .cycle] | join(" ")')"
   [ "$(echo $expected)" = "$reported" ]
+}
+
+# --- the intersection decides the axes --------------------------------------
+
+@test "a field every comparable cycle carries becomes an axis" {
+  new_planning
+  archive_cycle v1.1
+  add_verified v1.1 01 passed "gaps:" "  - truth: a"
+  archive_cycle v1.2
+  add_verified v1.2 07 passed "gaps: []"
+  archive_cycle v1.3
+  add_verified v1.3 10 gaps_found "gaps:" "  - truth: b" "  - truth: c"
+
+  trend --json
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | jq -e '.fields.intersection | index("gaps")' >/dev/null
+  [ "$(tjq '[.series.axes[].axis] | index("gaps") != null')" = "true" ]
+  [ "$(tjq '.series.axes[] | select(.axis == "gaps") | .points_line')" \
+    = "1 → 0 → 2" ]
+}
+
+@test "a field only one cycle carries is not an axis, and the output says where it is missing" {
+  new_planning
+  archive_cycle v1.1
+  add_verified v1.1 01 passed "gaps:" "  - truth: a"
+  archive_cycle v1.2
+  add_verified v1.2 07 passed
+  archive_cycle v1.3
+  add_verified v1.3 10 passed
+
+  trend --json
+  # `gaps` is not shared, so it is not in the intersection and not an axis.
+  [ "$(tjq '.fields.intersection | index("gaps")')" = "null" ]
+  [ "$(tjq '[.series.axes[].axis] | index("gaps")')" = "null" ]
+  # And the cycles it is missing from are NAMED, not merely absent.
+  [ "$(tjq '.fields.missing_from.gaps | join(",")')" = "v1.2,v1.3" ]
+  [ "$(tjq '[.series.unavailable_axes[] | select(.field == "gaps")
+             | .missing_from[]] | unique | join(",")')" = "v1.2,v1.3" ]
+
+  trend
+  printf '%s' "$output" | grep -qF "não vira série"
+}
+
+@test "score aggregates when every cycle counts the same unit" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do
+    archive_cycle "$key"
+  done
+  add_verified v1.1 01 passed
+  add_verified v1.2 07 passed
+  add_verified v1.3 10 passed
+
+  trend --json
+  [ "$status" -eq 0 ]
+  [ "$(tjq '.series.score.aggregated')" = "true" ]
+  [ "$(tjq '.series.score.distinct_units | length')" -eq 1 ]
+  [ "$(tjq '[.series.axes[].axis] | index("score") != null')" = "true" ]
+}
+
+@test "score is REFUSED when the denominator's unit differs, naming the units found" {
+  # The break this guards is the one that matters: drawing a line between
+  # `15/15 must-haves` and `4/4 critérios` is a line between two rulers, the
+  # same class of error the phase exists to avoid, one floor down.
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do
+    archive_cycle "$key"
+  done
+  add_verified v1.1 01 passed
+  add_verified v1.2 07 passed
+  add_verified v1.3 10 passed
+  # Rewrite one cycle's score to count something else.
+  local f
+  f="$(cycle_phases_dir v1.3)/10-phase/10-VERIFICATION.md"
+  cp "$f" "$f.orig"
+  sed 's|score: 4/4 must-haves verified|score: 4/4 critérios verificados|' \
+    "$f.orig" > "$f"
+  rm -f "$f.orig"
+
+  trend --json
+  [ "$(tjq '.series.score.aggregated')" = "false" ]
+  [ "$(tjq '.series.score.distinct_units | length')" -eq 2 ]
+  [ "$(tjq '[.series.axes[].axis] | index("score")')" = "null" ]
+
+  trend
+  # The units it FOUND, from disk — not a generic complaint.
+  printf '%s' "$output" | grep -qF "score não vira série"
+  printf '%s' "$output" | grep -qF "must-haves verified"
+  printf '%s' "$output" | grep -qF "critérios verificados"
+}
+
+@test "direction and monotonicity are reported separately" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  # gaps 1 -> 3 -> 2: ends above where it started, but not monotonically.
+  add_verified v1.1 01 passed "gaps:" "  - truth: a"
+  add_verified v1.2 07 passed "gaps:" "  - truth: a" "  - truth: b" \
+    "  - truth: c"
+  add_verified v1.3 10 passed "gaps:" "  - truth: a" "  - truth: b"
+
+  trend --json
+  [ "$(tjq '.series.axes[] | select(.axis == "gaps") | .direction')" \
+    = "rising" ]
+  [ "$(tjq '.series.axes[] | select(.axis == "gaps") | .monotonic')" \
+    = "false" ]
+
+  trend
+  printf '%s' "$output" | grep -qF "não monotônica"
+}
+
+# --- sufficiency and contiguity ---------------------------------------------
+
+@test "REMOVING the third point removes the direction and exits 4" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed
+  add_verified v1.2 07 passed
+  add_verified v1.3 10 gaps_found
+
+  trend --json
+  [ "$status" -eq 0 ]
+  [ "$(tjq '.series.sufficient')" = "true" ]
+  [ "$(tjq '.series.axes[] | select(.axis == "first_pass") | .direction')" \
+    = "falling" ]
+
+  rm -rf "$(cycle_phases_dir v1.3)/10-phase"
+
+  trend --json
+  [ "$status" -eq 4 ]
+  [ "$(tjq '.series.sufficient')" = "false" ]
+  [ "$(tjq '.series.axes[] | select(.axis == "first_pass") | .direction')" \
+    = "null" ]
+
+  trend
+  [ "$status" -eq 4 ]
+  # It says so, and draws nothing.
+  printf '%s' "$output" | grep -qF "nenhuma direção é declarada"
+  if printf '%s' "$output" | grep -qF "→"; then
+    echo "a direction line was drawn with too few points" >&2
+    return 1
+  fi
+}
+
+@test "ADDING a third point makes the direction appear, with no prose edited" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed
+  add_verified v1.2 07 gaps_found
+  add_bare v1.3 10
+
+  trend --json
+  [ "$status" -eq 4 ]
+  [ "$(tjq '.series.points')" -eq 2 ]
+  [ "$(tjq '.series.axes[] | select(.axis == "first_pass") | .direction')" \
+    = "null" ]
+
+  # One file on disk. Nothing else.
+  add_verified v1.3 11 gaps_found
+
+  trend --json
+  [ "$status" -eq 0 ]
+  [ "$(tjq '.series.points')" -eq 3 ]
+  [ "$(tjq '.series.axes[] | select(.axis == "first_pass") | .direction')" \
+    = "falling" ]
+}
+
+@test "contiguity distinguishes a solid series from one with a hole in the middle" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed
+  add_verified v1.2 07 passed
+  add_verified v1.3 10 passed
+
+  trend --json
+  [ "$(tjq '.series.contiguous')" = "true" ]
+  [ "$(tjq '.series.holes')" -eq 0 ]
+  [ "$(tjq '.series.span')" -eq 3 ]
+
+  # Same three points, two dead cycles wedged into the middle.
+  new_planning
+  for key in v1.1 v1.2 v1.3 v1.4 v1.5; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed
+  add_bare v1.2 07
+  add_bare v1.3 10
+  add_verified v1.4 13 passed
+  add_verified v1.5 20 passed
+
+  trend --json
+  [ "$(tjq '.series.points')" -eq 3 ]
+  [ "$(tjq '.series.contiguous')" = "false" ]
+  [ "$(tjq '.series.holes')" -eq 2 ]
+  [ "$(tjq '.series.span')" -eq 5 ]
+
+  trend
+  printf '%s' "$output" | grep -qF "não contígua"
+}
+
+@test "real tree: the series is not contiguous, and the holes are the no-frontmatter cycles" {
+  local planning="$CAIRN_REPO_ROOT/.planning"
+  [ -d "$planning/milestones" ] || skip "no archived milestone in this tree"
+  run "$TREND" --planning-dir "$planning" --json
+  [ "$status" -eq 0 ]
+
+  # Both ends read from the command's own output — a literal `2` here would
+  # be the fourth hand-typed count in this repository's history.
+  local holes na
+  holes="$(printf '%s' "$output" | jq -r '.series.holes')"
+  na="$(printf '%s' "$output" | jq -r \
+    '[.cycles[] | select(.state == "not-applicable")] | length')"
+  [ "$holes" -eq "$na" ]
+  [ "$(printf '%s' "$output" | jq -r '.series.contiguous')" = "false" ]
 }
 
 @test "an unknown flag is a usage error, exit 2" {
