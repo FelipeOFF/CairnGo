@@ -314,11 +314,25 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
    `cairn-bookkeep.py` escreve `current_phase` no `close`, `grep -rn current_phase
    cairn/` devolve zero **leitores**, e cinco arquivos leem `active_phase`
    (`cairn-status.py`, `cairn-doctor.py`, `cairn-lease.py`, `cairn-migrate.py`,
-   `hooks/session-start.sh`). Qual dialeto vence é **regra de negócio, não
-   mecânica** — a escolha muda o comportamento de todo repositório que já tem
-   `STATE.md` escrito, e por isso está em grooming. **Esta fase não pode ser
-   planejada antes de a decisão estar tomada.** Um teste prova que o `claims-stale`
-   deixa de reportar falta de insumo quando o dialeto escolhido chega ao arquivo.
+   `hooks/session-start.sh`).
+
+   **DECIDIDO pelo Felipe em 2026-08-06, e a fase está destravada:** o
+   `cairn-bookkeep` passa a escrever `active_phase` **junto** com `current_phase`, e
+   segue lendo `active_phase`. Aditivo por escolha — nenhum leitor muda, nenhum
+   repositório existente quebra, e o GSD continua achando a chave dele. O custo
+   aceito é uma chave duplicada no arquivo.
+
+   E o custo tem contrapartida obrigatória: **a divergência entre as duas vira
+   checagem do doctor.** Duas chaves que devem concordar e que ninguém compara é
+   exatamente o defeito que este ciclo mediu quatro vezes — o rodapé contra a tabela,
+   o `req-issue` contra o `req-ledger`, o `completed_plans` contra o `total_plans`, e
+   dois números à mão discordando dentro do mesmo arquivo de documentação. Escrever
+   as duas sem comparar as duas seria criar o quinto caso no ato de consertar o
+   quarto.
+
+   Um teste prova que o `claims-stale` deixa de reportar falta de insumo quando
+   `active_phase` chega ao arquivo, e outro prova que o doctor reprova um `STATE.md`
+   em que as duas chaves discordam.
 
 6. **A cadeia de planos ganha leitor independente.** Medido em 2026-08-06, e é a
    lacuna que fez a verificação da fase 29 sair `gaps_found`: o `STATE.md` afirma
@@ -346,9 +360,19 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
    `STATE.md` com `completed_plans > total_plans`, em vez de recomputá-lo com a mesma
    regra que o escreveu.
 
+7. **`cairn.sync_push` sai da declaração.** Ela vive em `capability.json:43`, em três
+   fragmentos de prompt e em `tests/capability.bats:97`, e é **lida por nada** — o
+   hook `post-bd-write.sh` decide push pela existência de `.cairn/sync.json`.
+   **Decidido pelo Felipe em 2026-08-06:** apagar a declaração, não implementar a
+   leitura. Implementá-la mudaria o comportamento de quem já tem `sync.json`, e
+   nenhum default resolve — `true` faz a chave não significar nada, `false` quebra em
+   silêncio. O comportamento depois é byte a byte o de hoje, e some um botão que
+   grava valor que o hook ignora.
+
 **Research durante o planejamento:** não precisa. Os três carregam a medição na
-própria issue do bd. O AUTO-10 depende de decisão de grooming, não de pesquisa. O
-critério 6 chegou pela verificação da fase 29 e já vem com a causa localizada.
+própria issue do bd. Os critérios 5 e 7 são decisões do Felipe já tomadas (2026-08-06)
+e vêm com a razão escrita; o 6 chegou pela verificação da fase 29 e já vem com a
+causa localizada. **A fase está destravada.**
 
 **Depende de:** nada.
 

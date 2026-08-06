@@ -71,7 +71,7 @@ o que está respondendo não conta como pronta.
 - [x] **AUTO-07**: Uma checagem valida a cadeia inteira do registro de requisitos — requisito ativo → linha na tabela de Cobertura → número afirmado no rodapé — que hoje **ninguém** valida
 - [x] **AUTO-08**: Nenhuma checagem do doctor volta a dizer `ok` por não ter conseguido checar — uma checagem sem insumo diz que está sem insumo, nomeia o que falta e roteia para quem decide, sem bloquear
 - [x] **AUTO-06**: A config cobre o que hoje não tem onde morar: commit automático, PR por fase ou por milestone, teto de ciclos e de laços do run autônomo, e o que já está espalhado em `.cairn/` passa a ser listado num lugar só
-- [ ] **AUTO-10**: O `STATE.md` fala o dialeto que o cairn de fato lê — hoje o cairn **escreve** `current_phase`, chave que nenhum arquivo dele lê, enquanto cinco leem `active_phase`. Qual dialeto vence é decisão de regra de negócio, aberta em grooming, e a escolha muda o comportamento de todo repositório que já tem `STATE.md` escrito
+- [ ] **AUTO-10**: O cairn escreve a chave que ele lê. **Decidido pelo Felipe em 2026-08-06:** o `cairn-bookkeep` passa a escrever `active_phase` **junto** com `current_phase`, e segue lendo `active_phase` — aditivo, sem migração, e o GSD continua achando a chave dele. A divergência entre as duas vira checagem do doctor, porque duas chaves que devem concordar e ninguém compara é o defeito que este ciclo mediu quatro vezes
 
 ### O que entrou na branch (PR)
 
