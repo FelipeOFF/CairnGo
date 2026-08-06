@@ -540,7 +540,7 @@ def build_series(cycles, survey, score):
         idx = [i for i, c in enumerate(cycles) if c["state"] == COMPARABLE]
         span = idx[-1] - idx[0] + 1
         holes = span - len(idx)
-        contiguous = True
+        contiguous = holes == 0
     sufficient = len(comparable) >= MIN_SERIES_POINTS
     axes, unavailable = [], []
     for axis_id, field, label in AXIS_SPECS:
