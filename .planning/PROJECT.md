@@ -98,15 +98,46 @@ encontrou vieram da **escrita** do gsd-tools, nenhuma do workflow:
 vezes, lendo prosa obsoleta; e o `_normalizeMd` produziu `+43/−7` no ROADMAP para
 virar cinco checkboxes.
 
-**O `.planning/` deixa de ser fonte e vira saída gerada.** Medido: **53 dos 91**
-workflows do gsd-core leem `ROADMAP.md`, `REQUIREMENTS.md` ou `STATE.md`. O dado não
-pode simplesmente sair de lá. Então o bd passa a ser a fonte, o cairn renderiza os
-`.md` logo antes de invocar o GSD, e os arquivos entram no `.gitignore`. O GSD não
-percebe diferença e ninguém precisa forká-lo.
+**O `.planning/` não é gerado: ele deixa de ser lido.** A primeira proposta era
+renderizar os `.md` antes de invocar o GSD. Felipe apontou o furo e ele é fatal:
+gerar não economiza token nenhum, porque o GSD lê o arquivo do mesmo jeito. O ganho
+seria fonte única, não custo.
 
-Isso resolve a migração melhor do que ignorar o diretório: usuário novo recebe do
-`init` a informação de que a fonte é o bd; usuário antigo tem o `.planning` existente
-importado **uma** vez pelo `doctor`, e dali em diante regenerado.
+A saída está em **como** os workflows leem, e a medição é favorável. Dos 91 workflows
+do gsd-core, **77 leem por camada de consulta** (`gsd_run query ...`) e só 21 leem
+arquivo direto. Os verbos são contáveis: `init.phase-op` (21 usos),
+`roadmap.get-phase` (15), `roadmap.analyze` (9), `verification.status` (8),
+`state.record-session` (6). É **uma costura**, não 53 patches.
+
+E o ponto de interceptação já existe, já prefere o local, e a cadeia de fallback foi
+escrita para ser sobrescrita:
+
+```
+_GSD_RUNTIME_ROOT = git rev-parse --show-toplevel
+  1. ${ROOT}/gsd-core/bin/gsd-tools.cjs          <- projeto vence
+  2. ${ROOT}/.claude/gsd-core/bin/gsd-tools.cjs
+  3. ${ROOT}/.codex/gsd-core/bin/...
+  4. command -v gsd-tools
+  5. $HOME/.claude/gsd-core/bin/...              <- global, último
+```
+
+O cairn põe um shim no caminho local, responde os verbos de **estado** a partir do
+bd, e delega o resto ao gsd-tools real. E aqui aparece o ganho de token que a geração
+não dava: o shim devolve **a fatia**, não o arquivo. `roadmap.get-phase 21` devolve um
+objeto de fase, não 10.572 tokens de ROADMAP.
+
+**O split é limpo, e não por acaso.** Dos oito workflows que ficam com o GSD, o total
+de leituras diretas residuais é **três**: duas em `discuss-phase`, uma em
+`plan-phase`. `execute-phase`, `verify-work`, `quick`, `autonomous` e `debug` leem
+zero arquivos e tudo por consulta; `fast` é standalone. Já os 21 que leem arquivo
+direto são quase todos os que saem: `new-project`, `new-milestone`, `edit-phase`,
+`add-backlog`, `progress`, `ship`, `import`, `cleanup`, `session-report`, `undo`.
+
+Isso reflete uma fronteira de desenho real dentro do GSD: execução lê estado por
+ferramenta, autoria escreve estado direto. A divisão proposta cai em cima dela.
+
+Migração: usuário novo recebe do `init` a informação de que a fonte é o bd; usuário
+antigo tem o `.planning` existente importado **uma** vez pelo `doctor`.
 
 **O que motivou, em tokens medidos:** `.planning/` na raiz custa 21.725 tokens em
 todo contexto de agente. O `STATE.md` sozinho custa 3.490, dos quais 2.513 são o
