@@ -385,15 +385,28 @@ def status_counts(cycle):
 
 
 def build_model(planning_dir):
+    """Everything the renderer will ever need, INCLUDING the formatted
+    strings.
+
+    The renderer computes nothing — not a division, not a rounding, not a
+    count. That is not fastidiousness: it is what makes "no number in the
+    prose was typed by hand" a mechanically checkable claim, since every
+    token the human output prints can then be found as a value in --json.
+    TREND-02 is the reason this phase exists, and an unprovable claim about
+    it would be the fourth hand-typed count in this repository's history.
+    """
     cycles = [classify(scan_cycle(c)) for c in discover_cycles(planning_dir)]
     for c in cycles:
         c["status_counts"] = status_counts(c)
         c["coverage"] = f"{c['with_verdict']}/{c['phase_dirs']}"
+        c["status_line"] = " · ".join(
+            f"{k} {v}" for k, v in sorted(c["status_counts"].items()))
         c.pop("phases_dir", None)
     return {
         "planning_dir": str(planning_dir),
         "cycles": cycles,
         "comparable": [c["cycle"] for c in cycles if c["state"] == COMPARABLE],
+        "open_cycle": next((c["cycle"] for c in cycles if c["open"]), None),
     }
 
 
@@ -413,13 +426,36 @@ def main():
 
 
 def render(model):
+    """Position strings the model already produced. Widths are layout, not
+    data — no value printed here is computed here."""
     lines = [f"{TAG} discordância entre ciclos — {model['planning_dir']}"]
     if not model["cycles"]:
-        lines.append(f"{TAG} ⊘ nenhum ciclo encontrado — nem milestone "
-                     f"arquivado nem ciclo corrente no ROADMAP")
+        lines.append(f"{TAG} {SYMBOL[NOT_APPLICABLE]} nenhum ciclo "
+                     f"encontrado — nem milestone arquivado nem ciclo "
+                     f"corrente no ROADMAP")
         return lines
+    width = max(len(c["cycle"]) for c in model["cycles"])
+    lines.append(TAG)
     for c in model["cycles"]:
-        lines.append(f"{TAG} {SYMBOL[c['state']]} {c['cycle']}  {c['detail']}")
+        key = c["cycle"].ljust(width)
+        mark = SYMBOL[c["state"]]
+        if c["state"] == COMPARABLE:
+            # Coverage AND the per-status breakdown, so nothing has to be
+            # inferred from a single ratio.
+            lines.append(f"{TAG} {mark} {key}  veredito em {c['coverage']} "
+                         f"fases   {c['status_line']}")
+        else:
+            # Never a zero, never an empty cell, never a dash that reads as
+            # "approved nothing": the scope IS the value here, and the
+            # difference between "did not pass" and "was not checked that
+            # way" has to be legible without opening the JSON.
+            lines.append(f"{TAG} {mark} {key}  {NOT_APPLICABLE} / {c['scope']}")
+            lines.append(f"{TAG}   {' ' * width}  {c['detail']}")
+    if model["open_cycle"]:
+        lines.append(TAG)
+        lines.append(f"{TAG} ! {model['open_cycle']} está em andamento: a "
+                     f"cobertura dele conta fases que ainda não começaram, "
+                     f"então não se compara com a de um ciclo fechado.")
     return lines
 
 

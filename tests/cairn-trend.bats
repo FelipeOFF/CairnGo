@@ -250,6 +250,146 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   printf '%s' "$output" | grep -qF "nenhum ciclo encontrado"
 }
 
+# --- the human table --------------------------------------------------------
+
+@test "the table shows a not-applicable cycle as its scope, never as a zero" {
+  new_planning
+  archive_cycle v1.1
+  add_verified v1.1 01 passed
+  archive_cycle v1.2
+  add_bare v1.2 07
+  add_bare v1.2 08
+
+  trend
+  [ "$status" -eq 0 ]
+  local na_line
+  na_line="$(printf '%s' "$output" | grep -F ' v1.2 ')"
+  printf '%s' "$na_line" | grep -qF "not-applicable / no-frontmatter"
+  # The break this guards: rendering the cycle as `veredito em 0/2 fases`,
+  # a true ratio that reads as "approved nothing".
+  if printf '%s' "$na_line" | grep -qE '\b0/'; then
+    echo "the not-applicable line rendered a zero ratio: $na_line" >&2
+    return 1
+  fi
+  # The reason survives into the human output, not only the JSON.
+  printf '%s' "$output" | grep -qF "o insumo existe, o formato não"
+}
+
+@test "the open cycle carries its reason; a tree with none does not" {
+  new_planning
+  archive_cycle v1.4
+  add_verified v1.4 13 passed
+  open_cycle v1.5
+  add_verified v1.5 20 passed
+  trend
+  printf '%s' "$output" | grep -qF "está em andamento"
+
+  new_planning
+  archive_cycle v1.4
+  add_verified v1.4 13 passed
+  trend
+  if printf '%s' "$output" | grep -qF "está em andamento"; then
+    echo "the open-cycle caveat printed with no open cycle" >&2
+    return 1
+  fi
+}
+
+# --- derivation: the output moves when the disk moves ------------------------
+
+@test "ADDING a verification file turns a no-frontmatter cycle comparable" {
+  # The proof pattern this cycle has already exercised twice: put a file on
+  # disk and assert the verdict changes with NO prose edited anywhere. A test
+  # comparing against a literal would not prove derivation.
+  new_planning
+  archive_cycle v1.2
+  add_bare v1.2 07
+  add_bare v1.2 08
+  trend --json
+  [ "$(tjq '.cycles[0].state')" = "not-applicable" ]
+  [ "$(tjq '.comparable | length')" -eq 0 ]
+
+  add_verified v1.2 09 passed
+
+  trend --json
+  [ "$(tjq '.cycles[0].state')" = "comparable" ]
+  [ "$(tjq '.cycles[0].scope')" = "null" ]
+  [ "$(tjq '.comparable | length')" -eq 1 ]
+}
+
+@test "ADDING a phase directory with no verdict moves coverage, not the verdict" {
+  new_planning
+  archive_cycle v1.4
+  add_verified v1.4 13 passed
+  trend --json
+  local before
+  before="$(tjq '.cycles[0].coverage')"
+
+  add_unverified v1.4 19
+
+  trend --json
+  [ "$(tjq '.cycles[0].coverage')" != "$before" ]
+  # The unverified phase is NOT a failed phase: the pass count is untouched.
+  [ "$(tjq '.cycles[0].status_counts.passed')" -eq 1 ]
+}
+
+# --- this repository's own tree ---------------------------------------------
+# Nothing below types a milestone key or a count. Both ends of every
+# assertion are read from disk inside the test.
+
+@test "real tree: every archived roadmap and the open cycle appear" {
+  local planning="$CAIRN_REPO_ROOT/.planning"
+  [ -d "$planning/milestones" ] || skip "no archived milestone in this tree"
+  run "$TREND" --planning-dir "$planning" --json
+  [ "$status" -eq 0 ]
+
+  local key f
+  for f in "$planning"/milestones/*-ROADMAP.md; do
+    key="$(basename "$f" -ROADMAP.md)"
+    printf '%s' "$output" | jq -e --arg k "$key" \
+      '[.cycles[].cycle] | index($k) != null' >/dev/null
+  done
+
+  local archived total
+  archived="$(find "$planning/milestones" -maxdepth 1 -name '*-ROADMAP.md' \
+    | wc -l | tr -d ' ')"
+  total="$(printf '%s' "$output" | jq -r '.cycles | length')"
+  if grep -q '🚧' "$planning/ROADMAP.md"; then
+    [ "$total" -eq "$((archived + 1))" ]
+  else
+    [ "$total" -eq "$archived" ]
+  fi
+}
+
+@test "real tree: the no-frontmatter cycles are exactly the ones grep finds" {
+  local planning="$CAIRN_REPO_ROOT/.planning"
+  [ -d "$planning/milestones" ] || skip "no archived milestone in this tree"
+  run "$TREND" --planning-dir "$planning" --json
+  [ "$status" -eq 0 ]
+
+  # Recompute the expectation from the files themselves: a cycle is
+  # no-frontmatter when it has verification files and none of them opens
+  # with a `---` fence.
+  local key dir f expected reported with_fm found
+  expected=""
+  for dir in "$planning"/milestones/*-phases; do
+    [ -d "$dir" ] || continue
+    key="$(basename "$dir" -phases)"
+    found=0
+    with_fm=0
+    while IFS= read -r f; do
+      found=$((found + 1))
+      [ "$(head -n1 "$f")" = "---" ] && with_fm=$((with_fm + 1))
+    done < <(find "$dir" -name '*VERIFICATION.md')
+    if [ "$found" -gt 0 ] && [ "$with_fm" -eq 0 ]; then
+      expected="$expected $key"
+    fi
+  done
+
+  reported="$(printf '%s' "$output" | jq -r \
+    '[.cycles[] | select(.scope == "no-frontmatter") | .cycle] | join(" ")')"
+  [ "$(echo $expected)" = "$reported" ]
+}
+
 @test "an unknown flag is a usage error, exit 2" {
   new_planning
   trend --nope
