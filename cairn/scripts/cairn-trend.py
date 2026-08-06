@@ -161,6 +161,21 @@ SCORE_HEAD = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s*(.*)$")
 # any key here, which is what leaves the namespace free to mean this.
 DISAMBIGUATOR_PREFIX = "verifier_"
 
+# The two opposite readings of a moving first-pass rate, per direction. Both
+# are always available and the data never picks between them; naming them is
+# the whole point, and the third string is the sentence the reader must NOT
+# take away.
+READINGS = {
+    "falling": ("a qualidade caindo — mais fases chegando ao fim com lacuna",
+                "o escrutínio subindo — o verificador ficando mais rigoroso "
+                "e achando o que antes passava",
+                "a qualidade caiu"),
+    "rising": ("a qualidade subindo — menos fases chegando ao fim com lacuna",
+               "o escrutínio afrouxando — o verificador deixando passar o "
+               "que antes pegava",
+               "a qualidade subiu"),
+}
+
 SYMBOL = {COMPARABLE: "·", NOT_APPLICABLE: "⊘"}
 TAG = "[cairn-trend]"
 
@@ -599,6 +614,69 @@ def build_series(cycles, survey, score):
     }
 
 
+def disambiguation(cycles, series):
+    """Can the series separate quality from scrutiny? Asked of the disk, and
+    answered from what is there.
+
+    A falling first-pass rate moves under two opposite causes the number
+    itself cannot tell apart: work arriving with more gaps, or a verifier
+    that got stricter and started finding what used to pass. Printing a fixed
+    warning would not be a check — it would be a notice that never changes,
+    which nobody reads and which would still be printing on the day the data
+    could settle the question. That is the same ageing as a hand-typed count,
+    wearing a caveat's clothes.
+
+    So the verdict is a fact about the disk: is there any key in the
+    DISAMBIGUATOR_PREFIX namespace present in EVERY comparable cycle? Present
+    in one cycle only disambiguates nothing, exactly as a field in one cycle
+    only is not an axis — the same rule, applied in the same place.
+    """
+    comparable = [c for c in cycles if c["state"] == COMPARABLE]
+    found = {}
+    for c in comparable:
+        keys = set()
+        for e in c["entries"]:
+            keys.update(k for k in e["keys"]
+                        if k.startswith(DISAMBIGUATOR_PREFIX))
+        found[c["cycle"]] = sorted(keys)
+    shared = sorted(set.intersection(*[set(v) for v in found.values()])) \
+        if found else []
+    out = {
+        "namespace": DISAMBIGUATOR_PREFIX,
+        "cycles_examined": [c["cycle"] for c in comparable],
+        "keys_found": found,
+        "shared_keys": shared,
+        "declaration": None,
+    }
+    if shared:
+        out["verdict"] = "resolvable"
+        out["reason"] = (
+            f"todos os {len(comparable)} ciclos comparáveis carregam "
+            f"{', '.join('`' + k + '`' for k in shared)} — o rigor de quem "
+            f"verificou está no dado e a série pode ser lida contra ele")
+        return out
+    out["verdict"] = "unresolved"
+    without = [cy for cy, ks in found.items() if not ks]
+    out["reason"] = (
+        f"nenhuma chave `{DISAMBIGUATOR_PREFIX}*` é comum aos "
+        f"{len(comparable)} ciclos comparáveis"
+        + (f" — ela falta em {', '.join(without)}" if without and
+           len(without) < len(comparable) else ""))
+    axis = next((a for a in series["axes"] if a["axis"] == "first_pass"), None)
+    # The declaration only exists when there IS a moving line to declare
+    # ambiguous. A caveat printed unconditionally is decoration.
+    if axis and series["sufficient"] and axis["direction"] in READINGS:
+        quality, scrutiny, gloss = READINGS[axis["direction"]]
+        out["declaration"] = (
+            f"a direção de `{axis['label']}` é ambígua na raiz, e este "
+            f"comando não a resolve. {axis['points_line']} é igualmente "
+            f"consistente com (a) {quality} e (b) {scrutiny}. "
+            f"{out['reason'].capitalize()}, então nada no dado separa as "
+            f"duas. Leia a linha como \"o par qualidade×escrutínio mudou\", "
+            f"nunca como \"{gloss}\".")
+    return out
+
+
 def build_model(planning_dir):
     """Everything the renderer will ever need, INCLUDING the formatted
     strings.
@@ -619,13 +697,15 @@ def build_model(planning_dir):
         c.pop("phases_dir", None)
     survey = field_survey(cycles)
     score = score_survey(cycles)
+    series = build_series(cycles, survey, score)
     return {
         "planning_dir": str(planning_dir),
         "cycles": cycles,
         "comparable": [c["cycle"] for c in cycles if c["state"] == COMPARABLE],
         "open_cycle": next((c["cycle"] for c in cycles if c["open"]), None),
         "fields": survey,
-        "series": build_series(cycles, survey, score),
+        "series": series,
+        "disambiguation": disambiguation(cycles, series),
     }
 
 
@@ -682,6 +762,40 @@ def render(model):
                      f"cobertura dele conta fases que ainda não começaram, "
                      f"então não se compara com a de um ciclo fechado.")
     lines.extend(render_series(model))
+    lines.extend(render_disambiguation(model))
+    return lines
+
+
+def wrap(first_prefix, cont_prefix, text, width=76):
+    """Fold a paragraph the model produced. Line breaks are layout; not one
+    character of `text` is composed here."""
+    lines, current, prefix = [], "", first_prefix
+    for word in text.split():
+        candidate = f"{current} {word}".strip()
+        if current and len(prefix) + len(candidate) > width:
+            lines.append(prefix + current)
+            prefix = cont_prefix
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(prefix + current)
+    return lines
+
+
+def render_disambiguation(model):
+    dis = model["disambiguation"]
+    if not dis["cycles_examined"]:
+        return []
+    lines = [TAG]
+    if dis["declaration"]:
+        # Glued to the series, not filed as a footnote: a line that moves and
+        # an explanation of why it may not mean what it looks like belong in
+        # the same glance.
+        lines.extend(wrap(f"{TAG} ! ", f"{TAG}   ", dis["declaration"]))
+    else:
+        lines.extend(wrap(f"{TAG} ▸ desambiguação {dis['verdict']}: ",
+                          f"{TAG}   ", dis["reason"]))
     return lines
 
 
