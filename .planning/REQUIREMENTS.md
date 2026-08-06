@@ -43,8 +43,8 @@ o que está respondendo não conta como pronta.
 
 ### Tendência entre ciclos (TREND)
 
-- [ ] **TREND-01**: Um comando de leitura mostra como a discordância entre fontes evoluiu ao longo dos milestones arquivados
-- [ ] **TREND-02**: A tendência é derivada dos artefatos arquivados, nunca de número digitado à mão, e diz quando não há dado suficiente
+- [x] **TREND-01**: Um comando de leitura mostra como a discordância entre fontes evoluiu ao longo dos milestones arquivados
+- [x] **TREND-02**: A tendência é derivada dos artefatos arquivados, nunca de número digitado à mão, e diz quando não há dado suficiente
 
 ### Journal durável (DJOUR)
 
