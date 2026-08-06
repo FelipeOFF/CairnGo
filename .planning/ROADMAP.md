@@ -34,7 +34,7 @@ não conta como pronta.
 - [x] Phase 29: Nothing mechanical stays manual (AUTO-01 … AUTO-08) — **roda primeiro** — completed 2026-08-05
 - [x] Phase 20: Group model (BOARD-01) — completed 2026-08-03
 - [x] Phase 21: The grouped board (BOARD-06, BOARD-02, BOARD-03, BOARD-05) — completed 2026-08-05
-- [ ] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03)
+- [x] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03) — completed 2026-08-06
 - [x] Phase 23: Not-applicable as a check state (VOID-01, VOID-02, VOID-03) — completed 2026-08-05
 - [x] Phase 24: Language chosen at install (LANG-01, LANG-02) — completed 2026-08-05
 - [ ] Phase 25: Measured cleanup (FIX-01 … FIX-05)
@@ -694,10 +694,10 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | BOARD-02 | Phase 21 | Complete |
 | BOARD-03 | Phase 21 | Complete |
 | BOARD-05 | Phase 21 | Complete |
-| BOARD-04 | Phase 22 | Pending |
-| PIPE-01 | Phase 22 | Pending |
-| PIPE-02 | Phase 22 | Pending |
-| PIPE-03 | Phase 22 | Pending |
+| BOARD-04 | Phase 22 | Complete |
+| PIPE-01 | Phase 22 | Complete |
+| PIPE-02 | Phase 22 | Complete |
+| PIPE-03 | Phase 22 | Complete |
 | VOID-01 | Phase 23 | Complete |
 | VOID-02 | Phase 23 | Complete |
 | VOID-03 | Phase 23 | Complete |

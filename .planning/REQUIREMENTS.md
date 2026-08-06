@@ -15,14 +15,14 @@ o que está respondendo não conta como pronta.
 - [x] **BOARD-06**: O **board renderiza** agrupado — milestones abertos primeiro, fases dentro deles, trabalho sem milestone por último
 - [x] **BOARD-02**: Cada linha carrega a etapa (não planejada, planejada, em execução, feita, bloqueada) num símbolo de largura simples, com fallback ASCII sob `--ascii`
 - [x] **BOARD-03**: O título de uma tarefa não é truncado no render humano, em nenhuma largura de terminal em que a linha caiba
-- [ ] **BOARD-04**: O cabeçalho diz qual milestone está aberto, e diz explicitamente quando não há nenhum — nunca repete o último arquivado
+- [x] **BOARD-04**: O cabeçalho diz qual milestone está aberto, e diz explicitamente quando não há nenhum — nunca repete o último arquivado
 - [x] **BOARD-05**: Uma linha bloqueada nomeia por quem está bloqueada, na própria linha
 
 ### O contrato de máquina (PIPE)
 
-- [ ] **PIPE-01**: `--plain` continua sendo TSV estável para script, byte a byte compatível com o que existe hoje
-- [ ] **PIPE-02**: O caminho não-TTY deixa de degradar para `--plain` e passa a renderizar a lista agrupada em texto puro — sem box-drawing, sem ANSI, mas legível
-- [ ] **PIPE-03**: O teste que hoje afirma que `--plain` é idêntico ao default não-TTY é reescrito como duas asserções separadas, nunca removido
+- [x] **PIPE-01**: `--plain` continua sendo TSV estável para script, byte a byte compatível com o que existe hoje
+- [x] **PIPE-02**: O caminho não-TTY deixa de degradar para `--plain` e passa a renderizar a lista agrupada em texto puro — sem box-drawing, sem ANSI, mas legível
+- [x] **PIPE-03**: O teste que hoje afirma que `--plain` é idêntico ao default não-TTY é reescrito como duas asserções separadas, nunca removido
 
 ### Não-aplicável como estado de primeira classe (VOID)
 
