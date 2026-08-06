@@ -175,14 +175,28 @@ Behavior:
        fixed; borrowing the blocked glyph here would encode a state this
        model does not actually compute.
 
-       Non-TTY without an output flag: --plain automatically (gh model —
-       zero escape bytes, tab-separated, untruncated). --width N forces the
-       board renderer at that width (deterministic for tests and pipes);
-       --color=always likewise opts into the board renderer when piped, so
-       the flag is never silently ignored (--ascii alone does not force
-       it). All bd/STATE.md text is passed through clean(), which strips
-       C0/C1 control bytes — titles from remote trackers can't inject
-       escape sequences or forge rows.
+       Non-TTY: the SAME renderer, in plain text (Phase 22, PIPE-02). Until
+       2026-08-06 a flagless non-TTY run degraded to --plain, so the machine
+       format was what a pipe, a redirect and a subprocess all got. It no
+       longer does: without a tty the board renders exactly as it does with
+       one, minus the two things a tty decides. MEASURED 2026-08-06: Style
+       resolves color to False because _color_enabled() ends at
+       isatty(stdout), so the output carries zero escape bytes; and
+       terminal_cols() returns 80, because shutil.get_terminal_size falls
+       back to (80, 24) when stdout is a pipe and $COLUMNS is unset — the
+       same width a terminal without $COLUMNS gets. --width N and
+       --color=always no longer select a renderer, because there is nothing
+       left to select: they are width and color, and that is all.
+
+       THE BOUNDARY THIS CREATES, and it is the one thing to read here: a
+       script doing `cairn-status > file` and expecting TSV now receives the
+       board. The fix is to write --plain, which is the only door to the
+       machine format and is byte-for-byte what it always was (PIPE-01,
+       pinned in tests/fixtures/machine-contract/nontty-pre-split.txt).
+
+       All bd/STATE.md text is passed through clean(), which strips C0/C1
+       control bytes — titles from remote trackers can't inject escape
+       sequences or forge rows.
     5b. Below the grouped list, `phase_panel_lines()` prints a
        PENDING PHASES table (`#`, `phase`, `state`, `rsch`, `plans`, `issues`,
        `verify`, `waits`, `next` — the same step-4d/4c fields the HTML page
@@ -236,9 +250,10 @@ Behavior:
                 phase, phases, next_commands, parallelism, groups, next,
                 sync, stale_complete, note, lease} (+ html: {file, changed}
                 when --html also ran)
-    --plain     tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA) plus
-                PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color, no
-                truncation
+    --plain     the machine contract, and ONLY the flag reaches it (Phase
+                22): tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA)
+                plus PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color,
+                no truncation. No condition of the environment selects it
     --brief     three lines: position, counts, next action
     --width N   render the board at N columns (overrides terminal size)
     --max-rows N  cap rows per bucket (default 15); overflow shows "+k more".
@@ -249,8 +264,9 @@ Behavior:
                 went out with the box-drawing renderer
     --color     always|never; default: auto. Precedence: --color >
                 CAIRN_NO_COLOR > NO_COLOR (present and non-empty, even "0")
-                > TERM=dumb > isatty(stdout). `always` also opts a piped
-                run into the board renderer (see 5)
+                > TERM=dumb > isatty(stdout). Color only: since Phase 22 a
+                piped run already renders the board, so there is no renderer
+                for this flag to opt into (see 5)
     --html P    write/refresh the HTML board at P and print one confirmation
                 line. Composes with --planning-dir and --json (which reports
                 the write instead of the line); rejected with --plain /
@@ -3678,13 +3694,26 @@ def main():
     style = Style(opts)
     if opts["brief"]:
         lines = render_brief(data, style)
-    elif opts["plain"] or (opts["width"] is None and
-                           opts["color"] != "always" and
-                           not sys.stdout.isatty()):
-        # Non-TTY without flags gets the machine format automatically (the
-        # gh model): zero escape bytes, nothing truncated. --color=always
-        # opts into the board renderer like --width does — the flag must
-        # never be silently ignored.
+    elif opts["plain"]:
+        # THE FLAG, AND ONLY THE FLAG (Phase 22, PIPE-02). Until 2026-08-06
+        # this branch also fired whenever stdout was not a tty, so --plain did
+        # two incompatible jobs: the TSV scripts consume, and the automatic
+        # fallback for anyone without a terminal. That is how the machine
+        # format ended up on the screen of someone who only wanted to look at
+        # the board.
+        #
+        # A non-TTY run now takes the SAME human branch a terminal takes, and
+        # the two differences are decided where they always were: Style turns
+        # color off because isatty() is False (the precedence at the end of
+        # _color_enabled), and terminal_cols() returns 80 (MEASURED
+        # 2026-08-06: shutil.get_terminal_size falls back to (80, 24) with
+        # stdout on a pipe and no $COLUMNS) — the same width a terminal
+        # without $COLUMNS gets. No condition of the environment selects the
+        # machine format any more.
+        #
+        # The coupling was a deliberate decision once: it kept box-drawing out
+        # of pipes. Phase 21 removed the last box-drawing glyph from this
+        # file, so the reason died before this line did.
         lines = render_plain(data)
     else:
         # ONE human renderer, every width. The two width degrades this branch

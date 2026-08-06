@@ -225,14 +225,58 @@ print("ok column %d" % cols.pop())
   grep -qF "next: continue $ST_DOING" <<<"${lines[2]}"
 }
 
-@test "non-TTY without flags defaults to --plain: tabs, no box, no escapes" {
+# SPLIT IN TWO 2026-08-06 (Phase 22, PIPE-03), never deleted.
+#
+# Until this date these were ONE test, `non-TTY without flags defaults to
+# --plain`, and it ended on `[ "$output" = "$piped" ]` — the contract of the
+# coupling itself: explicit --plain byte-identical to the flagless non-TTY
+# default. Measured that morning, four command lines produced one md5
+# (e98d3096656463236c2ed12a12be90e3).
+#
+# PIPE-02 undoes that coupling on purpose, so the equality assertion was
+# describing something the phase exists to end. It was not dropped for
+# convenience: what replaces it is two POSITIVE claims, one per surface, each
+# able to fail on its own. Re-couple the two paths and the first test goes red
+# immediately — a re-coupled run carries no stage symbol at all.
+#
+# The reason the pair matters more than the equality did: an equality says the
+# two are the same without saying what either one IS. These say what each one
+# is, which is what a contract is for.
+@test "non-TTY without flags renders the grouped list in plain text" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
   make_status_fixture
 
-  # bats captures a pipe, so this run IS non-TTY — the gh model applies.
+  # bats captures a pipe, so this run IS non-TTY.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh"
+  [ "$status" -eq 0 ]
+
+  # The grouped list: counts, then a stage symbol and an id beside each title.
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
+  grep -qF "⧗ $ST_BLOCKED  Docs index page  blocked by $ST_READY1" <<<"$output"
+  # The footer and the phase panel: a pipe gets the whole board, not a part.
+  grep -qF 'phase 2/2' <<<"$output"
+  grep -qF "▶ next: continue $ST_DOING" <<<"$output"
+  grep -qF 'PENDING PHASES' <<<"$output"
+
+  # Plain text: no ANSI (PIPE-02 says so explicitly), and no grid.
+  refute_in_output "$(printf '\x1b')"
+  refute_in_output '│'
+  # The one negation this test carries: the machine format's own marking must
+  # not be here. A re-coupled non-TTY path trips this line and the greps above.
+  refute_in_output "$(printf 'READY\t')"
+}
+
+@test "--plain is the machine contract: tab-separated rows and meta rows" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
   [ "$status" -eq 0 ]
   grep -qF "$(printf 'READY\t%s\t1\tGate regex hardening' "$ST_READY1")" <<<"$output"
   grep -qF "$(printf 'DOING\t%s\t1\tStatus board renderer\tfelipe' "$ST_DOING")" <<<"$output"
@@ -240,14 +284,13 @@ print("ok column %d" % cols.pop())
   grep -qF "$(printf 'PHASE\t2/2')" <<<"$output"
   grep -qF "$(printf 'DONE\t1')" <<<"$output"
   grep -qF "$(printf 'NEXT\tcontinue')" <<<"$output"
-  refute_in_output '│'
   refute_in_output "$(printf '\x1b')"
-
-  # Explicit --plain is byte-identical to the non-TTY default.
-  local piped="$output"
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
-  [ "$status" -eq 0 ]
-  [ "$output" = "$piped" ]
+  refute_in_output '│'
+  # The TSV never carried a glyph and does not start now: the stage symbols
+  # belong to the human surface, and this is the other one.
+  refute_in_output '◔'
+  refute_in_output '◕'
+  refute_in_output '⧗'
 }
 
 @test "titles are never truncated in plain mode" {
@@ -377,8 +420,11 @@ print("ok %d rows" % len(rows))
   grep -qF "$(printf '\x1b[')" <<<"$output"
 
   # Empty NO_COLOR must not disable color (no-color.org: present AND
-  # non-empty). Only approximable without a pty: the flag-forced board
-  # still carries SGR with NO_COLOR="" in the environment.
+  # non-empty). Only approximable without a pty: the board still carries SGR
+  # with NO_COLOR="" in the environment. (Said "the flag-forced board" until
+  # 2026-08-06 — Phase 22 made the board the default on a pipe, so nothing is
+  # being forced here any more. `--width 100` in these runs is determinism,
+  # not an escape from the machine format.)
   run env NO_COLOR="" bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" \
     --width 100 --color=always
   [ "$status" -eq 0 ]
@@ -391,24 +437,34 @@ print("ok %d rows" % len(rows))
   refute_in_output "$(printf '\x1b')"
 }
 
-@test "--color=always piped without --width opts into the board renderer" {
+# REWRITTEN 2026-08-06 (Phase 22), and it had to be. This test used to be
+# called `--color=always piped without --width opts into the board renderer`
+# and asserted that the flag FORCES the human renderer on a pipe. PIPE-02 made
+# the pipe render the board by default, which turned every one of its
+# assertions into something that would pass with the flag removed entirely —
+# a test that cannot fail is not a test.
+#
+# What it owns now is the claim the split actually creates: renderer and color
+# are two independent decisions. Neither half proves it alone; the pair does.
+@test "piping decides color, not the renderer" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
   make_status_fixture
 
-  # A piped run would default to --plain; --color=always must never be
-  # silently ignored, so it forces the board renderer (like --width does).
-  # SGR paints each span separately, so grep the counts text and the stage
-  # symbol on their own rather than as one contiguous string.
-  #
-  # REWRITTEN 2026-08-05 (Phase 21): the anchors were `┌` and `READY (2)`,
-  # both of them kanban. What the test owns — the flag is not ignored, and
-  # the output carries escape bytes — is unchanged.
+  # Same pipe, same width, no flag: the board, and not one escape byte.
+  run env COLUMNS=100 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh"
+  [ "$status" -eq 0 ]
+  grep -qF 'ready 2' <<<"$output"
+  grep -qF '◔' <<<"$output"
+  refute_in_output "$(printf '\x1b')"
+
+  # Same pipe, same width, --color=always: the same board, now painted. SGR
+  # paints each span separately, so grep the counts text and the stage symbol
+  # on their own rather than as one contiguous string.
   run env COLUMNS=100 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --color=always
   [ "$status" -eq 0 ]
   grep -qF 'ready 2' <<<"$output"
-  grep -qF 'No milestone' <<<"$output"
   grep -qF '◔' <<<"$output"
   grep -qF "$(printf '\x1b[')" <<<"$output"
 }
