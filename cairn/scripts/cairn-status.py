@@ -171,11 +171,16 @@ Behavior:
        (it reads no locale, and inventing that read would be inventing a
        source of truth). The defense is to not use `A` at all.
 
-       MEASURED 2026-08-05, and NOT fixed here: the `A`-width glyphs that
-       REMAIN in this file outside the stage symbols — `▶` (g_next), `◆`
-       (g_who), `·` (g_stale and sep) and `…` (ell). The board still
-       misaligns in a CJK locale because of them. Recorded as a finding
-       with an issue, not silently absorbed.
+       DECIDED 2026-08-06 (Phase 22, CairnGo-hbo), where Phase 21 had left a
+       finding: the `A`-width characters outside the stage symbols are NOT
+       going away, and the board's alignment is therefore GUARANTEED IN A
+       WESTERN LOCALE AND NOT IN A CJK ONE. That is a boundary, not a
+       pending fix. Measured 53 occurrences on a --width 100 render, of
+       which 12 are accented letters of the board's own Portuguese prose —
+       so choosing different glyphs cannot solve it, and resolving `A` from
+       the environment would mean inventing a source of truth this script
+       refuses to invent. The full measurement and the argument live in
+       char_width()'s docstring, next to the ruler they are about.
 
        ASSUMED, not proved: that one issue reaches the list at most twice
        (once in_progress, once blocked), because `bd list --status
@@ -1938,6 +1943,44 @@ def synthesize_next(ready, doing, milestone, active_phase, next_action,
 # ------------------------------------------------------- width and truncation
 
 def char_width(ch):
+    """Terminal cells one character occupies: 2 for W and F, 0 for combining
+    marks / ZWJ / variation selectors, 1 for everything else.
+
+    THE BOUNDARY THIS DRAWS, decided in Phase 22 (CairnGo-hbo) and written
+    here because here is where the ruler lives:
+
+        The board's column alignment is guaranteed in a WESTERN locale.
+        It is NOT guaranteed in a CJK locale.
+
+    east_asian_width returns `A` (ambiguous) for a large set of characters
+    that occupy ONE cell in a Latin locale and TWO in a CJK one. This
+    function counts them as 1, which is right in the first case and wrong in
+    the second, and the script cannot tell which it is in.
+
+    MEASURED 2026-08-06 on a --width 100 render of this repository: 53
+    occurrences of `A`-width characters, 9 distinct —
+
+        —  EM DASH        28      …  ELLIPSIS       8
+        ·  MIDDLE DOT      4      ▶                 1
+        á ê ó í é         12  ← accented letters, in the board's own prose
+
+    Those 12 are the number that decides it. Swapping `—` for `-` and `…` for
+    `...` would remove 36 of the 53 and fix NOTHING: this project's prose is
+    Portuguese, and every accented letter is `A`. Choosing different glyphs
+    cannot solve a problem the language itself creates.
+
+    The alternative was resolving `A` from the environment, and it is
+    refused for the reason this file already refuses it once, in Phase 21's
+    choice of stage symbols: it would mean reading LANG/LC_CTYPE and deciding
+    by heuristic what only the terminal emulator actually knows — "inventing
+    that read would be inventing a source of truth". Solving half of it (the
+    symbols) and guessing the other half (the prose) is worse than one honest
+    boundary.
+
+    What the Phase 21 defence still buys: the five stage symbols are all `N`,
+    so the LIST's own columns hold in either locale. What remains exposed is
+    the punctuation and the prose around them.
+    """
     if ch == "‍" or "︀" <= ch <= "️":
         return 0                       # ZWJ / variation selectors
     if unicodedata.combining(ch):
@@ -2432,10 +2475,110 @@ STATE_TABLE_FLOOR = 16       # enough for "x conflict -" (12 cells) plus a
                               # and unicode (1-cell ellipsis)
 RSCH_W, PLANS_W, ISSUES_W = 5, 6, 7
 VERIFY_W, WAITS_W, NEXT_W = 16, 7, 16   # 16: fits "needs-revision" (14) whole
+
+# The hard minimums, used only when the comfortable FLOORs above do not fit
+# (Phase 22, CairnGo-cdx). MEASURED 2026-08-06 against the real strings:
+# `not planned` is 11 cells and is the longest of the four state labels, so
+# 11 is where `state` stops before it starts cutting a word it could have
+# shown whole; 8 is what the `phase` column already gets at --width 100,
+# which makes it a value the board has always rendered rather than one
+# invented here.
+PHASE_TABLE_MIN = 8
+STATE_TABLE_MIN = 11
+
+# The optional columns, in VISUAL order (this is the order they print in),
+# each with its natural width and its floor.
+#
+# THE FLOOR RULE, and it is one rule: a column never shrinks below its own
+# HEADER. A column whose title renders as `issu…` is worse than a column that
+# is absent and named — the first lies about being there, the second says it
+# left. `verify` is the one floor above its header (6): `verified` and
+# `pending` are 8 and 7 cells, and a verdict column that cannot show its own
+# most common verdicts is not carrying information, it is carrying an
+# ellipsis.
+PANEL_COLUMNS = (("rsch", RSCH_W, 4), ("plans", PLANS_W, 5),
+                 ("issues", ISSUES_W, 6), ("verify", VERIFY_W, 8),
+                 ("waits", WAITS_W, 5))
+
+# SACRIFICE ORDER — shrink in this order, then drop in this order. Each
+# position has a reason, because an order without one is taste:
+#   waits   the same fact is spelled out in words in PURPOSE below
+#   rsch    a yes/— signal that rarely decides anything on its own
+#   verify  only ever speaks about a phase that already executed
+#   issues  \ the two that answer "how far has it got", kept longest
+#   plans   /
+# `#`, `phase`, `state` and `next` are the core and never leave: without them
+# the table answers neither "which phase" nor "what do I do with it".
+PANEL_SACRIFICE = ("waits", "rsch", "verify", "issues", "plans")
 # Cells the phase TITLE must keep before a `**Tracker:**` key is allowed to
 # reserve room beside it. 12 is a readable abbreviation ("Phase model…");
 # below it the key falls out and the title takes the whole column back.
 TRACKER_TITLE_FLOOR = 12
+
+
+def panel_note_lines(text, width, style):
+    """One dim, indented, WRAPPED note under the table.
+
+    Wrapped and not truncated, for a reason specific to what these notes say:
+    both of them are about something not fitting, and a message about not
+    fitting that itself runs off the edge is the exact joke CairnGo-cdx was.
+    `width - 2` is the two-cell indent every line of this section carries.
+    """
+    out = []
+    for chunk in textwrap.wrap(style.asciify(text), max(20, width - 2)) or [""]:
+        out.append(render_spans([("  ", None), (chunk, SGR_DIM)], style))
+    return out
+
+
+def panel_columns(width, num_w):
+    """Which optional columns the table can afford at `width`, and how wide.
+
+    Returns `(present, widths, dropped, available)`: the optional columns
+    still printing in visual order, their resolved widths, the names that had
+    to go, and the cells left over for `phase` + `state`. An `available`
+    below PHASE_TABLE_MIN + STATE_TABLE_MIN means not even the core fits and
+    the table must not print at all.
+
+    WHY THIS FUNCTION EXISTS (CairnGo-cdx). The six optional widths used to be
+    summed unconditionally, so the table had a FLOOR it silently exceeded:
+    MEASURED 2026-08-06, `76 + num_w - 1 + len(next)` cells — 90 in the test
+    fixture, 92 in this repository — meaning it overflowed at EVERY width from
+    30 to 89, with `phase` collapsed to a single `…` and the other six columns
+    not giving up one character. It was already a defect; Phase 22 made it
+    urgent, because PIPE-02 sends a flagless non-TTY run through this table at
+    80 columns.
+
+    The order is shrink-then-drop, both in PANEL_SACRIFICE order. Shrinking
+    first is what keeps a column on screen when it is one cell short of
+    fitting; dropping second is what stops a column from shrinking into an
+    ellipsis. A column that shrank does NOT grow back when a later column is
+    dropped: re-solving after every drop would be a better packing and a
+    worse contract, because the width a column ends up with would depend on
+    what happened to a column somewhere else.
+    """
+    widths = {n: w for n, w, _ in PANEL_COLUMNS}
+    floors = {n: f for n, _, f in PANEL_COLUMNS}
+    present = [n for n, _, _ in PANEL_COLUMNS]
+
+    def available():
+        # margin(2) + `#` + every present column + `next`, with a 2-cell
+        # gutter between each pair. Columns = 1 + 1 + 1 + len(present) + 1,
+        # so gutters = len(present) + 3.
+        return width - (2 + num_w + sum(widths[n] for n in present)
+                        + NEXT_W + 2 * (len(present) + 3))
+
+    need = PHASE_TABLE_MIN + STATE_TABLE_MIN
+    for name in PANEL_SACRIFICE:
+        if available() >= need:
+            break
+        widths[name] = max(floors[name], widths[name] - (need - available()))
+    dropped = []
+    for name in PANEL_SACRIFICE:
+        if available() >= need:
+            break
+        present.remove(name)
+        dropped.append(name)
+    return present, widths, dropped, available()
 
 
 def phase_panel_lines(data, width, style):
@@ -2464,11 +2607,28 @@ def phase_panel_lines(data, width, style):
     # carried entirely by `global_cmds`, computed below).
     num_w = max((len(str(p["number"])) for p in pending), default=1)
 
+    cols, col_w, dropped, available = panel_columns(width, num_w)
+    # The table prints only when the core still fits. PURPOSE below is NOT
+    # gated on this: it carries every pending phase, its number, its purpose
+    # and its routing reason, WRAPPED, at any width — which is why "print no
+    # table here" loses nothing, and would not be a legitimate answer for the
+    # grouped list above.
+    show_table = bool(pending) and available >= PHASE_TABLE_MIN + STATE_TABLE_MIN
+
     if pending:
         lines.append(render_spans(
             [("PENDING PHASES", SGR_BOLD),
              (f"  {len(pending)}", SGR_DIM)], style))
+    if pending and not show_table:
+        # It does not print a row wider than the board was asked for — that
+        # was CairnGo-cdx — and it does not print a mangled one either. It
+        # says how much room it needs and where the same facts still are.
+        short_by = PHASE_TABLE_MIN + STATE_TABLE_MIN - available
+        lines += panel_note_lines(
+            f"table needs {width + short_by} columns — "
+            f"see PURPOSE below, or --json", width, style)
 
+    if show_table:
         # Pass 1: gather each row's raw (untruncated) content. The `state`
         # column's width is only known once every row's real need is known
         # (a conflict/unknown verdict's marker+detail can run to ~70-80
@@ -2519,29 +2679,31 @@ def phase_panel_lines(data, width, style):
         # need. This is what lets a plain "not planned" render at its full
         # width while a ~76-cell conflict detail also renders whole at a
         # wide terminal, from the same formula, with no special-casing.
-        fixed = (2 + num_w + 2 + 2 + 2  # margin, "#", gutters around phase/state
-                 + RSCH_W + 2 + PLANS_W + 2 + ISSUES_W + 2 + VERIFY_W + 2
-                 + WAITS_W + 2 + NEXT_W)
-        available = max(0, width - fixed)
+        #
+        # `available` now comes from panel_columns() (Phase 22), which has
+        # already shrunk or dropped whatever the width could not hold — so
+        # the two FLOORs below still describe comfort at a wide terminal, and
+        # the MINs they fall back to describe survival at a narrow one.
         natural_state = max((display_width(r["state_raw"]) for r in rows),
                             default=STATE_TABLE_FLOOR)
-        cap = max(STATE_TABLE_FLOOR, available - PHASE_TABLE_FLOOR)
-        state_w = max(STATE_TABLE_FLOOR, min(natural_state, cap))
-        phase_w = max(1, available - state_w)
+        state_floor = min(STATE_TABLE_FLOOR,
+                          max(STATE_TABLE_MIN, available - PHASE_TABLE_MIN))
+        cap = max(state_floor, available - PHASE_TABLE_FLOOR)
+        state_w = max(state_floor, min(natural_state, cap))
+        phase_w = max(PHASE_TABLE_MIN, available - state_w)
 
         # Header sub-row, built from the SAME width variables as the data
-        # rows below, so header and data always line up.
-        lines.append(render_spans([
+        # rows below, so header and data always line up — including which
+        # optional columns exist at all.
+        header = [
             ("  ", None), ("#".rjust(num_w), SGR_DIM), ("  ", None),
             ("phase".ljust(phase_w), SGR_DIM), ("  ", None),
-            ("state".ljust(state_w), SGR_DIM), ("  ", None),
-            ("rsch".ljust(RSCH_W), SGR_DIM), ("  ", None),
-            ("plans".ljust(PLANS_W), SGR_DIM), ("  ", None),
-            ("issues".ljust(ISSUES_W), SGR_DIM), ("  ", None),
-            ("verify".ljust(VERIFY_W), SGR_DIM), ("  ", None),
-            ("waits".ljust(WAITS_W), SGR_DIM), ("  ", None),
-            ("next", SGR_DIM),
-        ], style))
+            ("state".ljust(state_w), SGR_DIM),
+        ]
+        for name in cols:
+            header += [("  ", None), (name.ljust(col_w[name]), SGR_DIM)]
+        header += [("  ", None), ("next", SGR_DIM)]
+        lines.append(render_spans(header, style))
 
         for r in rows:
             p = r["p"]
@@ -2569,7 +2731,7 @@ def phase_panel_lines(data, width, style):
                 if phase_w - key_w >= TRACKER_TITLE_FLOOR:
                     phase_cell = truncate(r["title"], phase_w - key_w,
                                           style.ell) + key
-            lines.append(render_spans([
+            spans = [
                 ("  ", None),
                 (str(p["number"]).rjust(num_w), None),
                 ("  ", None),
@@ -2577,24 +2739,24 @@ def phase_panel_lines(data, width, style):
                  None),
                 ("  ", None),
                 (state_text.ljust(state_w), r["state_sgr"]),
-                ("  ", None),
-                (truncate(r["rsch"], RSCH_W, style.ell).ljust(RSCH_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["plans"], PLANS_W, style.ell).ljust(PLANS_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["issues"], ISSUES_W, style.ell).ljust(ISSUES_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["verify"], VERIFY_W, style.ell).ljust(VERIFY_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["waits"], WAITS_W, style.ell).ljust(WAITS_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["next"], NEXT_W, style.ell), r["next_sgr"]),
-            ], style))
+            ]
+            for name in cols:
+                w = col_w[name]
+                spans += [("  ", None),
+                          (truncate(r[name], w, style.ell).ljust(w), SGR_DIM)]
+            spans += [("  ", None),
+                      (truncate(r["next"], NEXT_W, style.ell), r["next_sgr"])]
+            lines.append(render_spans(spans, style))
+
+        if dropped:
+            # A column that vanished without a word is the same class of lie
+            # as a title cut without an ellipsis. Name them, and say where
+            # the same facts are still whole. Through panel_note_lines(),
+            # because a message ABOUT not fitting that does not itself fit is
+            # the joke this whole plan exists to stop telling.
+            lines += panel_note_lines(
+                f"hidden at this width: {', '.join(dropped)} — widen, or "
+                "/cairn:status --json", width, style)
 
         if n_blocks or n_informs:
             # The itemized per-source detail lives in /cairn:doctor and
@@ -2612,7 +2774,13 @@ def phase_panel_lines(data, width, style):
                               SGR_YELLOW))
             spans.append((style.asciify(" — /cairn:doctor for the itemized "
                                         "report"), SGR_DIM))
-            lines.append(render_spans(spans, style))
+            # Wrapped, not printed flat: MEASURED 2026-08-06 this line is 52
+            # cells and ran off a --width 50 board — the same overflow as
+            # CairnGo-cdx, in the same section, on a line nobody had counted.
+            # wrap_spans keeps the red/yellow markers coloured across the
+            # break; textwrap would flatten them to plain text.
+            for i, cont in enumerate(wrap_spans(spans[1:], max(20, width - 2))):
+                lines.append(render_spans([("  ", None)] + cont, style))
 
     # PURPOSE: the routing reason moves here from the deleted NEXT COMMANDS
     # section (D-02). This is the ONE place text wraps instead of truncating
@@ -2631,7 +2799,13 @@ def phase_panel_lines(data, width, style):
     if pending or global_cmds:
         lines.append("")
         lines.append(render_spans([("PURPOSE", SGR_BOLD)], style))
-        wrap_w = max(30, width - num_w - 4)
+        # `max(30, ...)` until 2026-08-06, which overrode the width it was
+        # given: MEASURED at --width 30, PURPOSE wrapped its text at 30 cells
+        # and then indented it by num_w + 4, producing 35-36 cell lines on a
+        # 30-cell board. Same defect as CairnGo-cdx, on the block directly
+        # under the table. The floor is now low enough to never fight the
+        # subtraction, and the subtraction is what makes the indent fit.
+        wrap_w = max(10, width - num_w - 4)
         for p in pending:
             text = phase_purpose_text(p)
             reason = reason_by_phase.get(p["number"])
@@ -2661,8 +2835,10 @@ def phase_panel_lines(data, width, style):
         lines.append("")
         # Wrapped rather than truncated: this one is a sentence, and a
         # sentence cut at the terminal edge loses the half that qualifies it.
+        # Same correction as PURPOSE above: the floor no longer overrides the
+        # width, so the two-cell indent stays inside the board.
         for i, chunk in enumerate(textwrap.wrap(style.asciify(par["note"]),
-                                                max(30, width - 2))):
+                                                max(10, width - 2))):
             lines.append(render_spans(
                 [("  " if i else "  ", None), (chunk, SGR_DIM)], style))
     return lines

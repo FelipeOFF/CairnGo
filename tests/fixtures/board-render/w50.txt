@@ -18,9 +18,11 @@ phase 3/4 Phase model — read what a phase actually is · v1.1 Surface · done:
 ▶ next: continue brd-004 — Hold the lease while…
 
 PENDING PHASES  2
-  #  phase  state             rsch   plans   issues   verify            waits    next
-  3  …  planned           —      0/1 p…  0/2      —                 —        /cairn:work 3
-  4  …  not planned       —      —       0/2      —                 3        /cairn:plan 4
+  #  phase      state             next
+  3  Phase mo…  planned           /cairn:work 3
+  4  Board fi…  not planned       /cairn:plan 4
+  hidden at this width: waits, rsch, verify,
+  issues, plans — widen, or /cairn:status --json
 
 PURPOSE
   3  Phase model — read what a phase actually is —

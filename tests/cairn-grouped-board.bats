@@ -156,6 +156,80 @@ render() {
   bash "$STATUS_SH" --color=never "$@" > "$RENDER"
 }
 
+# ─── CairnGo-cdx: the phase panel fits the width it was given ────────────────
+
+# MEASURED 2026-08-06, BEFORE the fix, with real column cells
+# (east_asian_width, never len()) and comparing each line with its trailing
+# padding stripped — so what is counted is content, not blank space:
+#
+#   fixture           --width 30/38/50/60/64/70/80  longest line 90  OVERFLOWS
+#   this repository   --width 60/70/80/90           longest line 92  OVERFLOWS
+#
+# The floor was `76 + num_w - 1 + len(next)`: six optional columns summed
+# unconditionally while `phase` collapsed to a lone `…`. Already a defect;
+# PIPE-02 made it urgent, because a flagless non-TTY run now renders this
+# table at 80 columns.
+#
+# The sweep covers the whole PHASE PANEL — the table, its two notes, PURPOSE
+# and the parallelism note — and not the grouped list above it, on purpose:
+# the list is ALLOWED past the edge in exactly one case (a single token wider
+# than the column overflows rather than being split, BOARD-03), and this
+# fixture contains that case in brd-203. Asserting a property the fixture
+# deliberately violates would mean weakening it until it proved nothing.
+#
+# Breaks this test: summing the optional widths unconditionally again,
+# printing the table when only the core would fit, or emitting either note
+# unwrapped.
+@test "the phase panel never renders a line wider than the width it was given" {
+  for w in 30 38 44 50 60 64 70 80 90 100 120 140 200; do
+    render --width "$w"
+    run python3 -c "
+import unicodedata
+def cw(s):
+    return sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 1
+               for c in s)
+w = $w
+lines = open('$RENDER').read().split('\n')
+start = next((i for i, l in enumerate(lines)
+              if l.startswith('PENDING PHASES')), None)
+assert start is not None, 'the phase panel did not render at width %d' % w
+bad = [l for l in lines[start:] if cw(l.rstrip()) > w]
+assert not bad, (w, [(cw(l.rstrip()), l.rstrip()) for l in bad])
+"
+    [ "$status" -eq 0 ]
+  done
+}
+
+# The other half of the same fix: a column that cannot fit is REMOVED and
+# NAMED, never squeezed into an ellipsis, and the header never renders
+# narrower than its own word. At 100 columns nothing is sacrificed at all,
+# which is what keeps the committed w100/ascii100/maxrows references still.
+@test "columns that do not fit are dropped and named, never squeezed" {
+  render --width 100
+  run grep -c 'hidden at this width' "$RENDER"
+  [ "$output" = "0" ]
+  grep -qF 'waits' "$RENDER"
+
+  render --width 50
+  grep -qF 'hidden at this width' "$RENDER"
+  # The names of what left, so the reader knows what is missing rather than
+  # believing the table is complete.
+  grep -qF 'waits' "$RENDER"
+  # And the core survives: which phase, where it stands, what to run.
+  grep -qF 'PENDING PHASES' "$RENDER"
+  grep -qF 'phase' "$RENDER"
+  grep -qF 'state' "$RENDER"
+  grep -qF 'next' "$RENDER"
+
+  # Below the core's own minimum the table steps aside and says so, and
+  # PURPOSE still carries every pending phase.
+  render --width 38
+  grep -qF 'table needs' "$RENDER"
+  grep -qF 'PURPOSE' "$RENDER"
+  run grep -c '^  #  phase' "$RENDER"
+  [ "$output" = "0" ]
+}
+
 # ─── CairnGo-uz6: the screen stops contradicting itself ──────────────────────
 
 # MEASURED 2026-08-06, on a one-phase roadmap with no `## Milestones` section
