@@ -384,6 +384,221 @@ def status_counts(cycle):
     return counts
 
 
+def field_survey(cycles):
+    """Which frontmatter keys every comparable cycle carries, and which ones
+    only some do.
+
+    The intersection is over CYCLES, not over files: `gaps` is in two of
+    v1.1's six files, and that is enough — the cycle knows how to record
+    gaps. A key present in one cycle only is not a trend, it is a dialect,
+    and this is the survey that says which is which. Nothing here is written
+    down: it is recomputed from disk on every run.
+    """
+    per_cycle = {}
+    for c in cycles:
+        if c["state"] != COMPARABLE:
+            continue
+        keys = set()
+        for e in c["entries"]:
+            keys.update(e["keys"])
+        per_cycle[c["cycle"]] = keys
+    if not per_cycle:
+        return {"intersection": [], "missing_from": {}, "per_cycle": {}}
+    inter = set.intersection(*per_cycle.values())
+    union = set().union(*per_cycle.values())
+    missing = {}
+    for k in sorted(union - inter):
+        missing[k] = sorted((cy for cy, ks in per_cycle.items()
+                             if k not in ks), key=version_sort_key)
+    return {
+        "intersection": sorted(inter),
+        "missing_from": missing,
+        "per_cycle": {k: sorted(v) for k, v in per_cycle.items()},
+    }
+
+
+# How to aggregate a field, NOT which fields exist. Which fields exist is the
+# intersection, recomputed from disk; an axis whose field is missing from it
+# is not computed at all and the output says where it is missing.
+AXIS_SPECS = (
+    ("first_pass", "status", "primeira aprovação"),
+    ("gaps", "gaps", "lacunas registradas"),
+    ("gap_density", "gaps", "lacunas por fase"),
+    ("overrides", "overrides_applied", "overrides aplicados"),
+    # Computed only when score_survey() finds one unit across every
+    # comparable cycle. Otherwise it is refused, with the units it found.
+    ("score", "score", "score"),
+)
+
+
+def axis_point(axis_id, cycle):
+    """(value, formatted) for one cycle on one axis, or None when the cycle
+    carries nothing to compute it from."""
+    entries = [e for e in cycle["entries"] if e["status"]]
+    denom = len(entries)
+    if axis_id == "first_pass":
+        if not denom:
+            return None
+        value = sum(1 for e in entries if e["status"] == "passed") / denom
+        return value, f"{round(value * 100)}%"
+    if axis_id in ("gaps", "gap_density"):
+        counted = [e["gaps"] for e in entries if e["gaps"] is not None]
+        if not counted:
+            return None
+        total = sum(counted)
+        if axis_id == "gaps":
+            return total, str(total)
+        return total / denom, f"{total / denom:.2f}"
+    if axis_id == "overrides":
+        counted = [e["overrides_applied"] for e in entries
+                   if e["overrides_applied"] is not None]
+        if not counted:
+            return None
+        return sum(counted), str(sum(counted))
+    if axis_id == "score":
+        ratios = [e["score_ratio"] for e in entries if e["score_ratio"]]
+        if not ratios:
+            return None
+        num = sum(r[0] for r in ratios)
+        den = sum(r[1] for r in ratios)
+        if not den:
+            return None
+        return num / den, f"{num}/{den}"
+    return None
+
+
+def direction_of(values):
+    """(direction, monotonic). Both, because an axis that falls, rises and
+    falls again is not the same shape as one that only falls, and a single
+    word would erase the difference. Monotonic here is non-strict: every step
+    goes the same way or stands still."""
+    if len(values) < 2:
+        return "flat", True
+    first, last = values[0], values[-1]
+    direction = "flat"
+    if last > first:
+        direction = "rising"
+    elif last < first:
+        direction = "falling"
+    deltas = [b - a for a, b in zip(values, values[1:])]
+    monotonic = all(d >= 0 for d in deltas) or all(d <= 0 for d in deltas)
+    return direction, monotonic
+
+
+DIRECTION_LABEL = {"rising": "sobe", "falling": "desce", "flat": "constante"}
+
+
+def score_survey(cycles):
+    """Whether `score` may be aggregated, and the measured reason when it may
+    not.
+
+    `score` is in the intersection — every file carrying frontmatter has one,
+    which makes it look ready to plot. It is not: the denominator's UNIT
+    changes between cycles and, in v1.4, inside one cycle. Plotting it would
+    draw a line between two different rulers, which is the same class of
+    error this whole phase exists to avoid, one floor down.
+
+    The refusal is data and not prose: it carries the distinct units it FOUND
+    on disk, so the day every cycle counts the same thing the refusal lifts
+    on its own.
+    """
+    per_cycle = {}
+    for c in cycles:
+        if c["state"] != COMPARABLE:
+            continue
+        units = sorted({e["score_unit"] for e in c["entries"]
+                        if e["score_unit"]})
+        if units:
+            per_cycle[c["cycle"]] = units
+    distinct = sorted({u for units in per_cycle.values() for u in units})
+    survey = {
+        "units_by_cycle": per_cycle,
+        "distinct_units": distinct,
+        "units_line": " · ".join(
+            f"{cy}: {', '.join(us)}"
+            for cy, us in sorted(per_cycle.items(),
+                                 key=lambda kv: version_sort_key(kv[0]))),
+    }
+    if len(distinct) <= 1:
+        survey["aggregated"] = True
+        survey["reason"] = ("uma unidade só em todos os ciclos comparáveis — "
+                            "as frações se comparam")
+    else:
+        survey["aggregated"] = False
+        survey["reason"] = ("as unidades do denominador diferem entre os "
+                            "ciclos comparáveis — as frações não se comparam")
+    return survey
+
+
+def build_series(cycles, survey, score):
+    """The series proper: shape, sufficiency, contiguity, and one entry per
+    axis the intersection actually supports."""
+    comparable = [c for c in cycles if c["state"] == COMPARABLE]
+    keys = [c["cycle"] for c in comparable]
+    span, holes, contiguous = 0, 0, True
+    if comparable:
+        idx = [i for i, c in enumerate(cycles) if c["state"] == COMPARABLE]
+        span = idx[-1] - idx[0] + 1
+        holes = span - len(idx)
+        contiguous = True
+    sufficient = len(comparable) >= MIN_SERIES_POINTS
+    axes, unavailable = [], []
+    for axis_id, field, label in AXIS_SPECS:
+        if field not in survey["intersection"]:
+            unavailable.append({
+                "axis": axis_id,
+                "field": field,
+                "label": label,
+                "missing_from": survey["missing_from"].get(field, []),
+            })
+            continue
+        if axis_id == "score" and not score["aggregated"]:
+            continue
+        points = [axis_point(axis_id, c) for c in comparable]
+        if any(p is None for p in points):
+            unavailable.append({
+                "axis": axis_id,
+                "field": field,
+                "label": label,
+                "missing_from": [k for k, p in zip(keys, points)
+                                 if p is None],
+            })
+            continue
+        values = [p[0] for p in points]
+        formatted = [p[1] for p in points]
+        direction, monotonic = direction_of(values)
+        axes.append({
+            "axis": axis_id,
+            "field": field,
+            "label": label,
+            "cycles": keys,
+            "values": values,
+            "formatted": formatted,
+            "points_line": " → ".join(formatted),
+            "direction": direction if sufficient else None,
+            "direction_label": DIRECTION_LABEL[direction] if sufficient
+            else None,
+            "monotonic": monotonic if sufficient else None,
+        })
+    shape = (f"{len(comparable)} pontos comparáveis em {span} ciclos, "
+             f"{holes} vãos — "
+             f"{'contígua' if contiguous else 'não contígua'}")
+    if not comparable:
+        shape = "nenhum ciclo comparável"
+    return {
+        "points": len(comparable),
+        "min_points": MIN_SERIES_POINTS,
+        "span": span,
+        "holes": holes,
+        "contiguous": contiguous,
+        "sufficient": sufficient,
+        "shape_line": shape,
+        "axes": axes,
+        "unavailable_axes": unavailable,
+        "score": score,
+    }
+
+
 def build_model(planning_dir):
     """Everything the renderer will ever need, INCLUDING the formatted
     strings.
@@ -402,11 +617,15 @@ def build_model(planning_dir):
         c["status_line"] = " · ".join(
             f"{k} {v}" for k, v in sorted(c["status_counts"].items()))
         c.pop("phases_dir", None)
+    survey = field_survey(cycles)
+    score = score_survey(cycles)
     return {
         "planning_dir": str(planning_dir),
         "cycles": cycles,
         "comparable": [c["cycle"] for c in cycles if c["state"] == COMPARABLE],
         "open_cycle": next((c["cycle"] for c in cycles if c["open"]), None),
+        "fields": survey,
+        "series": build_series(cycles, survey, score),
     }
 
 
@@ -422,6 +641,12 @@ def main():
     else:
         for line in render(model):
             print(line)
+    # No cycle at all is a repository that has not closed one — the
+    # convention's genuine "this repo doesn't need this check", exit 0. A
+    # repository WITH cycles but too few comparable ones is the roadmap's
+    # criterion 3, and gets its own code so a caller can branch on it.
+    if model["cycles"] and not model["series"]["sufficient"]:
+        sys.exit(EXIT_INSUFFICIENT)
     sys.exit(EXIT_OK)
 
 
@@ -456,6 +681,39 @@ def render(model):
         lines.append(f"{TAG} ! {model['open_cycle']} está em andamento: a "
                      f"cobertura dele conta fases que ainda não começaram, "
                      f"então não se compara com a de um ciclo fechado.")
+    lines.extend(render_series(model))
+    return lines
+
+
+def render_series(model):
+    series = model["series"]
+    lines = [TAG, f"{TAG} ▸ série: {series['shape_line']}"]
+    if not series["sufficient"]:
+        # Roadmap success criterion 3: say so, and do NOT draw a line. Two
+        # points define a line every time, so a direction over fewer than
+        # MIN_SERIES_POINTS cannot tell a trend from a pair of values.
+        lines.append(f"{TAG} ! menos de {series['min_points']} pontos "
+                     f"comparáveis: nenhuma direção é declarada.")
+        for c in model["cycles"]:
+            if c["state"] != COMPARABLE:
+                lines.append(f"{TAG}   {c['cycle']} não entra na série: "
+                             f"{c['scope']} — {c['detail']}")
+        return lines
+    width = max((len(a["label"]) for a in series["axes"]), default=0)
+    for axis in series["axes"]:
+        mark = "" if axis["monotonic"] else "  (não monotônica)"
+        lines.append(f"{TAG} ▸ {axis['label'].ljust(width)}  "
+                     f"{axis['points_line']}   "
+                     f"{axis['direction_label']}{mark}")
+    for miss in series["unavailable_axes"]:
+        lines.append(f"{TAG} {SYMBOL[NOT_APPLICABLE]} {miss['label']} não "
+                     f"vira série: `{miss['field']}` falta em "
+                     f"{', '.join(miss['missing_from'])}")
+    score = series["score"]
+    if not score["aggregated"]:
+        lines.append(f"{TAG} {SYMBOL[NOT_APPLICABLE]} score não vira série: "
+                     f"{score['reason']}")
+        lines.append(f"{TAG}   {score['units_line']}")
     return lines
 
 
