@@ -1,6 +1,6 @@
 # /cairn:status
 
-> One combined view driven by `bd ready` — a kanban status board (actionable, in-flight, blocked), GSD roadmap position, and one suggested next action.
+> One combined view driven by `bd ready` — a grouped list of the open work (milestone → phase → task), GSD roadmap position, and one suggested next action.
 
 ## Usage
 
@@ -19,16 +19,24 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" [flags]
 ## What it does
 
 1. Runs `cairn-status.sh` (a thin wrapper over `cairn-status.py`, zero-dependency
-   Python 3). The script gathers everything itself:
-   - **READY** lane — `bd ready --json`: the truly claimable list. Dependencies,
+   Python 3). The script gathers everything itself.
+
+   First, three bd queries. They are called **lanes** because a lane is where
+   a row comes FROM — each row's stage symbol is read off the lane it arrived
+   on — and not because anything on screen is arranged in lanes:
+   - **READY** — `bd ready --json`: the truly claimable list. Dependencies,
      gates, and `defer_until` are respected; in_progress and blocked issues are
-     excluded.
-   - **DOING** lane — `bd list --status in_progress --json` (assignees shown
-     with a `◆` marker).
-   - **BLOCKED** lane — `bd blocked --json` (blocking dependency shown with a
-     `⧗ <dep-id>` marker).
+     excluded. Renders with `◔`.
+   - **DOING** — `bd list --status in_progress --json`. Renders with `◕`, and
+     the assignee after a `◆` marker.
+   - **BLOCKED** — `bd blocked --json`. Renders with `⧗`, and names **every**
+     blocker in words on the row itself (`blocked by brd-001, brd-007`).
    - **Roadmap position** — ROADMAP.md and STATE.md parsed leniently (completed
-     phases, 🚧 milestone marker, `active_phase` / `milestone` frontmatter).
+     phases, `active_phase` frontmatter). The **open milestone** comes from the
+     `🚧` marker on its own line in ROADMAP.md's `## Milestones` list, never
+     from STATE.md's `milestone:` — that pointer keeps naming the archived
+     cycle after a milestone is completed, which is how the board used to
+     announce a milestone that had shipped ten minutes earlier.
    - **External tracker cards** — read from two places that are already local,
      with no network call of any kind (see
      [The board never touches the network](#the-board-never-touches-the-network)):
@@ -40,25 +48,49 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" [flags]
        (see [What the board reads from ROADMAP.md](#what-the-board-reads-from-roadmapmd)).
    - **Sync staleness** — when `.cairn/sync.json` exists, checked against the
      last-pull watermark in `.cairn/state.json`.
-2. Renders a three-lane kanban board on one shared box-drawing grid (never a
-   box per card), with lane headers like `READY (3)`.
-3. Prints a footer **outside** the grid: `phase X/Y <title> · <milestone> ·
-   done: N`, then `▶ next: <one action>`, then a sync-staleness line when
-   relevant (stale or missing watermark → suggests `/cairn:sync-pull`).
+2. Renders **one grouped list**, at every width: the four counts
+   (`ready N · doing N · blocked N · done N`), then the open milestone, then
+   its phases in roadmap order, then each phase's tasks, with work no phase
+   claims last. Every row carries its stage in a single-cell symbol
+   (`◌` not planned · `◔` planned · `◕` in progress · `✓` done · `⧗` blocked),
+   and **a task title is never truncated** — a row too long for the width
+   wraps into a continuation aligned under the title.
+
+   There is no width degrade and no kanban grid. Three lanes did not fit a
+   narrow terminal and one list fits any, so the columns/stacked/raw ladder
+   went out with the renderers it chose between.
+
+   When the roadmap declares no open milestone, the list still shows the
+   pending phases under a group that says so by name. It never falls silent
+   while the footer and the table below it count phases.
+3. Prints a footer below the list: `phase X/Y <title> · <milestone> ·
+   done: N` — or `no open milestone` where the name would be — then
+   `▶ next: <one action>`, then a sync-staleness line when relevant (stale or
+   missing watermark → suggests `/cairn:sync-pull`).
 3b. Prints the **phase panel** below the footer — the part that answers which
    phase to run rather than what work exists:
-   - **PENDING PHASES** — one described entry per unfinished phase: number,
-     title, requirement ids, where it stands (`not planned` / `planned` /
-     `executed` / `verified`), plan progress, and what it waits on. Not a row
-     of ids: the point is choosing the next phase without opening ROADMAP.md.
-   - **NEXT COMMANDS** — the `/cairn:*` commands to run next, each with the
-     reason it sits where it does. The command comes from that phase's own
-     state on disk (`no PLAN → /cairn:plan`, `PLAN → /cairn:work`,
-     `SUMMARY → /cairn:verify`), so it cannot claim a phase needs planning
-     after someone planned it. The **order comes from the dependency graph**,
-     not the phase number — free work first, so a blocked earlier phase is
-     never listed above a later one that can actually run. A milestone with
-     nothing pending gets `/cairn:ship`, then `/cairn:milestone complete`.
+   - **PENDING PHASES** — a table, one row per unfinished phase: number,
+     title, where it stands (`not planned` / `planned` / `executed` /
+     `verified`), whether research exists, plan progress, issue progress, the
+     verification verdict, what it waits on, and the next legal command. The
+     point is choosing the next phase without opening ROADMAP.md.
+
+     **It fits the width it was given.** A column that does not fit shrinks to
+     its floor, and then leaves — and a column that left is named, on a line
+     under the table (`hidden at this width: waits, rsch — widen, or
+     /cairn:status --json`). A column is never squeezed until its own header
+     reads `issu…`. Below the width its core needs, the table steps aside and
+     says how many columns it wants; PURPOSE, below, still carries every phase.
+   - **PURPOSE** — each phase's purpose in full, paired with the reason the
+     next command sits where it does. This is the one block that **wraps**
+     rather than truncates: a phase's purpose is never cut. The command comes
+     from that phase's own state on disk (`no PLAN → /cairn:plan`,
+     `PLAN → /cairn:work`, `SUMMARY → /cairn:verify`), so it cannot claim a
+     phase needs planning after someone planned it. The **order comes from the
+     dependency graph**, not the phase number — free work first, so a blocked
+     earlier phase is never listed above a later one that can actually run. A
+     milestone with nothing pending gets `/cairn:ship`, then
+     `/cairn:milestone complete`.
    - **The parallelism note** — what could proceed at the same time, and the
      concrete split. When no dependency is declared anywhere in the roadmap it
      says so, rather than reporting every phase as independent and letting
@@ -75,12 +107,22 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" [flags]
    GSD step from STATE.md. When bd and STATE.md disagree, the rule is stated
    explicitly: **bd wins for work items, STATE.md wins for workflow steps** —
    neither overrides the other.
-5. Degrades gracefully by width: full columns → vertically stacked lanes
-   (below ~64 columns) → raw `LANE  id  title` list (below 40 columns). The
-   grid never wraps.
-6. When stdout is **not a TTY** (pipes, redirects) and no output flag was
-   given, the script automatically switches to `--plain`: clean tabular
-   output, zero ANSI escapes, zero box-drawing, titles untruncated.
+5. Fits the width it has. One renderer at every width: rows wrap instead of
+   being cut, and the phase panel gives up columns instead of running off the
+   edge. The only thing allowed past the margin is a single token wider than
+   the column itself (a long URL in a title) — splitting it would be a form
+   of truncation, and letting it overflow is the terminal's own wrap.
+6. When stdout is **not a TTY** (pipes, redirects), prints **the same board**
+   in plain text: no ANSI escapes (color already ends at `isatty`) and 80
+   columns (the `shutil.get_terminal_size` fallback, the same width a
+   terminal without `$COLUMNS` gets).
+
+   > **If you have a script reading this output, read this.** Until this
+   > change, a flagless non-TTY run silently switched to `--plain`, so a pipe
+   > or a redirect got the tab-separated machine format. It now gets the human
+   > board. **The fix is to write `--plain`,** which is byte-for-byte the
+   > format it always was and is the only door to it — no condition of the
+   > environment selects it any more.
 7. With `--html <path>`, renders the same data as a standalone HTML board
    instead (see [The HTML board](#the-html-board)).
 
@@ -92,18 +134,27 @@ On exit 5 it falls back to a minimal prose view via `/gsd:progress`.
 | Flag | Effect |
 | --- | --- |
 | `--json` | Single-line machine-readable JSON (stable dict shape); gains an `html` key when `--html` also ran |
-| `--plain` | Tabular TSV-like output, no color, no box-drawing |
+| `--plain` | **The machine contract**, and the only way to reach it: tab-separated rows, no color, nothing truncated. Byte-for-byte what it has always been — pinned by two committed references, `tests/fixtures/board-render/plain.txt` and `tests/fixtures/machine-contract/nontty-pre-split.txt` |
 | `--brief` | Three lines only: header, counts, next action |
 | `--html <path>` | Write/refresh a standalone HTML board at `<path>`, print one confirmation line. Composes with `--json` and `--planning-dir`; refused with `--plain` / `--brief` |
-| `--width N` | Override detected terminal width (deterministic output) |
-| `--max-rows N` | Rows per lane before a `+k more` footer (default 15) |
-| `--ascii` | ASCII borders and `...` truncation instead of Unicode |
-| `--color=always\|never` | Force color on or off |
+| `--width N` | Render at N columns instead of the detected terminal width (deterministic output) |
+| `--max-rows N` | Rows per **bucket** before a `+k more` row (default 15). Per bucket, not per lane: the cap follows the thing the list groups by |
+| `--ascii` | One-character stage symbols (`. o O v ~`) and `...` instead of the Unicode set. There are no borders to swap — the box-drawing went out with the kanban |
+| `--color=always\|never` | Force color on or off. Color only: a piped run renders the board either way, so there is no renderer for this flag to opt into |
 | `--planning-dir <dir>` | Use an alternate planning dir (default `.planning/`) |
 
 Color precedence: `--color` > `CAIRN_NO_COLOR` > `NO_COLOR` > `TERM=dumb` >
 `isatty(stdout)`. Colors are 4-bit only: DOING yellow, BLOCKED red, done
-green in the footer; color on headers/counts/glyphs, never on whole cards.
+green in the footer; color on the stage symbol, the counts and high-priority
+ids, never on a whole row.
+
+**Alignment and locale.** Column alignment is guaranteed in a Western locale
+and **is not guaranteed in a CJK one**. A large set of characters
+(`east_asian_width=A`) takes one cell in a Latin locale and two in a CJK one,
+and this board's own prose is Portuguese, where every accented letter is in
+that set — so choosing different glyphs cannot fix it, and reading the locale
+would mean guessing what only the terminal emulator knows. The measurement and
+the full argument are in `char_width()`'s docstring in `cairn-status.py`.
 
 ## Exit codes
 
@@ -165,41 +216,85 @@ refresh. The page carries the timestamp it was generated at.
 
 ## Examples
 
+> Every block below is a **captured run**, not a drawing. Source: the
+> deterministic `make_board_fixture` from `tests/helpers.bash` (fixed issue
+> ids, so the output is reproducible), rendered with `--color=never`, on
+> 2026-08-06. To re-capture, build that fixture in a scratch repo and run the
+> command shown. The previous example on this page was hand-drawn, which is
+> exactly how it went on describing a kanban board for a year after the kanban
+> was deleted.
+
 Full board in a terminal:
 
 ```
 $ bash cairn/scripts/cairn-status.sh --width 100
-┌──────────────────────┬──────────────────────┬──────────────────────┐
-│ READY (2)            │ DOING (1)            │ BLOCKED (1)          │
-├──────────────────────┼──────────────────────┼──────────────────────┤
-│ app-12  Add auth …   │ app-9  Status boa…   │ app-14  Deploy pi…   │
-│ app-13  Fix flaky…   │        ◆ felipe      │         ⧗ app-12     │
-└──────────────────────┴──────────────────────┴──────────────────────┘
-phase 3/5 Rate limiting · v1.0 · done: 7
-▶ next: continue app-9 (Status board renderer)
+ready 3 · doing 1 · blocked 1 · done 1
 
-PENDING PHASES  3
-  3  Rate limiting                    planned · 1/2 plans
-  4  Deploy pipeline                  not planned
-  5  Public launch                    not planned · waits on 4
+v1.1 Surface
+  ◔ 3  Phase model — read what a phase actually is
+      ◔ brd-001  Read the roadmap into a phase model
+      ◕ brd-004  Hold the lease while executing  ◆ cairn-tests
+  ◌ 4  Board fills the screen
+      ◔ brd-002  Fill the screen at any width
+      ⧗ brd-005  Wait on the phase model  blocked by brd-001
 
-NEXT COMMANDS
-  /cairn:work 3  nothing blocks it, and phase 5 waits on it
-  /cairn:plan 4  nothing blocks it
-  /cairn:plan 5  waits on phase 4
+No milestone
+      ◔ brd-003  Sweep the backlog
 
-  Phases 3 and 4 are independent — nothing open blocks either of them, so they
-  can run at the same time rather than in sequence (/cairn:work 3, then
-  /cairn:plan 4). One agent per phase, or one worktree each.
+phase 3/4 Phase model — read what a phase actually is · v1.1 Surface · done: 1
+▶ next: continue brd-004 — Hold the lease while executing
+
+PENDING PHASES  2
+  #  phase     state             rsch   plans   issues   verify            waits    next
+  3  Phase m…  planned           —      0/1 p…  0/2      —                 —        /cairn:work 3
+  4  Board f…  not planned       —      —       0/2      —                 3        /cairn:plan 4
+
+PURPOSE
+  3  Phase model — read what a phase actually is — nothing blocks it, and phase 4 waits on it
+  4  Board fills the screen — waits on phase 3
+
+  One phase can move: /cairn:work 3. Phase 4 waits.
 ```
+
+Note the fixture's own trap, visible in that output: `STATE.md` names `v1.0`,
+the archived cycle, while the footer reads `v1.1 Surface`. The header follows
+the roadmap's `🚧` marker, not the stale pointer.
 
 Three-line summary:
 
 ```
 $ bash cairn/scripts/cairn-status.sh --brief
+[cairn-status] phase 3/4 Phase model — read what a phase actually is · v1.1 Surface
+ready 3 · doing 1 · blocked 1 · done 1
+▶ next: continue brd-004 — Hold the lease while executing
 ```
 
-Machine consumption (also what pipes get, minus the JSON shape):
+**Through a pipe, the two surfaces side by side.** No flag gets the board in
+plain text; `--plain` gets the machine contract:
+
+```
+$ bash cairn/scripts/cairn-status.sh | head -6
+ready 3 · doing 1 · blocked 1 · done 1
+
+v1.1 Surface
+  ◔ 3  Phase model — read what a phase actually is
+      ◔ brd-001  Read the roadmap into a phase model
+      ◕ brd-004  Hold the lease while executing  ◆ cairn-tests
+
+$ bash cairn/scripts/cairn-status.sh --plain | head -3
+READY	brd-001	0	Read the roadmap into a phase model	
+READY	brd-002	1	Fill the screen at any width	
+READY	brd-003	2	Sweep the backlog	
+```
+
+Those `--plain` rows end in a **trailing tab**, and it is not stray: an issue
+row is always five fields — `LANE`, `ID`, `PRIORITY`, `TITLE`, `EXTRA` — and
+`EXTRA` is empty on the READY lane (it carries the assignee on DOING and the
+blockers on BLOCKED). A fixed field count is what lets `cut -f4` mean the same
+thing on every row. The meta rows below them (`PHASE`, `MILESTONE`, `DONE`,
+`NEXT`, `LEASE`, `SYNC`, `NOTE`) carry their own field counts.
+
+Machine consumption:
 
 ```
 $ bash cairn/scripts/cairn-status.sh --json | jq .ready
@@ -261,7 +356,7 @@ dropped and the title takes the column back.
 
 ## The board never touches the network
 
-Every card on the board comes from data that is already on the machine: bd's
+Every row on the board comes from data that is already on the machine: bd's
 local database and `ROADMAP.md`. Nothing is fetched — not a title, not a
 status, not an avatar.
 
