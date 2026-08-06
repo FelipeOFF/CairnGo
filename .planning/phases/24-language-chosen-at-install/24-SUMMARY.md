@@ -13,10 +13,36 @@ metrics:
   commits: 12
 requirements_status:
   LANG-01: complete
-  LANG-02: partial
+  LANG-02: complete
 ---
 
 # Phase 24: Language chosen at install — Summary
+
+> **Correção registrada em 2026-08-06, pela verificação da fase.** Duas afirmações
+> abaixo não sobreviveram à remedição, e ficam no texto original de propósito — o que
+> se acreditou na hora é parte do registro. O que foi medido depois:
+>
+> **1. A premissa sobre a diretiva do GSD estava invertida.** O texto abaixo diz que
+> *"na maioria dos pontos de spawn, a regra escrita era **não** repassar"*. Medido nos
+> 47 arquivos de `~/.claude/gsd-core/workflows/` que mencionam `response_language`:
+> **43** carregam *"subagent prompts stay in English"*, que é sobre o **texto** do
+> prompt e não sobre o valor; **2** mandam explicitamente *"Pass `response_language:
+> {value}` into every spawned subagent prompt"*; e **zero** dizem para não repassar o
+> valor. A instrução de repasse existe e é rara — não é uma proibição.
+>
+> A falha do v1.4, então, foi a chave **ausente**, não propagação bloqueada. É o
+> `LANG-01` que a conserta, gravando a escolha na instalação.
+>
+> **2. O `LANG-02` fechou.** O frontmatter dizia `partial` e era o último artefato a
+> dizê-lo: `CairnGo-4ia` foi fechada em 2026-08-05 com o critério reescopado para o
+> lifecycle **do cairn**, `REQUIREMENTS.md:36` está `[x]` desde `d8f1ba5`, e o
+> `ROADMAP.md` marca a fase completa. Corrigido para `complete`.
+>
+> Uma diferença de força que a verificação registrou e vale manter à vista:
+> `autonomous.md` tem prova forte (saída do processo, quatro estados);
+> `reconcile.md:59` satisfaz o critério porque o processo que ele lê é o mesmo
+> `cairn-config.sh get` cuja saída já é asserida noutro teste — **não** porque a prova
+> daquele caminho tenha sido desenhada assim.
 
 A linguagem de resposta deixou de ser algo que alguém descobre no meio de um ciclo:
 é perguntada na instalação, antes do primeiro subagente, e chega até o prompt de

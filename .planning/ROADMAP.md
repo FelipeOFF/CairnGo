@@ -320,8 +320,35 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
    planejada antes de a decisão estar tomada.** Um teste prova que o `claims-stale`
    deixa de reportar falta de insumo quando o dialeto escolhido chega ao arquivo.
 
+6. **A cadeia de planos ganha leitor independente.** Medido em 2026-08-06, e é a
+   lacuna que fez a verificação da fase 29 sair `gaps_found`: o `STATE.md` afirma
+   `total_plans: 28` com `completed_plans: 33`, porque `cairn-bookkeep.py:1018`
+   globa `*-SUMMARY.md` — que casa o summary de **plano** e o de **fase** — enquanto
+   o par dele, `*-PLAN.md`, só casa plano, já que fase não tem `NN-PLAN.md`. Os dois
+   globs parecem simétricos e a nomenclatura não é.
+
+   Três agravantes, todos medidos, e é o conjunto que torna isto um critério em vez
+   de um conserto de uma linha:
+
+   - **`reconcile` devolve `disagreements: []`** sobre esse `STATE.md`, imprimindo
+     `computed.total_plans: 28` e `computed.completed_plans: 33` no mesmo objeto
+     JSON. Escritor e verificador usam a mesma regra errada, então concordam.
+   - **A fixture é cega ao defeito por construção.** `tests/helpers.bash:519` escreve
+     só `$nn-$idx-SUMMARY.md`; **zero** fixtures do repositório contêm um
+     `NN-SUMMARY.md` de fase. O defeito não passou pelo teste — nunca chegou perto
+     dele, e é isso que um leitor independente teria pego.
+   - **A linha `**Plans:** N/M plans executed` de cada fase não tem dono.** O
+     gsd-tools a escreve, o `cairn-bookkeep.py` não tem leitor nem escritor dela, e o
+     `req-ledger` não a cobre. Ela estava dizendo `6/7` com sete `[x]` abaixo.
+
+   Um teste constrói uma fase com dois planos, dois summaries de plano e **um summary
+   de fase**, e afirma `completed_plans == 2`. E uma checagem independente reprova um
+   `STATE.md` com `completed_plans > total_plans`, em vez de recomputá-lo com a mesma
+   regra que o escreveu.
+
 **Research durante o planejamento:** não precisa. Os três carregam a medição na
-própria issue do bd. O AUTO-10 depende de decisão de grooming, não de pesquisa.
+própria issue do bd. O AUTO-10 depende de decisão de grooming, não de pesquisa. O
+critério 6 chegou pela verificação da fase 29 e já vem com a causa localizada.
 
 **Depende de:** nada.
 
@@ -669,7 +696,7 @@ preferência de sequência é o cálculo errado.
 wrappers existirem. Ordem de execução e número de fase são coisas diferentes, e este
 roadmap passa a demonstrar isso.
 
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans executed
 
 - [x] 29-01-PLAN.md — congela a discordância real como fixture e lê os três arquivos sem pressupor consistência
 - [x] 29-02-PLAN.md — o caminho de escrita completo: fase, requisitos, tabela, rodapé, contadores, mapa e lease num comando
