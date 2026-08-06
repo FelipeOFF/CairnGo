@@ -142,8 +142,9 @@ setup() {
 }
 
 # Render into a file and leave the path in $RENDER. Never through a pipe
-# into python: --width already forces the board renderer, and a file keeps
-# the bytes inspectable when a test fails.
+# into python: a file keeps the bytes inspectable when a test fails. (Said
+# "--width already forces the board renderer" until 2026-08-06 — Phase 22
+# ended the forcing: a pipe renders the board anyway, and --width is width.)
 #
 # A FRESH path per call, counted, and not $$ — two renders inside one test
 # share a pid, so a pid-named file makes the second silently overwrite the
@@ -153,6 +154,56 @@ render() {
   RENDER_N=$((RENDER_N + 1))
   RENDER="$BATS_TEST_TMPDIR/render-$RENDER_N.txt"
   bash "$STATUS_SH" --color=never "$@" > "$RENDER"
+}
+
+# ─── CairnGo-uz6: the screen stops contradicting itself ──────────────────────
+
+# MEASURED 2026-08-06, on a one-phase roadmap with no `## Milestones` section
+# and no open issue, all three of these were on screen at once:
+#
+#     (no open work)          <- this list
+#   phase 1/1 Alpha           <- the footer
+#   PENDING PHASES  1         <- the table
+#
+# Three surfaces, two answers. The list only ever built buckets inside an
+# OPEN milestone group, so with no open cycle it built none — and a second
+# symptom followed from the same cause: an issue carrying `phase-N` rendered
+# under the loose group with its phase line gone.
+#
+# Breaks this test: dropping the unnamed group, filling it with ALL phases
+# instead of the pending ones, or letting `(no open work)` print while a
+# phase is pending.
+@test "with no open cycle the list shows the pending phases, not '(no open work)'" {
+  sed -i.bak 's/^- 🚧 \*\*v1.1 Surface\*\*/- ✅ **v1.1 Surface**/' \
+    .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+  run grep -c '🚧' .planning/ROADMAP.md
+  [ "$output" = "0" ]
+
+  model_labels
+  render --width 100
+  run python3 -c "
+$PY_LOAD
+$PY_ROWS
+labels_in = json.loads('''$LABELS''')
+assert labels_in == ['No open milestone', 'No milestone'], labels_in
+rows_, stop = rows(open('$RENDER').read(), labels_in)
+
+labels = [r['body'] for r in rows_ if r['kind'] == 'group']
+assert labels == labels_in, (labels, labels_in)
+
+# The PENDING phases, ascending — phases 1 and 2 are complete here and must
+# not be dragged in.
+phases = [r['key'] for r in rows_ if r['kind'] == 'phase']
+assert phases == ['3', '4'], phases
+
+# The label the whole defect was about must not be on this screen.
+text = open('$RENDER').read()
+assert cs.NO_WORK_TEXT not in text, cs.NO_WORK_TEXT
+# And the group label is the module's own constant, never a retyped string.
+assert cs.NO_OPEN_MILESTONE_LABEL in text, cs.NO_OPEN_MILESTONE_LABEL
+"
+  [ "$status" -eq 0 ]
 }
 
 # ─── BOARD-06: the hierarchy ─────────────────────────────────────────────────

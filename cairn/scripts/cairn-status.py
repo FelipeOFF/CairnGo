@@ -39,6 +39,17 @@ Behavior:
        first sentence of `**Goal:**`) — per D-03, this is the phase's
        `purpose`, and it is `null` only when the phase has no detail block
        at all.
+
+       Since Phase 22 (BOARD-04) STATE.md's `milestone:` no longer names the
+       milestone on any human surface. It is the pointer that keeps aiming at
+       the archived cycle (MEASURED 2026-08-03, ten minutes after v1.4 was
+       archived: the board still read `v1.4`), so the footer, --brief and the
+       HTML head all read `open_milestones` — the `🚧` marker on the
+       ROADMAP's own `## Milestones` line, the same source phase_groups()
+       has used since Phase 20 — through milestone_label(). `--plain` still
+       carries the STATE.md read on its `MILESTONE` row, because PIPE-01
+       freezes the machine contract; that asymmetry is deliberate, recorded,
+       and tracked as an issue rather than smuggled into a byte change here.
     4. Synthesize ONE next action. In order: an in_progress issue exists →
        continue it; else the highest-priority ready issue labeled
        m-<milestone>,phase-<active>; else STATE.md's next_action; else the
@@ -91,11 +102,14 @@ Behavior:
        list of `{phase, issues}` buckets — the unphased group has exactly
        one, with `phase` null. Open milestone groups come in the roadmap's
        own order, the unphased group is always last, and a group with no
-       buckets is not emitted at all, so a roadmap with no open cycle
-       produces zero milestone groups rather than one wearing the last
-       archived name. "Open" is the marker on the milestone's own
-       `## Milestones` line (`🚧` / `(in progress)`), never STATE.md's
-       `milestone:`, which keeps pointing at the archived cycle. An issue's
+       buckets is not emitted at all, so no group ever wears the last
+       archived name. A roadmap with NO open cycle emits one group carrying
+       the pending phases, `key` null and label `No open milestone` (Phase
+       22, CairnGo-uz6 — until then it emitted nothing and the list said
+       `(no open work)` while the table counted phases). "Open" is the
+       marker on the milestone's own `## Milestones` line (`🚧` /
+       `(in progress)`), never STATE.md's `milestone:`, which keeps pointing
+       at the archived cycle. An issue's
        `phase-N` labels are the ONLY thing that places it (the smallest
        phase it names among the ones some emitted group claims, else the
        unphased group); dependency edges are deliberately never read here,
@@ -247,9 +261,12 @@ Behavior:
        HTML escaping, so a title carrying markup renders as text.
 
     --json      one machine line: {ready, doing, blocked, counts, milestone,
-                phase, phases, next_commands, parallelism, groups, next,
-                sync, stale_complete, note, lease} (+ html: {file, changed}
-                when --html also ran)
+                open_milestones, phase, phases, next_commands, parallelism,
+                groups, next, sync, stale_complete, note, lease} (+ html:
+                {file, changed} when --html also ran). `milestone` is the
+                STATE.md-first read it always was; `open_milestones` is what
+                the ROADMAP marks open, and is what every human surface
+                names (Phase 22, BOARD-04)
     --plain     the machine contract, and ONLY the flag reaches it (Phase
                 22): tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA)
                 plus PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color,
@@ -388,6 +405,12 @@ MILESTONE_IN_PROGRESS = re.compile(r"\(in progress\)", re.IGNORECASE)
 # other string this CLI prints (READY, PENDING PHASES, PURPOSE).
 UNPHASED_KEY = "unphased"
 UNPHASED_LABEL = "No milestone"
+# Deliberately close to UNPHASED_LABEL, and they can share a screen. They say
+# different things: this one is "the ROADMAP declares no open cycle", that one
+# is "this issue names no phase any emitted group claims". The pair is
+# exercised together by a test in tests/cairn-group-model.bats precisely so
+# the closeness stays checked instead of assumed.
+NO_OPEN_MILESTONE_LABEL = "No open milestone"
 
 # "## Detalhe das fases" prose blocks (Phase 14): a THIRD phase-reference
 # shape, an H3 heading, distinct in form from ANY_PHASE's checkbox line and
@@ -1575,10 +1598,17 @@ def phase_groups(model, milestones, issues):
     phases that EXIST in `model` become buckets: inventing a phase out of a
     range is the same class of lie as naming an archived cycle. Groups come
     out in the roadmap's own order, filtered to the open ones (D-03: a
-    milestone with no buckets is not emitted at all, so an absent open cycle
-    yields zero milestone groups rather than one wearing the last archived
-    name); buckets inside a group come out by ascending phase number; the
-    unphased group is always last.
+    milestone with no buckets is not emitted at all, so no group ever wears
+    the last archived name); buckets inside a group come out by ascending
+    phase number; the unphased group is always last.
+
+    When NO milestone is open, ONE group is emitted carrying the PENDING
+    phases, labelled NO_OPEN_MILESTONE_LABEL with `key` None (Phase 22,
+    CairnGo-uz6). Until then that case produced zero groups and the board
+    contradicted itself on one screen: `(no open work)` in the list while the
+    footer and the table counted phases. The D-03 promise that mattered is
+    intact and is now stronger — no group wears an archived name, AND the
+    absence of an open cycle is stated positively instead of by silence.
 
     Issue placement reads ONE thing: `issue_phase_ns()`, the issue's own
     `phase-N` labels. An issue goes to the bucket of the SMALLEST phase it
@@ -1639,6 +1669,47 @@ def phase_groups(model, milestones, issues):
             continue
         groups.append({"type": "milestone", "key": ms["key"],
                        "label": ms["label"], "items": items})
+
+    if not any(ms["open"] for ms in milestones):
+        # NO OPEN CYCLE (Phase 22, CairnGo-uz6). Without this, a roadmap that
+        # declares no open milestone produced no phase bucket at all, and the
+        # board contradicted itself on one screen — MEASURED 2026-08-06 on a
+        # one-phase roadmap with no `## Milestones` section:
+        #
+        #     (no open work)          <- this list
+        #   phase 1/1 Alpha           <- the footer
+        #   PENDING PHASES  1         <- the table
+        #
+        # Three surfaces, two answers. With an issue carrying `phase-1` the
+        # second symptom showed instead: the issue rendered under the loose
+        # group and the phase line vanished, label and all.
+        #
+        # `type` stays "milestone" and `key` is None. A third type value would
+        # make every `if group["type"] == "milestone"` already written stop
+        # seeing this group; the group IS the grouping-by-milestone, it simply
+        # has no milestone to name, and `key: None` says that in the model
+        # while the label says it in words.
+        #
+        # PENDING phases only, not all of them: with no cycle to bound the
+        # scope, "every phase since the project started" is a list that only
+        # grows. Pending is exactly the set `PENDING PHASES` counts, and
+        # making those two agree IS the fix.
+        #
+        # The condition is "no open cycle", never "no group was emitted". An
+        # open cycle that claims no existing phase is a case nobody measured,
+        # and inventing behaviour for it would be guessing; it falls through
+        # to the old shape on purpose.
+        items = []
+        for p in pending_phases(model):
+            n = p["number"]
+            if n in buckets:
+                continue
+            bucket = {"phase": n, "issues": []}
+            buckets[n] = bucket
+            items.append(bucket)
+        if items:
+            groups.append({"type": "milestone", "key": None,
+                           "label": NO_OPEN_MILESTONE_LABEL, "items": items})
 
     loose = {"phase": None, "issues": []}
     for iss in issues:
@@ -2324,16 +2395,24 @@ def meta_parts(data, style, include_done=True):
 
     The title comes from the shared phase model. `phase 10/12` alone says
     where you are on a count and nothing about what you are doing.
+
+    The milestone segment is milestone_label() since Phase 22 (BOARD-04): the
+    cycle the ROADMAP marks open, or `no open milestone` in words. It is
+    printed whenever there IS a roadmap position to speak of, and skipped
+    entirely when there is not — announcing "no open milestone" about a repo
+    with no roadmap at all answers a question nobody asked, and the
+    `(no roadmap position)` fallback below is already the right answer there.
     """
     parts = []
     phase = data["phase"]
-    if phase["active"] is not None and phase["total"]:
+    has_roadmap = phase["active"] is not None and phase["total"]
+    if has_roadmap:
         head = [(f"phase {phase['active']}/{phase['total']}", None)]
         if phase.get("title"):
             head.append((f" {style.asciify(phase['title'])}", SGR_DIM))
         parts.append(head)
-    if data["milestone"]:
-        parts.append([(data["milestone"], None)])
+    if has_roadmap or data.get("open_milestones"):
+        parts.append([(style.asciify(milestone_label(data)), None)])
     if include_done:
         parts.append([("done: ", None),
                       (str(data["counts"]["closed"]), SGR_GREEN)])
@@ -2614,6 +2693,36 @@ def lease_line_text(data):
     return (f"phase {data['phase']['active']} in use by "
             f"{clean(lease.get('holder') or '')} since "
             f"{clean(lease.get('acquired_at') or '')}")
+
+
+def milestone_label(data):
+    """What the HUMAN surfaces call the current milestone (BOARD-04).
+
+    The open cycles of `data["open_milestones"]`, which come from the marker
+    on the ROADMAP's own `## Milestones` line (`🚧` / `(in progress)`) and
+    never from STATE.md's `milestone:` — that pointer keeps naming the
+    archived cycle, which is the measured defect (2026-08-03, ten minutes
+    after v1.4 was archived, the board still read `v1.4`).
+
+    One open cycle: its label, the SAME string the group row prints, so the
+    header and the list cannot spell the same milestone two ways. More than
+    one: the first plus ` +N`, because omitting the others in silence is the
+    thing this function exists to stop. None: `no open milestone`, in words —
+    BOARD-04 asks the board to say so, not to fall quiet and let the reader
+    assume.
+
+    One read, shared by the terminal footer, --brief and the HTML foot, in
+    the line of lease_line_text() (13-01, D-04). `--plain` deliberately does
+    NOT use it: it carries data["milestone"] as it always has, because
+    PIPE-01 freezes the machine contract byte for byte.
+    """
+    open_ms = data.get("open_milestones") or []
+    if not open_ms:
+        return "no open milestone"
+    label = clean(open_ms[0]["label"] or open_ms[0]["key"] or "")
+    if len(open_ms) > 1:
+        return f"{label} +{len(open_ms) - 1}"
+    return label
 
 
 def footer_lines(data, width, style):
@@ -3190,10 +3299,14 @@ def html_band(data):
 def html_head(data):
     phase = data["phase"]
     bits = []
-    if data["milestone"]:
+    if phase["active"] is not None and phase["total"] or data.get(
+            "open_milestones"):
         # A milestone is a name, so it is set in the page's own voice. Mono
         # is kept for the things that are actually data: the phase numbers.
-        bits.append(f'<span class="m">{esc(data["milestone"])}</span>')
+        # milestone_label() since Phase 22 (BOARD-04) — the third human
+        # surface reading the one spelling, so the page can never announce a
+        # cycle the terminal already stopped naming.
+        bits.append(f'<span class="m">{esc(milestone_label(data))}</span>')
     if phase["active"] is not None and phase["total"]:
         bits.append(f'phase <span class="n">{esc(phase["active"])}</span> of '
                     f'<span class="n">{phase["total"]}</span>')
@@ -3616,8 +3729,18 @@ def main():
         note = (f"{len(stale_ids)} open issue(s) belong to roadmap-complete "
                 "phases. run /cairn:doctor --close-completed")
     fm = state_frontmatter(planning_dir)
+    # DELIBERATELY UNCHANGED (Phase 22, BOARD-04). This still reads STATE.md
+    # first, which is exactly the source that keeps pointing at the archived
+    # cycle — and render_plain() prints it verbatim on its `MILESTONE\t...`
+    # row. PIPE-01 forbids moving the TSV by one byte, so the machine contract
+    # keeps publishing what it always published. The human surfaces stopped
+    # following it: see open_milestones below and milestone_label(). The
+    # tension is real and is tracked as an issue, not fixed in silence here.
     milestone = fm["milestone"] or roadmap_milestone(planning_dir)
     milestone = clean(milestone) if milestone else None
+    # ONE read of the milestone list, shared with phase_groups() below: two
+    # reads of the same file are two things that can disagree.
+    milestones = roadmap_milestones(planning_dir)
     active_phase = normalize_phase(fm["active_phase"])
     nxt = synthesize_next(ready, doing, milestone, active_phase,
                           fm["next_action"], done_phases)
@@ -3634,6 +3757,16 @@ def main():
         "counts": {"ready": len(ready), "doing": len(doing),
                    "blocked": len(blocked), "closed": n_closed},
         "milestone": milestone,
+        # Additive (Phase 22, BOARD-04): the cycles the ROADMAP itself marks
+        # open, in roadmap order — the same source phase_groups() reads, and
+        # never STATE.md. A LIST, not a scalar: a scalar would force this to
+        # pick one in silence when a roadmap declares two open cycles, and
+        # picking in silence is the family of defect BOARD-04 exists to end.
+        # Empty means the roadmap declares no open cycle, which is a fact the
+        # board states out loud rather than papering over — see
+        # milestone_label().
+        "open_milestones": [{"key": ms["key"], "label": ms["label"]}
+                            for ms in milestones if ms["open"]],
         "phase": {"active": active_phase,
                   "total": len(all_phases) or None,
                   "completed": len(done_phases),
@@ -3649,8 +3782,7 @@ def main():
         "parallelism": parallelism(phases),
         # The same model seen as a hierarchy: open milestone → phase → issue,
         # plus one last group for work no emitted group claims.
-        "groups": phase_groups(phases, roadmap_milestones(planning_dir),
-                               ready + doing + blocked),
+        "groups": phase_groups(phases, milestones, ready + doing + blocked),
         "next": nxt,
         "sync": {k: sync[k] for k in ("configured", "stale", "detail",
                                       "last_pull")},

@@ -11,7 +11,7 @@ v1.1 Surface
 No milestone
       ◔ brd-003  Sweep the backlog
 
-phase 3/4 Phase model — read what a phase actually is · v1.0 · done: 1
+phase 3/4 Phase model — read what a phase actually is · v1.1 Surface · done: 1
 ▶ next: continue brd-004 — Hold the lease while executing
 
 PENDING PHASES  2

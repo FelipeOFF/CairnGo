@@ -95,7 +95,12 @@ board_inside() {
 
   # The four numbers the lane headers used to carry.
   grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
-  grep -qF 'No milestone' <<<"$output"
+  # `No milestone` until 2026-08-06 (Phase 22, CairnGo-uz6): with no
+  # `## Milestones` section no cycle is open, and the group carrying the
+  # pending phases now says so by name. The phase line above the issues is
+  # part of the same fix and is asserted below.
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '◔ 2  API' <<<"$output"
   # And no grid: the kanban is gone, not hidden.
   refute_in_output '┌'
   refute_in_output '│'
@@ -223,6 +228,52 @@ print("ok column %d" % cols.pop())
   grep -qF '[cairn-status] phase 2/2' <<<"${lines[0]}"
   grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"${lines[1]}"
   grep -qF "next: continue $ST_DOING" <<<"${lines[2]}"
+}
+
+# BOARD-04, and the case it was written from: on 2026-08-03, ten minutes after
+# v1.4 was archived, the board still announced `v1.4`. main() reads
+# `fm["milestone"] or roadmap_milestone(...)`, so STATE.md — which nobody
+# updates at archive time — wins over the roadmap's own marker.
+#
+# make_board_fixture arms exactly that trap: STATE.md names v1.0 (ARCHIVED)
+# while the roadmap marks v1.1 open. The test archives v1.1 too and leaves
+# STATE.md untouched, then asserts the board names NEITHER — which is only
+# possible if the header stopped reading STATE.md altogether. Asserting that
+# STATE.md still says v1.0 is not decoration: without it the test cannot tell
+# "the header changed source" from "the fixture changed its mind".
+@test "archiving the open milestone stops the board from naming it" {
+  require_bd
+  make_tmp_repo
+  make_board_fixture "$PWD"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF 'v1.1 Surface' <<<"$output"
+
+  # Archive it, the way /cairn:milestone complete does: the marker on the
+  # milestone's own line.
+  sed -i.bak 's/^- 🚧 \*\*v1.1 Surface\*\*/- ✅ **v1.1 Surface**/' \
+    .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+  # A sed that matched nothing would leave the board unchanged and let every
+  # assertion below pass for the wrong reason.
+  run grep -c '🚧' .planning/ROADMAP.md
+  [ "$output" = "0" ]
+  # STATE.md is untouched and still points at the older archived cycle.
+  run grep -c '^milestone: v1.0$' .planning/STATE.md
+  [ "$output" = "1" ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF 'no open milestone' <<<"$output"
+  refute_in_output 'v1.1 Surface'
+  # And it does not fall back on STATE.md's v1.0 either — the fallback that
+  # produced the measured defect in the first place.
+  refute_in_output '· v1.0 ·'
+  # The pending phases are still on the list: BOARD-04 removes a name, never
+  # the work (CairnGo-uz6 is the other half of this, in cairn-group-model).
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '3  Phase model' <<<"$output"
 }
 
 # SPLIT IN TWO 2026-08-06 (Phase 22, PIPE-03), never deleted.
@@ -617,8 +668,17 @@ print("ok %d rows" % len(rows))
   # saying "the board rendered and found nothing". With no lanes, the list
   # says it in words instead of leaving a hole where three empty headers
   # used to be — the same claim, spelled so a reader can act on it.
+  #
+  # UPDATED 2026-08-06 (Phase 22, CairnGo-uz6), and the change is the fix
+  # arriving here on its own: this asserted `(no open work)` while the phase
+  # panel below it, in the same output, printed `PENDING PHASES  1`. Zero
+  # ISSUES is true; "no open work" was not, and a reader acting on it would
+  # have been acting on a contradiction. The list now names the pending phase.
   grep -qF 'ready 0 · doing 0 · blocked 0 · done 0' <<<"$output"
-  grep -qF '(no open work)' <<<"$output"
+  refute_in_output '(no open work)'
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '◔ 2  API' <<<"$output"
+  grep -qF 'PENDING PHASES' <<<"$output"
   grep -qF 'no .beads/' <<<"$output"
   grep -qF '▶ next: execute-phase (phase 2)' <<<"$output"
 
@@ -1336,13 +1396,16 @@ LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
   [ "$status" -eq 0 ]
 
   # Exhaustive top-level key set: the pre-15-05 keys, unchanged, plus the
-  # additive "lease" key (15-05) and "groups" (20-02) — nothing renamed,
-  # nothing dropped. What this list guards is that no EXISTING key changes
-  # name or disappears; a genuinely additive key is expected to land here,
-  # and the one line below is where it is declared.
+  # additive "lease" key (15-05), "groups" (20-02) and "open_milestones"
+  # (22-03) — nothing renamed, nothing dropped. What this list guards is that
+  # no EXISTING key changes name or disappears; a genuinely additive key is
+  # expected to land here, and the one line below is where it is declared.
+  # `milestone` in particular is still the STATE.md-first read it always was:
+  # BOARD-04 moved the HUMAN surfaces onto open_milestones and deliberately
+  # left the machine key alone, because PIPE-01 freezes --plain's bytes.
   local keys
   keys="$(jq -c 'keys' <<<"$output")"
-  [ "$keys" = '["blocked","counts","doing","groups","lease","milestone","next","next_commands","note","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+  [ "$keys" = '["blocked","counts","doing","groups","lease","milestone","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
 
   # Shape of the pre-existing keys is untouched.
   assert_json_eq "$output" '.counts.ready' '2'
@@ -1464,7 +1527,11 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   # anchors follow the grouped list, the claim ("the board above the footer
   # is exactly what the other test pinned") is identical.
   grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
-  grep -qF 'No milestone' <<<"$output"
+  # `No milestone` until 2026-08-06: this fixture's roadmap has no
+  # `## Milestones` section, so before Phase 22 every issue fell into the
+  # loose group and the phase line vanished. It now groups under the unnamed
+  # group, with the phase line above the issues (CairnGo-uz6).
+  grep -qF 'No open milestone' <<<"$output"
   refute_in_output '┌'
   grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
   grep -qF "◔ $ST_READY2  Timeout tuning" <<<"$output"

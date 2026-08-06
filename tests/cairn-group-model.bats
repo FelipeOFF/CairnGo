@@ -263,15 +263,37 @@ assert_nothing_lost() {
   [ "$output" = "${1:-7}" ]
 }
 
-@test "variant A: no open milestone in the roadmap means no milestone group" {
+# REWRITTEN 2026-08-06 (Phase 22, CairnGo-uz6). It used to assert that this
+# case yields ZERO milestone groups. That was the letter of D-03, and the
+# letter turned out to hide a defect: with no group, the board printed
+# `(no open work)` while the footer and the PENDING PHASES table, on the same
+# screen, counted phases — three surfaces, two answers. What D-03 was really
+# protecting is that no group wears the ARCHIVED name, and that is now
+# asserted positively below: one group, `key` null, and a label that says in
+# words that there is no open cycle.
+@test "variant A: no open milestone yields one unnamed group, never the archived name" {
   archive_the_open_milestone
   render_json
   run jq -r '[.groups[] | select(.type=="milestone")] | length | tostring' \
     "$BOARD_JSON"
   [ "$status" -eq 0 ]
-  # Falling back on roadmap_milestone(), on data["milestone"], or on "the
-  # last milestone in the list" each births a group here.
-  [ "$output" = "0" ]
+  [ "$output" = "1" ]
+
+  # Unnamed is the whole point: falling back on roadmap_milestone(), on
+  # data["milestone"], or on "the last milestone in the list" would each put
+  # a key here.
+  run jq -r '.groups[0].key | tostring' "$BOARD_JSON"
+  [ "$output" = "null" ]
+  run jq -r '.groups[0].label' "$BOARD_JSON"
+  [ "$output" = "No open milestone" ]
+
+  # PENDING phases only — the same set PENDING PHASES counts. Phases 1 and 2
+  # are complete in this fixture and must not be dragged in: with no cycle to
+  # bound the scope, "every phase since the project started" is a list that
+  # only grows.
+  run jq -r '[.groups[0].items[].phase] | map(tostring) | join(" ")' \
+    "$BOARD_JSON"
+  [ "$output" = "3 4" ]
 }
 
 @test "variant A: no group wears the archived cycle's name, and the work stays" {
@@ -293,15 +315,42 @@ assert_nothing_lost() {
   run jq -r --arg t "$older_key" 'index($t) | tostring' <<<"$names"
   [ "$output" = "null" ]
 
-  # And the work did not go silent with the group: one unphased group,
-  # carrying every open issue. Naming THAT group after the last known cycle
-  # "for context" is the same lie in a friendlier voice, so its label is
-  # pinned too.
+  # And the work did not go silent with the group. Two groups since Phase 22:
+  # the unnamed one carrying the pending phases, then the unphased one
+  # carrying work no phase claims. Naming EITHER after the last known cycle
+  # "for context" is the same lie in a friendlier voice, so both labels are
+  # pinned — and pinning them together is what keeps the two similar strings
+  # from being confused for each other.
   run jq -r '[.groups[].type] | join(" ")' "$BOARD_JSON"
-  [ "$output" = "unphased" ]
-  run jq -r '.groups[0].label' "$BOARD_JSON"
-  [ "$output" = "No milestone" ]
+  [ "$output" = "milestone unphased" ]
+  run jq -r '[.groups[].label] | join("|")' "$BOARD_JSON"
+  [ "$output" = "No open milestone|No milestone" ]
   assert_nothing_lost 7
+}
+
+# The two labels above are deliberately close and can share one screen, so
+# this test exercises them TOGETHER and says what each one means: the first
+# is "the roadmap declares no open cycle", the second is "this issue names no
+# phase any emitted group claims". brd-102 carries `phase-1`, which is
+# complete here and therefore claimed by no bucket — it is the issue that
+# proves the second group is still doing its own job.
+@test "variant A: a phase-labelled issue lands on its phase, an unclaimed one stays loose" {
+  archive_the_open_milestone
+  render_json
+
+  # brd-001 carries phase-3, which IS a pending phase and now has a bucket.
+  # Before Phase 22 it fell through to the unphased group with its label
+  # ignored — the second symptom of CairnGo-uz6. brd-101 lands here too, and
+  # that is the smallest-phase rule working inside the unnamed group exactly
+  # as it works inside a named one: it carries phase-3 AND phase-4.
+  run jq -r '.groups[0].items[] | select(.phase==3) | .issues | join(" ")' \
+    "$BOARD_JSON"
+  [ "$output" = "brd-001 brd-101 brd-004" ]
+
+  # brd-102 names phase 1 (complete, claimed by nobody) and brd-003 names no
+  # phase at all: both stay visible, in the loose group, never dropped.
+  run jq -r '.groups[1].items[0].issues | join(" ")' "$BOARD_JSON"
+  [ "$output" = "brd-003 brd-102" ]
 }
 
 @test "variant B: an open milestone naming no existing phase is not a group" {
@@ -410,11 +459,12 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   render_json
   run jq -r 'keys_unsorted | sort | join(",")' "$BOARD_JSON"
   [ "$status" -eq 0 ]
-  # The 14 pre-existing keys plus `groups`. tests/cairn-status.bats pins this
-  # same set against a different fixture (make_gsd_fixture + a status
-  # fixture); the two literals must agree, and a key that appears under only
-  # one fixture would show up as exactly that disagreement.
-  [ "$output" = "blocked,counts,doing,groups,lease,milestone,next,next_commands,note,parallelism,phase,phases,ready,stale_complete,sync" ]
+  # The 14 pre-existing keys plus `groups` (20-02) and `open_milestones`
+  # (22-03, BOARD-04). tests/cairn-status.bats pins this same set against a
+  # different fixture (make_gsd_fixture + a status fixture); the two literals
+  # must agree, and a key that appears under only one fixture would show up
+  # as exactly that disagreement.
+  [ "$output" = "blocked,counts,doing,groups,lease,milestone,next,next_commands,note,open_milestones,parallelism,phase,phases,ready,stale_complete,sync" ]
 }
 
 @test "every phases[] row carries exactly the 23 keys it always did" {
