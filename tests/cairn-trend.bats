@@ -608,6 +608,243 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   [ "$(printf '%s' "$output" | jq -r '.series.contiguous')" = "false" ]
 }
 
+# --- the ambiguity is derived, not printed ----------------------------------
+
+@test "with no verifier_* key anywhere the verdict is unresolved and the line is declared ambiguous" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed
+  add_verified v1.1 02 passed
+  add_verified v1.2 07 passed
+  add_verified v1.2 08 gaps_found
+  add_verified v1.3 10 gaps_found
+  add_verified v1.3 11 gaps_found
+
+  trend --json
+  [ "$status" -eq 0 ]
+  [ "$(tjq '.disambiguation.verdict')" = "unresolved" ]
+  [ "$(tjq '.disambiguation.shared_keys | length')" -eq 0 ]
+  [ "$(tjq '.disambiguation.declaration')" != "null" ]
+
+  trend
+  printf '%s' "$output" | grep -qF "ambígua na raiz"
+  printf '%s' "$output" | grep -qF "escrutínio subindo"
+}
+
+@test "ADDING verifier_* to EVERY comparable cycle flips the verdict, no prose edited" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed
+  add_verified v1.2 07 passed
+  add_verified v1.3 10 gaps_found
+  trend --json
+  [ "$(tjq '.disambiguation.verdict')" = "unresolved" ]
+
+  # One key, in every comparable cycle's frontmatter. Nothing else changes.
+  add_verified v1.1 01 passed "verifier_rigor: 1"
+  add_verified v1.2 07 passed "verifier_rigor: 2"
+  add_verified v1.3 10 gaps_found "verifier_rigor: 3"
+
+  trend --json
+  [ "$status" -eq 0 ]
+  [ "$(tjq '.disambiguation.verdict')" = "resolvable" ]
+  [ "$(tjq '.disambiguation.shared_keys | join(",")')" = "verifier_rigor" ]
+  # And the ambiguity declaration is gone, because it is no longer true.
+  [ "$(tjq '.disambiguation.declaration')" = "null" ]
+
+  trend
+  if printf '%s' "$output" | grep -qF "ambígua na raiz"; then
+    echo "the ambiguity was still declared after the data could settle it" >&2
+    return 1
+  fi
+}
+
+@test "verifier_* in ONE cycle only does not flip the verdict, and the gap is named" {
+  # Without this test, an implementation accepting "the key anywhere" would
+  # pass the ADDING test above. A key one cycle carries disambiguates
+  # nothing, exactly as a field one cycle carries is not an axis.
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed "verifier_rigor: 1"
+  add_verified v1.2 07 passed
+  add_verified v1.3 10 gaps_found
+
+  trend --json
+  [ "$(tjq '.disambiguation.verdict')" = "unresolved" ]
+  [ "$(tjq '.disambiguation.keys_found."v1.1" | join(",")')" \
+    = "verifier_rigor" ]
+  [ "$(tjq '.disambiguation.keys_found."v1.2" | length')" -eq 0 ]
+  trend
+  printf '%s' "$output" | grep -qF "falta em v1.2, v1.3"
+}
+
+@test "REMOVING the key from one cycle reverts the verdict to unresolved" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed "verifier_rigor: 1"
+  add_verified v1.2 07 passed "verifier_rigor: 2"
+  add_verified v1.3 10 gaps_found "verifier_rigor: 3"
+  trend --json
+  [ "$(tjq '.disambiguation.verdict')" = "resolvable" ]
+
+  add_verified v1.3 10 gaps_found
+
+  trend --json
+  [ "$(tjq '.disambiguation.verdict')" = "unresolved" ]
+}
+
+@test "a flat first-pass line carries no ambiguity declaration" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed
+  add_verified v1.2 07 passed
+  add_verified v1.3 10 passed
+
+  trend --json
+  [ "$(tjq '.series.axes[] | select(.axis == "first_pass") | .direction')" \
+    = "flat" ]
+  [ "$(tjq '.disambiguation.verdict')" = "unresolved" ]
+  # Unresolved, yes — but there is no moving line to call ambiguous, and a
+  # caveat printed unconditionally is decoration.
+  [ "$(tjq '.disambiguation.declaration')" = "null" ]
+
+  trend
+  if printf '%s' "$output" | grep -qF "ambígua na raiz"; then
+    echo "the caveat printed with a flat line" >&2
+    return 1
+  fi
+}
+
+@test "a verifier_* key in a not-applicable cycle counts for nothing" {
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3 v1.4; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed "verifier_rigor: 1"
+  add_verified v1.2 07 passed "verifier_rigor: 2"
+  add_verified v1.3 10 gaps_found
+  # A cycle that never enters the series cannot settle it. Its file carries
+  # frontmatter but no status, so the cycle is not-applicable.
+  local dir
+  dir="$(cycle_phases_dir v1.4)/13-phase"
+  mkdir -p "$dir"
+  printf -- '---\nphase: 13\nverifier_rigor: 9\n---\n' \
+    > "$dir/13-VERIFICATION.md"
+
+  trend --json
+  [ "$(tjq '.cycles[3].state')" = "not-applicable" ]
+  [ "$(tjq '.disambiguation.verdict')" = "unresolved" ]
+  [ "$(tjq '.disambiguation.keys_found | has("v1.4")')" = "false" ]
+}
+
+# --- the guard against the fourth hand-typed count --------------------------
+
+# Numeric tokens present in HUMAN and absent from every scalar value of JSON.
+# Empty output means the human text is a view of the data.
+numbers_not_in_json() {
+  local human="$1" jsonout="$2" tok json_tokens missing=""
+  json_tokens="$(printf '%s' "$jsonout" | jq -r '[.. | scalars] | .[]' \
+    | grep -oE '[0-9]+' | sort -u)"
+  while IFS= read -r tok; do
+    [ -z "$tok" ] && continue
+    printf '%s\n' "$json_tokens" | grep -qx -- "$tok" || missing="$missing $tok"
+  done < <(printf '%s' "$human" | grep -oE '[0-9]+' | sort -u)
+  printf '%s' "$missing"
+}
+
+@test "GUARD: every number in the human output is a value in the JSON" {
+  # TREND-02 is the requirement this phase exists for, and this repository
+  # has three measured precedents of a hand-typed count going stale. Saying
+  # "no number is typed by hand" is worth nothing; this is the mechanical
+  # version, and it is only possible because the renderer computes nothing.
+  #
+  # Two targets, because one would not prove it: a command that derived on
+  # one and stamped on the other would pass a single-target check.
+  local planning="$CAIRN_REPO_ROOT/.planning"
+  local human json
+  human="$("$TREND" --planning-dir "$planning" || true)"
+  json="$("$TREND" --planning-dir "$planning" --json || true)"
+  local missing
+  missing="$(numbers_not_in_json "$human" "$json")"
+  if [ -n "$missing" ]; then
+    echo "numbers in the prose with no value behind them:$missing" >&2
+    return 1
+  fi
+
+  new_planning
+  local key
+  for key in v1.1 v1.2 v1.3 v1.4; do archive_cycle "$key"; done
+  add_verified v1.1 01 passed "gaps:" "  - truth: a"
+  add_verified v1.2 07 passed "gaps: []"
+  add_bare v1.3 10
+  add_verified v1.4 13 gaps_found "gaps:" "  - truth: b" "  - truth: c"
+  add_unverified v1.4 14
+  human="$("$TREND" --planning-dir "$TREND_PLANNING" || true)"
+  json="$("$TREND" --planning-dir "$TREND_PLANNING" --json || true)"
+  missing="$(numbers_not_in_json "$human" "$json")"
+  if [ -n "$missing" ]; then
+    echo "numbers in the prose with no value behind them:$missing" >&2
+    return 1
+  fi
+}
+
+@test "GUARD negative control: the check rejects a forged number" {
+  # A guard that only ever passes proves nothing — a broken token extraction
+  # would stay green forever. This is the liveness half.
+  local planning="$CAIRN_REPO_ROOT/.planning"
+  local json missing
+  json="$("$TREND" --planning-dir "$planning" --json || true)"
+  missing="$(numbers_not_in_json "a série tem 987654 pontos" "$json")"
+  [ -n "$missing" ]
+  printf '%s' "$missing" | grep -qF "987654"
+}
+
+@test "GUARD: no live count about the repository lives outside the dated block" {
+  # The house convention makes the docstring record MEASURED VERSUS ASSUMED,
+  # which means writing measured numbers into prose — and that is exactly how
+  # this repository's three stale counts were born. What saves a number is
+  # being DATED and labelled as a measurement of one instant. So: counts live
+  # inside that block, and nowhere else in either delivered file.
+  local py="$CAIRN_SCRIPTS_DIR/cairn-trend.py"
+  local sh="$CAIRN_SCRIPTS_DIR/cairn-trend.sh"
+  local nouns='ciclos?|cycles?|milestones?|verifica(ção|ções)|verifications?'
+  nouns="$nouns"'|fases?|phases?|arquivos?|files?|checks?'
+  # `one` and `um` are deliberately absent: in both languages they work as
+  # indefinite articles ("at least one verification file"), so including them
+  # flags definitions instead of counts. The three precedents this guard is
+  # named after were all counts of a SET — "fifteen", "17", "18", "nineteen".
+  # The digit 1 stays, because "1 ciclo" is a count and not an article.
+  local numerals='[0-9]+|two|three|four|five|six|seven|eight|nine|ten'
+  numerals="$numerals"'|eleven|twelve|dois|duas|três|quatro|cinco|seis|sete'
+  local pattern="(^|[^A-Za-z_])($numerals) ($nouns)([^A-Za-z]|$)"
+
+  # Everything in the .py BEFORE the dated measurement block.
+  local before
+  before="$(awk '/^MEASURED VERSUS ASSUMED$/{exit} {print}' "$py")"
+  local hit
+  hit="$(printf '%s' "$before" | grep -inE "$pattern" || true)"
+  if [ -n "$hit" ]; then
+    echo "a live count sits outside the dated block in cairn-trend.py:" >&2
+    echo "$hit" >&2
+    return 1
+  fi
+  # The .sh header restates the contract and is exactly the kind of place a
+  # number moves into and is forgotten.
+  hit="$(grep -inE "$pattern" "$sh" || true)"
+  if [ -n "$hit" ]; then
+    echo "a live count sits in cairn-trend.sh:" >&2
+    echo "$hit" >&2
+    return 1
+  fi
+  # Liveness: the pattern must actually match something, or it guards air.
+  printf 'this tree has 5 cycles\n' | grep -qiE "$pattern"
+  printf 'vanished for two cycles\n' | grep -qiE "$pattern"
+}
+
 @test "an unknown flag is a usage error, exit 2" {
   new_planning
   trend --nope

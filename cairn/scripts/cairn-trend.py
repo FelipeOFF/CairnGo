@@ -74,10 +74,11 @@ Each cycle gets exactly one state, in the vocabulary phase 23 established
 
 `no-frontmatter` is a scope of its own and not `no-input`, and the
 distinction is the whole point of it: `no-input` says there is nothing to
-read. There is. v1.2 and v1.3 have three verification files each, written,
-committed and readable — what is missing is the structured format, which was
-born in v1.1, vanished for two cycles and came back in v1.4. Calling that
-"no input" would erase the one fact the series most needs to show.
+read. There is. v1.2 and v1.3 carry verification files — written, committed
+and readable — and what is missing is the structured format, which was born
+in v1.1, vanished, and came back in v1.4. Calling that "no input" would erase
+the one fact the series most needs to show. (The counts are in the dated
+block below, where a count cannot go stale unnoticed.)
 
 MEASURED VERSUS ASSUMED
 -----------------------
