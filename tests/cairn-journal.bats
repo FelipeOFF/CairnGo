@@ -675,3 +675,196 @@ time.sleep(2)
   records_after="$(jq '.records | length' <<<"$output")"
   [ "$records_after" -lt "$records_before" ]
 }
+
+#-----------------------------------------------------------------------------
+# Phase 28, plan 28-01 (DJOUR-04): provenance -- machine, checkout, actor.
+#
+# Why these exist: `actor` alone cannot separate two checkouts. Measured on
+# 2026-08-06 in this repository, four simultaneous checkouts held 176/64/1/1
+# records under ONE identical actor. The partition the phase's design needs
+# cannot be built from the data that exists, so the field that separates has
+# to exist first.
+#
+# The rule these tests defend hardest: a record written before phase 28 reads
+# as UNKNOWN (machine: null, checkout: null), never stamped with the current
+# host. Stamping looks like a migration and is fabrication.
+#-----------------------------------------------------------------------------
+
+# Writes a journal in the PRE-phase-28 schema -- the exact eight fields
+# measured on the real file (actor, event, from, nonce, phase, source, to,
+# ts), with no machine and no checkout. Never produced by the current writer,
+# which is the point: this is the inherited file, as it is on disk today.
+write_legacy_journal() {
+  local phase="$1" source="$2" to="$3" actor="$4" ts="$5"
+  mkdir -p .cairn
+  printf '%s\n' "$(jq -cn \
+    --arg ts "$ts" --arg actor "$actor" --arg source "$source" \
+    --arg to "$to" --argjson phase "$phase" \
+    '{actor: $actor, event: "state_changed", from: null,
+      nonce: "0123456789abcdef0123456789abcdef", phase: $phase,
+      source: $source, to: $to, ts: $ts}')" >> .cairn/journal.jsonl
+}
+
+@test "provenance: prints machine, checkout and actor, none of them empty" {
+  make_tmp_repo
+
+  run bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.machine == null or .machine == ""' 'false'
+  assert_json_eq "$output" '.checkout == null or .checkout == ""' 'false'
+  assert_json_eq "$output" '.actor == null or .actor == ""' 'false'
+
+  # Human mode names all three, so a person can read the identity too.
+  run bash "$JOURNAL" provenance --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF 'machine:' <<<"$output"
+  grep -qF 'checkout:' <<<"$output"
+  grep -qF 'actor:' <<<"$output"
+}
+
+@test "provenance: the checkout id is stable across runs in the same checkout" {
+  make_tmp_repo
+
+  run bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local first
+  first="$(jq -r '.checkout' <<<"$output")"
+
+  run bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local second
+  second="$(jq -r '.checkout' <<<"$output")"
+
+  # Compared against the other RUN, never against a literal: the id is
+  # derived, and a test that pinned its value would just be a second
+  # implementation of the hash.
+  [ "$first" = "$second" ]
+}
+
+@test "provenance: two checkouts of one repo on one machine get different ids" {
+  make_tmp_repo
+  # The case the phase context names: `git worktree list` returns four
+  # checkouts on this machine right now, carrying four histories that never
+  # reach each other under one identical actor. Built here, not supposed.
+  git commit -q --allow-empty -m "base"
+  git worktree add -q -b second ../second-checkout
+  local other
+  other="$(cd ../second-checkout && pwd -P)"
+
+  run bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local here_checkout here_machine
+  here_checkout="$(jq -r '.checkout' <<<"$output")"
+  here_machine="$(jq -r '.machine' <<<"$output")"
+
+  run bash "$JOURNAL" provenance --project-dir "$other" --json
+  [ "$status" -eq 0 ]
+  local there_checkout there_machine
+  there_checkout="$(jq -r '.checkout' <<<"$output")"
+  there_machine="$(jq -r '.machine' <<<"$output")"
+
+  # Distinct checkout, same machine -- both halves matter. Equal machine
+  # proves the id is not just a random per-run value; distinct checkout is
+  # what makes one partition per checkout possible at all.
+  [ "$here_checkout" != "$there_checkout" ]
+  [ "$here_machine" = "$there_machine" ]
+}
+
+@test "provenance: a record written now carries machine and checkout, equal to provenance's" {
+  make_tmp_repo
+
+  run bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local machine checkout
+  machine="$(jq -r '.machine' <<<"$output")"
+  checkout="$(jq -r '.checkout' <<<"$output")"
+
+  run bash -c "echo '[{\"phase\": 7, \"evidence\": {\"disk\": \"planned\"}, \"verdict\": \"ok\"}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" ".written | map(select(.machine == \"$machine\")) | length" '2'
+  assert_json_eq "$output" ".written | map(select(.checkout == \"$checkout\")) | length" '2'
+
+  # And on disk, not only in the reported payload.
+  run bash -c "jq -s '[.[] | select(.machine == \"$machine\" and .checkout == \"$checkout\")] | length' < .cairn/journal.jsonl"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2" ]
+}
+
+@test "provenance: a pre-phase-28 record reads machine null and checkout null, never the current host" {
+  make_tmp_repo
+  write_legacy_journal 9 disk complete "SomeoneElse" "2026-01-01T00:00:00.000001+00:00"
+
+  run bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local current_machine
+  current_machine="$(jq -r '.machine' <<<"$output")"
+
+  run bash "$JOURNAL" last-moved --phase 9 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  # Exact value assertions: null, not "different from the current host".
+  assert_json_eq "$output" '.disk.machine' 'null'
+  assert_json_eq "$output" '.disk.checkout' 'null'
+  # The actor the record DOES carry is reported as it is -- unknown means
+  # unknown per field, not a blanket erasure of the record.
+  assert_json_eq "$output" '.disk.actor' 'SomeoneElse'
+  # value/ts keep their exact prior meaning and position: cairn-doctor.py's
+  # _last_moved_clause() reads entry["ts"] and must not see a difference.
+  assert_json_eq "$output" '.disk.value' 'complete'
+  assert_json_eq "$output" '.disk.ts' '2026-01-01T00:00:00.000001+00:00'
+
+  # THE FABRICATION GUARD. This is the assertion that goes red the day
+  # someone "fixes" the read by filling in the running process's host.
+  assert_json_eq "$output" ".disk.machine == \"$current_machine\"" 'false'
+}
+
+@test "provenance: compaction folds a legacy record without stamping it" {
+  make_tmp_repo
+  write_legacy_journal 11 disk complete "SomeoneElse" "2026-01-01T00:00:00.000001+00:00"
+  # A real record for a DIFFERENT axis of the same phase, so one snapshot
+  # carries both a known and an unknown provenance at once.
+  run bash -c "echo '[{\"phase\": 11, \"evidence\": {\"bd\": \"closed\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local current_machine
+  current_machine="$(jq -r '.machine' <<<"$output")"
+
+  run bash "$JOURNAL" compact --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.compacted' 'true'
+
+  run bash "$JOURNAL" last-moved --phase 11 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  # The snapshot fold carries the ORIGINAL observer through, and the
+  # compacting checkout's own identity never leaks onto the folded axis.
+  assert_json_eq "$output" '.disk.machine' 'null'
+  assert_json_eq "$output" '.disk.checkout' 'null'
+  assert_json_eq "$output" ".bd.machine" "$current_machine"
+}
+
+@test "provenance: CAIRN_JOURNAL_MACHINE and CAIRN_JOURNAL_CHECKOUT drive the identity" {
+  make_tmp_repo
+
+  run env CAIRN_JOURNAL_MACHINE=hostA CAIRN_JOURNAL_CHECKOUT=ckA \
+      bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.machine' 'hostA'
+  assert_json_eq "$output" '.checkout' 'ckA'
+
+  run bash -c "echo '[{\"phase\": 3, \"evidence\": {\"disk\": \"planned\"}}]' | CAIRN_JOURNAL_MACHINE=hostB CAIRN_JOURNAL_CHECKOUT=ckB bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.written[0].machine' 'hostB'
+  assert_json_eq "$output" '.written[0].checkout' 'ckB'
+
+  # The seam only overrides the two fields it names -- machine alone still
+  # derives a checkout, and that checkout differs from the one the real
+  # hostname derives, which is what lets one directory play two machines.
+  run env CAIRN_JOURNAL_MACHINE=hostA bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local as_host_a
+  as_host_a="$(jq -r '.checkout' <<<"$output")"
+  run env CAIRN_JOURNAL_MACHINE=hostB bash "$JOURNAL" provenance --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  [ "$as_host_a" != "$(jq -r '.checkout' <<<"$output")" ]
+}

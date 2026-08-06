@@ -32,8 +32,27 @@ exactly one physical line, carrying a common envelope:
             $USER chain (reimplemented here verbatim per house convention
             — no shared lib, die()-style helpers are duplicated per
             script; see cairn-lease.py's own resolve_actor()).
+    machine str or null (phase 28, DJOUR-04) — resolve_machine()'s
+            CAIRN_JOURNAL_MACHINE / socket.gethostname() chain.
+    checkout str or null (phase 28, DJOUR-04) — resolve_checkout()'s
+            CAIRN_JOURNAL_CHECKOUT / sha256(machine + NUL + root)[:12]
+            chain. See those two functions for why identity is DERIVED,
+            never stored, and why `machine` is folded into the checkout
+            hash.
     phase   int
     event   str — "state_changed", "verdict_changed", or "lease_changed"
+
+Provenance and the records written before it existed (phase 28, DJOUR-04)
+— `actor` alone cannot tell two checkouts apart: it is the git user, and
+it was measured IDENTICAL across all four simultaneous checkouts of this
+repository (176/64/1/1 records, one actor). `machine`/`checkout` are the
+fields that separate them, and they only exist from phase 28 onward. A
+record written before that carries neither and NEVER will: it is read as
+UNKNOWN — `machine: null`, `checkout: null` — and never stamped with the
+current host and checkout. Stamping would look like a migration and would
+be fabrication: nobody knows where an inherited journal came from, and the
+file may have been copied. record_provenance() is the single read point
+for this, and it deliberately never calls resolve_machine().
 
 Event-specific fields:
     state_changed   source ("disk"|"bd"|"roadmap"|"state_md" — the exact
@@ -196,6 +215,7 @@ Usage:
                                  [--project-dir DIR]
     cairn-journal.py last-moved --phase N [--json] [--project-dir DIR]
     cairn-journal.py compact    [--project-dir DIR] [--json]
+    cairn-journal.py provenance [--project-dir DIR] [--json]
 
     --project-dir DIR   project root (default: $CLAUDE_PROJECT_DIR or cwd)
     --json              machine-readable output instead of human lines
@@ -232,11 +252,22 @@ Behavior:
                   warning (a quarantined torn/malformed line) printed to
                   stderr as "[cairn-journal] warning: ...". A warning
                   never aborts the read.
-    last-moved    Prints _last_known()'s per-axis {value, ts} dict
-                  (disk/bd/roadmap/state_md/verdict/lease) for one phase,
-                  each key null when that axis has never been observed —
-                  including for a phase with NO records at all, or no
-                  journal file at all. Never an error.
+    last-moved    Prints _last_known()'s per-axis {value, ts, machine,
+                  checkout, actor} dict (disk/bd/roadmap/state_md/verdict/
+                  lease) for one phase, each key null when that axis has
+                  never been observed — including for a phase with NO
+                  records at all, or no journal file at all. Never an
+                  error. `value` and `ts` keep their exact prior meaning
+                  and position: cairn-doctor.py's _last_moved_clause()
+                  reads entry["ts"] and must not be able to tell the
+                  difference. machine/checkout are null for an axis whose
+                  last record predates phase 28 — unknown, never the
+                  current host.
+    provenance    Prints THIS checkout's {machine, checkout, actor}
+                  without writing anything. Exists so the identity that
+                  partitions the journal is verifiable from outside, and
+                  so a test can prove it is stable across runs and
+                  distinct across checkouts on one machine.
     compact       Folds each phase's full history into exactly one
                   `snapshot` record, written to a brand-new sibling file
                   and swapped into place via os.rename (D-03) — never a
@@ -269,8 +300,10 @@ Exit codes:
 """
 import argparse
 import fcntl
+import hashlib
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -284,7 +317,8 @@ EXIT_USAGE = 2
 EXIT_WRITE_FAILED = 4
 
 USAGE = ("usage: cairn-journal.py {observe|lease N {acquired|released}|"
-         "history|last-moved|compact} [--project-dir DIR] [--json]")
+         "history|last-moved|compact|provenance} [--project-dir DIR] "
+         "[--json]")
 
 EVIDENCE_AXES = ("disk", "bd", "roadmap", "state_md")
 
@@ -327,6 +361,85 @@ def resolve_actor(root):
     except FileNotFoundError:
         pass
     return os.environ.get("USER")
+
+
+def resolve_machine():
+    """This machine's provenance label (phase 28, DJOUR-04), or None when
+    it cannot be measured. Order: $CAIRN_JOURNAL_MACHINE (the house
+    CAIRN_* env-seam convention this codebase already uses for
+    CAIRN_JOURNAL/CAIRN_GBSYNC/CAIRN_MAP — it is what lets a test drive
+    two simulated machines out of one directory), else
+    socket.gethostname().
+
+    An empty hostname returns None, never an invented string: a
+    provenance field that could not be measured is UNKNOWN, and unknown
+    has its own representation (JSON null). This is the same rule that
+    governs a pre-phase-28 record — see record_provenance()."""
+    env_machine = os.environ.get("CAIRN_JOURNAL_MACHINE")
+    if env_machine:
+        return env_machine
+    try:
+        name = socket.gethostname()
+    except OSError:
+        return None
+    return name or None
+
+
+def resolve_checkout(root, machine):
+    """This checkout's stable id (phase 28, DJOUR-04). Order:
+    $CAIRN_JOURNAL_CHECKOUT, else the first 12 hex of
+    sha256(machine + NUL + resolved-root-path).
+
+    Three properties, and the phase's whole partitioning depends on all
+    three:
+      1. STABLE across runs in the same checkout — the only inputs are the
+         resolved path and the host. No clock, no pid, no random, and
+         nothing read from or written to disk.
+      2. DISTINCT between checkouts on the same machine — measured, not
+         assumed: this repository has four simultaneous checkouts (one
+         worktree per in-flight phase) at four distinct paths, carrying
+         four histories that never reach each other under one identical
+         `actor`.
+      3. COLLISION-FREE between machines that happen to share a path —
+         /Users/x/Projects/CairnGo is the same string on a laptop and a
+         desktop, so `machine` is folded INTO the hash rather than only
+         sitting beside it. Consequence, and it belongs in every reader:
+         the checkout id is already machine-scoped, so the partition key
+         is the PAIR (machine, checkout), never `checkout` alone.
+
+    Nothing is written to disk to remember this. A stored id file would be
+    one more piece of per-machine state under .cairn/, needing its own
+    ignore rule and its own recovery path. The cost accepted instead, with
+    eyes open: renaming the checkout directory (or the hostname changing)
+    yields a NEW partition. That is safe by construction — a new partition
+    file never conflicts with an old one — and it fragments history. A
+    fragmented history that always merges cleanly beats a stored id that
+    can go missing."""
+    env_checkout = os.environ.get("CAIRN_JOURNAL_CHECKOUT")
+    if env_checkout:
+        return env_checkout
+    digest = hashlib.sha256()
+    digest.update((machine or "").encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(str(root).encode("utf-8"))
+    return digest.hexdigest()[:12]
+
+
+def record_provenance(rec):
+    """{"machine","checkout","actor"} read OUT of a record, each key None
+    when the record does not carry it (phase 28, DJOUR-04).
+
+    This function deliberately never calls resolve_machine() or
+    resolve_checkout(). A record written before phase 28 has neither
+    field and never will; filling those in from the current process would
+    look like a migration and would be fabrication — the inherited
+    journal may have been copied from somewhere else, and nobody knows
+    where its records came from. Unknown reads as null."""
+    return {
+        "machine": rec.get("machine"),
+        "checkout": rec.get("checkout"),
+        "actor": rec.get("actor"),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -459,7 +572,16 @@ def _last_known(records, phase):
     would see a freshly-compacted journal as "nothing was ever observed"
     for every phase — silently wrong, and the reason this branch was
     added as part of Task 1 rather than left for a later plan to
-    discover."""
+    discover.
+
+    Every entry also carries the PROVENANCE of the record that set it
+    (phase 28, DJOUR-04): machine/checkout/actor, each null when that
+    record predates the fields. `value` and `ts` keep their exact prior
+    meaning and position — cairn-doctor.py's _last_moved_clause() reads
+    entry["ts"] and must not be able to tell that anything changed. The
+    snapshot branch copies state/verdict/lease entries through unchanged,
+    so a compacted history still reports the ORIGINAL observer, never the
+    checkout that ran the compaction."""
     known = {axis: None for axis in EVIDENCE_AXES}
     known["verdict"] = None
     known["lease"] = None
@@ -468,15 +590,22 @@ def _last_known(records, phase):
             continue
         event = rec.get("event")
         ts = rec.get("ts")
+        prov = record_provenance(rec)
         if event == "state_changed":
             source = rec.get("source")
             if source in known:
-                known[source] = {"value": rec.get("to"), "ts": ts}
+                entry = {"value": rec.get("to"), "ts": ts}
+                entry.update(prov)
+                known[source] = entry
         elif event == "verdict_changed":
-            known["verdict"] = {"value": rec.get("to"), "ts": ts}
+            entry = {"value": rec.get("to"), "ts": ts}
+            entry.update(prov)
+            known["verdict"] = entry
         elif event == "lease_changed":
-            known["lease"] = {"value": rec.get("action"),
-                               "holder": rec.get("holder"), "ts": ts}
+            entry = {"value": rec.get("action"),
+                     "holder": rec.get("holder"), "ts": ts}
+            entry.update(prov)
+            known["lease"] = entry
         elif event == "snapshot":
             state = rec.get("state") or {}
             for axis in EVIDENCE_AXES:
@@ -503,10 +632,17 @@ def _resolve_last_value(known_entry):
 # record builders
 # --------------------------------------------------------------------------- #
 def _envelope(root, phase, event, actor=None):
+    """The ONE place any record is born — which is why phase 28's
+    machine/checkout provenance is added here and nowhere else: it lands
+    on state_changed, verdict_changed, lease_changed and snapshot at
+    once, with no fourth builder able to forget it."""
+    machine = resolve_machine()
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
         "nonce": uuid.uuid4().hex,
         "actor": actor if actor is not None else resolve_actor(root),
+        "machine": machine,
+        "checkout": resolve_checkout(root, machine),
         "phase": phase,
         "event": event,
     }
@@ -781,7 +917,9 @@ def cmd_observe(args, root):
                 _append_record(journal_path, rec)
                 existing_records.append(rec)
                 written.append(rec)
-                known[axis] = {"value": to_value, "ts": rec["ts"]}
+                entry = {"value": to_value, "ts": rec["ts"]}
+                entry.update(record_provenance(rec))
+                known[axis] = entry
 
         if verdict is not None:
             from_value = _resolve_last_value(known["verdict"])
@@ -791,7 +929,9 @@ def cmd_observe(args, root):
                 _append_record(journal_path, rec)
                 existing_records.append(rec)
                 written.append(rec)
-                known["verdict"] = {"value": verdict, "ts": rec["ts"]}
+                entry = {"value": verdict, "ts": rec["ts"]}
+                entry.update(record_provenance(rec))
+                known["verdict"] = entry
 
     if args.json:
         print(json.dumps({"written": written}))
@@ -862,6 +1002,27 @@ def cmd_history(args, root):
     sys.exit(EXIT_OK)
 
 
+def cmd_provenance(args, root):
+    """This checkout's own {machine, checkout, actor} — resolved, never
+    read back from any record, and never written anywhere. The identity
+    that partitions the journal has to be inspectable from outside, or a
+    test cannot prove it is stable across runs and distinct across
+    checkouts on one machine (phase 28, DJOUR-04)."""
+    machine = resolve_machine()
+    out = {
+        "machine": machine,
+        "checkout": resolve_checkout(root, machine),
+        "actor": resolve_actor(root),
+    }
+    if args.json:
+        print(json.dumps(out, sort_keys=True))
+    else:
+        print(f"[cairn-journal] machine: {out['machine']}")
+        print(f"[cairn-journal] checkout: {out['checkout']}")
+        print(f"[cairn-journal] actor: {out['actor']}")
+    sys.exit(EXIT_OK)
+
+
 def cmd_compact(args, root):
     """Manual/on-demand compaction — also what this module's own bats
     tests use to trigger compaction deterministically, without growing a
@@ -927,7 +1088,12 @@ def build_parser():
                                   "guarded atomic rename swap (D-03)")
     compact_cmd.set_defaults(func=cmd_compact)
 
-    for p in (observe, lease, history, last_moved, compact_cmd):
+    provenance = sub.add_parser("provenance", help="print this checkout's "
+                                 "machine/checkout/actor identity without "
+                                 "writing anything")
+    provenance.set_defaults(func=cmd_provenance)
+
+    for p in (observe, lease, history, last_moved, compact_cmd, provenance):
         p.add_argument("--project-dir", metavar="DIR",
                         help="project root (default: $CLAUDE_PROJECT_DIR "
                              "or cwd)")
