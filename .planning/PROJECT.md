@@ -88,9 +88,32 @@ cujo escopo a própria pesquisa pode redefinir.
 
 Decidido pelo Felipe em 2026-08-06. Detalhamento e medições em `CairnGo-dhl`.
 
-**A divisão.** O GSD fica com o que ele faz bem, que é o workflow: discuss, plan,
-execute, verify, e os agentes deles. O bd fica com o estado: construção de tarefa,
-PRDs, `STATE`, `ROADMAP`, `REQUIREMENTS`.
+**A divisão.** O GSD fica com o que ele faz bem: a **execução**, e principalmente os
+**agentes**. O bd fica com o estado: construção de tarefa, PRDs, `STATE`, `ROADMAP`,
+`REQUIREMENTS`.
+
+O que fica com o GSD, explicitamente:
+
+| workflow | o que ele traz |
+|---|---|
+| `discuss` | levantamento de decisão antes de planejar |
+| `plan` | `gsd-planner` mais o laço de verificação do `gsd-plan-checker` |
+| `execute` | `gsd-executor`, com commit atômico, desvio e checkpoint |
+| `verify` | `gsd-verifier`, análise goal-backward |
+| `quick` | trabalho lateral rastreado, sem cerimônia de fase |
+| `fast` | tarefa trivial inline, sem subagente |
+| `autonomous` | o laço fase a fase, **dirigido pelo bd** e não pelo roadmap em markdown |
+| `debug` | `gsd-debugger` e o `gsd-debug-session-manager` |
+
+São **33 agentes** no plugin, e o argumento para mantê-los não é teórico. Tudo o que
+mais valeu no v1.5 saiu deles: o `gsd-planner` achou quatro premissas erradas no
+contexto da fase 23 antes de escrever um plano; o `gsd-phase-researcher` rodou 17
+experimentos no portão `DJOUR-01` e **derrubou o requisito que o encomendou**; e o
+`gsd-verifier` encontrou, em seis verificações, a fixture cega ao defeito por
+construção, o contador que passa do próprio total e o mapa do help derivado pela
+metade. Nenhum executor tinha visto nenhum dos três.
+
+O que sai são os workflows de **autoria de estado**, não os de execução.
 
 A divisão sai de medição, não de preferência. As duas corrupções que o v1.5
 encontrou vieram da **escrita** do gsd-tools, nenhuma do workflow:
