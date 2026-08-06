@@ -446,7 +446,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 
 `--apply-reconciliation N` is the human-invoked, separate command that
 applies a semantic-escalation reconciliation proposal `/cairn:reconcile N`
-wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 18 checks
+wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 19 checks
 above and does not run alongside them — it always exits on its own instead
 of falling through to the ordinary report.
 
