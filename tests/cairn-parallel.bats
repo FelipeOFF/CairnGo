@@ -343,6 +343,67 @@ PYEOF
   assert_json_eq "$output" '[.selected[] | select(.phase == 7) | .next_command][0]' '/cairn:plan 7'
   assert_json_eq "$output" '[.selected[] | select(.phase == 7) | .reason][0]' 'nothing blocks it'
   assert_json_eq "$output" '[.selected[] | select(.phase == 9) | .title][0]' 'Beta'
+  # A stub with nothing inconsistent yields an empty list, never a missing key:
+  # a consumer that filters on this field must not have to know two shapes.
+  assert_json_eq "$output" '.inconsistent | length' '0'
+}
+
+@test "batch passes parallelism.inconsistent through verbatim and prints the command that resolves it" {
+  # MEASURED 2026-08-05 (CairnGo-4oq). `.planning/phases/30-did-it-land/` held
+  # one 30-CONTEXT.md and nothing else:
+  #
+  #   $ grep -c 'Phase 30' .planning/ROADMAP.md
+  #   0
+  #   $ cairn-parallel.sh batch --json
+  #   runnable: [..., 30]
+  #   deferred: [{phase: 30, reason: 'above the --max 3 ceiling'}]
+  #
+  # The ONLY thing keeping the tool from recommending a phase with no goal, no
+  # requirement and no acceptance criterion was the concurrency ceiling. This
+  # asserts the two halves of the fix at the batch layer: the phase never
+  # reaches `runnable`, and it is named out loud rather than dropped.
+  require_bd
+  make_parallel_fixture
+  STATUS_STUB="$BATS_TEST_TMPDIR/status-stub-inconsistent.py"
+  cat > "$STATUS_STUB" <<'PYEOF'
+#!/usr/bin/env python3
+import json
+print(json.dumps({
+    "parallelism": {
+        "runnable": [7],
+        "blocked": [],
+        "inconsistent": [
+            {"phase": 30,
+             "reason": "phase 30 has a directory under .planning/phases/ but "
+                       "no entry in ROADMAP.md, so nothing says what it is "
+                       "for or when it is done",
+             "command": "/cairn:phase add 30"},
+        ],
+        "declared": True,
+        "note": "One phase can move: /cairn:plan 7.",
+    },
+    "next_commands": [
+        {"command": "/cairn:plan 7", "phase": 7, "title": "Alpha",
+         "reason": "nothing blocks it", "blocked": False},
+    ],
+    "phases": [],
+}))
+PYEOF
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.runnable | join(",")' '7'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7'
+  assert_json_eq "$output" '.inconsistent | length' '1'
+  assert_json_eq "$output" '.inconsistent[0].phase' '30'
+  assert_json_eq "$output" '.inconsistent[0].command' '/cairn:phase add 30'
+  # Phase 30 is neither selected nor deferred: `deferred` means "runnable, not
+  # this round", and this phase is not runnable at all.
+  assert_json_eq "$output" '[.deferred[].phase] | length' '0'
+  # The announcement an operator actually reads carries it too.
+  printf '%s' "$output" | jq -r '.announcement' | grep -qF 'phase 30 is not schedulable'
+  printf '%s' "$output" | jq -r '.announcement' | grep -qF '/cairn:phase add 30'
 }
 
 @test "batch drops a runnable phase whose lease is held by a live holder, names the holder, and keeps the other one" {

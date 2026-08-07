@@ -328,16 +328,16 @@ $ bash cairn/scripts/cairn-status.sh --json | jq -r .parallelism.note
 | Key | Shape |
 |---|---|
 | `ready[] / doing[] / blocked[]` | `{id, title, priority, assignee, external_ref, labels[], blocked_by[]}` — `external_ref` is bd's own field, carried **raw** (backend prefix included); the board strips the prefix for display only |
-| `phases[]` | `{number, title, milestone, complete, completed_on, plans_done, plans_total, requirements[], purpose, tracker, dir, disk_state, depends_on[], blocked_by[], next_command}` — `tracker` is the `**Tracker:**` line, also raw |
+| `phases[]` | `{number, title, milestone, complete, completed_on, plans_done, plans_total, requirements[], purpose, tracker, dir, disk_state, depends_on[], blocked_by[], next_command, in_roadmap}` — `tracker` is the `**Tracker:**` line, also raw; `in_roadmap` is false for a phase that has a directory and no entry in `ROADMAP.md` |
 | `next_commands[]` | `{command, phase, title, reason, blocked}`, ordered — unblocked first |
-| `parallelism` | `{runnable[], blocked[], declared, note}`; `declared` is false when no dependency is recorded anywhere, and the note says so |
+| `parallelism` | `{runnable[], blocked[], inconsistent[], declared, note}`; `declared` is false when no dependency is recorded anywhere, and the note says so. `inconsistent[]` carries `{phase, reason, command}` for every phase that exists on disk and **not** in `ROADMAP.md` — those are left out of `runnable` entirely, because the roadmap is the authority on which phases exist |
 
 `/cairn:autonomous` reads exactly these keys to resolve and **announce** the
 order it runs phases in, instead of deciding silently.
 
 ## What the board reads from ROADMAP.md
 
-Inside a phase block (`### Phase N: <title>`), three bold labels are read, all
+Inside a phase block (`### Phase N: <title>`), four bold labels are read, all
 in the same single pass over the file:
 
 | Label | Meaning | Where it shows |
@@ -345,6 +345,25 @@ in the same single pass over the file:
 | `**Card:**` | The phase purpose, one sentence, verbatim | The PURPOSE list |
 | `**Goal:**` | Fallback purpose when there is no `Card` — first sentence only | The PURPOSE list |
 | `**Tracker:**` | The external tracker key of the whole phase (`DTP-142`, `jira-DTP-142`) | Beside the phase title in PENDING PHASES, as `⧉ <key>` |
+| `**Depends on:**` / `**Depende de:**` | The phases this one waits on, declared in prose | `depends_on[]`, and therefore `blocked_by[]` and the parallelism answer |
+
+`**Depends on:**` is the **third** dependency source, alongside `PLAN.md`'s
+`depends_on:` frontmatter and bd's own edges. It matters because it is the only
+one that exists before the phase is planned: frontmatter appears at planning
+time and a bd edge appears when somebody runs `bd dep add`, so a dependency
+written only in the roadmap was invisible to both.
+
+Only the **declaration** is read, never the justification after it. The cut is
+the first em dash or the end of the first sentence:
+
+```markdown
+**Depende de:** Phase 21 — é o render agrupado que o caminho não-TTY emite.
+**Depende de:** nada. Independente do board; pode correr em paralelo com 20-22.
+```
+
+The first line declares phase 21. The second declares nothing: without the cut,
+a sentence saying three phases are independent would register three
+dependencies. `Phase 20, 21 and 22` in one declaration is read as three.
 
 ```markdown
 ### Phase 7: Billing
