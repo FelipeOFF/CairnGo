@@ -1643,6 +1643,21 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
   assert_json_eq "$output" '.stale' 'true'
 
+  # Phase 28: `prepare` journals, and the journal is now a VERSIONED
+  # partition under .cairn/journal/ rather than a gitignored file. So the
+  # worktree really does carry uncommitted work until that partition is
+  # committed, and cleanup really should say so. Committing it here restores
+  # the premise this test states two assertions below ("the tree is clean")
+  # instead of weakening the assertion to accept a second reason -- the
+  # second reason is TRUE, and hiding it would be the test lying.
+  git -C "$wt" add .cairn/journal
+  git -C "$wt" commit -q -m "journal partition"
+  # And merged back, because a committed-but-unmerged partition is the OTHER
+  # retain reason. Both halves are what a real end-of-phase does with a
+  # versioned journal, and doing them here is what keeps the assertion below
+  # about the lease and only the lease.
+  git -C "$MAIN_ROOT" merge --no-edit -q "$(git -C "$wt" rev-parse --abbrev-ref HEAD)"
+
   run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.stale_but_live | length' '1'
