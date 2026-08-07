@@ -379,16 +379,29 @@ DOC
   bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
     --doc-pages-dir "$WRAP_DOC_PAGES" >/dev/null
 
-  local sha1 mtime1 sha2 mtime2
+  local sha1 mtime1 sha2 mtime2 changed
   sha1="$(shasum -a 256 "$WRAP_DOC" | cut -d' ' -f1)"
-  mtime1="$(stat -f %m "$WRAP_DOC" 2>/dev/null || stat -c %Y "$WRAP_DOC")"
+  mtime1="$(file_mtime_ns "$WRAP_DOC")"
   sleep 1
-  bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
-    --doc-pages-dir "$WRAP_DOC_PAGES" >/dev/null
+  run bash "$WRAP" docs --commands-dir "$WRAP_COMMANDS" --doc "$WRAP_DOC" \
+    --doc-pages-dir "$WRAP_DOC_PAGES" --json
+  [ "$status" -eq 0 ]
   sha2="$(shasum -a 256 "$WRAP_DOC" | cut -d' ' -f1)"
-  mtime2="$(stat -f %m "$WRAP_DOC" 2>/dev/null || stat -c %Y "$WRAP_DOC")"
+  mtime2="$(file_mtime_ns "$WRAP_DOC")"
 
+  # Three assertions, and they fail in different ways on purpose.
+  #
+  # `changed` is the decision the generator made, read from its own output
+  # rather than inferred: it is the only one of the three that says WHY, and a
+  # generator that starts rewriting identical bytes trips it first.
+  changed="$(jq -r '.changed' <<<"$output")"
+  [ "$changed" = "false" ]
+  # sha catches a rewrite that changed the bytes.
   [ "$sha1" = "$sha2" ]
+  # mtime catches the byte-identical rewrite, which the sha cannot see. Read
+  # through file_mtime_ns, not `stat`: the platform-shim spelling this line
+  # used to carry passed on macOS and failed on the CI runner on 2026-08-07,
+  # and a portability shim must never be what decides a verdict.
   [ "$mtime1" = "$mtime2" ]
 }
 

@@ -55,11 +55,13 @@ file_sha256() {
     "$1"
 }
 
-# Nanosecond mtime of FILE, through python3 for the same portability reason
-# as file_sha256 (`stat -f %m` on macOS vs `stat -c %Y` on Linux).
+# Nanosecond mtime of FILE. The implementation moved to helpers.bash on
+# 2026-08-07, when tests/cairn-wrap.bats needed the same thing and had been
+# carrying the `stat -f %m || stat -c %Y` shim this comment warned about —
+# it passed on macOS and failed on the CI runner. One owner now; this name
+# stays because the assertions below read well with it.
 file_mtime() {
-  python3 -c \
-    "import os,sys;print(os.stat(sys.argv[1]).st_mtime_ns)" "$1"
+  file_mtime_ns "$1"
 }
 
 # A minimal ROADMAP carrying two phase checkbox lines, one already complete.

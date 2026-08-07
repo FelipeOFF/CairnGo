@@ -586,6 +586,24 @@ assert_frontmatter_key() {
   }
 }
 
+# Nanosecond mtime of FILE, through python3.
+#
+# `stat` is the trap here and it has bitten this suite twice. The flag differs
+# by platform (`stat -f %m` on macOS, `stat -c %Y` on GNU), so the portable
+# spelling people reach for is `stat -f %m f 2>/dev/null || stat -c %Y f` —
+# which is what tests/cairn-wrap.bats carried until 2026-08-07, when the full
+# suite passed on macOS and the same test failed on the CI runner. Nobody wants
+# a portability shim deciding a verdict, so this reads the number from the same
+# stdlib call on every platform.
+#
+# Nanoseconds, not seconds, and that is the other half: a rewrite inside the
+# same second is invisible to a seconds-resolution comparison, so a test that
+# exists to prove "no write happened" would pass over the write it was written
+# to catch.
+file_mtime_ns() {
+  python3 -c "import os,sys;print(os.stat(sys.argv[1]).st_mtime_ns)" "$1"
+}
+
 # Create DIR and print it, as a HOME to pin with `env HOME=...`.
 #
 # Why this exists, measured 2026-08-06. Tests pin HOME so that a contributor's
