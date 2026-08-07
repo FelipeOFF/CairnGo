@@ -7,7 +7,88 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-07
+
+A surface that answers without knowing what it is answering about does not count
+as done. This cycle takes the success mark off what was never compared, the
+truncation off what did not fit the screen, and the hand-editing off what was
+already mechanical.
+
 ### Added
+
+- **Closing a phase is one invocation, and running it twice writes nothing.**
+  `cairn-bookkeep.sh close <N> --apply` ticks the phase and its requirements in
+  the roadmap, updates the coverage table and the footer, ticks the plan
+  checkboxes, moves the STATE counters, regenerates the beads map, releases the
+  lease and removes the phase worktree. Every one of those was a hand edit made
+  in the right order, and the wrong order did not warn.
+
+  The difference shows in the diff. The equivalent close through the previous
+  tooling moved +43/-7 in `ROADMAP.md`, 29 of those lines blank ones injected by
+  normalisation; the close through `cairn-bookkeep` moved +30/-16, adding 2 blank
+  lines and removing 1. `cairn-bookkeep.sh plan <NN-MM>` is the same surgical
+  door for a single plan, measured at a 1-line diff.
+
+  `cairn-bookkeep.sh reconcile` lists, writing nothing, every way ROADMAP,
+  REQUIREMENTS and STATE contradict each other, and it resolves that
+  disagreement without marking any phase complete, because marking a phase is a
+  different decision. Without bd installed the report names which half did not
+  run instead of skipping in silence.
+
+- **The board says whether a phase's work reached the control branch, and which
+  PR carried it there.** `cairn-land.sh report` reads the git already on disk,
+  with no network: in this repository, 530 commits reachable from HEAD, 385 from
+  `origin/main`, and 145 in the set that has not landed. The board gains a `⤒`
+  suffix next to the phase, and `--json` carries `landed` on every phase and
+  every task with a stable shape: status, branches, commits, reason and pr. In a
+  gitflow repository a phase that reached develop but not main reads `partial`,
+  with both branches named.
+
+  When local git does not name the PR the answer is `unknown` with the reason
+  written, and no surface claims there is no PR. Measured here: 0 PRs are
+  discoverable offline, so all 24 locatable phases answer
+  `pr unknown :: no-reference`. PR #21, which carried the whole 1.5 milestone,
+  became a squash commit that left no reference at all, and it is the test case.
+
+  The doctor stopped being silent about a complete phase that never reached the
+  control branch and names each one with its commit count. A phase of an
+  **archived** milestone that never landed exits 7; an open cycle only warns.
+  Review state is optional and off by default: `git.review_state` takes `off`,
+  `gh` or `glab`, and the board says the datum is cached and when.
+
+- **The journal crosses machines and checkouts without anything needing to be
+  merged.** Each checkout writes its own partition under `.cairn/journal/`, and
+  the reader unions the partitions without depending on clock agreement. Records
+  now carry where they came from, machine and checkout, derived from a hash of
+  host and path; an older record without those fields reads as unknown and is
+  never given an invented value.
+
+  Compaction now seals a segment and opens the next one instead of rewriting in
+  place. The defect that forces this was measured, not assumed: with a shared
+  file, two machines compacting concurrently leave a valid JSONL with one
+  machine's entire history missing, no conflict and no error. Partition per
+  checkout makes it impossible by construction.
+
+  The research behind the decision is in the repository. A hash chain was
+  measured and rejected twice over: it does not survive a merge, producing two
+  heads rather than a broken chain, and a hash chain is the data structure of
+  authority, which this artifact is explicitly not. Deleting the journal still
+  changes no verdict anywhere.
+
+- **A read-only command shows how disagreement between sources moved across
+  cycles.** `cairn-trend.sh` derives the series from archived verification
+  artifacts and never from a typed number. It reports 3 comparable points across
+  5 cycles with 2 gaps, and it says the series is not contiguous rather than
+  drawing through the holes: v1.2 and v1.3 have verification files with no
+  frontmatter, so the input exists and the format does not.
+
+  It also refuses to explain the line it draws. First-pass approval reads
+  67% → 50% → 43%, and that descent is ambiguous at the root: it moves for
+  quality falling and for scrutiny rising, and the number cannot tell them
+  apart. The declaration of that ambiguity is not printed prose. The command
+  looks on disk for a key shared by every comparable cycle, finds none, and the
+  sentence is born of that absence, so adding the key to every cycle turns the
+  verdict to `resolvable` and the sentence disappears.
 
 - **The response language is chosen at installation, and it reaches the
   subagents mechanically.** `/cairn:init` now asks once, before it hands off to
@@ -44,6 +125,154 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   builds. The tests read the value out of `prepare`'s own output and assert that
   the delimited prompt block instructs copying it from there; no test in this
   project can spawn a live subagent, and none of them claims to.
+
+- **cairn has its own config, with two doors onto the same bytes.**
+  `/cairn:config` asks a batch in three sections with the current value
+  preselected, and `.cairn/config.json` takes the same edit by hand. Seven keys,
+  each with a named reader: `agents.response_language`, `autonomous.max_cycles`,
+  `autonomous.max_parallel`, `bookkeep.auto_commit`, `jira.link`,
+  `ship.pr_scope` and `test.jobs`. `cairn-config.sh list --json` shows value,
+  default, source, who reads it and what it changes, in one place.
+
+- **Linking a project to Jira stopped asking you to type a key, a project or a
+  credential.** `/cairn:sync-config` confirms what `cairn-jira.sh detect` found
+  in branches, commits and declared MCP servers. The weight of each signal was
+  measured before it became code: a key only in a commit message is 21/21 false
+  positives, and a key in a branch name is the signal that detects. On this
+  repository detection went from `detected true` with nine prefixes to
+  `detected false` with none, because not one of those prefixes was Jira. A
+  project with no signal is never asked, and a recorded "no" is as durable as a
+  "yes".
+
+- **The board shows the external card's key without a single network call.** A
+  `⧉` suffix appears beside the issue and beside the phase title, sourced from
+  bd's `external_ref` and the roadmap's `**Tracker:**` line, and `--json`
+  publishes the raw `external_ref` with its backend prefix, `null` when there is
+  no card. A card with no key renders exactly the bytes it did before. The
+  absence of network is not a promise: three independent tripwire layers, each
+  with its own negative control, plus an AST inventory of every `subprocess.run`
+  site in the renderer.
+
+- **The suite runs in parallel through one door, and cairn says so before
+  calling bats when it cannot.** `cairn-test.sh [--jobs N] [--check-env]
+  [--print-command]`. bats 1.14.0 without GNU parallel does not fall back to
+  serial in silence: it answers "Executed 0 instead of expected 2 tests" and
+  exits 1, which is zero tests run wearing the appearance of a suite that ran.
+  The `-j` is now withdrawn before the call, with the cost measured beside it
+  (`tests/cairn-map.bats` takes 64s serial against 33s at `-j 6`) and the
+  install command written out.
+
+- **The thirteen `/cairn:*` wrappers exist**, each delegating to its `/gsd:*`
+  counterpart with this project's bd bookkeeping around it. A wrapper whose GSD
+  command is missing fails naming what is absent instead of exiting 0 in
+  silence, and the documentation lists them from what is installed rather than
+  from a hand-written list that ages. `/cairn:land` and `/cairn:review` joined
+  them, and a guard now holds the rule open: every `cairn-*.py` either has a
+  command or has its absence written down.
+
+### Changed
+
+- **The board groups by milestone, and stopped truncating.** The three
+  `READY`/`DOING`/`BLOCKED` lanes are gone. They spent the terminal width
+  divided by three and cut every title at about 28 characters, and with 40 tasks
+  one lane held all 40 while the other two sat empty. In their place is a list
+  grouped milestone → phase → task, with the stage carried in a single symbol.
+
+  The symbols were measured, not eyeballed: `○`, `◑` and `◆` are
+  `east_asian_width=A`, which is width 2 in a CJK locale, so they were
+  discarded. The set is `◌ ◔ ◕ ✓ ⧗`, all width 1, asserted through
+  `unicodedata` rather than by appearance, with an ASCII equivalent under
+  `--ascii`. A blocked line names its blocker in place.
+
+- **Running the status outside a terminal gives you the human board again.**
+  `--plain` was doing two incompatible jobs: the stable TSV that scripts parse,
+  and whatever a pipe happened to receive. It is now only the machine contract,
+  byte-for-byte compatible with what it was, and a non-TTY run renders the
+  grouped list in plain text with no box drawing and no ANSI. The test that
+  asserted the two were identical was not deleted; it was rewritten as two
+  separate assertions.
+
+- **The doctor stopped reporting green over what it never checked.** A check
+  with nothing to check now reports `not-applicable`, a fourth state distinct
+  from `ok`, and the summary counts the two separately. An empty roadmap no
+  longer produces a green board: `req-issue`, `maps-fresh` and `orphans` report
+  not-applicable instead of approving nothing. The verdict line reads
+  `INCOMPLETE` when checks could not run, and it still exits 0, because missing
+  input is not a failure.
+
+  `orphans` also stopped flagging closed issues of archived milestones, so the
+  count returns to zero at the end of a cycle instead of growing forever.
+
+  The doctor now carries 22 checks. Two assertions in the test file pin that
+  number, and they exist because phases 23 and 24 once ran in parallel, each
+  added a check without knowing about the other's, and git merged both files
+  with no conflict: each branch correct alone, the result wrong.
+
+- **`cairn-release --json` says what it measured.** The per-carrier `status`
+  field reported "agrees with the first readable carrier" while reading as "is
+  correct" — measured with the changelog already at 1.5.0 and the manifests at
+  1.4.2, the marketplace carried the stale version and got `ok` while the
+  changelog, the only correct one, got `mismatch`. `mismatch` leaves the
+  vocabulary; the comparison becomes `agrees_with_reference`, `null` when no
+  comparison happened, and the ruler is named in `reference`.
+
+- **`cairn.sync_push` is gone from the declaration.** It was declared in the
+  capability manifest, in three prompt fragments and in a test, and read by
+  nothing: the hook decides the push from the existence of `.cairn/sync.json`.
+  Implementing the read would have changed behaviour for anyone who already has
+  that file, and no default resolves it. Behaviour after this change is
+  byte-for-byte what it was, minus a switch that wrote a value the hook ignored.
+
+### Fixed
+
+- **The batch announced as concurrent two phases the roadmap declares
+  dependent.** Phase dependencies were read from plan frontmatter and from bd
+  edges, and never from the roadmap's own prose, so an unplanned phase came out
+  with `depends_on: []` and passed for independent. The roadmap is now the third
+  source. Measured on this repository: phase 22 went from
+  `depends_on [1, 2, 3, 4, 21]` to `[21]`, and phase 26 from `[9]` to `[]`.
+
+  Two defects were summing. A `discovered-from` edge, documented as provenance
+  that does not block, was counted as a blocker; and a dependency on a phase of
+  an archived milestone never entered the done set, so it blocked forever. On
+  top of those, plan frontmatter's `depends_on: ["01"]` — which GSD writes to
+  order the **waves** inside a phase — was being read as phase numbers.
+
+- **STATE.md claimed more completed plans than plans.** The counter globbed
+  `*-SUMMARY.md`, which matches both a plan's summary and a phase's, while its
+  pair `*-PLAN.md` matches only plans, because a phase has no `NN-PLAN.md`. The
+  two globs look symmetric and the naming is not. The fixture was blind to it by
+  construction: no fixture in the repository contained a phase-level summary, so
+  the defect never came near the test.
+
+  The doctor gained an independent `plan-counters` check that compares rather
+  than recomputing with the rule that wrote the number, and it failed this
+  repository the moment it existed, at 47 completed out of 39. And
+  `reconcile --apply` stopped answering "nothing to change" about a disagreement
+  it had just printed in the same JSON object.
+
+- **The cleanup kept forever the worktree it was meant to remove.** Versioning
+  the journal made every phase worktree that had journalled read as carrying
+  uncommitted work, and the trap closed on both sides: without committing the
+  partition, `uncommitted changes`; committing it, `carries commits HEAD lacks`.
+  The uncommitted-work check now ignores `.cairn/journal/`, and only it, on the
+  grounds that the journal is the one artifact whose loss changes no verdict.
+
+  Phase closing now retires the lease and removes the phase worktree. The lease
+  half turned out not to be a regression at all: there is not a single
+  `bd close` in the lease script, and the two leases that were closed had been
+  closed by hand. The capability never existed. Five worktrees were removed on
+  the first live run.
+
+- **Surfaces describing a program that does not exist.** The `/cairn:doctor`
+  prompt knew three states and not the fourth, and copied 9 of the check ids
+  beside the complete table instead of addressing it. The `/cairn:help` map
+  derived the wrappers and kept cairn's own commands by hand, and had already
+  drifted. `/cairn:milestone new` ordered a phase map generated before the phase
+  directory exists, which cannot succeed. A guard now fails any command prompt
+  that writes a check count by hand: this repository aged such a number six
+  separate times, including `"eighteen checks in total"` sitting in a docstring
+  with nineteen registered.
 
 ## [1.5.0] - 2026-08-01
 
