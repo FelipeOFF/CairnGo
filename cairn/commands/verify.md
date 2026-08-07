@@ -1,6 +1,7 @@
 ---
 description: Verify a phase's work — GSD verify-work cross-checked against beads
 argument-hint: "[phase-number]"
+group: loop
 ---
 
 Verify phase **$ARGUMENTS**:

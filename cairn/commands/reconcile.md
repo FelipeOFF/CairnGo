@@ -1,6 +1,7 @@
 ---
 description: Investigate a detected phase conflict and propose a cited reconciliation — proposes only, never applies
 argument-hint: "<phase-number>"
+group: health
 ---
 
 Investigate phase **$ARGUMENTS**'s conflict and produce a citation-checked

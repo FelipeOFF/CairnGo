@@ -1,5 +1,6 @@
 ---
 description: Configure cairn — auto-commit, PR scope, the ceilings on an autonomous run, and test jobs (writes .cairn/config.json, the file you can also edit by hand)
+group: config
 ---
 
 Set cairn's own knobs. There are **two doors into the same place**: this

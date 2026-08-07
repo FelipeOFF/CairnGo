@@ -1,6 +1,7 @@
 ---
 description: Milestone lifecycle — new (roadmap + stamped issues + maps) or complete (gate → reconcile → archive → compact)
 argument-hint: <new|complete>
+group: loop
 ---
 
 Run the milestone lifecycle under the `cairn` conventions. `$ARGUMENTS` picks
