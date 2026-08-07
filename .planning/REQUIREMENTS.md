@@ -75,10 +75,10 @@ o que está respondendo não conta como pronta.
 
 ### O que entrou na branch (PR)
 
-- [ ] **PR-01**: O board diz, por fase e por tarefa, se o trabalho já entrou na branch de controle — respondido do git local, sem rede, e a branch é detectada, confirmada uma vez e gravada, nunca digitada
-- [ ] **PR-02**: A PR associada aparece quando é descobrível; quando não é, o estado é `desconhecido` e diz o que faltou — nunca "sem PR", que é o verde falso na direção oposta
-- [ ] **PR-03**: O estado de revisão vem do `gh`/`glab` atrás de config, nunca no caminho padrão, e o board diz que o dado é de cache e de quando
-- [ ] **PR-04**: Uma fase marcada completa cujo trabalho não entrou na branch de controle vira achado nomeado do doctor
+- [x] **PR-01**: O board diz, por fase e por tarefa, se o trabalho já entrou na branch de controle — respondido do git local, sem rede, e a branch é detectada, confirmada uma vez e gravada, nunca digitada
+- [x] **PR-02**: A PR associada aparece quando é descobrível; quando não é, o estado é `desconhecido` e diz o que faltou — nunca "sem PR", que é o verde falso na direção oposta
+- [x] **PR-03**: O estado de revisão vem do `gh`/`glab` atrás de config, nunca no caminho padrão, e o board diz que o dado é de cache e de quando
+- [x] **PR-04**: Uma fase marcada completa cujo trabalho não entrou na branch de controle vira achado nomeado do doctor
 
 ## Deferred (v2)
 
