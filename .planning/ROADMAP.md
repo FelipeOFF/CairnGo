@@ -391,6 +391,18 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
    `m-<milestone>`/`phase-<N>` que o `cairn-gate` inspeciona. São ruído no `bd ready`
    e uma armadilha de leitura, não inconsistência de estado.
 
+   **Terceira metade, chegada da fase 28 (`CairnGo-rhq`):** versionar o journal fez
+   todo worktree que journaliza deixar de ser `removable` para o `cairn-parallel
+   cleanup`, e a armadilha fecha dos dois lados — sem commitar a partição,
+   `uncommitted changes`; commitando, `carries commits HEAD lacks`. Só fica removable
+   depois de commitada **e** mesclada, e nada no fluxo do cairn faz nenhuma das duas.
+   O teste da suíte foi ajustado para fazer as duas, porque as duas são verdadeiras e
+   escondê-las seria o teste mentir — o atrito real continua. Três saídas, nenhuma
+   decidida: excluir `.cairn/journal/` da checagem (defensável pelo `DJOUR-03`, o
+   único artefato cuja perda não muda veredito), commitar a partição no fim de fase,
+   ou aceitar e documentar. **A escolha é do Felipe** e vale junto com a decisão de
+   commitar ou não a partição deste checkout.
+
 **Research durante o planejamento:** não precisa. Os três carregam a medição na
 própria issue do bd. Os critérios 5 e 7 são decisões do Felipe já tomadas (2026-08-06)
 e vêm com a razão escrita; o 6 chegou pela verificação da fase 29 e já vem com a
