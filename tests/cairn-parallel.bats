@@ -2130,3 +2130,124 @@ EOF
   assert_json_eq "$output" \
     '[.selected[] | select(.phase==9) | .branch] | join(",")' 'phase/9-beta'
 }
+
+#-----------------------------------------------------------------------------
+# CairnGo-ce3 — `cleanup --phase N`, and the measurement that fixed its scope
+#
+# MEASURED 2026-08-07 against cairn's own repository, read-only:
+#
+#   $ cairn-parallel.py cleanup --json --project-dir ~/Projects/CairnGo
+#   removable: CairnGo-25-surfaces, CairnGo-25-tools,
+#              CairnGo-phase-21, CairnGo-phase-24, CairnGo-phase-26
+#   retained:  []
+#
+# Two findings in one line. The three orphans the issue names were ALREADY
+# removable — clean, wholly merged, and `cleanup` has always known how to take
+# them; nobody ever called it. And the first two are the LIVE worktrees of the
+# two fronts of phase 25, matched as "phase 25" by PHASE_BRANCH exactly like
+# phase/21 is. A per-phase sweep keyed on the branch number would have deleted
+# two agents' live work at the close of phase 25.
+#-----------------------------------------------------------------------------
+
+# Break: scope the sweep by `PHASE_BRANCH.match(branch)` instead of the
+# canonical path. The sibling worktree in this test is on phase/7-surfaces,
+# which matches phase 7 just as well, and --apply deletes it.
+@test "cleanup --phase N: only the canonical worktree of N, never a sibling on another branch of it" {
+  require_bd
+  make_parallel_fixture
+
+  # The canonical one, exactly what prepare builds.
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  # And a second front of the SAME phase, the shape this repository is in
+  # right now with phase/25-tools and phase/25-surfaces.
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-7-surfaces" -b phase/7-surfaces
+
+  run bash "$PARALLEL" cleanup --phase 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.phase' '7'
+  assert_json_eq "$output" '.removable | length' '1'
+  assert_json_eq "$output" '.removable[0].branch' 'phase/7-alpha'
+
+  run bash "$PARALLEL" cleanup --phase 7 --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  [ ! -d "$MAIN_ROOT-phase-7" ]
+  # The other front is exactly where it was, branch included.
+  [ -d "$MAIN_ROOT-7-surfaces" ]
+  run git -C "$MAIN_ROOT" rev-parse --verify --quiet refs/heads/phase/7-surfaces
+  [ "$status" -eq 0 ]
+}
+
+# The narrowed sweep applies every guard the full one does — it is a filter on
+# the inventory, not a second, laxer rule.
+@test "cleanup --phase N: a dirty canonical worktree is retained, exactly as in a full sweep" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  echo "work nobody else has a copy of" > "$MAIN_ROOT-phase-7/wip.txt"
+
+  run bash "$PARALLEL" cleanup --phase 7 --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.removable | length' '0'
+  assert_json_eq "$output" '.retained | length' '1'
+  [ -d "$MAIN_ROOT-phase-7" ]
+  [ -f "$MAIN_ROOT-phase-7/wip.txt" ]
+}
+
+# A phase with no canonical worktree is a silent no-op, not an error: closing
+# a phase nobody prepared a worktree for is ordinary.
+@test "cleanup --phase N: a phase with no canonical worktree resolves nothing and exits 0" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-9" -b phase/9-beta
+
+  run bash "$PARALLEL" cleanup --phase 7 --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.removable | length' '0'
+  assert_json_eq "$output" '.retained | length' '0'
+  assert_json_eq "$output" '.applied | length' '0'
+  # And the OTHER phase's worktree was never in scope.
+  [ -d "$MAIN_ROOT-phase-9" ]
+}
+
+# THE TWO VERDICTS, AND WHY ONE PATH IS DELETED BEFORE THE OTHER RUNS.
+# MEASURED while wiring criterion 8: with D-05 in place this script calls a
+# journal-only worktree removable, and git's own `worktree remove` then
+# refuses it —
+#
+#   fatal: '<path>' contains modified or untracked files, use --force
+#
+# — because git never heard of DJOUR-03. `--force` would answer that by
+# switching git's whole re-check off, and that re-check is the second
+# independent verdict on an irreversible act. So the journal, and only the
+# journal, is deleted first.
+#
+# Break: drop the rmtree and this removal fails with git's message; or reach
+# for --force and the `wip.txt` case above stops being protected by git as
+# well as by this script.
+@test "cleanup --apply: a journal-only worktree is actually removed, without --force" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  mkdir -p "$MAIN_ROOT-phase-7/.cairn/journal"
+  printf '{"event":"lease_changed"}\n' \
+    > "$MAIN_ROOT-phase-7/.cairn/journal/-0001.jsonl"
+  # git's own refusal, stated rather than assumed.
+  run git -C "$MAIN_ROOT" worktree remove "$MAIN_ROOT-phase-7"
+  [ "$status" -ne 0 ]
+  grep -qF "contains modified or untracked files" <<<"$output"
+
+  run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.applied[] | select(.action=="worktree_remove")] | length' '1'
+  assert_json_eq "$output" \
+    '.applied[] | select(.action=="worktree_remove") | .ok' 'true'
+  # Named, not silent: the one path this script deleted on its own account.
+  assert_json_eq "$output" \
+    '.applied[] | select(.action=="worktree_remove") | .journal_dropped
+     | test("\\.cairn/journal")' 'true'
+  [ ! -d "$MAIN_ROOT-phase-7" ]
+}

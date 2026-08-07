@@ -483,7 +483,8 @@ Usage:
                                 [--json]
     cairn-parallel.py prepare N [--project-dir DIR] [--json]
     cairn-parallel.py reconcile [--phases 7,9] [--project-dir DIR] [--json]
-    cairn-parallel.py cleanup   [--apply] [--project-dir DIR] [--json]
+    cairn-parallel.py cleanup   [--apply] [--phase N] [--project-dir DIR]
+                                [--json]
 
     --project-dir DIR   project root for git/bd discovery (default:
                         $CLAUDE_PROJECT_DIR or cwd)
@@ -498,6 +499,15 @@ Usage:
                         does not count cycles cannot be over one
     --phases LIST       comma-separated phase numbers `reconcile` restricts
                         itself to (default: every phase/* branch)
+    --phase N           narrows `cleanup` to phase N's CANONICAL worktree
+                        (`<root>-phase-N`, exactly what `prepare` builds) and
+                        that phase's own lease. NOT the branch number, and
+                        the difference is measured: `phase/25-tools` and
+                        `phase/25-surfaces` both match phase 25, so a sweep
+                        keyed on the branch and fired by the close of phase
+                        25 would delete two live fronts' work. Every guard of
+                        the full sweep still applies — it is a filter on the
+                        inventory, not a laxer rule
     --apply             `cleanup` writes. Without it nothing anywhere is
                         touched, in any branch of the code — reading is the
                         default and writing is behind a named flag, as
@@ -571,6 +581,19 @@ Behavior:
                `--apply` and otherwise lists, item by item, exactly what was
                done: {action: worktree_prune|lease_release|worktree_remove,
                ...}. Exit is 0 either way — see the asymmetry note above.
+               With `--phase N` the report carries `phase` and the whole scan
+               is narrowed to that phase's canonical worktree and lease.
+
+               A `worktree_remove` entry also carries `journal_dropped`.
+               MEASURED while wiring roadmap criterion 8: with D-05 in place
+               this script calls a journal-only worktree removable, and git's
+               own `worktree remove` refuses it (`contains modified or
+               untracked files`) because git never heard of DJOUR-03.
+               `--force` would answer that by switching off git's re-check —
+               the second independent verdict this function keeps on purpose.
+               So `.cairn/journal/`, and only it, is deleted first, and git
+               judges everything else on its own terms. A refusal after that
+               is a real one, and it is reported.
 
 Exit codes:
     0  ok (including `created: false` — reusing an existing tree is success;
@@ -603,6 +626,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -655,8 +679,8 @@ PLANNING_FILES_FORBIDDEN = [".planning/STATE.md", ".planning/ROADMAP.md",
                             ".planning/REQUIREMENTS.md"]
 
 USAGE = ("usage: cairn-parallel.py {batch [--max N]|prepare N|"
-         "reconcile [--phases 7,9]|cleanup [--apply]} [--project-dir DIR] "
-         "[--json]")
+         "reconcile [--phases 7,9]|cleanup [--apply] [--phase N]} "
+         "[--project-dir DIR] [--json]")
 
 
 def die(msg, code):
@@ -1869,8 +1893,33 @@ def held_lease_by_holder(leases):
     return by_holder
 
 
-def cleanup_scan(top):
-    """The whole report, computed without writing anything anywhere."""
+def cleanup_scan(top, phase=None):
+    """The whole report, computed without writing anything anywhere.
+
+    With `phase`, the scan is narrowed to the CANONICAL worktree of that
+    phase — `phase_layout(top, phase)["worktree"]`, exactly and only what
+    `prepare` builds — and to that phase's own lease.
+
+    WHY THE CANONICAL PATH AND NOT THE BRANCH PATTERN, measured 2026-08-07 in
+    cairn's own repository and the reason this parameter exists at all:
+
+        $ cairn-parallel.py cleanup --json --project-dir ~/Projects/CairnGo
+        removable: CairnGo-25-surfaces, CairnGo-25-tools,
+                   CairnGo-phase-21, CairnGo-phase-24, CairnGo-phase-26
+
+    The first two are the LIVE worktrees of the two fronts of phase 25 — both
+    clean, both level with HEAD, neither holding a lease. `PHASE_BRANCH`
+    matches `phase/25-tools` and `phase/25-surfaces` as phase 25 just as
+    surely as it matches `phase/21`, so a per-phase sweep keyed on the branch
+    number, fired by the close of phase 25, would delete two agents' live
+    work. Keyed on the canonical path, the three orphans match and the two
+    live trees do not.
+
+    Everything else is unchanged: a narrowed scan applies the same dirty /
+    unmerged / lease-held guards, and the inventory check below still runs
+    against the FULL worktree list, because an inventory that cannot be
+    trusted must stop the sweep no matter how narrow it is.
+    """
     entries = worktree_entries(top)
 
     # The inventory has to contain the main checkout, or it is not an
@@ -1881,6 +1930,13 @@ def cleanup_scan(top):
         die(f"`git worktree list` did not report {top} itself — refusing to "
             f"call anything orphaned against an inventory this incomplete",
             EXIT_GIT)
+
+    # The narrowing, applied AFTER the inventory check above and before any
+    # verdict: one path, and one phase's lease.
+    only_path = None
+    if phase is not None:
+        only_path = os.path.realpath(phase_layout(top, phase)["worktree"])
+        entries = [e for e in entries if e["path"] == only_path]
 
     orphan_registrations = []
     live = []
@@ -1897,6 +1953,15 @@ def cleanup_scan(top):
 
     live_paths = set(e["path"] for e in live)
     leases = lease_status_all(top)
+    if phase is not None:
+        leases = [e for e in leases if e.get("phase") == phase]
+        # A narrowed scan cannot see the other worktrees, so it cannot tell an
+        # orphan lease from one whose holder it simply did not look at. It
+        # reports none rather than guessing — the same posture as the
+        # inventory guard above, one scope down.
+        live_paths = set(os.path.realpath(e["path"])
+                         for e in worktree_entries(top)
+                         if os.path.isdir(e["path"]))
 
     orphan_leases = []
     stale_but_live = []
@@ -1990,6 +2055,29 @@ def cleanup_apply(top, scan):
                         "holder": row["holder"],
                         "held_after": bool(after.get("held"))})
     for row in scan["removable"]:
+        # THE TWO VERDICTS DISAGREED, AND NOT BY ACCIDENT (measured while
+        # wiring criterion 8). worktree_dirty() stopped counting
+        # `.cairn/journal/` as work git cannot recreate (D-05); git's own
+        # `worktree remove` never heard of D-05 and refuses any tree holding
+        # untracked files:
+        #
+        #   fatal: '<path>' contains modified or untracked files, use --force
+        #
+        # `--force` would answer that by switching git's whole re-check off,
+        # and that re-check is the second independent verdict this function
+        # deliberately keeps. So instead: delete EXACTLY the path this script
+        # declared irrelevant, and let git judge everything else on its own
+        # terms. If git still refuses afterwards, something else was in
+        # there, the refusal is right, and it is reported.
+        dropped = None
+        journal = os.path.join(row["path"], *JOURNAL_PREFIX.strip("/")
+                               .split("/"))
+        if os.path.isdir(journal):
+            try:
+                shutil.rmtree(journal)
+                dropped = journal
+            except OSError as e:
+                dropped = f"could not remove {journal}: {e}"
         # No --force, and `branch -d` rather than -D: git re-checks "clean"
         # and "merged" on its own terms and refuses if this script read the
         # tree wrong. Two independent verdicts for one irreversible act.
@@ -2003,7 +2091,8 @@ def cleanup_apply(top, scan):
         applied.append({"action": "worktree_remove", "path": row["path"],
                         "branch": row["branch"], "ok": rc == 0,
                         "error": err or None, "branch_deleted": deleted,
-                        "branch_error": branch_error})
+                        "branch_error": branch_error,
+                        "journal_dropped": dropped})
     return applied
 
 
@@ -2042,7 +2131,8 @@ def print_cleanup(result):
 
 
 def cmd_cleanup(args, top):
-    result = cleanup_scan(top)
+    result = cleanup_scan(top, args.phase)
+    result["phase"] = args.phase
     result["apply"] = bool(args.apply)
     result["applied"] = cleanup_apply(top, result) if args.apply else []
 
@@ -2106,6 +2196,10 @@ def build_parser():
                               "orphaned leases, and remove worktrees that "
                               "are clean AND wholly merged (default: report "
                               "only)")
+    cleanup.add_argument("--phase", type=int, metavar="N",
+                         help="narrow the sweep to phase N's CANONICAL "
+                              "worktree (<root>-phase-N, exactly what "
+                              "prepare builds) and its own lease")
     cleanup.set_defaults(func=cmd_cleanup)
 
     for p in (batch, prepare, reconcile, cleanup):

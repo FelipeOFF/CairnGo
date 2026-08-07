@@ -1607,3 +1607,83 @@ PY
     '[.planned[] | select(.kind=="plan-checkbox-written") | .subject] | join(",")' \
     '20-01-PLAN.md'
 }
+
+#-----------------------------------------------------------------------------
+# Criterion 8 — closing a phase takes down what prepare put up
+#
+# MEASURED 2026-08-07: five lease issues OPEN for phases the roadmap marks
+# `[x]` (20, 21, 24, 26, 29) while `cairn-bookkeep close` printed
+# `tracker :: lease :: ok` over every one of them, and three worktrees of
+# complete phases still on the machine — all three clean, wholly merged, and
+# already `removable` by a scan nobody ever ran.
+#
+# The `ok` was never a lie about what the step DID; `release` really does
+# vacate. It was a word meaning "the subprocess exited 0" being read as "the
+# lease is gone from the tracker". Which is why every assertion below reads bd
+# and the filesystem AFTER the close, and none of them reads the report.
+#-----------------------------------------------------------------------------
+
+# Break: put `release` back in run_tracker's lease step. The metadata goes
+# vacant, the command still prints ok, and the issue is still open in bd —
+# the measured state of all five.
+@test "close --apply: the phase's lease issue is CLOSED in bd afterwards" {
+  require_bd
+  make_drift_fixture "$PWD"
+  bd init -q --prefix bkq --non-interactive >/dev/null 2>&1
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 29 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local id
+  id="$(jq -r '.id' <<<"$output")"
+
+  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # bd, afterwards. Never the command's own tracker line.
+  run bd -C "$PWD" list -l lease --all --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    "[.[] | select(.id==\"$id\") | .status] | join(\",\")" 'closed'
+}
+
+# The worktree half of the same criterion, and the reason the two steps are
+# ordered: a lease still held BY that worktree is itself a retain reason, so
+# retiring first is what makes the removal reachable at all.
+@test "close --apply: the phase's canonical worktree is removed afterwards" {
+  require_bd
+  make_drift_fixture "$PWD"
+  bd init -q --prefix bkr --non-interactive >/dev/null 2>&1
+  git -C "$PWD" worktree add -q "$PWD-phase-29" -b phase/29-nothing
+  [ -d "$PWD-phase-29" ]
+  # Held by that worktree — the ordinary end-of-phase state.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 29 \
+    --project-dir "$PWD-phase-29" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+
+  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # The filesystem, afterwards.
+  [ ! -d "$PWD-phase-29" ]
+  run git -C "$PWD" worktree list
+  refute_in_output "phase-29"
+}
+
+# The negative half, and it is the one that matters most: closing a phase must
+# never take down a worktree carrying work git cannot recreate.
+@test "close --apply: a phase worktree with unsaved work survives the close, and is named" {
+  require_bd
+  make_drift_fixture "$PWD"
+  bd init -q --prefix bks --non-interactive >/dev/null 2>&1
+  git -C "$PWD" worktree add -q "$PWD-phase-29" -b phase/29-nothing
+  echo "work nobody else has a copy of" > "$PWD-phase-29/wip.txt"
+
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  # Named in the report rather than passed over in silence.
+  grep -qF "retained" <<<"$output"
+  grep -qF "uncommitted changes" <<<"$output"
+
+  [ -d "$PWD-phase-29" ]
+  [ "$(cat "$PWD-phase-29/wip.txt")" = "work nobody else has a copy of" ]
+}

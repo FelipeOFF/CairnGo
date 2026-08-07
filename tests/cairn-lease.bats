@@ -725,3 +725,120 @@ PYEOF
   assert_json_eq "$output" '.[0].status' 'open'
   assert_json_eq "$output" '(.[0].metadata.cairn.lease.holder // "absent")' 'absent'
 }
+
+#-----------------------------------------------------------------------------
+# CairnGo-php — `retire`, and the measurement that corrected the issue itself
+#
+# The issue and the roadmap both describe a release path that "worked twice
+# and stopped working from phase 20 onward — não é 'nunca libera', é 'deixou
+# de liberar'". MEASURED 2026-08-07 in cairn's own repository, and it is the
+# other way round:
+#
+#   $ grep -n "close" cairn/scripts/cairn-lease.py
+#   (not one `bd close` anywhere)
+#   # and write_lease's vacate branch passes `--assignee "" --status open`
+#
+#   $ bd show CairnGo-2bo | grep -i "close reason"
+#   Close reason: bookkeeping do lease da fase 18; fase completa e arquivada,
+#                 lease vago (held=false)          <- closed 2026-08-03T14:39:56Z
+#   $ bd show CairnGo-83x   ->                        closed 2026-08-03T14:39:57Z
+#
+# One second apart, in pt-BR prose no tool in this repository generates. The
+# capability was never written; two manual runs made it look as though it had
+# been, and then looked like a regression.
+#-----------------------------------------------------------------------------
+
+# Break: implement retire as an alias of release. The metadata goes vacant and
+# the issue stays OPEN, which is the state of all five leases measured on
+# 2026-08-07 — and this test reads bd, not the command's own report.
+@test "retire: the lease issue is CLOSED in bd, and bd is what says so" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  run bash "$LEASE" acquire 7 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local id
+  id="$(jq -r '.id' <<<"$output")"
+  # `acquire` claims the issue, so bd reads it as in_progress — and what
+  # matters is that it is NOT closed, in any of the states a live lease has.
+  run bd -C "$PWD" list -l lease --all --json
+  assert_json_eq "$output" \
+    "[.[] | select(.id==\"$id\") | .status] | join(\",\")" 'in_progress'
+
+  run bash "$LEASE" retire 7 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'false'
+  assert_json_eq "$output" '.retired' 'true'
+  assert_json_eq "$output" '.issue_status' 'closed'
+
+  # THE PROOF, and it is bd's, not the command's: the issue's status read
+  # back afterwards. The roadmap's criterion 8 says this in as many words,
+  # because `cairn-bookkeep close` printed `tracker :: lease :: ok` over five
+  # leases that were still open.
+  run bd -C "$PWD" list -l lease --all --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" "[.[] | select(.id==\"$id\") | .status] | join(\",\")" 'closed'
+
+  # And the metadata really is vacant — retire does the whole job, it does
+  # not close an issue over a lease somebody still holds.
+  run bash "$LEASE" status 7 --project-dir "$PWD" --json
+  assert_json_eq "$output" '.held' 'false'
+}
+
+# Idempotence, and the negative half in one: a second retire neither reopens
+# the issue nor closes it twice.
+@test "retire: running it twice leaves the issue closed and writes nothing new" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  run bash "$LEASE" acquire 7 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  run bash "$LEASE" retire 7 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+
+  run bash "$LEASE" retire 7 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.retired' 'true'
+  assert_json_eq "$output" '.issue_status' 'closed'
+}
+
+# A phase that never had a lease: no-op, exit 0, nothing invented — the same
+# posture `release` already holds.
+@test "retire: a phase that never had a lease is a no-op, and creates none" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  run bash "$LEASE" retire 7 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.id' 'null'
+  assert_json_eq "$output" '.retired' 'false'
+
+  run bd -C "$PWD" list -l lease --all --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" 'length' '0'
+}
+
+# `release` is NOT retire, and this is the assertion that keeps the two verbs
+# from collapsing into one: releasing leaves the issue open on purpose, so the
+# next acquire has something to take.
+@test "release: leaves the lease issue OPEN, which is what retire exists to change" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+
+  run bash "$LEASE" acquire 7 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local id
+  id="$(jq -r '.id' <<<"$output")"
+
+  run bash "$LEASE" release 7 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'false'
+
+  run bd -C "$PWD" list -l lease --all --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" "[.[] | select(.id==\"$id\") | .status] | join(\",\")" 'open'
+}
