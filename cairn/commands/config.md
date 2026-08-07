@@ -1,5 +1,6 @@
 ---
 description: Configure cairn — auto-commit, PR scope, the ceilings on an autonomous run, and test jobs (writes .cairn/config.json, the file you can also edit by hand)
+group: config
 ---
 
 Set cairn's own knobs. There are **two doors into the same place**: this
@@ -116,19 +117,22 @@ Tell the user, in one line each:
 
 ## What is deliberately NOT here: the sync push
 
-There is no question for `cairn.sync_push`, and that is a decision rather than
-an oversight. Measured: the key is declared in `capability.json:43`,
-documented in three prompt fragments and asserted in `tests/capability.bats`,
-and it is read by **no executable code**. The push after a bd write is decided
-solely by the existence of `.cairn/sync.json` with an enabled backend
-(`cairn/hooks/post-bd-write.sh:126-152`).
+There is no question for `cairn.sync_push`, and there is no such key anywhere
+any more. Measured before it was removed: the key was declared in
+`capability.json`, documented in three prompt fragments and asserted in
+`tests/capability.bats`, and read by **no executable code**. The push after a
+bd write is decided solely by the existence of `.cairn/sync.json` with an
+enabled backend (`cairn/hooks/post-bd-write.sh:126-152`).
 
-So a button here would write a value the hook ignores, and wiring the hook to
-honor it would silently **stop** pushes that happen today for everyone who
-already has a `sync.json`. That is a change to what the software decides, not
-mechanics — it is grooming, and this phase automates mechanics.
+A button here would have written a value the hook ignores, and wiring the hook
+to honor it would silently **stop** pushes that happen today for everyone who
+already has a `sync.json`. No default rescues that: `true` makes the key mean
+nothing, `false` breaks pushes in silence. That is a change to what the
+software decides, not to how it does it.
 
-The decision has an address rather than being left as silence: bd issue
-**CairnGo-gbu** (`bd show CairnGo-gbu`) carries the measurement and the three
-possible outs. If the user asks about push behavior here, point them at it and
-do not offer a knob in the meantime.
+**Decided (bd issue `CairnGo-gbu`): the declaration was deleted rather than
+implemented.** Behaviour after the removal is byte for byte what it was
+before — the hook still decides the push by the existence of the sync file —
+and a promise nothing kept is gone. If the user asks how to turn the mirror
+push on or off, the answer is `/cairn:sync-config` and the backends in
+`.cairn/sync.json`, not a knob here.

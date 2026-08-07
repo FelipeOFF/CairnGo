@@ -1,6 +1,7 @@
 ---
 description: Index current work into context-mode under the active bd issue + phase label
 argument-hint: "[what to remember]"
+group: memory
 ---
 
 Persist reference material into context-mode under the intent-scoped source

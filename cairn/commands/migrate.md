@@ -1,5 +1,6 @@
 ---
 description: Adopt an existing repo into cairn — detect GSD/beads state, dry-run a plan, confirm with the user, apply with resume journaling
+group: health
 ---
 
 Migrate an existing repo onto the cairn conventions (label pair + metadata

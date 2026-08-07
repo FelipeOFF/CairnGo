@@ -1,6 +1,7 @@
 ---
 description: Run a context-mode operation directly — raw passthrough to the ctx_* tools
 argument-hint: <search|stats|index|fetch|insight|doctor|upgrade|purge> [args…]
+group: escape
 ---
 
 Raw context-mode passthrough — no cairn scoping. The `ctx_*` MCP tools ship with

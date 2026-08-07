@@ -1,5 +1,6 @@
 ---
 description: Tune the context-mode integration (intent-aware memory) — writes .cairn/context.json to override the defaults
+group: memory
 ---
 
 Tune the cairn ↔ context-mode integration, which scopes context-mode's

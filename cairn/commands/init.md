@@ -1,5 +1,6 @@
 ---
 description: One-command, soup-to-nuts project setup — ensure GSD + beads, wire git + bd init, then hand off to the interactive GSD project setup
+group: setup
 ---
 
 Set up the current working directory for the full cairn workflow, end to end.

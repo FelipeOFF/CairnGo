@@ -24,6 +24,5 @@ bd close <id> --reason "<one-line accomplishment from the plan's SUMMARY.md>"
   CAP=".gsd/capabilities/cairn"; [ -d "$CAP" ] || CAP="${GSD_HOME:-$HOME}/.gsd/capabilities/cairn"
   bash "$CAP/scripts/cairn-map.sh" <N>
   ```
-- If `.cairn/sync.json` has an enabled backend and config `cairn.sync_push`
-  is not false, push the mirror for each closed id right after closing (see
-  the cairn-sync skill).
+- If `.cairn/sync.json` has an enabled backend, push the mirror for each
+  closed id right after closing (see the cairn-sync skill).

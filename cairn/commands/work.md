@@ -1,6 +1,7 @@
 ---
 description: Execute a phase — claim its beads, run GSD execute-phase, close on success
 argument-hint: <phase-number> [--wave N] [--gaps-only] [--interactive] [--tdd]
+group: loop
 ---
 
 Execute phase **$ARGUMENTS** under the `cairn` conventions.
