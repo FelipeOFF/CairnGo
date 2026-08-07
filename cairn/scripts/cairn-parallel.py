@@ -805,21 +805,65 @@ def phase_slug(top, phase):
 
 
 def phase_layout(top, phase):
-    """{phase, slug, branch, worktree} — the single naming authority for both
-    verbs. `batch` announces what this returns and `prepare` creates what
-    this returns; the bridge test compares the two by realpath.
+    """{phase, slug, branch, branch_source, worktree} — the single naming
+    authority for both verbs. `batch` announces what this returns and
+    `prepare` creates what this returns; the bridge test compares the two by
+    realpath.
 
     The path is built from the ROOT's own basename plus an int phase, never
     from a user-supplied string, and is asserted to be a SIBLING of the root
-    before any caller writes there (T-18-01)."""
+    before any caller writes there (T-18-01).
+
+    THE NAME IS ADOPTED BEFORE IT IS DERIVED (FIX-02, CairnGo-r4g). MEASURED
+    live on v1.4: `batch --json` returned `slug: null` and `branch: phase/19`
+    for phase 19, which had no directory yet. Once
+    `.planning/phases/19-<slug>` exists the same phase would resolve to
+    `phase/19-<slug>` — a DIFFERENT branch for the same work. Nothing breaks
+    today because the worktree path never moves and reconcile discovers by
+    `refs/heads/phase/*`, but two branches for one phase are reachable:
+    prepare refuses a branch of the SAME name with no worktree
+    (cairn-parallel.py, cmd_prepare) and has nothing to say about one of a
+    NEW name, which is precisely what a late slug produces.
+
+    So the name comes from whatever already exists, strongest evidence first:
+
+      worktree         the canonical worktree is registered and git says what
+                       branch is checked out there. This is the identity the
+                       issue itself names as stable — the path does not move.
+      existing-branch  no canonical worktree, and EXACTLY ONE refs/heads/
+                       phase/<N> ref. That is the name prepare gave it.
+      derived          neither of those, so build the name from the slug —
+                       byte for byte what this function has always done.
+
+    WHY MORE THAN ONE BRANCH DOES NOT DIE HERE, against the house rule of
+    never taking the first of an ambiguous match: two branches for one phase
+    is the ORDINARY state of a phase split across two fronts. MEASURED in
+    this repository right now — `phase/25-tools` and `phase/25-surfaces` both
+    match phase 25. Dying would take the whole `batch` down over one phase,
+    and `batch` is the surface that decides what runs at all. The third rung
+    keeps today's behaviour exactly, and `branch_source` says the choice was
+    derived rather than read — a surface that picks among three sources and
+    does not say which is the shape of lie this phase exists to remove.
+    """
     slug = phase_slug(top, phase)
-    branch = f"phase/{phase}-{slug}" if slug else f"phase/{phase}"
     worktree = Path(top).parent / f"{Path(top).name}-phase-{phase}"
     if worktree.parent != Path(top).parent:
         die(f"refusing to place a worktree outside the repo's parent "
             f"directory: {worktree}", EXIT_GIT)
+
+    branch, source = None, "derived"
+    entry = worktree_entry_at(top, worktree)
+    if entry is not None and entry.get("branch"):
+        branch, source = entry["branch"], "worktree"
+    else:
+        same = [name for n, name in phase_branches(top) if n == phase]
+        if len(same) == 1:
+            branch, source = same[0], "existing-branch"
+    if branch is None:
+        branch = f"phase/{phase}-{slug}" if slug else f"phase/{phase}"
+
     return {"phase": phase, "slug": slug, "branch": branch,
-            "worktree": str(worktree)}
+            "branch_source": source, "worktree": str(worktree)}
 
 
 # --------------------------------------------------------------------------- #
@@ -1000,6 +1044,7 @@ def cmd_prepare(args, top):
         "phase": phase,
         "slug": layout["slug"],
         "branch": branch,
+        "branch_source": layout["branch_source"],
         "worktree": str(worktree),
         "base_commit": base_commit or None,
         "created": created_worktree,
@@ -1224,6 +1269,10 @@ def cmd_batch(args, top):
             "title": cmd.get("title"),
             "slug": layout["slug"],
             "branch": layout["branch"],
+            # Which of the three sources named that branch — adopted from the
+            # canonical worktree, adopted from the one existing ref, or
+            # derived from the slug (FIX-02).
+            "branch_source": layout["branch_source"],
             "worktree": layout["worktree"],
             "next_command": cmd.get("command"),
             "reason": cmd.get("reason"),
@@ -1721,18 +1770,73 @@ def lease_release(top, phase):
     return data if isinstance(data, dict) else {}
 
 
+# The one path whose loss changes no verdict anywhere (DJOUR-03), and
+# therefore the one path that may not hold a worktree hostage.
+JOURNAL_PREFIX = ".cairn/journal/"
+
+
 def worktree_dirty(path):
-    """`git status --porcelain` non-empty in that worktree — uncommitted
-    changes AND untracked files both count, because both are work git cannot
-    reconstruct from any ref. A worktree whose directory is gone reads as
-    'not dirty' here and never reaches this function anyway: it is an
-    orphan_registration before any of this is asked."""
-    rc, out, _ = run_git(path, ["status", "--porcelain"])
+    """Does that worktree carry work git cannot reconstruct from any ref?
+
+    Uncommitted changes AND untracked files both count, because git can
+    rebuild neither. A worktree whose directory is gone reads as 'not dirty'
+    here and never reaches this function anyway: it is an
+    orphan_registration before any of this is asked.
+
+    EXCEPT `.cairn/journal/` (D-05, CairnGo-rhq). MEASURED at the close of
+    phase 28: versioning the journal made every worktree that journals stop
+    being removable, and the trap closes from both sides —
+
+        uncommitted partition -> "uncommitted changes (git cannot recreate
+                                  these)"
+        committed partition   -> "carries commits HEAD lacks"
+
+    — so a worktree only becomes removable after its partition is committed
+    AND merged back, and nothing in cairn's flow does either. The journal is
+    the one cairn artifact whose loss changes NO verdict (DJOUR-03), and that
+    is exactly why it cannot be grounds for retention: retention is for work
+    git cannot recreate, and this is not that.
+
+    THE CALL CHANGED WITH THE FILTER, AND HAD TO. MEASURED 2026-08-07 against
+    this project's own .gitignore (`.cairn/journal/*` plus
+    `!.cairn/journal/*.jsonl`):
+
+        $ git status --porcelain            # what this used to run
+        ?? .cairn/                          <- the DIRECTORY, collapsed
+        $ git status --porcelain -uall
+        ?? .cairn/journal/-0001.jsonl       <- and only now does a path
+                                               filter have a path to match
+
+    With `-u normal` git collapses a wholly-untracked directory into one
+    line, and `.cairn/` does not start with `.cairn/journal/`. A filter over
+    the old call would have been inert — correct-looking, and doing nothing.
+    `-z` comes along so paths arrive raw (no quoting, no escapes) and a
+    rename arrives as two fields instead of one line with an arrow in it.
+
+    AND IT READS THE BYTES RAW. run_git() .strip()s stdout, which eats the
+    LEADING SPACE of a porcelain status pair: ` M .cairn/journal/-0001.jsonl`
+    arrives as `M .cairn/...`, the path offset moves by one, and the filter
+    silently stops matching. MEASURED — an untracked `?? path` survives the
+    strip (it starts with `?`) while a modified ` M path` does not, so the
+    filter would have worked for the case that was tested and failed for the
+    case that was not. run_git_raw() exists for exactly this.
+
+    Anything that cannot be measured is retained, never removed.
+    """
+    rc, out, _ = run_git_raw(path, ["status", "--porcelain", "-z", "-uall"])
     if rc != 0:
-        # Unreadable is not clean. Anything that cannot be measured is
-        # retained, never removed.
         return True
-    return bool(out.strip())
+    for entry in out.split("\0"):
+        # `XY <path>`: the status pair, one space, then the path. A rename's
+        # second field is a bare path with no status pair, and it is measured
+        # by the same rule — a rename INTO .cairn/journal/ is still journal.
+        path_part = entry[3:] if len(entry) > 3 and entry[2] == " " else entry
+        if not path_part.strip():
+            continue
+        if path_part.startswith(JOURNAL_PREFIX):
+            continue
+        return True
+    return False
 
 
 def commits_ahead(top, branch):
