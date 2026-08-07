@@ -45,6 +45,5 @@ bd update <id> --claim
 - Track further to-dos of this plan in bd, not in TodoWrite or markdown
   lists.
 
-If `.cairn/sync.json` has an enabled backend and config `cairn.sync_push` is
-not false, push the mirror for each claimed id right after claiming (see the
-cairn-sync skill).
+If `.cairn/sync.json` has an enabled backend, push the mirror for each
+claimed id right after claiming (see the cairn-sync skill).

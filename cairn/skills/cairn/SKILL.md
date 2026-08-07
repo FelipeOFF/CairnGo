@@ -94,9 +94,13 @@ divergent issues are flagged ⚠ and updated, not followed.
 
 - **`/gsd:new-project` / `/gsd:new-milestone`** — after the roadmap is written,
   create one bd issue per requirement following the issue creation convention
-  above (label pair + metadata stamp, dedup on `(gsd.req, gsd.milestone)`),
-  then generate each phase's map with `cairn-map.sh <N>`. Capture dependencies
-  with bd's dependency support where the roadmap implies ordering.
+  above (label pair + metadata stamp, dedup on `(gsd.req, gsd.milestone)`), and
+  capture dependencies with bd's dependency support where the roadmap implies
+  ordering. **Do not generate the phase maps here**: a map is written into the
+  phase's own directory and the directories are created by `plan-phase`, so at
+  this point none of them exists — measured, `cairn-map` answers `no phase
+  directory matching phase N` and exits `4` for every phase. Each map is born
+  with its phase's plan, below.
 - **`/gsd:plan-phase N`** — regenerate the phase's `NN-BEADS-MAP.md` first
   (`cairn-map.sh N`; if bd is unavailable — exit 5 — fall back to reading the
   existing file), then read it. Reconcile any divergence between existing bd

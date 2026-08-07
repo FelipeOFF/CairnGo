@@ -73,18 +73,23 @@ is why exit `3` on read stops the flow rather than starting fresh.
 
 ## What is deliberately not here: the sync push
 
-There is no question for `cairn.sync_push`, and that is a decision rather than
-an oversight. **Measured:** the key is declared in `capability.json:43`,
-documented in three prompt fragments and asserted in `tests/capability.bats`,
-and it is read by **no executable code** — the push after a bd write is decided
-solely by the existence of `.cairn/sync.json` with an enabled backend
-(`cairn/hooks/post-bd-write.sh:126-152`).
+There is no question for `cairn.sync_push`, and there is no such key anywhere
+any more. **Measured before the removal:** it was declared in
+`capability.json`, documented in three prompt fragments and asserted in
+`tests/capability.bats`, and read by **no executable code** — the push after a
+bd write is decided solely by the existence of `.cairn/sync.json` with an
+enabled backend (`cairn/hooks/post-bd-write.sh:126-152`).
 
-A knob here would write a value the hook ignores; wiring the hook to honor it
-would silently **stop** pushes that happen today for everyone who already has a
-`sync.json`. That changes what the software decides, not how it does it. The
-decision has an address instead of being left as silence: `bd show CairnGo-gbu`
-carries the measurement and the three possible outs.
+A knob here would have written a value the hook ignores; wiring the hook to
+honor it would silently **stop** pushes that happen today for everyone who
+already has a `sync.json`, and no default rescues that — `true` makes the key
+mean nothing, `false` breaks pushes in silence. That changes what the software
+decides, not how it does it.
+
+**Decided (`bd show CairnGo-gbu`): the declaration was deleted rather than
+implemented**, in phase 25. Behaviour afterwards is byte for byte what it was
+before. To turn the mirror push on or off, configure the backends —
+[`/cairn:sync-config`](./sync-config.md) and `.cairn/sync.json`.
 
 ## Files it touches
 

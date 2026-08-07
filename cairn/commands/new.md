@@ -1,5 +1,6 @@
 ---
 description: Start a new cairn project — GSD new-project, then create the bd issues and generate the phase↔beads maps
+group: setup
 ---
 
 Kick off a new project end to end, under the `cairn` conventions.

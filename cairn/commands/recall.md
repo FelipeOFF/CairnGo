@@ -1,6 +1,7 @@
 ---
 description: Recall context-mode memory scoped to the active bd issue + phase (intent-aware search)
 argument-hint: <query>
+group: memory
 ---
 
 Search context-mode memory scoped to the work at hand, per the `cairn-context`

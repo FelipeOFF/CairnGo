@@ -1,5 +1,6 @@
 ---
 description: Configure two-way bd↔external sync (GitHub/GitLab/Jira/Asana/Azure Boards) — writes .cairn/sync.json
+group: sync
 ---
 
 Set up the cairn sync backends for this repo. bd is the hub/source of
