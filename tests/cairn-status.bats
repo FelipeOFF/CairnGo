@@ -1695,7 +1695,20 @@ EOF
   # journal genuinely does not exist before the hand-edit below. This rules
   # out the test passing only because a PRIOR observe call happened to have
   # already recorded the right thing.
-  [ ! -f .cairn/journal.jsonl ]
+  #
+  # Phase 28: the journal is PARTITIONED, one file per checkout under
+  # .cairn/journal/. The path is asked of the script itself rather than
+  # recomputed here — a test that rebuilt the slug would just be a second
+  # implementation of the naming scheme, and would keep passing while
+  # pointing at a file nothing writes. That is exactly how the pre-phase-28
+  # version of this test would have died: its `rm -f .cairn/journal.jsonl`
+  # would have deleted nothing and the diff below would have compared a
+  # render with itself.
+  local segment
+  segment="$(python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" provenance \
+    --project-dir "$PWD" --json | jq -r '.segment')"
+  [ ! -f "$segment" ]
+  [ ! -d .cairn/journal ]
 
   # Part (1): hand-edit OUTSIDE any cairn command — a plain sed on
   # ROADMAP.md, never a cairn-*.sh invocation — checks phase 1's box while
@@ -1720,8 +1733,12 @@ assert len(items) == 1, p["conflicts"]
 '
 
   # That first read's own observe call just wrote this phase's evidence into
-  # the journal for the first time — confirm it, rather than assume it.
-  [ -f .cairn/journal.jsonl ]
+  # this checkout's own partition for the first time — confirm it, rather
+  # than assume it.
+  [ -f "$segment" ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  [ "$(jq '.records | length' <<<"$output")" -gt 0 ]
 
   # Part (2): pin the fixture — no .cairn/sync.json, no lease held anywhere
   # — the only two genuinely time-varying keys the --json payload can carry.
@@ -1744,10 +1761,21 @@ assert len(items) == 1, p["conflicts"]
   # same structural proof, one call earlier.
   diff <(jq -S . <<<"$first_read_output") <(jq -S . <<<"$before_output")
 
-  # Delete the journal entirely, then render again and diff structurally
-  # against before_output. Deleting a journal that had real history in it
-  # must change zero bytes of the corroboration output.
-  rm -f .cairn/journal.jsonl
+  # Delete the journal ENTIRELY — the partition directory and the inherited
+  # single file both, because phase 28 made the surface bigger than one
+  # path. Deleting a journal that had real history in it must change zero
+  # bytes of the corroboration output.
+  rm -rf .cairn/journal
+  rm -f .cairn/journal.jsonl*
+
+  # The assertion that keeps this test from dying quietly a second time: it
+  # proves the delete actually hit its target. Without it, a `rm` aimed at
+  # the wrong path leaves the diff below comparing a render with itself —
+  # green, and measuring nothing.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '0'
+  assert_json_eq "$output" '.partitions | length' '0'
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
   [ "$status" -eq 0 ]

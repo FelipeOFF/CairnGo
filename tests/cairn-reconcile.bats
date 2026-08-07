@@ -226,6 +226,43 @@ make_phase1_conflict() {
   assert_json_eq "$output" '.git_log | type' 'array'
 }
 
+@test "DJOUR-03: with the whole journal surface deleted the bundle still collects, history empty" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_corroboration_fixture
+  make_phase1_conflict
+
+  # A first collect, so the journal genuinely has history to destroy (the
+  # collect's own cairn-status.py call journals as a side effect).
+  run bash "$RECONCILE" collect 1 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local before="$output"
+  assert_json_eq "$before" '.journal.history | length > 0' 'true'
+
+  # Phase 28 made the surface bigger than one path: the partition directory
+  # AND the inherited single file. The journal script is neutralised too --
+  # otherwise the collect's own observe would repopulate what was deleted
+  # before journal_history() ever reads it, and this would prove nothing.
+  rm -rf .cairn/journal
+  rm -f .cairn/journal.jsonl*
+
+  run env CAIRN_JOURNAL=/nonexistent/path bash "$RECONCILE" collect 1 \
+    --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.journal.history' '[]'
+  assert_json_eq "$output" '.journal.last_moved' 'null'
+  # Every other section of the bundle is intact and says the same thing --
+  # the journal is evidence, never authority.
+  assert_json_eq "$output" '.phase' '1'
+  assert_json_eq "$output" '.corroboration.evidence.disk' \
+    "$(jq -r '.corroboration.evidence.disk' <<<"$before")"
+  assert_json_eq "$output" '.corroboration.evidence.bd' \
+    "$(jq -r '.corroboration.evidence.bd' <<<"$before")"
+  assert_json_eq "$output" '.corroboration.conflicts | length > 0' 'true'
+  assert_json_eq "$output" '.roadmap_excerpt | startswith("### Phase 1: Auth")' 'true'
+}
+
 @test "collect: the bundle carries EXACTLY these keys — nothing that is not evidence gets into the hash" {
   require_bd
   make_tmp_repo
