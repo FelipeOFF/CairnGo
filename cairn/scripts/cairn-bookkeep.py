@@ -214,14 +214,32 @@ A ROW IS NEVER INVENTED FOR A REQUIREMENT WITH NO READABLE CARRIER
     the cause and the phases whose requirements line is unreadable. Write
     the ids out on that line and the row plans itself on the next run.
 
-THE STATE KEYS, EXHAUSTIVELY, AND WHY NO NEW ONE IS EVER CREATED
-    Written: current_phase, current_phase_name (close only),
-    progress.total_phases, progress.completed_phases, progress.total_plans,
-    progress.completed_plans, progress.percent, last_updated,
-    last_activity — each by replacing the value of its OWN line, preserving
-    indentation, quoting and key order. Every other frontmatter line is
-    untouched and the prose body is never read. A key the file does not
-    already have is not created; it is named in `skipped`.
+THE STATE KEYS, EXHAUSTIVELY, AND THE ONE THAT IS CREATED
+    Written: current_phase, active_phase, current_phase_name (the three
+    close-only), progress.total_phases, progress.completed_phases,
+    progress.total_plans, progress.completed_plans, progress.percent,
+    last_updated, last_activity — each by replacing the value of its OWN
+    line, preserving indentation, quoting and key order. Every other
+    frontmatter line is untouched and the prose body is never read. A key the
+    file does not already have is not created; it is named in `skipped`.
+
+    THE ONE EXCEPTION, AND WHY IT IS EXACTLY ONE (AUTO-10, decided by the
+    project owner 2026-08-06). `active_phase` is CREATED when the file has
+    `current_phase` and not it. MEASURED 2026-08-05, reconfirmed 2026-08-07:
+    `grep -rn current_phase cairn/` finds ZERO readers, while `active_phase`
+    is read by five surfaces (cairn-status.py, cairn-doctor.py,
+    cairn-lease.py, cairn-migrate.py, hooks/session-start.sh). GSD writes the
+    key nothing here reads; cairn reads the key nothing writes. Under "only
+    what already exists" the decision to write BOTH would write NEITHER, and
+    the measured false green stands.
+
+    Additive by choice, not by compromise: nothing is renamed, nothing is
+    migrated, no reader changes, and GSD keeps finding its key. The anchor is
+    load-bearing — a STATE.md with neither key still grows neither. And the
+    accepted cost has a mandatory counterpart, also part of the decision: the
+    doctor's `state-dialect` check (check 21) compares the two, because two
+    keys that must agree and that nobody compares is the defect this cycle
+    measured four times.
 
     The two timestamps ride along with a real change and never alone. A run
     that changed nothing did not produce activity, and writing them
@@ -236,20 +254,20 @@ THE STATE KEYS, EXHAUSTIVELY, AND WHY NO NEW ONE IS EVER CREATED
     field nobody recalculates and nobody reports is exactly how the coverage
     footer reached 29.
 
-    current_phase vs active_phase (AUTO-08) IS NOT DECIDED HERE. Measured:
-    `grep -rn current_phase cairn/` -> ZERO readers, while `active_phase` is
-    read by five surfaces (cairn-status.py, cairn-doctor.py, cairn-lease.py,
-    cairn-migrate.py, hooks/session-start.sh). The consequence is a measured
-    false green: `cairn-doctor.sh --json` reports `claims-stale :: ok ::
-    skipped — no active_phase in STATE.md`, a check that has never run in
-    this project's life, wearing `ok`. Which dialect wins changes what five
-    files read and a wrong migration breaks the lease and the board for
-    anyone with a STATE.md already written — that is grooming, tracked as
-    CairnGo-rq0, and this command neither decides it nor stays quiet about
-    it: it writes the key the file already has, invents none, and a test
-    asserts that no `active_phase` key is ever created. The mechanical half
-    of AUTO-08 (a check that could not check must stop saying `ok`) lands in
-    plan 29-07.
+    current_phase vs active_phase WAS grooming (AUTO-08 / CairnGo-rq0) and is
+    now DECIDED (AUTO-10, 2026-08-06): both, always the same value, reading
+    stays on active_phase. The consequence it removes is a measured false
+    green: `cairn-doctor.sh --json` reported `claims-stale :: ok :: skipped —
+    no active_phase in STATE.md`, a check that had never run in this
+    project's life, wearing `ok`.
+
+    The two alternatives lost on measurement, not taste. `active_phase` alone
+    leaves gsd-tools writing `current_phase` from outside — it has already
+    corrupted it twice in this cycle, writing 18 by reading stale prose — so
+    cairn would stop propagating the error without preventing it.
+    `current_phase` alone hands those five readers the key gsd-tools
+    corrupts, and the corruption would then decide the lease, the board, the
+    doctor and the migration.
 
 THE TRACKER HALF IS INVOKED, NEVER RE-IMPLEMENTED — AND IT REFUSES EARLY
     `cairn-map.py <N> --json` already refuses a file whose marker block was
@@ -1063,8 +1081,9 @@ ONE_WAY_NOTE = ("this command only ever moves a view from not-done to done. "
                 "Reported, never written.")
 
 # Exhaustively: the only STATE.md frontmatter keys this command ever writes,
-# and only when the file already has them. It invents no key.
-STATE_KEYS_WRITTEN = ("current_phase", "current_phase_name",
+# and only when the file already has them — with ONE named exception,
+# `active_phase`, whose creation rule lives at its edit in build_plan().
+STATE_KEYS_WRITTEN = ("current_phase", "current_phase_name", "active_phase",
                       "progress.total_phases", "progress.completed_phases",
                       "progress.total_plans", "progress.completed_plans",
                       "progress.percent", "last_updated", "last_activity")
@@ -1329,6 +1348,7 @@ def build_plan(planning, phase, date, stamp):
                    "completed_plans", "percent")}
         if phase is not None:
             wanted["current_phase"] = phase
+            wanted["active_phase"] = phase
             title = road["titles"].get(phase)
             if title:
                 wanted["current_phase_name"] = title
@@ -1346,6 +1366,40 @@ def build_plan(planning, phase, date, stamp):
             state_edits.append(make_edit(
                 state_path, item["index"], raw, after,
                 f"{key} disagrees with the roadmap and the phase tree"))
+        # THE ONE KEY THIS COMMAND CREATES (AUTO-10, decided 2026-08-06).
+        #
+        # Everywhere else the rule is absolute: write the key the file has,
+        # invent none. Here it costs the decision itself. MEASURED 2026-08-05
+        # and again 2026-08-07: the STATE.md GSD writes carries
+        # `current_phase` and NO `active_phase`, while five cairn surfaces
+        # read `active_phase` and zero read `current_phase`. Under
+        # "only what already exists", writing both means writing neither, and
+        # the false green stands (`claims-stale` reporting no input in a
+        # project where the check has never once run).
+        #
+        # So the exception is the narrowest one that works, and both halves
+        # of the condition are load-bearing:
+        #   * `current_phase` must already be in the file — the file already
+        #     speaks about a phase, in one dialect. A STATE.md carrying
+        #     neither key keeps carrying neither: nothing is invented.
+        #   * the new line goes immediately AFTER that anchor, wearing its
+        #     neighbour's quoting, so key order and the prose body survive
+        #     untouched — the contract the two shape tests already guard.
+        created = None
+        if ("active_phase" in wanted and "active_phase" not in items
+                and "current_phase" in items):
+            anchor = items["current_phase"]
+            raw = split_eol(state_lines[anchor["index"]])[0]
+            start, end = anchor["value_span"]
+            value = format_state_value(raw[start:end], wanted["active_phase"])
+            created = "active_phase"
+            state_edits.append(make_edit(
+                state_path, anchor["index"] + 1, None,
+                f"active_phase: {value}",
+                "AUTO-10: cairn reads active_phase, GSD writes current_phase, "
+                "and this file carries only the one nothing reads — the key "
+                "cairn reads is added beside it, not instead of it",
+                op="insert"))
         # The two timestamps ride along with a real change and never alone:
         # a run that changed nothing did not produce activity, and writing
         # them unconditionally would make the second --apply of an
@@ -1366,7 +1420,8 @@ def build_plan(planning, phase, date, stamp):
                         state_path, item["index"], raw, after,
                         f"{key} follows the edits this run made"))
         edits.extend(state_edits)
-        absent = [k for k in STATE_KEYS_WRITTEN if k not in items]
+        absent = [k for k in STATE_KEYS_WRITTEN
+                  if k not in items and k != created]
         if absent:
             skipped.append({
                 "what": "STATE.md keys this command did not create",

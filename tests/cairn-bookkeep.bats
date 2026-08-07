@@ -707,7 +707,7 @@ print(hashlib.sha256(text.split("\n---\n", 1)[1].encode()).hexdigest())
 PY
 }
 
-@test "close --apply: the six edits land, and the diff is 15 lines for 15" {
+@test "close --apply: the six edits land, and the diff is 16 lines for 16" {
   make_drift_fixture "$PWD"
   run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
@@ -738,14 +738,20 @@ PY
   grep -qF "  percent: 20" "$PWD/.planning/STATE.md"
   grep -qF 'last_updated: "2026-08-04T09:00:00.000Z"' "$PWD/.planning/STATE.md"
   grep -qF "last_activity: 2026-08-04" "$PWD/.planning/STATE.md"
+  # 7. AUTO-10: the key cairn READS, beside the key GSD writes. The sixteenth
+  #    line of the diff below is this one, and it is the only INSERTION the
+  #    STATE half has ever made.
+  grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  grep -qF "active_phase: 29" "$PWD/.planning/STATE.md"
 
   # The whole D-01 claim, in three numbers. Any reserialization, re-wrap or
-  # whitespace pass makes these explode.
+  # whitespace pass makes these explode. STATE.md reads 6/5 and not 5/5
+  # BECAUSE of the insertion above: five values replaced, one key created.
   run git -C "$PWD" diff --numstat
   [ "$status" -eq 0 ]
   echo "$output" | grep -qE '^3	3	\.planning/REQUIREMENTS\.md$'
   echo "$output" | grep -qE '^7	7	\.planning/ROADMAP\.md$'
-  echo "$output" | grep -qE '^5	5	\.planning/STATE\.md$'
+  echo "$output" | grep -qE '^6	5	\.planning/STATE\.md$'
 }
 
 @test "close --apply: the prose quoting the footer comes out byte for byte" {
@@ -892,18 +898,18 @@ PY
   [ "$output" = "7	5	.planning/ROADMAP.md" ]
 }
 
-@test "close --apply: the frontmatter keeps its order, its body, and grows no key" {
+@test "close --apply: the frontmatter keeps its order and its body, and grows EXACTLY one key" {
   make_drift_fixture "$PWD"
   local order_before body_before
   order_before="$(state_key_order "$PWD/.planning/STATE.md")"
   body_before="$(state_body_sha "$PWD/.planning/STATE.md")"
+  # The dialect this fixture speaks, and the one every GSD-written STATE.md
+  # speaks: the key nothing in cairn reads, and not the key five surfaces do.
+  grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  refute_in_file "active_phase" "$PWD/.planning/STATE.md"
 
   run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
-
-  # Break: any YAML round-trip. Measured cause: `state complete-phase`
-  # reorders the frontmatter it rewrites.
-  [ "$(state_key_order "$PWD/.planning/STATE.md")" = "$order_before" ]
 
   # Break: a command that "takes the opportunity" to refresh the prose — or,
   # worse, that READS it. The measured corruption is `state record-session`
@@ -911,10 +917,83 @@ PY
   [ "$(state_body_sha "$PWD/.planning/STATE.md")" = "$body_before" ]
   grep -qF "Phase: 18" "$PWD/.planning/STATE.md"
 
-  # AUTO-08 is grooming (CairnGo-rq0), not this command's to decide: it
-  # writes the key the file has and invents none.
+  # AUTO-10, decided 2026-08-06: BOTH keys, same value, reading stays on
+  # active_phase. Measured 2026-08-05: `grep -rn current_phase cairn/` finds
+  # zero readers while five surfaces read active_phase.
   grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  grep -qF "active_phase: 29" "$PWD/.planning/STATE.md"
+
+  # Break, and this is the assertion the whole exception is fenced by: the
+  # order is the OLD order with active_phase inserted immediately after its
+  # anchor, and nothing else moved. A YAML round-trip (the measured failure
+  # of `state complete-phase`) fails this; so does creating the key anywhere
+  # else, and so does creating a second one.
+  local order_after expected
+  order_after="$(state_key_order "$PWD/.planning/STATE.md")"
+  expected="${order_before/current_phase/current_phase active_phase}"
+  [ "$order_after" = "$expected" ]
+}
+
+# The key is CREATED once and MAINTAINED forever after, and those are two
+# different code paths — a distinction found by breaking, not by reading.
+#
+# MEASURED while proving this plan: removing `active_phase` from
+# STATE_KEYS_WRITTEN left every other test in this file GREEN, because the
+# creation branch asks `"active_phase" in wanted` and never consults the
+# tuple. So the tuple governs only the UPDATE of a file that already carries
+# the key — the state of every repository from its second close onward — and
+# nothing asserted it. Without this test the phase would ship a key that is
+# written once and then goes stale, which is a fresh instance of exactly the
+# defect state-dialect exists to catch: it would start FAILING the doctor on
+# the next phase.
+@test "close --apply: an active_phase already in the file is updated, not duplicated" {
+  make_drift_fixture "$PWD"
+  python3 - "$PWD/.planning/STATE.md" <<'PY'
+import re
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(re.sub(r"^(current_phase: .*)$", r"\1\nactive_phase: 3",
+                    p.read_text(), count=1, flags=re.MULTILINE))
+PY
+  grep -qF "active_phase: 3" "$PWD/.planning/STATE.md"
+
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  grep -qF "active_phase: 29" "$PWD/.planning/STATE.md"
+  # Exactly one line, not a second one inserted beside the stale first.
+  [ "$(grep -c '^active_phase:' "$PWD/.planning/STATE.md")" -eq 1 ]
+}
+
+# The other half of the exception, and the reason it is not "always create":
+# the anchor. A STATE.md that speaks about no phase at all grows no key —
+# the file has to already carry the dialect for the second word of it to be
+# added beside the first.
+#
+# Break: drop the `"current_phase" in items` condition and this file grows an
+# active_phase out of nothing, which is the invention the rest of this
+# command exists to refuse.
+@test "close --apply: no current_phase in the file means no active_phase either" {
+  make_drift_fixture "$PWD"
+  python3 - "$PWD/.planning/STATE.md" <<'PY'
+import re, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(re.sub(r"^current_phase.*\n", "", p.read_text(),
+                    flags=re.MULTILINE))
+PY
+  refute_in_file "current_phase" "$PWD/.planning/STATE.md"
+
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
   refute_in_file "active_phase" "$PWD/.planning/STATE.md"
+  # And it says so, rather than staying quiet about the key it did not write.
+  run bash "$BOOKKEEP" close 29 --json --no-tracker --planning-dir "$PWD/.planning"
+  assert_json_eq "$output" \
+    '[.skipped[] | select(.why | test("active_phase"))] | length' '1'
 }
 
 @test "close --apply: the two free-text fields are untouched AND still named" {

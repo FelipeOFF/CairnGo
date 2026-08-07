@@ -145,7 +145,14 @@ EOF
   # 20 -> 21 with check 20, plan-counters (phase 25, criterion 6). Both sites
   # here, the numbered list in cairn-doctor.py's docstring and the table in
   # cairn/docs/commands/doctor.md were edited in the same change.
-  assert_json_eq "$output" '.checks | length' '21'
+  #
+  # 21 -> 22 with check 21, state-dialect (phase 25, criterion 5) — and this
+  # bump is the one the note was written for, all over again: phase 25 ran in
+  # TWO parallel worktrees, exactly the shape that made this literal wrong
+  # once. The four sites were edited in one change, from the branch that owns
+  # cairn-doctor.py; the other branch never touches it, so there is one
+  # writer and no merge to be silent about.
+  assert_json_eq "$output" '.checks | length' '22'
   # The exact ordered set, not "unique == ok": after 23-02 this fixture has
   # two ⊘ checks (cairn's own manifests are absent by construction), and an
   # assertion that merely tolerated extra values would stop proving anything.
@@ -2185,12 +2192,19 @@ EOF
   # phase 23 refused. The literal is EDITED, never loosened to a subset: a
   # subset assertion is the one that stops catching a real regression into the
   # fourth state, and catching that is why this line exists.
+  #
+  # FOUR since phase 25: `state-dialect` joins them, same class again. This
+  # fixture's STATE.md carries active_phase and no current_phase, so there is
+  # no second dialect for it to disagree with — out-of-scope, and never
+  # no-input, which would charge every GSD repo that has not run
+  # cairn-bookkeep with a permanent gap the doctor already reports once, on
+  # claims-stale.
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .id] | sort | join(",")' \
-    'phase-landed,release-versions,test-parallel'
+    'phase-landed,release-versions,state-dialect,test-parallel'
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .scope] | sort | join(",")' \
-    'out-of-scope,out-of-scope,out-of-scope'
+    'out-of-scope,out-of-scope,out-of-scope,out-of-scope'
 }
 
 # --------------------------------------------------------------------------- #
@@ -3168,11 +3182,11 @@ PY
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
-  # 21 since check 20, plan-counters (phase 25) — see the long note on the same
+  # 22 since check 21, state-dialect (phase 25) — see the long note on the same
   # assertion near the top of this file for why the merge, and not either
   # branch, is what made this literal wrong once, and why BOTH sites are
   # edited in one change.
-  assert_json_eq "$output" '.checks | length' '21'
+  assert_json_eq "$output" '.checks | length' '22'
   assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
     'true'
 }
@@ -3274,7 +3288,11 @@ PY
 # teaching any cairn surface to read `current_phase`) resolves the symptom by
 # deciding a business rule that belongs to grooming, and it silently changes
 # what every repo with a STATE.md already on disk means.
-@test "claims-stale: the doctor never writes active_phase and never reads current_phase" {
+# The title was "…and never reads current_phase" until phase 25: check 21,
+# state-dialect, now READS current_phase — to compare it, never to stand in
+# for it. The abstention this test protects is claims-stale's, and it is
+# unchanged: no synonym, no fallback, no second reader of one fact.
+@test "claims-stale: the doctor never writes active_phase, and never takes current_phase as its synonym" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -3622,4 +3640,178 @@ PY
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   assert_json_eq "$output" \
     '.checks[] | select(.id=="phase-landed") | .status' 'ok'
+}
+
+# ─── check 21, state-dialect (CairnGo-ctr, AUTO-10, phase 25 criterion 5) ────
+#
+# MEASURED 2026-08-05, reconfirmed 2026-08-07 in this checkout:
+#
+#   $ grep -rn current_phase cairn/     -> ZERO readers
+#   $ grep -rln active_phase cairn/     -> cairn-status.py, cairn-doctor.py,
+#                                          cairn-lease.py, cairn-migrate.py,
+#                                          hooks/session-start.sh
+#   $ sed -n 5p .planning/STATE.md      -> current_phase: 30   (no active_phase)
+#
+# cairn wrote the key nothing here reads. The owner decided (2026-08-06) to
+# write BOTH, and made the comparison part of the decision: two keys that must
+# agree and that nobody compares is this cycle's defect, measured four times.
+
+# Replace the fixture's `active_phase: "N"` with `current_phase: N` — the
+# frontmatter of every STATE.md GSD has ever written, and the state this repo
+# was measured in on 2026-08-05.
+speak_gsd_dialect_only() {
+  python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r'^active_phase: "(.*?)"$', r"current_phase: \1",
+                    p.read_text(), flags=re.MULTILINE))
+PY
+}
+
+# Add `current_phase: N` beside the fixture's own active_phase.
+add_current_phase() {
+  N="$1" python3 - <<'PY'
+import os
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r'^(active_phase: ".*?")$',
+                    lambda m: m.group(1) + "\ncurrent_phase: "
+                    + os.environ["N"],
+                    p.read_text(), count=1, flags=re.MULTILINE))
+PY
+}
+
+# Break three ways: drop the check from the registry; compare the keys with a
+# phase recomputed from the roadmap (which would agree with whichever key the
+# same rule wrote, and never fail); or downgrade the disagreement to a warn,
+# which is the false green this whole cycle removes.
+@test "state-dialect: two keys naming two different phases is a FAIL that routes" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  add_current_phase 1     # the fixture's active_phase is "2"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.failed' 'true'
+  # The exact value, never "is not ok": `warn` and `not-applicable` both
+  # satisfy a negation, and both would be wrong here.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'fail'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .items[0]' \
+    'current_phase 1 != active_phase 2'
+  # It routes to the one command that owns both keys.
+  grep -qF "cairn-bookkeep.sh close" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "✗ state-dialect" <<<"$output"
+}
+
+# The negative half: without it, "always fails" would pass a check that runs
+# on every doctor invocation in every repository.
+@test "state-dialect: two keys naming the same phase is ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  add_current_phase 2     # agrees with the fixture's active_phase "2"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .detail' \
+    "STATE.md's two phase keys agree on phase 2"
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | has("scope")' 'false'
+}
+
+# The assignment that had to be argued instead of measured, and the one a
+# careless version gets wrong: ONE key is out-of-scope, never no-input.
+#
+# Break: return no-input here. Every GSD repository that has never run
+# cairn-bookkeep — which is all of them, including this fixture — would get
+# `.ok: false` forever, a permanent false red, and check 8 already reports the
+# very same missing key as its own no-input. One gap, counted once.
+@test "state-dialect: one key only is out-of-scope, and never a gap" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  # The fixture as it ships: active_phase and no current_phase.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
+
+  # And the mirror image — the dialect every GSD STATE.md speaks.
+  speak_gsd_dialect_only
+  ! grep -qF "active_phase" "$PWD/.planning/STATE.md"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .scope' 'out-of-scope'
+  # `.ok` is false here — but because of check 8's no-input on the missing
+  # active_phase, not because of this one. Asserted at the check, so the two
+  # verdicts cannot be confused for each other.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
+}
+
+# THE CRITERION, END TO END, and the only test here that drives both halves of
+# AUTO-10 in one run: a STATE.md in the GSD dialect, the check that has never
+# once run in this project's life reporting no input over it, cairn-bookkeep
+# writing the key cairn reads, and the same check running afterwards.
+#
+# Break: revert STATE_KEYS_WRITTEN or the anchor condition in build_plan and
+# the second half of this test goes back to no-input — which is exactly the
+# measurement of 2026-08-05.
+@test "AUTO-10: close --apply lands active_phase, and claims-stale stops reporting no input" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  speak_gsd_dialect_only
+  grep -qF "current_phase: 2" "$PWD/.planning/STATE.md"
+  ! grep -qF "active_phase" "$PWD/.planning/STATE.md"
+
+  # Before: the measured false green's successor — a check with no input.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-bookkeep.sh" close 2 --apply \
+    --no-tracker --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # The key cairn reads is in the file, beside the key GSD writes, naming the
+  # same phase — so check 21 has something to compare and agrees.
+  grep -qF "current_phase: 2" "$PWD/.planning/STATE.md"
+  grep -qF "active_phase: 2" "$PWD/.planning/STATE.md"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | has("scope")' 'false'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'ok'
 }
