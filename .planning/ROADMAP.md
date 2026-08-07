@@ -41,7 +41,7 @@ não conta como pronta.
 - [x] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03) — completed 2026-08-05
 - [x] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02) — completed 2026-08-06
 - [x] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03, DJOUR-04) — completed 2026-08-07
-- [ ] Phase 30: Did it land (PR-01, PR-02, PR-03, PR-04)
+- [x] Phase 30: Did it land (PR-01, PR-02, PR-03, PR-04) — completed 2026-08-07
 
 ## Detalhe das fases
 
@@ -402,6 +402,16 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
    único artefato cuja perda não muda veredito), commitar a partição no fim de fase,
    ou aceitar e documentar. **A escolha é do Felipe** e vale junto com a decisão de
    commitar ou não a partição deste checkout.
+
+9. **Superfície nova sem porta de entrada (`CairnGo-3w9`).** A fase 30 entregou
+   `cairn-land.py` e `cairn-review.py`, e nenhum dos dois tem wrapper `/cairn:*` nem
+   página em `cairn/docs/commands/`. É exatamente a lacuna que o `WRAP-03` existe para
+   tornar visível — *"a documentação lista os wrappers a partir do que está instalado,
+   não de uma lista escrita à mão que envelhece"* — e ela não apareceu, o que é a
+   segunda metade do achado: um script sem wrapper não é listado por definição, então
+   a página derivada não tem como notar a ausência. Ou o conserto entrega as duas
+   portas, ou alguma superfície nomeia script do cairn que ninguém consegue invocar
+   por comando.
 
 **Research durante o planejamento:** não precisa. Os três carregam a medição na
 própria issue do bd. Os critérios 5 e 7 são decisões do Felipe já tomadas (2026-08-06)
@@ -811,10 +821,10 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | AUTO-08 | Phase 29 | Complete |
 | AUTO-05 | Phase 29 | Complete |
 | AUTO-06 | Phase 29 | Complete |
-| PR-01 | Phase 30 | Pending |
-| PR-02 | Phase 30 | Pending |
-| PR-03 | Phase 30 | Pending |
-| PR-04 | Phase 30 | Pending |
+| PR-01 | Phase 30 | Complete |
+| PR-02 | Phase 30 | Complete |
+| PR-03 | Phase 30 | Complete |
+| PR-04 | Phase 30 | Complete |
 
 41 requisitos, 41 mapeados.
 
