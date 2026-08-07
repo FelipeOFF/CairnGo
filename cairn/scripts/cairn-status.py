@@ -873,6 +873,32 @@ def phase_disk_state(pdir):
     disagree exactly when it matters — a phase can be planned and executed with
     nobody having ticked the box, and a box can be ticked over a phase whose
     SUMMARY was never written.
+
+    `executed` MEANS EVERY PLAN HAS ITS SUMMARY, not "at least one summary
+    exists". MEASURED 2026-08-03 in the phase 29 pre-flight (CairnGo-0po,
+    FIX-05): phase 20 had three PLAN.md and one summary — wave 1 closed, waves
+    2 and 3 pending — and this function answered `executed` while
+    phase_plan_counts() answered 1 of 3 in the same model. The card was right
+    and the collapsed value was wrong. check_phase_corroboration() then
+    compared `executed` against the still-open bd issue, raised a `blocks`
+    conflict and the doctor exited 7 over a phase that was a third done; an
+    autonomous run stops on that by its own stopping rule. With `planned`,
+    disk and bd agree and there is no conflict to fabricate.
+
+    The comparison runs on phase_plan_counts(), which matches `NN-MM-PLAN.md`
+    and `NN-MM-SUMMARY.md` by SHAPE. That also settles a second confusion the
+    suffix test could not: `NN-SUMMARY.md` — the summary of the PHASE — ends in
+    `-SUMMARY.md` as well, and used to be enough on its own. Same asymmetry
+    CairnGo-6bx measured in cairn-bookkeep.py's counters.
+
+    THE FOUR VALUES STAY FOUR (constraint inherited from phase 13):
+    phase_next_command() indexes a raw dict on this, so a fifth value is a
+    straight KeyError. A partly-summarized phase is `planned`, which is what it
+    was before its first summary landed.
+
+    A directory with a summary and NO plan keeps the old suffix answer, and
+    that is deliberate: with nothing to compare against there is no "every",
+    and changing it would move the exit code of a path that is green today.
     """
     if pdir is None or not pdir.is_dir():
         return "none"
@@ -880,6 +906,9 @@ def phase_disk_state(pdir):
     has = lambda suffix: any(n.endswith(suffix) for n in names)  # noqa: E731
     if has("-VERIFICATION.md"):
         return "verified"
+    done, total = phase_plan_counts(pdir)
+    if total:
+        return "executed" if done == total else "planned"
     if has("-SUMMARY.md"):
         return "executed"
     if has("-PLAN.md"):

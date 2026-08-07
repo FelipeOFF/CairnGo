@@ -141,7 +141,11 @@ EOF
   # cairn-doctor.py's own docstring still saying "eighteen checks in total"
   # while nineteen were registered: prose kept by hand goes stale, this literal
   # does not, and that asymmetry is why the literal is the contract.
-  assert_json_eq "$output" '.checks | length' '20'
+  #
+  # 20 -> 21 with check 20, plan-counters (phase 25, criterion 6). Both sites
+  # here, the numbered list in cairn-doctor.py's docstring and the table in
+  # cairn/docs/commands/doctor.md were edited in the same change.
+  assert_json_eq "$output" '.checks | length' '21'
   # The exact ordered set, not "unique == ok": after 23-02 this fixture has
   # two ⊘ checks (cairn's own manifests are absent by construction), and an
   # assertion that merely tolerated extra values would stop proving anything.
@@ -1142,6 +1146,17 @@ PY
   [ "$status" -eq 0 ]
   grep -qF "not applicable" <<<"$output"
   grep -qF "/cairn:migrate" <<<"$output"
+
+  # MEASURED 2026-08-07 while adding check 20: this path registers ZERO
+  # checks — the doctor short-circuits before the check list is built, so
+  # `.checks` is empty and `.ok` is true by construction. Any assertion here
+  # about a particular check's status or scope would pass against every
+  # implementation, which is not a proof of anything. Said out loud because
+  # the vacuous version of it was written first.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks | length' '0'
+  assert_json_eq "$output" '.ok' 'true'
 }
 
 @test "no .beads/ — not applicable, exit 0, suggests /cairn:migrate" {
@@ -1757,8 +1772,26 @@ EOF
 # real phase — isolating these tests to phase-artifacts' own behavior, the
 # same way the phase-corroboration tests above build single-conflict
 # fixtures on purpose.
+# Take phase 2's corroboration out of the picture so a phase-artifacts test
+# measures phase-artifacts and nothing else. The bd side must be made to AGREE
+# with what the disk actually says, and $1 names which side the disk is on:
+#
+#   done      the phase reached executed/verified -> close the bd issue
+#   underway  the phase has plans still unsummarized -> leave it open
+#
+# It used to close the issue unconditionally, and that was correct only while
+# a single -SUMMARY.md was enough to call a whole phase `executed` (FIX-05,
+# CairnGo-0po). With `executed` now meaning EVERY plan has its summary, a
+# two-plan/one-summary phase reads `planned`, and closing its issue creates a
+# real disk-vs-bd conflict instead of removing one. Which is the point of the
+# fix: the model stopped agreeing with a claim the disk does not support.
 neutralize_phase2_corroboration() {
-  bd close "$DOC_P2" >/dev/null
+  case "${1:-done}" in
+    done) bd close "$DOC_P2" >/dev/null ;;
+    underway) : ;;
+    *) echo "neutralize_phase2_corroboration: unknown disk side '$1'" >&2
+       return 1 ;;
+  esac
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
   set_state_active_phase 99
 }
@@ -1803,12 +1836,16 @@ neutralize_phase2_corroboration() {
   # unsummarized, disk_state never having reached "verified". It must stay
   # green forever, not just today.
   make_phase2_two_plans_one_summary
-  # Adding 02-01-SUMMARY.md alone (with no VERIFICATION.md) already moves
-  # phase 2's disk_state from "planned" to "executed" — still short of
-  # "verified", so phase-artifacts' own gate is unaffected, but it is
-  # ALSO enough to trip phase-corroboration's disk-vs-bd axis against the
-  # still-open DOC_P2 (an unrelated confound this test isn't about).
-  neutralize_phase2_corroboration
+  # Adding 02-01-SUMMARY.md alone used to move phase 2's disk_state from
+  # "planned" to "executed", which tripped phase-corroboration's disk-vs-bd
+  # axis against the still-open DOC_P2 — an unrelated confound this test is
+  # not about, and the reason the neutralizer closed that issue.
+  #
+  # Since FIX-05 (CairnGo-0po) `executed` means EVERY plan has its summary, so
+  # this phase reads "planned" and the confound is gone at the source: an open
+  # issue is what a phase with unsummarized plans is supposed to have. Closing
+  # it now would MANUFACTURE the conflict the neutralizer exists to remove.
+  neutralize_phase2_corroboration underway
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
@@ -3131,13 +3168,106 @@ PY
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
-  # 20 since check 19, phase-landed (phase 30) — see the long note on the same
+  # 21 since check 20, plan-counters (phase 25) — see the long note on the same
   # assertion near the top of this file for why the merge, and not either
   # branch, is what made this literal wrong once, and why BOTH sites are
   # edited in one change.
-  assert_json_eq "$output" '.checks | length' '20'
+  assert_json_eq "$output" '.checks | length' '21'
   assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
     'true'
+}
+
+# ─── check 20, plan-counters (CairnGo-6bx, phase 25 criterion 6) ─────────────
+#
+# MEASURED 2026-08-06, right after the close of phase 22:
+#
+#   .planning/STATE.md          on disk
+#   total_plans:     39         NN-MM-PLAN.md ...... 39
+#   completed_plans: 47   <---  NN-MM-SUMMARY.md ... 39
+#   percent:         91         NN-SUMMARY.md ....... 8     47 = 39 + 8
+#
+# `cairn-bookkeep reconcile` returned `disagreements: []` over that file while
+# printing both contradictory numbers inside the SAME JSON object: writer and
+# verifier derive completed_plans with one rule, so they agree. This check
+# exists because it does NOT recompute — `completed > total` is impossible by
+# arithmetic and needs nothing from either glob.
+
+# Set STATE.md's two plan counters to COMPLETED ($1) of TOTAL ($2).
+set_state_plan_counters() {
+  COMPLETED="$1" TOTAL="$2" python3 - <<'PY'
+import os
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+t = p.read_text()
+t = re.sub(r"^(\s*)total_plans:.*$",
+           lambda m: f"{m.group(1)}total_plans: {os.environ['TOTAL']}",
+           t, count=1, flags=re.MULTILINE)
+t = re.sub(r"^(\s*)completed_plans:.*$",
+           lambda m: f"{m.group(1)}completed_plans: {os.environ['COMPLETED']}",
+           t, count=1, flags=re.MULTILINE)
+p.write_text(t)
+PY
+}
+
+@test "plan-counters fails a STATE.md claiming more plans done than exist" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  set_state_plan_counters 47 39
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="plan-counters") | .status][0]' 'fail'
+  # Both numbers reach the operator: a finding that says "the counters
+  # disagree" without saying which two numbers is not actionable.
+  printf '%s' "$output" | jq -r \
+    '[.checks[] | select(.id=="plan-counters") | .items[]][0]' \
+    | grep -qF '47'
+  printf '%s' "$output" | jq -r \
+    '[.checks[] | select(.id=="plan-counters") | .items[]][0]' \
+    | grep -qF '39'
+}
+
+@test "plan-counters passes a STATE.md whose two numbers are possible" {
+  # The negative half. Without it, "always fail" would pass the test above,
+  # and this check runs on every doctor invocation in every repository.
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  set_state_plan_counters 39 39
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="plan-counters") | .status][0]' 'ok'
+}
+
+@test "plan-counters reports no input, never ok, when STATE.md has no counters" {
+  # A missing `progress:` block is GSD's absence, not an inconsistency — and
+  # saying `ok` over an input that never arrived is the shape phase 23 removed
+  # from this file. The value asserted is the exact one, never the negation.
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r"^\s*(total_plans|completed_plans):.*\n", "",
+                    p.read_text(), flags=re.MULTILINE))
+PY
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="plan-counters") | .status][0]' 'not-applicable'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="plan-counters") | .scope][0]' 'no-input'
 }
 
 # Break: take a side on the dialect. Writing `active_phase` into STATE.md (or

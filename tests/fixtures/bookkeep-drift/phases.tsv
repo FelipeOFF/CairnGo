@@ -1,6 +1,13 @@
-# phase_dir	plans	summaries	has_verification
+# phase_dir	plans	summaries	has_verification	has_phase_summary
 # Counted by capture.sh from .planning/phases/. make_drift_fixture
 # rebuilds the tree from these counts with EMPTY files of the right
 # names — every counter under test counts names, not content.
-20-group-model	3	3	1
-29-nothing-mechanical-stays-manual	7	0	0
+#
+# has_phase_summary writes NN-SUMMARY.md, the summary of the PHASE. It is
+# NOT a plan and must never be counted as one. Measured 2026-08-06
+# (CairnGo-6bx): zero fixtures in this repository carried one, so the defect
+# that made completed_plans exceed total_plans never came near a test. The
+# counters asserted elsewhere in cairn-bookkeep.bats are the canary — they
+# read 3 of 10 with this column set, and 4 of 10 without the fix.
+20-group-model	3	3	1	1
+29-nothing-mechanical-stays-manual	7	0	0	0

@@ -503,12 +503,17 @@ make_drift_fixture() {
     cp "$src/$name.md" "$p/$name.md"
   done
 
-  # phases.tsv: phase_dir<TAB>plans<TAB>summaries<TAB>has_verification.
-  # Comment lines start with '#'. The plan/summary numbers are regenerated as
-  # NN-01..NN-<count>, which is how the frozen ROADMAP's own `Plans:` lists
-  # name them.
-  local phase_dir plans summaries has_ver nn i idx
-  while IFS=$'\t' read -r phase_dir plans summaries has_ver; do
+  # phases.tsv: phase_dir<TAB>plans<TAB>summaries<TAB>has_verification<TAB>
+  # has_phase_summary. Comment lines start with '#'. The plan/summary numbers
+  # are regenerated as NN-01..NN-<count>, which is how the frozen ROADMAP's
+  # own `Plans:` lists name them.
+  #
+  # has_phase_summary writes NN-SUMMARY.md — the summary of the PHASE, which
+  # is not a plan. It exists because its absence is what kept CairnGo-6bx away
+  # from every test in this repository: `*-SUMMARY.md` matched both shapes and
+  # nothing on disk ever carried the second one.
+  local phase_dir plans summaries has_ver has_phase_sum nn i idx
+  while IFS=$'\t' read -r phase_dir plans summaries has_ver has_phase_sum; do
     case "$phase_dir" in ''|'#'*) continue ;; esac
     mkdir -p "$p/phases/$phase_dir"
     nn="${phase_dir%%-*}"
@@ -522,6 +527,9 @@ make_drift_fixture() {
     done
     if [ "$has_ver" = "1" ]; then
       : > "$p/phases/$phase_dir/$nn-VERIFICATION.md"
+    fi
+    if [ "$has_phase_sum" = "1" ]; then
+      : > "$p/phases/$phase_dir/$nn-SUMMARY.md"
     fi
   done < "$src/phases.tsv"
 

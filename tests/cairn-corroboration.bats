@@ -195,6 +195,82 @@ assert p["next_command"] is None, p["next_command"]
 # tests/cairn-phase-model.bats tests/cairn-status.bats`), not duplicated
 # here.
 
+# ─── FIX-05: one SUMMARY made the whole phase read `executed` ───────────────
+#
+# MEASURED in the phase 29 pre-flight (2026-08-03), CairnGo-0po. Phase 20 had
+# three PLAN.md and ONE summary — wave 1 closed, waves 2 and 3 pending — and
+# the model answered:
+#
+#   disk_state: 'executed'   plans_done: 1   plans_total: 3
+#
+# The model HAS the truth; disk_state threw it away, because
+# phase_disk_state() asked `any(n.endswith('-SUMMARY.md'))` and any one of
+# them was enough. check_phase_corroboration() then compared 'executed'
+# against the still-open bd issue, raised a `blocks` conflict and the doctor
+# exited 7 — over a phase that was a third done. Neither branch of the message
+# ("close the issue if the work is done, or run /cairn:work N if it is not")
+# described that.
+#
+# Constraint inherited from phase 13 and not negotiable: disk_state keeps its
+# FOUR values. phase_next_command() indexes a raw dict on it, so a fifth is a
+# straight KeyError. So the fix is to require that EVERY plan has its summary,
+# never to add a value.
+
+@test "a phase with one summary for three plans is planned, not executed" {
+  local d="$BATS_TEST_TMPDIR/one-of-three"
+  mkdir -p "$d"
+  : > "$d/20-01-PLAN.md"
+  : > "$d/20-02-PLAN.md"
+  : > "$d/20-03-PLAN.md"
+  : > "$d/20-01-SUMMARY.md"
+  run python3 -c "$PY_LOAD"'
+import sys
+from pathlib import Path
+d = Path(sys.argv[1])
+state = cs.phase_disk_state(d)
+assert state == "planned", state
+# The counts the card already reported correctly, unchanged by the fix.
+assert cs.phase_plan_counts(d) == (1, 3), cs.phase_plan_counts(d)
+' "$d"
+  [ "$status" -eq 0 ]
+}
+
+@test "a phase whose every plan has its summary is executed" {
+  # The negative half. Without it, "nothing is ever executed" would pass the
+  # test above, and `executed` is the value the whole corroboration rests on.
+  local d="$BATS_TEST_TMPDIR/three-of-three"
+  mkdir -p "$d"
+  local i
+  for i in 01 02 03; do
+    : > "$d/20-$i-PLAN.md"
+    : > "$d/20-$i-SUMMARY.md"
+  done
+  run python3 -c "$PY_LOAD"'
+import sys
+from pathlib import Path
+state = cs.phase_disk_state(Path(sys.argv[1]))
+assert state == "executed", state
+' "$d"
+  [ "$status" -eq 0 ]
+}
+
+@test "the phase's own SUMMARY does not make its unfinished plans executed" {
+  # Same asymmetry as CairnGo-6bx, in the other file: `NN-SUMMARY.md` ends in
+  # `-SUMMARY.md` too, and the suffix test could never tell it from a plan's.
+  local d="$BATS_TEST_TMPDIR/phase-summary-only"
+  mkdir -p "$d"
+  : > "$d/20-01-PLAN.md"
+  : > "$d/20-02-PLAN.md"
+  : > "$d/20-SUMMARY.md"
+  run python3 -c "$PY_LOAD"'
+import sys
+from pathlib import Path
+state = cs.phase_disk_state(Path(sys.argv[1]))
+assert state == "planned", state
+' "$d"
+  [ "$status" -eq 0 ]
+}
+
 # ─── bd_state(): the ALL-not-ANY discipline (bullet 5) ──────────────────────
 
 @test "bd_state excludes an issue whose other phase label is not roadmap-complete" {
