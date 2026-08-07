@@ -47,6 +47,7 @@ second source of truth, and the file is committed like `sync.json` and
 | Autonomous run | `autonomous.max_cycles` | How many cycles an autonomous run may take before `batch` stops selecting. `0` means no ceiling. |
 | Tests | `test.jobs` | The `-j` the composed test command runs with. Unset uses as many jobs as there are CPUs. |
 | Delivery | `git.control_branches` | Which branch(es) work has to reach before it counts as delivered — comma-separated, because gitflow really does keep two at once (`develop` **and** `main`). Empty means the question was never answered, and `cairn-land.sh` falls back to detecting it while saying so. |
+| Delivery | `git.review_state` | Which forge CLI may be called to fetch pull-request state: `off` (the default — cairn makes **no** network call at all) · `gh` · `glab`. Only `cairn-review.sh fetch` ever reads it; the board never fetches on any setting, it reads `.cairn/pr-cache.json` and prints how old it is. |
 
 Enum keys refuse anything outside their vocabulary with exit `3` — the command
 never invents a fourth option.

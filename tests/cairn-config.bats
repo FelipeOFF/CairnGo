@@ -199,8 +199,14 @@ make_config_fixture() {
   # comma-separated LIST because gitflow really does keep two control branches
   # at once, and empty means the question was never answered rather than "no
   # branch".
+  #
+  # Documented override (plan 30-03): eight -> nine, for `git.review_state`.
+  # It is the switch on the ONLY cairn script that talks to a forge, its
+  # default is `off`, and its reader is cairn-review.py — a separate file
+  # precisely so the structural inventories over cairn-land.py and
+  # cairn-status.py keep proving those two make no network call.
   assert_json_eq "$output" '[.keys[].key] | sort | join(",")' \
-    'agents.response_language,autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,git.control_branches,jira.link,ship.pr_scope,test.jobs'
+    'agents.response_language,autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,git.control_branches,git.review_state,jira.link,ship.pr_scope,test.jobs'
   assert_json_eq "$output" '[.keys[] | select(.key | test("sync_push"))] | length' '0'
 
   # Every key names the executable that reads it. An empty reader is the
