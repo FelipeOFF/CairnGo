@@ -707,7 +707,7 @@ print(hashlib.sha256(text.split("\n---\n", 1)[1].encode()).hexdigest())
 PY
 }
 
-@test "close --apply: the six edits land, and the diff is 15 lines for 15" {
+@test "close --apply: the six edits land, and the diff is 16 lines for 16" {
   make_drift_fixture "$PWD"
   run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
@@ -738,14 +738,20 @@ PY
   grep -qF "  percent: 20" "$PWD/.planning/STATE.md"
   grep -qF 'last_updated: "2026-08-04T09:00:00.000Z"' "$PWD/.planning/STATE.md"
   grep -qF "last_activity: 2026-08-04" "$PWD/.planning/STATE.md"
+  # 7. AUTO-10: the key cairn READS, beside the key GSD writes. The sixteenth
+  #    line of the diff below is this one, and it is the only INSERTION the
+  #    STATE half has ever made.
+  grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  grep -qF "active_phase: 29" "$PWD/.planning/STATE.md"
 
   # The whole D-01 claim, in three numbers. Any reserialization, re-wrap or
-  # whitespace pass makes these explode.
+  # whitespace pass makes these explode. STATE.md reads 6/5 and not 5/5
+  # BECAUSE of the insertion above: five values replaced, one key created.
   run git -C "$PWD" diff --numstat
   [ "$status" -eq 0 ]
   echo "$output" | grep -qE '^3	3	\.planning/REQUIREMENTS\.md$'
   echo "$output" | grep -qE '^7	7	\.planning/ROADMAP\.md$'
-  echo "$output" | grep -qE '^5	5	\.planning/STATE\.md$'
+  echo "$output" | grep -qE '^6	5	\.planning/STATE\.md$'
 }
 
 @test "close --apply: the prose quoting the footer comes out byte for byte" {
@@ -869,7 +875,14 @@ p.write_text(p.read_text().replace(
 PY
   run bash "$BOOKKEEP" reconcile --apply --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.unresolved | length' '0'
+  # Every coverage row this command was blocked on is now planned, and the
+  # SET that remains is asserted as a set, not as a count of zero: the free
+  # text of `last_activity_desc` is never rewritten, and before CairnGo-ozy
+  # it was not even reported here — `unresolved` was empty and `nothing to
+  # change` was printed over it.
+  assert_json_eq "$output" \
+    '[.unresolved[] | "\(.kind)/\(.subject)"] | sort | join(" ")' \
+    'state-narrative-stale/last_activity_desc'
 
   # Inserted at the END of Phase 29's group, in planning order, so the file's
   # existing grouping by phase survives. Break: appending both to the bottom
@@ -892,18 +905,18 @@ PY
   [ "$output" = "7	5	.planning/ROADMAP.md" ]
 }
 
-@test "close --apply: the frontmatter keeps its order, its body, and grows no key" {
+@test "close --apply: the frontmatter keeps its order and its body, and grows EXACTLY one key" {
   make_drift_fixture "$PWD"
   local order_before body_before
   order_before="$(state_key_order "$PWD/.planning/STATE.md")"
   body_before="$(state_body_sha "$PWD/.planning/STATE.md")"
+  # The dialect this fixture speaks, and the one every GSD-written STATE.md
+  # speaks: the key nothing in cairn reads, and not the key five surfaces do.
+  grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  refute_in_file "active_phase" "$PWD/.planning/STATE.md"
 
   run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
-
-  # Break: any YAML round-trip. Measured cause: `state complete-phase`
-  # reorders the frontmatter it rewrites.
-  [ "$(state_key_order "$PWD/.planning/STATE.md")" = "$order_before" ]
 
   # Break: a command that "takes the opportunity" to refresh the prose — or,
   # worse, that READS it. The measured corruption is `state record-session`
@@ -911,10 +924,83 @@ PY
   [ "$(state_body_sha "$PWD/.planning/STATE.md")" = "$body_before" ]
   grep -qF "Phase: 18" "$PWD/.planning/STATE.md"
 
-  # AUTO-08 is grooming (CairnGo-rq0), not this command's to decide: it
-  # writes the key the file has and invents none.
+  # AUTO-10, decided 2026-08-06: BOTH keys, same value, reading stays on
+  # active_phase. Measured 2026-08-05: `grep -rn current_phase cairn/` finds
+  # zero readers while five surfaces read active_phase.
   grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  grep -qF "active_phase: 29" "$PWD/.planning/STATE.md"
+
+  # Break, and this is the assertion the whole exception is fenced by: the
+  # order is the OLD order with active_phase inserted immediately after its
+  # anchor, and nothing else moved. A YAML round-trip (the measured failure
+  # of `state complete-phase`) fails this; so does creating the key anywhere
+  # else, and so does creating a second one.
+  local order_after expected
+  order_after="$(state_key_order "$PWD/.planning/STATE.md")"
+  expected="${order_before/current_phase/current_phase active_phase}"
+  [ "$order_after" = "$expected" ]
+}
+
+# The key is CREATED once and MAINTAINED forever after, and those are two
+# different code paths — a distinction found by breaking, not by reading.
+#
+# MEASURED while proving this plan: removing `active_phase` from
+# STATE_KEYS_WRITTEN left every other test in this file GREEN, because the
+# creation branch asks `"active_phase" in wanted` and never consults the
+# tuple. So the tuple governs only the UPDATE of a file that already carries
+# the key — the state of every repository from its second close onward — and
+# nothing asserted it. Without this test the phase would ship a key that is
+# written once and then goes stale, which is a fresh instance of exactly the
+# defect state-dialect exists to catch: it would start FAILING the doctor on
+# the next phase.
+@test "close --apply: an active_phase already in the file is updated, not duplicated" {
+  make_drift_fixture "$PWD"
+  python3 - "$PWD/.planning/STATE.md" <<'PY'
+import re
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(re.sub(r"^(current_phase: .*)$", r"\1\nactive_phase: 3",
+                    p.read_text(), count=1, flags=re.MULTILINE))
+PY
+  grep -qF "active_phase: 3" "$PWD/.planning/STATE.md"
+
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  grep -qF "current_phase: 29" "$PWD/.planning/STATE.md"
+  grep -qF "active_phase: 29" "$PWD/.planning/STATE.md"
+  # Exactly one line, not a second one inserted beside the stale first.
+  [ "$(grep -c '^active_phase:' "$PWD/.planning/STATE.md")" -eq 1 ]
+}
+
+# The other half of the exception, and the reason it is not "always create":
+# the anchor. A STATE.md that speaks about no phase at all grows no key —
+# the file has to already carry the dialect for the second word of it to be
+# added beside the first.
+#
+# Break: drop the `"current_phase" in items` condition and this file grows an
+# active_phase out of nothing, which is the invention the rest of this
+# command exists to refuse.
+@test "close --apply: no current_phase in the file means no active_phase either" {
+  make_drift_fixture "$PWD"
+  python3 - "$PWD/.planning/STATE.md" <<'PY'
+import re, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(re.sub(r"^current_phase.*\n", "", p.read_text(),
+                    flags=re.MULTILINE))
+PY
+  refute_in_file "current_phase" "$PWD/.planning/STATE.md"
+
+  run bash "$BOOKKEEP" close 29 --apply --no-tracker --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
   refute_in_file "active_phase" "$PWD/.planning/STATE.md"
+  # And it says so, rather than staying quiet about the key it did not write.
+  run bash "$BOOKKEEP" close 29 --json --no-tracker --planning-dir "$PWD/.planning"
+  assert_json_eq "$output" \
+    '[.skipped[] | select(.why | test("active_phase"))] | length' '1'
 }
 
 @test "close --apply: the two free-text fields are untouched AND still named" {
@@ -1299,4 +1385,305 @@ completion_step() {
   local help="$CAIRN_REPO_ROOT/cairn/commands/help.md"
   grep -qF "cairn-bookkeep.sh close" "$help"
   grep -qF "docs/commands/bookkeep.md" "$help"
+}
+
+#-----------------------------------------------------------------------------
+# CairnGo-ozy — the writer that announced there had been nothing to do
+#
+# REPRODUCED three times on 2026-08-05, every time over a line written less
+# than an hour earlier:
+#
+#   $ cairn-bookkeep.sh reconcile --json | jq .disagreements
+#   state-narrative-stale :: last_activity_desc
+#   found:    "Milestone v1.5 Legible State aberto (9 fases, 24 requisitos)"
+#   expected: {"fase": 10, "requisito": 36}
+#
+#   $ cairn-bookkeep.sh reconcile --apply
+#   [cairn-bookkeep] nothing to change        <- EXIT 0
+#
+# Three surfaces, and the disagreement survived all three: named by reconcile,
+# charged by the doctor's req-ledger, ignored in silence by the writer both of
+# them route to. Refusing was never the defect — this command already refuses
+# coverage-row-missing out loud, with a reason. Announcing that there had been
+# no work is.
+#-----------------------------------------------------------------------------
+
+# Break: put `nothing to change` back on `if not edits`. The fixture's
+# last_activity_desc disagrees and has no writer, so the line comes back over
+# a refusal — the measured defect, verbatim.
+@test "reconcile --apply: a refusal is never announced as nothing to change" {
+  make_drift_fixture "$PWD"
+  # Resolve everything that HAS a writer, so the only thing left is the free
+  # text nobody rewrites — the exact shape of the 2026-08-05 reproduction.
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # The second run plans no edit at all, and STILL must not claim there was
+  # nothing to do.
+  refute_in_output "nothing to change"
+  grep -qF "NOT written :: state-narrative-stale :: last_activity_desc" \
+    <<<"$output"
+  # With the reason, on the human path — a refusal legible only in --json is
+  # one most readers never see.
+  grep -qF "because free text a person wrote" <<<"$output"
+
+  # And reconcile still NAMES it, so the two surfaces now agree.
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind=="state-narrative-stale")] | length' '1'
+}
+
+# The negative half. Without it, "never print nothing to change" would pass,
+# and the message would stop meaning anything at all.
+@test "reconcile --apply: nothing to change still means ZERO disagreements" {
+  make_drift_fixture "$PWD"
+  # Give the free text numbers that match, and write out the ellipsis, so the
+  # tree really does agree with itself once the writers have run.
+  python3 - "$PWD/.planning/ROADMAP.md" "$PWD/.planning/STATE.md" <<'PY'
+import pathlib, re, sys
+r = pathlib.Path(sys.argv[1])
+r.write_text(r.read_text().replace(
+    "**Requirements**: AUTO-01 … AUTO-08",
+    "**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, "
+    "AUTO-06, AUTO-07, AUTO-08"))
+s = pathlib.Path(sys.argv[2])
+s.write_text(re.sub(r"^last_activity_desc:.*$",
+                    "last_activity_desc: sem numero nenhum aqui",
+                    s.read_text(), count=1, flags=re.MULTILINE))
+PY
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.disagreements | length' '0'
+
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  grep -qF "nothing to change" <<<"$output"
+  refute_in_output "NOT written"
+}
+
+# The load-bearing half of the design, and the reason this is not a hand-kept
+# list of "kinds with no writer": a kind invented tomorrow shows up by itself.
+#
+# Break: replace writerless_findings() with a literal tuple of today's four
+# families. This test goes green on the tuple and red on the fifth kind — the
+# fifth hand-maintained fact this repository has watched go stale.
+@test "reconcile --apply: the list of writerless kinds is derived, never hand-kept" {
+  make_drift_fixture "$PWD"
+
+  # A kind nobody has ever written a writer for, injected into the READER
+  # only — inside a COPY of the script, never the repository's own file. A
+  # test that edits the source it is testing leaves the tree broken the first
+  # time it fails halfway.
+  local patched="$BATS_TEST_TMPDIR/cairn-bookkeep-patched.py"
+  python3 - "$CAIRN_SCRIPTS_DIR/cairn-bookkeep.py" "$patched" <<'PY'
+import pathlib
+import sys
+src = pathlib.Path(sys.argv[1]).read_text()
+needle = '    return {\n        "requirements": {'
+assert src.count(needle) == 1
+src = src.replace(needle,
+                  '    found.append(finding(\n'
+                  '        "invented-kind-stale", "a subject nobody writes",\n'
+                  '        "found", "expected", st))\n' + needle)
+pathlib.Path(sys.argv[2]).write_text(src)
+PY
+
+  run python3 "$patched" reconcile --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # Nothing in the plan answers it, so it comes out named — with no line of
+  # code anywhere having been told that this kind exists.
+  assert_json_eq "$output" \
+    '[.unresolved[] | select(.kind=="invented-kind-stale") | .subject] | join(",")' \
+    'a subject nobody writes'
+  # Unexplained rather than invisible: the generic reason, because the map has
+  # no entry for a family invented five seconds ago.
+  assert_json_eq "$output" \
+    '.unresolved[] | select(.kind=="invented-kind-stale")
+                   | .detail.not_written_because
+                   | test("no edit in this plan addresses")' 'true'
+}
+
+#-----------------------------------------------------------------------------
+# CairnGo-66o — the surgical door that did not exist for a PLAN
+#
+# MEASURED at the close of plan 29-04 (commit 49e2b45), inside the phase that
+# existed to remove this defect: the gsd-executor closed the plan through the
+# gsd-tools and ROADMAP.md took +43/-7 — 29 of the added lines being blank
+# lines injected between numbered list items by _normalizeMd
+# (shell-command-projection.cjs:631). The useful content was five checkboxes
+# and one counter.
+#
+# And the half measured in this checkout: every cairn surface that names this
+# command names `close <N>`, a PHASE door. There was no per-plan command to
+# reach for, so the executor reached for the one that reflows.
+#-----------------------------------------------------------------------------
+
+# Break: let `plan` fall through to the full edit set (drop the only_plan
+# guards). The diff explodes from one line to the fifteen `close` makes, which
+# is the whole difference this command exists to hold.
+@test "plan NN-MM --apply: one checkbox, and the ROADMAP diff is one line" {
+  make_drift_fixture "$PWD"
+  # 20-01 and 20-03 have summaries on disk and unchecked boxes in this
+  # fixture. Close exactly one of them.
+  run bash "$BOOKKEEP" plan 20-01 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  grep -qF -- "- [x] 20-01-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  # The OTHER plan with a summary on disk is untouched: this command closes
+  # the plan it was given, never every plan it could.
+  grep -qF -- "- [ ] 20-03-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  # And no requirement, no coverage row, no footer moved.
+  grep -qF -- "- [ ] **AUTO-01**" "$PWD/.planning/REQUIREMENTS.md"
+  grep -qF "29 requisitos, 29 mapeados." "$PWD/.planning/ROADMAP.md"
+
+  run git -C "$PWD" diff --numstat
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qE '^1	1	\.planning/ROADMAP\.md$'
+  # REQUIREMENTS.md is not in the diff at all.
+  refute_in_output ".planning/REQUIREMENTS.md"
+}
+
+# The counters follow, because they changed the moment the summary landed on
+# disk — not because this command recomputed anything about the phase.
+@test "plan NN-MM --apply: the STATE counters follow the plan it closed" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" plan 20-01 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counters.total_plans' '10'
+  assert_json_eq "$output" '.counters.completed_plans' '3'
+  grep -qF "  completed_plans: 3" "$PWD/.planning/STATE.md"
+  # No phase was marked complete: that is `close`, and only `close`.
+  grep -qF -- "- [ ] Phase 29:" "$PWD/.planning/ROADMAP.md"
+}
+
+# Break: mark the checkbox because it was ASKED for. The checkbox follows the
+# SUMMARY on disk, and the one-way rule is the whole posture of this script.
+@test "plan NN-MM: no summary on disk is refused BY NAME, never written" {
+  make_drift_fixture "$PWD"
+  # 29-01 is listed and unchecked, and has no summary in this fixture.
+  run bash "$BOOKKEEP" plan 29-01 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.unresolved[] | select(.kind=="plan-summary-missing") | .subject] | join(",")' \
+    '29-01-PLAN.md'
+  assert_json_eq "$output" \
+    '.unresolved[] | select(.kind=="plan-summary-missing") | .expected' \
+    '29-01-SUMMARY.md'
+  grep -qF -- "- [ ] 29-01-PLAN.md" "$PWD/.planning/ROADMAP.md"
+}
+
+# Break: fall back to "the first plan that matches loosely", or to creating a
+# line. A door that invents a checkbox is worse than no door.
+@test "plan NN-MM: a plan the roadmap does not list is exit 4, and writes nothing" {
+  make_drift_fixture "$PWD"
+  local before
+  before="$(shasum "$PWD/.planning/ROADMAP.md" | awk '{print $1}')"
+
+  run bash "$BOOKKEEP" plan 88-99 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 4 ]
+  grep -qF "no plan item named '88-99'" <<<"$output"
+  [ "$(shasum "$PWD/.planning/ROADMAP.md" | awk '{print $1}')" = "$before" ]
+}
+
+# The id is a pair of NUMBERS, the same discipline the phase anchor holds.
+@test "plan NN-MM: 20-1 and 20-01-PLAN.md name the same plan" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" plan 20-1 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" \
+    '[.planned[] | select(.kind=="plan-checkbox-written") | .subject] | join(",")' \
+    '20-01-PLAN.md'
+
+  run bash "$BOOKKEEP" plan 20-01-PLAN.md --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" \
+    '[.planned[] | select(.kind=="plan-checkbox-written") | .subject] | join(",")' \
+    '20-01-PLAN.md'
+}
+
+#-----------------------------------------------------------------------------
+# Criterion 8 — closing a phase takes down what prepare put up
+#
+# MEASURED 2026-08-07: five lease issues OPEN for phases the roadmap marks
+# `[x]` (20, 21, 24, 26, 29) while `cairn-bookkeep close` printed
+# `tracker :: lease :: ok` over every one of them, and three worktrees of
+# complete phases still on the machine — all three clean, wholly merged, and
+# already `removable` by a scan nobody ever ran.
+#
+# The `ok` was never a lie about what the step DID; `release` really does
+# vacate. It was a word meaning "the subprocess exited 0" being read as "the
+# lease is gone from the tracker". Which is why every assertion below reads bd
+# and the filesystem AFTER the close, and none of them reads the report.
+#-----------------------------------------------------------------------------
+
+# Break: put `release` back in run_tracker's lease step. The metadata goes
+# vacant, the command still prints ok, and the issue is still open in bd —
+# the measured state of all five.
+@test "close --apply: the phase's lease issue is CLOSED in bd afterwards" {
+  require_bd
+  make_drift_fixture "$PWD"
+  bd init -q --prefix bkq --non-interactive >/dev/null 2>&1
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 29 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local id
+  id="$(jq -r '.id' <<<"$output")"
+
+  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # bd, afterwards. Never the command's own tracker line.
+  run bd -C "$PWD" list -l lease --all --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    "[.[] | select(.id==\"$id\") | .status] | join(\",\")" 'closed'
+}
+
+# The worktree half of the same criterion, and the reason the two steps are
+# ordered: a lease still held BY that worktree is itself a retain reason, so
+# retiring first is what makes the removal reachable at all.
+@test "close --apply: the phase's canonical worktree is removed afterwards" {
+  require_bd
+  make_drift_fixture "$PWD"
+  bd init -q --prefix bkr --non-interactive >/dev/null 2>&1
+  git -C "$PWD" worktree add -q "$PWD-phase-29" -b phase/29-nothing
+  [ -d "$PWD-phase-29" ]
+  # Held by that worktree — the ordinary end-of-phase state.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 29 \
+    --project-dir "$PWD-phase-29" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.held' 'true'
+
+  run bash "$BOOKKEEP" close 29 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # The filesystem, afterwards.
+  [ ! -d "$PWD-phase-29" ]
+  run git -C "$PWD" worktree list
+  refute_in_output "phase-29"
+}
+
+# The negative half, and it is the one that matters most: closing a phase must
+# never take down a worktree carrying work git cannot recreate.
+@test "close --apply: a phase worktree with unsaved work survives the close, and is named" {
+  require_bd
+  make_drift_fixture "$PWD"
+  bd init -q --prefix bks --non-interactive >/dev/null 2>&1
+  git -C "$PWD" worktree add -q "$PWD-phase-29" -b phase/29-nothing
+  echo "work nobody else has a copy of" > "$PWD-phase-29/wip.txt"
+
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  # Named in the report rather than passed over in silence.
+  grep -qF "retained" <<<"$output"
+  grep -qF "uncommitted changes" <<<"$output"
+
+  [ -d "$PWD-phase-29" ]
+  [ "$(cat "$PWD-phase-29/wip.txt")" = "work nobody else has a copy of" ]
 }

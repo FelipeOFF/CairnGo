@@ -426,8 +426,42 @@ this routine health-check flow — see its own section below.
      `cairn-bookkeep.sh reconcile`, which owns the recount; the check writes
      nothing.
 
+   - **state-dialect** (✗; ⊘ `out-of-scope` when `STATE.md` carries fewer
+     than two readable phase keys) — a `STATE.md` whose two phase keys name
+     two different phases. MEASURED 2026-08-05 on cairn's own repository:
+     `grep -rn current_phase cairn/` returned **zero readers**, while five
+     surfaces read `active_phase` (`cairn-status.py`, `cairn-doctor.py`,
+     `cairn-lease.py`, `cairn-migrate.py`, `hooks/session-start.sh`). cairn
+     was writing the key it does not read, and GSD writes the key cairn does
+     not read either.
+
+     The decision (2026-08-06) is **additive**: `cairn-bookkeep close` now
+     writes `active_phase` beside `current_phase`, reading stays on
+     `active_phase`, no reader changes and no repository is migrated. This
+     check is the **stated counterpart** of the duplicated key, not an extra:
+     two keys that must agree and that nobody compares is the defect this
+     cycle measured four separate times — the coverage footer against its
+     table, `req-issue` against `req-ledger`, `completed_plans` against
+     `total_plans`, and two hand-kept numbers inside one document. Writing the
+     pair without comparing it would have created the fifth case in the act of
+     fixing the fourth.
+
+     It **compares and never derives**. A phase recomputed from the roadmap
+     would agree with whichever key the same rule wrote, so the two values are
+     read exactly as written and asked the one question neither can answer
+     about itself: do they name the same phase?
+
+     Fewer than two readable keys is `⊘ out-of-scope`, never `no-input`, and
+     the distinction is load-bearing: a file with one key **has no dialect
+     disagreement to have** — speaking one dialect is the state AUTO-10 is
+     named after — the missing `active_phase` is already reported as
+     `no-input` by `claims-stale`, and a second `no-input` would drop `.ok` in
+     every GSD repository that has never run `cairn-bookkeep`, a permanent
+     false red. The finding routes to `cairn-bookkeep.sh close <N> --apply`,
+     which writes both keys; the check writes nothing.
+
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — twenty-one checks in total.)
+   upgrading bd — twenty-two checks in total.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
@@ -505,7 +539,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 
 `--apply-reconciliation N` is the human-invoked, separate command that
 applies a semantic-escalation reconciliation proposal `/cairn:reconcile N`
-wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 21 checks
+wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 22 checks
 above and does not run alongside them — it always exits on its own instead
 of falling through to the ordinary report.
 
