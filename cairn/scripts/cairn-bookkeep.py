@@ -53,9 +53,21 @@ Behavior:
                      is on disk;
                   6. the STATE.md frontmatter counters, and only the keys
                      listed under THE STATE KEYS below;
-                  7. the phase's generated map (cairn-map.py <N>) and its
-                     lease (cairn-lease.py release <N>), each by INVOKING
-                     the script that owns it.
+                  7. the phase's generated map (cairn-map.py <N>), its lease
+                     (cairn-lease.py RETIRE <N> — vacated AND closed in bd,
+                     because the phase is over) and the worktree `prepare`
+                     built for it (cairn-parallel.py cleanup --phase <N>
+                     --apply), each by INVOKING the script that owns it, in
+                     that order: a lease still held by that worktree is
+                     itself a reason to retain the worktree.
+
+                     MEASURED 2026-08-07, and it is why 7 grew a third step:
+                     five lease issues OPEN for phases the roadmap marks
+                     `[x]` while this very step printed `tracker :: lease ::
+                     ok` over them (`ok` meant "the subprocess exited 0", and
+                     `release` leaves the issue open by design), and three
+                     worktrees of complete phases still on disk — all three
+                     already `removable` by a scan nobody ever called.
 
                 Without --apply, prints the edits it would make and exits
                 EXIT_DISAGREEMENT (3) when there is at least one, EXIT_OK
@@ -765,10 +777,24 @@ def git_commit(root, files, message):
 
 
 def run_tracker(planning, root, phase, wanted, applied):
-    """The two pieces of end-of-phase bookkeeping that belong to other
-    scripts: the generated map and the phase lease. Invoked, never
-    re-implemented."""
-    out = {"ran": False, "skipped": None, "map": None, "lease": None}
+    """The end-of-phase bookkeeping that belongs to OTHER scripts: the
+    generated map, the phase lease, and the worktree the phase was prepared
+    in. Invoked, never re-implemented.
+
+    THE PHASE ENDS WHERE prepare STARTED (roadmap criterion 8). Measured
+    2026-08-07: five lease issues open for phases the roadmap marks `[x]`,
+    and three worktrees of complete phases still on the machine, all three
+    clean and wholly merged — `cairn-parallel cleanup` already knew how to
+    remove them, and nothing ever called it. Closing a phase now takes both
+    down, in this order, because it is the only order that works: a lease
+    still held BY that worktree is itself a reason to retain the worktree.
+
+    Neither step can bar the close. Both are reported; a failure in either
+    leaves the planning files exactly as they are, because they were written
+    before this runs and the bd gate already fired.
+    """
+    out = {"ran": False, "skipped": None, "map": None, "lease": None,
+           "worktree": None}
     if phase is None:
         out["skipped"] = ("this run owns no phase (reconcile, plan): there "
                           "is no map to regenerate and no lease to release")
@@ -783,9 +809,17 @@ def run_tracker(planning, root, phase, wanted, applied):
     out["ran"] = True
     out["map"] = run_sibling_json([sibling("cairn-map.py"), str(phase),
                                    "--json", "--planning-dir", str(planning)])
-    out["lease"] = run_sibling_json([sibling("cairn-lease.py"), "release",
+    # `retire`, not `release`: the phase is over, so its lease issue is
+    # CLOSED rather than left open for the next acquire. Measured 2026-08-07 —
+    # `release` passes `--status open` by design, so five leases of complete
+    # phases were still open in bd while this very step printed `ok`.
+    out["lease"] = run_sibling_json([sibling("cairn-lease.py"), "retire",
                                      str(phase), "--json", "--project-dir",
                                      str(root)])
+    out["worktree"] = run_sibling_json([sibling("cairn-parallel.py"),
+                                        "cleanup", "--phase", str(phase),
+                                        "--apply", "--json",
+                                        "--project-dir", str(root)])
     return out
 
 
@@ -880,10 +914,29 @@ def run_bookkeeping(args, phase):
     if tracker["skipped"]:
         human.append(f"tracker :: not run :: {tracker['skipped']}")
     elif tracker["ran"]:
-        for name in ("map", "lease"):
+        for name in ("map", "lease", "worktree"):
             got = tracker[name] or {}
             state = "ok" if got.get("ok") else f"FAILED ({got.get('error')})"
+            # `ok` used to mean nothing but "the subprocess exited 0", and
+            # that is precisely how this line read `tracker :: lease :: ok`
+            # over five leases that were still open in bd (CairnGo-php). The
+            # two steps that can now be checked report what the OTHER side
+            # says afterwards, beside the exit code.
+            detail = got.get("result") if isinstance(got.get("result"),
+                                                     dict) else {}
+            if name == "lease" and detail:
+                state += f" (bd status: {detail.get('issue_status')})"
+            if name == "worktree" and detail:
+                removed = [r.get("path") for r in (detail.get("applied") or [])
+                           if r.get("action") == "worktree_remove"
+                           and r.get("ok")]
+                kept = [r.get("path") for r in (detail.get("retained") or [])]
+                state += (f" (removed: {len(removed)}, retained: {len(kept)})")
             human.append(f"tracker :: {name} :: {state}")
+            for row in (detail.get("retained") or []) \
+                    if name == "worktree" else []:
+                human.append(f"  retained {row.get('path')} :: "
+                             f"{'; '.join(row.get('reasons') or [])}")
     if commit["note"]:
         human.append(f"commit :: {commit['note']}")
     elif commit["made"]:

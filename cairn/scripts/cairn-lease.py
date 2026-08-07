@@ -75,6 +75,7 @@ Usage:
     cairn-lease.py acquire <N>            [--project-dir DIR] [--json]
     cairn-lease.py release <N>            [--project-dir DIR] [--json]
     cairn-lease.py release --mine         [--project-dir DIR] [--json]
+    cairn-lease.py retire  <N>            [--project-dir DIR] [--json]
     cairn-lease.py renew   [<N>]          [--project-dir DIR] [--json]
     cairn-lease.py status  <N>            [--project-dir DIR] [--json]
     cairn-lease.py status  --all          [--project-dir DIR] [--json]
@@ -116,6 +117,32 @@ Behavior:
                    untouched. Zero matches is a no-op, exit 0. One
                    lease_changed "released" record is journaled per lease
                    actually released.
+    retire <N>     The END of a lease's life, and the one verb that CLOSES
+                   its bd issue: vacates the metadata (through the same
+                   release_one the verb above uses, so the vacancy and its
+                   journal record have ONE implementation) and then
+                   `bd close`s the issue with a reason. Idempotent — an
+                   already-closed issue is left alone — and a no-op, exit 0,
+                   when the phase never had a lease.
+
+                   MEASURED 2026-08-07, and it corrects what CairnGo-php and
+                   the roadmap both state. They describe a release path that
+                   "worked twice and stopped working from phase 20 onward".
+                   It never existed: there is not one `bd close` anywhere
+                   else in this file, and release's vacate branch passes
+                   `--status open` on purpose. The two closed lease issues in
+                   cairn's own repo (phases 18 and 19) were closed BY HAND,
+                   one second apart, with a pt-BR reason no tool here writes.
+                   Nothing regressed; the capability was never written, and
+                   two manual runs made it look as if it had been.
+
+                   The report carries `retired` and `issue_status` READ BACK
+                   from bd after the close, never inferred from the fact that
+                   the close was requested — `cairn-bookkeep close` printing
+                   `tracker :: lease :: ok` over five open leases is the
+                   defect this whole cycle chases, and `ok` there meant
+                   nothing more than "the subprocess exited 0".
+
     renew [<N>]    Heartbeats a lease this worktree ALREADY holds:
                    heartbeat_at -> now, acquired_at unchanged, exit 0. NEVER
                    journals, in any branch — this subcommand is
@@ -176,7 +203,8 @@ CAIRN_JOURNAL = os.environ.get(
     str(Path(__file__).resolve().parent / "cairn-journal.py"))
 
 USAGE = ("usage: cairn-lease.py {acquire N|release N|release --mine|"
-         "renew [N]|status N|status --all} [--project-dir DIR] [--json]")
+         "retire N|renew [N]|status N|status --all} "
+         "[--project-dir DIR] [--json]")
 
 
 def die(msg, code):
@@ -578,6 +606,88 @@ def cmd_release(args, root):
     sys.exit(EXIT_OK)
 
 
+def issue_status(root, issue_id):
+    """The bd status string of one issue, read back from bd — never inferred
+    from what this script just asked bd to do.
+
+    The distinction is the whole point of CairnGo-php: `cairn-bookkeep close`
+    printed `tracker :: lease :: ok` over five leases that were still open,
+    because `ok` meant "the subprocess exited 0". Reading the issue back is
+    the only claim about its status this script is entitled to make.
+    """
+    out = run_bd(["list", "-l", "lease", "--all", "--limit", "0", "--json"],
+                 root)
+    try:
+        data = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        return None
+    for issue in (data if isinstance(data, list) else [data]):
+        if issue.get("id") == issue_id:
+            return issue.get("status")
+    return None
+
+
+def cmd_retire(args, root):
+    """`retire <N>` — the END of a phase lease's life: vacate it AND close its
+    bd issue.
+
+    WHY A VERB OF ITS OWN. `release` means "let go of the lease, the phase
+    goes on" — it is what `cleanup` does to an orphan lease and what `--mine`
+    does at the end of a session, and it deliberately leaves the issue OPEN
+    (`--status open`) so the next acquire can take it. `retire` means the
+    phase is over and this lease has no further function.
+
+    MEASURED 2026-08-07, and it corrects what the issue and the roadmap both
+    say. They describe a release path that "worked twice and stopped working
+    from phase 20 onward". It never existed: `grep -n close cairn-lease.py`
+    returns not one `bd close`, and write_lease's vacate branch passes
+    `--status open` explicitly. The two closed lease issues in this repository
+    (phases 18 and 19) were closed BY HAND, one second apart, with a pt-BR
+    reason no tool here generates. Nothing regressed — the capability was
+    never written, and two manual runs made it look like it had been.
+
+    Built ON release_one, never beside it: the metadata vacancy has one
+    implementation, and the journal record for a real release still comes from
+    it. Idempotent — an already-closed lease issue is left alone rather than
+    closed twice — and a no-op that exits 0 when the phase never had a lease,
+    same as `release`.
+    """
+    phase = args.phase
+    issue_id, lease = find_lease_issue(root, phase)
+    if issue_id is None:
+        if args.json:
+            print(json.dumps(dict(status_entry(phase, None, None),
+                                  retired=False, issue_status=None)))
+        else:
+            print(f"[cairn-lease] phase {phase} lease: nothing to retire "
+                  f"(no lease issue exists)")
+        sys.exit(EXIT_OK)
+
+    held_holder = lease.get("holder") if lease else None
+    was = issue_status(root, issue_id)
+    if held_holder or was != "closed":
+        write_lease(root, issue_id, lease_payload(phase), vacate=True)
+    if held_holder:
+        journal_lease_event(root, phase, "released", held_holder,
+                             actor=resolve_actor(root))
+    if was != "closed":
+        run_bd(["close", issue_id, "--reason",
+                f"phase {phase} is closed; its lease has no further function"],
+               root)
+
+    # Read back, always. What this command claims about the issue's status is
+    # what bd says afterwards, never what it just asked for.
+    now = issue_status(root, issue_id)
+    entry = dict(status_entry(phase, issue_id, None),
+                 retired=(now == "closed"), issue_status=now)
+    if args.json:
+        print(json.dumps(entry))
+    else:
+        print(f"[cairn-lease] retired phase {phase} lease {issue_id} "
+              f"(bd status: {now})")
+    sys.exit(EXIT_OK)
+
+
 def cmd_renew(args, root):
     phase = args.phase
     if phase is None:
@@ -656,6 +766,11 @@ def build_parser():
                           help="release every lease this worktree holds")
     release.set_defaults(func=cmd_release)
 
+    retire = sub.add_parser("retire", help="end a phase lease's life: vacate "
+                             "it AND close its bd issue")
+    retire.add_argument("phase", type=int, help="phase number")
+    retire.set_defaults(func=cmd_retire)
+
     renew = sub.add_parser("renew", help="heartbeat a lease this worktree "
                             "already holds; silent no-op otherwise")
     renew.add_argument("phase", type=int, nargs="?",
@@ -671,7 +786,7 @@ def build_parser():
                          help="report every phase that ever had a lease")
     status.set_defaults(func=cmd_status)
 
-    for p in (acquire, release, renew, status):
+    for p in (acquire, release, retire, renew, status):
         p.add_argument("--project-dir", metavar="DIR",
                         help="project root for bd/git discovery (default: "
                              "$CLAUDE_PROJECT_DIR or cwd)")
