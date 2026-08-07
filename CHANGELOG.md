@@ -274,6 +274,67 @@ already mechanical.
   separate times, including `"eighteen checks in total"` sitting in a docstring
   with nineteen registered.
 
+### Upgrading
+
+**Two things can break a script, and both have a one-line fix. Nothing about
+your `.planning/` or your issues changes, and no data is migrated.**
+
+**1. A pipe no longer gives you TSV.** This is the one that bites silently.
+Until now, running the status board outside a terminal degraded to the
+machine-readable format on its own, so `cairn-status.sh | while read ...`
+happened to work. It no longer does: a non-TTY run renders the human list in
+plain text, because a pipe is not a request for a different contract. If a
+script of yours parses that output, say so explicitly:
+
+```
+cairn-status.sh --plain
+```
+
+`--plain` is byte-for-byte what it always was. Nothing about the TSV changed;
+what changed is that you now have to ask for it. To find the callers:
+
+```
+grep -rn 'cairn-status' --include='*.sh' --include='*.py' . | grep -v -- --plain
+```
+
+**2. `cairn-release --json` retired one value.** The per-carrier `status` no
+longer emits `mismatch`; it now answers only whether that carrier is readable
+and well formed. Whether it agrees with the reference moved to a separate
+`agrees_with_reference` field, which is `null` when no comparison happened. If
+you branch on `status == "mismatch"`, branch on `agrees_with_reference == false`
+instead. The old field was reporting "agrees with the first readable carrier"
+while reading as "is correct", which is how a stale marketplace version once
+passed while the correct changelog was flagged.
+
+**The journal moved, and it is worth one look.** It now lives under
+`.cairn/journal/`, one segment per checkout, and those segments are versioned so
+the record survives more than one machine. Your existing `.cairn/journal.jsonl`
+is read as a partition of unknown provenance: it is never rewritten, never
+stamped with a machine it may not have come from, and nothing is lost. The
+ignore rules for the new layout arrive the same way the 1.5 ones did:
+
+```
+/cairn:init
+```
+
+It appends only what is missing and is a no-op on a repository that is already
+correct.
+
+**One thing to decide, not to run.** Versioned partitions carry the machine they
+came from, and `machine` is the hostname in plain text. In a public repository
+that publishes the hostname of everyone who contributes. If that matters for
+your repository, keep `.cairn/journal/` out of git until this stores a hash
+instead — the checkout half of the identity already does.
+
+**Everything else is additive.** `phases[]` gained `landed`, `in_roadmap` and
+`roadmap_depends_on`; no existing key changed name, type or meaning. The doctor
+went from 19 checks to 22 and may now answer `not-applicable` and report
+`INCOMPLETE`, which still exits 0, because a check that could not run is not a
+failure. `/cairn:land` and `/cairn:review` are new; review state stays off until
+you set `git.review_state`. If you had `cairn.sync_push` in a config, it was read
+by nothing before and is now gone from the declaration: your push behaviour is
+unchanged.
+
 ## [1.5.0] - 2026-08-01
 
 cairn stops inferring that a phase is done and starts reporting what each of its
