@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Legible State
-current_phase: 27
-current_phase_name: Disagreement trend across cycles
+current_phase: 28
+current_phase_name: Durable journal
 status: planning
 stopped_at: Completed 29-04-PLAN.md
-last_updated: "2026-08-06T22:49:51.709Z"
-last_activity: 2026-08-06
+last_updated: "2026-08-07T00:50:35.818Z"
+last_activity: 2026-08-07
 last_activity_desc: Fases 21, 23, 24 e 26 fechadas — milestone v1.5 Legible State (11 fases, 41 requisitos)
 progress:
   total_phases: 11
-  completed_phases: 8
-  total_plans: 31
-  completed_plans: 37
-  percent: 73
+  completed_phases: 9
+  total_plans: 35
+  completed_plans: 42
+  percent: 82
 ---
 
 # Project State
