@@ -57,7 +57,7 @@ and "something never ran" are different questions and get different keys.
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — twenty-one
+                        version output -> WARN. Runs first — twenty-two
                         checks in total. (This line read `eighteen` while
                         nineteen were registered, from phase 24 until
                         phase 30 measured it: a hand-maintained count in
@@ -498,11 +498,36 @@ and "something never ran" are different questions and get different keys.
                         NOT-APPLICABLE / out-of-scope, never no-input —
                         a defensive branch the CLI never reaches, since
                         main() registers zero checks in that repo.
+    21. state-dialect   (CairnGo-ctr, AUTO-10, Phase 25 criterion 5)
+                        STATE.md's two phase keys naming two different
+                        phases. MEASURED 2026-08-05: cairn-bookkeep wrote
+                        `current_phase` and `grep -rn current_phase
+                        cairn/` returned ZERO readers, while five surfaces
+                        read `active_phase`. The owner's decision
+                        (2026-08-06) is to write BOTH, additively, and
+                        THIS CHECK IS THE STATED COUNTERPART of that
+                        duplication: two keys that must agree and that
+                        nobody compares is the defect this cycle measured
+                        four times, so writing the pair without comparing
+                        it would create the fifth case while fixing the
+                        fourth. It COMPARES, never derives — a phase
+                        recomputed from the roadmap would agree with
+                        whichever key the same rule wrote. Both present
+                        and equal -> OK; both present and different ->
+                        FAIL; FEWER THAN TWO readable -> NOT-APPLICABLE /
+                        out-of-scope, never no-input: one key is no
+                        disagreement (it is the state AUTO-10 is named
+                        after), check 8 already reports the missing
+                        active_phase as no-input, and a second no-input
+                        would drop `.ok` in every GSD repo that never ran
+                        cairn-bookkeep — a permanent false red. Writes
+                        nothing; the finding routes to `cairn-bookkeep.sh
+                        close <N> --apply`, which writes both keys.
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-
                     escalation reconciliation proposal for phase N. Not one
-                    of the 21 checks above — a fixer, the same category as
+                    of the 22 checks above — a fixer, the same category as
                     --close-completed/--fix-labels/--link-refs, but the only
                     one of the four that always exits on its own rather
                     than falling through to the ordinary report, since its
@@ -732,6 +757,35 @@ def state_plan_counters(planning_dir):
             break
         m = re.match(r"^\s*(total_plans|completed_plans)\s*:\s*(.+?)\s*$",
                      line)
+        if not m:
+            continue
+        digits = re.search(r"\d+", m.group(2).split("#", 1)[0])
+        if digits:
+            out[m.group(1)] = int(digits.group(0))
+    return out
+
+
+def state_phase_dialect(planning_dir):
+    """{'current_phase': int|None, 'active_phase': int|None} — the two phase
+    keys of STATE.md's frontmatter, each exactly AS WRITTEN.
+
+    Nothing here derives a phase from the roadmap, from the phase tree, or
+    from anything else. That is the whole point: the check this feeds exists
+    because a writer and a verifier sharing one rule AGREE, so a phase
+    recomputed here would agree with whichever key was written by the same
+    rule and the disagreement between the two would stay invisible.
+
+    A key whose value carries no digits (`current_phase: null`, an empty
+    value) reads as absent: there is no number there to disagree with.
+    """
+    out = {"current_phase": None, "active_phase": None}
+    lines = read_lines(planning_dir / "STATE.md")
+    if not lines or lines[0].strip() != "---":
+        return out
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^(current_phase|active_phase)\s*:\s*(.+?)\s*$", line)
         if not m:
             continue
         digits = re.search(r"\d+", m.group(2).split("#", 1)[0])
@@ -2908,6 +2962,86 @@ def check_plan_counters(planning_dir):
             "items": []}
 
 
+def check_state_dialect(planning_dir):
+    """Check 21, id "state-dialect" (CairnGo-ctr, AUTO-10, roadmap criterion
+    5) — the two phase keys of STATE.md naming two different phases.
+
+    WHY THIS CHECK IS PART OF THE DECISION AND NOT A NICE-TO-HAVE. MEASURED
+    2026-08-05: cairn-bookkeep wrote `current_phase` and `grep -rn
+    current_phase cairn/` found ZERO readers, while five surfaces read
+    `active_phase` (cairn-status.py, cairn-doctor.py, cairn-lease.py,
+    cairn-migrate.py, hooks/session-start.sh). The owner's decision
+    (2026-08-06) is to write BOTH, additively — and its stated cost is a
+    duplicated key. Two keys that must agree and that nobody compares is the
+    defect this cycle measured FOUR separate times (the coverage footer
+    against its table, req-issue against req-ledger, completed_plans against
+    total_plans, two hand-written numbers inside one document). Writing the
+    pair without comparing the pair would have created the fifth case in the
+    act of fixing the fourth, so the comparison ships with the duplication.
+
+    IT COMPARES AND NEVER DERIVES. Neither number is recomputed from the
+    roadmap or the phase tree: the values are read exactly as written and
+    asked the one question neither key can answer about itself — do the two
+    name the same phase? Recomputing would reproduce this phase's underlying
+    defect (a writer and a verifier sharing a rule and therefore agreeing)
+    inside the check written to catch it.
+
+    STATUS LADDER, every rung a deliberate value:
+      * both keys present, different phases  -> "fail" (exit 7)
+      * both keys present, same phase        -> "ok"
+      * fewer than two keys readable         -> "not-applicable",
+                                                scope "out-of-scope"
+      * no .planning/ at all                 -> "not-applicable",
+                                                scope "out-of-scope"
+
+    WHY ONE KEY IS out-of-scope AND NOT no-input, which is the assignment
+    that had to be argued rather than measured (the docstring's rule at the
+    top of this file: family is a written decision). A file carrying one key
+    HAS NO DIALECT DISAGREEMENT TO HAVE — speaking one dialect is literally
+    the state AUTO-10 is named after. And the absence of `active_phase` is
+    ALREADY named as `no-input` by check 8, claims-stale; naming it here too
+    would count one gap twice and, worse, would drop `.ok` to false in every
+    GSD repository that has never run cairn-bookkeep — a permanent false red,
+    which is phase 23's defect mirrored (D-07: no fix changes the verdict of
+    a path that is legitimately green today).
+
+    This check WRITES NOTHING. Its finding routes to `cairn-bookkeep.sh close
+    <N> --apply`, which owns both keys and writes them together.
+    """
+    if planning_dir is None or not planning_dir.is_dir():
+        return {"id": "state-dialect", "status": NOT_APPLICABLE,
+                "scope": "out-of-scope",
+                "detail": "no .planning/ directory — this repo has no STATE.md "
+                          "to speak two dialects in",
+                "items": []}
+    keys = state_phase_dialect(planning_dir)
+    current, active = keys["current_phase"], keys["active_phase"]
+    if current is None or active is None:
+        present = [k for k in ("current_phase", "active_phase")
+                   if keys[k] is not None]
+        carries = ("carries only " + present[0]) if present else \
+            "carries neither current_phase nor active_phase"
+        return {"id": "state-dialect", "status": NOT_APPLICABLE,
+                "scope": "out-of-scope",
+                "detail": (f"STATE.md {carries}, so there is no second "
+                           f"dialect for it to disagree with"),
+                "items": []}
+    if current != active:
+        return {"id": "state-dialect", "status": "fail",
+                "detail": (f"STATE.md's two phase keys name two different "
+                           f"phases: current_phase {current}, active_phase "
+                           f"{active}. Every cairn surface reads "
+                           f"active_phase and GSD writes current_phase, so "
+                           f"the lease, the board and this report are "
+                           f"reading a different phase than GSD is. Run "
+                           f"cairn-bookkeep.sh close <N> --apply, which "
+                           f"writes both"),
+                "items": [f"current_phase {current} != active_phase {active}"]}
+    return {"id": "state-dialect", "status": "ok",
+            "detail": f"STATE.md's two phase keys agree on phase {current}",
+            "items": []}
+
+
 def check_req_ledger(root, planning_dir):
     """Check 17, id "req-ledger" (AUTO-07) — the chain nobody was validating:
     an active requirement has a row in the coverage table, the table's row
@@ -3456,6 +3590,7 @@ def main():
         check_response_language(root),
         check_phase_landed(root, planning_dir, completed_set),
         check_plan_counters(planning_dir),
+        check_state_dialect(planning_dir),
     ]
     summary["checks"] = checks
     # ONE BUCKET PER WORD OF THE VOCABULARY, COUNTED, NEVER SUBTRACTED.
