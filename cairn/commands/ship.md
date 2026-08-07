@@ -1,5 +1,6 @@
 ---
 description: Ship — verify every completed phase's beads are closed, then GSD ship / push
+group: loop
 ---
 
 Pre-ship gate, then ship:

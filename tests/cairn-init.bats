@@ -12,6 +12,8 @@ CAIRN_GITIGNORE_ENTRIES=(
   '.cairn/state.json'
   '.cairn/conflicts.json'
   '.cairn/journal.jsonl*'
+  '.cairn/journal/*'
+  '!.cairn/journal/*.jsonl'
   '.cairn/reconcile-evidence.json'
   '.cairn/hook.log'
   '.cairn/migrate-plan.json'
@@ -53,6 +55,88 @@ make_cairn_committable_files() {
 # .cairn/ into a single `?? .cairn/` line.
 cairn_untracked() {
   git status --porcelain -uall | sed -n 's/^?? //p' | grep '^\.cairn/'
+}
+
+#-----------------------------------------------------------------------------
+# LANG-01 (plan 24-02) — the language question is part of INSTALLATION, and
+# these are assertions about the command file, which is the contract: the
+# script below wires git and bd, and the asking happens in the prompt.
+#
+# Why the POSITION is load-bearing and not a preference: step 6 hands off to
+# /gsd:new-project, which spawns its own subagents (researcher, synthesizer,
+# roadmapper). A question asked after that hand-off is a question asked after
+# the project's first subagents already answered in the wrong language, which
+# is the defect LANG-01 exists to prevent.
+#
+# Assertion style here matches tests/cairn-parallel-autonomous.bats: line
+# numbers captured by a helper and compared as integers, `grep -cF` under
+# `run bash -c` for substrings.
+#-----------------------------------------------------------------------------
+
+INIT_COMMAND_FILE="$CAIRN_REPO_ROOT/cairn/commands/init.md"
+INIT_DOC_FILE="$CAIRN_REPO_ROOT/cairn/docs/commands/init.md"
+
+# First line number of a fixed string in a file, empty when absent.
+init_anchor_line() {
+  grep -nF -- "$2" "$1" | head -1 | cut -d: -f1
+}
+
+@test "init asks the response language BEFORE the /gsd:new-project hand-off" {
+  local l_ask l_handoff
+  l_ask="$(init_anchor_line "$INIT_COMMAND_FILE" 'get agents.response_language --json')"
+  # The section heading, not the first mention of the command: step 0 names
+  # `/gsd:new-project` too, in the sentence that forbids running it over an
+  # existing .planning/. Anchoring on the mention would compare against the
+  # wrong line and pass for the wrong reason.
+  l_handoff="$(init_anchor_line "$INIT_COMMAND_FILE" '## 6. Hand off')"
+  [ -n "$l_ask" ]
+  [ -n "$l_handoff" ]
+  # Breaks if the question migrates after the hand-off — the case where the
+  # first subagents of the project have already answered in English.
+  [ "$l_ask" -lt "$l_handoff" ]
+}
+
+@test "init names English as the default and refuses to ask again when a choice exists" {
+  run bash -c "grep -cF -- 'English is the default, and it is pre-selected' '$INIT_COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+
+  # Roadmap success criterion 3: an installed project is not changed without
+  # being asked. Breaks on an init that overwrites an existing choice.
+  run bash -c "grep -cF -- 'do not ask, and do not write anything' '$INIT_COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+  run bash -c "grep -cF -- 'source\` is already \`file\` or \`planning\`' '$INIT_COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+}
+
+@test "init writes the language only through cairn-config, never into GSD's config directly" {
+  # An assertion on the EXACT count, zero, not on the absence of a phrase:
+  # `gsd-tools query config-set response_language` creates .planning/ when it
+  # is absent (M-1), and a .planning/ holding only config.json makes step 0's
+  # detect answer A instead of D (M-2), which stops the next run of this very
+  # command. Breaks the moment somebody "simplifies" by writing GSD's key here.
+  run bash -c "grep -cF -- 'config-set response_language' '$INIT_COMMAND_FILE' || true"
+  [ "$output" -eq 0 ]
+
+  run bash -c "grep -cF -- 'set agents.response_language' '$INIT_COMMAND_FILE'"
+  [ "$status" -eq 0 ]
+  # Twice: once at 3.5 where it records the answer, once at step 6 where the
+  # propagation actually fires.
+  [ "$output" -eq 2 ]
+}
+
+@test "init's documentation page carries the same step, in the same place" {
+  local l_ask l_handoff
+  l_ask="$(init_anchor_line "$INIT_DOC_FILE" 'Step 3.5')"
+  l_handoff="$(init_anchor_line "$INIT_DOC_FILE" 'Step 6')"
+  [ -n "$l_ask" ]
+  [ -n "$l_handoff" ]
+  [ "$l_ask" -lt "$l_handoff" ]
+  run bash -c "grep -cF -- 'agents.response_language' '$INIT_DOC_FILE'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
 }
 
 @test "cairn-init bootstraps git + bd and gitignores the .cairn state files" {
@@ -172,4 +256,45 @@ cairn_untracked() {
   for entry in "${CAIRN_GITIGNORE_ENTRIES[@]}"; do
     [ "$(grep -cxF "$entry" .gitignore)" -eq 1 ]
   done
+}
+
+#-----------------------------------------------------------------------------
+# Phase 28 (DJOUR-02): .cairn/journal/ is the ONE versioned thing under
+# .cairn/, and it only merges correctly with `merge=union` in a TRACKED
+# .gitattributes. A custom driver would not do: it needs merge.<name>.driver
+# in .git/config, which git never clones, so a machine that skipped the setup
+# falls back to the default merge and conflicts with markers, in silence
+# (28-RESEARCH.md, E17).
+#-----------------------------------------------------------------------------
+
+@test "cairn-init sets merge=union on the journal partitions, and a re-run does not duplicate it" {
+  require_bd
+  make_tmp_repo
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh"
+  [ "$status" -eq 0 ]
+  [ -f .gitattributes ]
+  [ "$(grep -cxF '.cairn/journal/*.jsonl merge=union' .gitattributes)" -eq 1 ]
+
+  # The attribute actually resolves for a real segment path -- the line
+  # existing is not the same as git applying it.
+  run git check-attr merge -- .cairn/journal/host-0123456789ab-0001.jsonl
+  [ "$status" -eq 0 ]
+  grep -qF 'merge: union' <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh"
+  [ "$status" -eq 0 ]
+  grep -qF 'journal partitions already set to merge=union' <<<"$output"
+  [ "$(grep -cxF '.cairn/journal/*.jsonl merge=union' .gitattributes)" -eq 1 ]
+}
+
+@test "cairn-init leaves a pre-existing .gitattributes intact while adding the union line" {
+  require_bd
+  make_tmp_repo
+  printf '*.png binary\n' > .gitattributes
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh"
+  [ "$status" -eq 0 ]
+  [ "$(grep -cxF '*.png binary' .gitattributes)" -eq 1 ]
+  [ "$(grep -cxF '.cairn/journal/*.jsonl merge=union' .gitattributes)" -eq 1 ]
 }

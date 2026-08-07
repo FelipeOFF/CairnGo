@@ -1,6 +1,7 @@
 ---
 description: Tracked side-quest — stamped quick issue with discovered-from provenance, then GSD quick
 argument-hint: <task description> [--full] [--discuss] [--research] [--validate] | list | status <slug> | resume <slug>
+group: loop
 ---
 
 Side work stays tracked — never do a "quick thing" off the books.

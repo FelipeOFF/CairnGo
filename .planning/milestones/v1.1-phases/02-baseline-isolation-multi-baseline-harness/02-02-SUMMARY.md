@@ -58,7 +58,7 @@ completed: 2026-07-26
 **gsd-only.json** (`python3 benchmarks/scripts/stage-plugins.py --baseline benchmarks/baselines/gsd-only.json`) — sucesso, saída verbatim (trecho de advice detached-HEAD do git omitido):
 
 ```
-Cloning into '/Users/felipeoliveira/Projects/CairnGo/benchmarks/plugins/gsd/.staging-osd5j7b7'...
+Cloning into '~/Projects/CairnGo/benchmarks/plugins/gsd/.staging-osd5j7b7'...
 Note: switching to '7c3c5dd96ed24adaaa87a4a9ae225498d2fc9c34'.
 [...]
 added 6 packages, and audited 7 packages in 2s
@@ -86,7 +86,7 @@ Segunda invocação (idempotência no checkout real):
 **cairn.json** (`python3 benchmarks/scripts/stage-plugins.py --baseline benchmarks/baselines/cairn.json`) — **context-mode staged COM SUCESSO** (o best-effort não precisou do fallback): better-sqlite3 resolveu via binário prebuilt (`node_modules/better-sqlite3/build/Release/better_sqlite3.node` presente), nenhum compile C/C++ local foi necessário. Saída verbatim (mesmo trecho de advice omitido):
 
 ```
-Cloning into '/Users/felipeoliveira/Projects/CairnGo/benchmarks/plugins/context-mode/.staging-55m2wtvp'...
+Cloning into '~/Projects/CairnGo/benchmarks/plugins/context-mode/.staging-55m2wtvp'...
 Note: switching to '589d8214d56740a28b5f7bf63167743d586b0b40'.
 [...]
 npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.

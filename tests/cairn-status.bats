@@ -74,7 +74,17 @@ board_inside() {
        /cairn:generated:board:start/ { inside = 1 }' "$1"
 }
 
-@test "board at --width 100: lanes, glyphs, footer, next action" {
+# REWRITTEN 2026-08-05 (Phase 21). It used to assert the three-lane grid
+# (`┌─ READY (2)`), which is what this phase removes. The three things it
+# actually guarded — the four counts are on screen, each issue renders on
+# the right lane with its own suffix, and the footer is untouched — are all
+# still guarded, in the grouped list's spelling. Nothing was dropped.
+#
+# This fixture's ROADMAP has no `## Milestones` section, so no milestone is
+# open, no milestone group is emitted (Phase 20, D-03) and every issue lands
+# in the loose group. The hierarchy itself is proved in
+# tests/cairn-grouped-board.bats, over a fixture that HAS an open cycle.
+@test "board at --width 100: counts, stage symbols, footer, next action" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -83,29 +93,42 @@ board_inside() {
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
   [ "$status" -eq 0 ]
 
-  # One shared grid in light box-drawing with lane headers + counts.
-  grep -qF '┌─ READY (2)' <<<"$output"
-  grep -qF '┬─ DOING (1)' <<<"$output"
-  grep -qF '┬─ BLOCKED (1)' <<<"$output"
-  grep -qF '└─' <<<"$output"
+  # The four numbers the lane headers used to carry.
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  # `No milestone` until 2026-08-06 (Phase 22, CairnGo-uz6): with no
+  # `## Milestones` section no cycle is open, and the group carrying the
+  # pending phases now says so by name. The phase line above the issues is
+  # part of the same fix and is asserted below.
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '◔ 2  API' <<<"$output"
+  # And no grid: the kanban is gone, not hidden.
+  refute_in_output '┌'
+  refute_in_output '│'
 
-  # Cards: id + title; ◆ assignee on DOING; ⧗ blocking dep on BLOCKED.
-  grep -qF "$ST_READY1  Gate regex hardening" <<<"$output"
-  grep -qF "$ST_READY2  Timeout tuning" <<<"$output"
-  grep -qF "$ST_DOING" <<<"$output"
+  # Rows: stage symbol + id + title; ◆ assignee on the in-progress row; the
+  # blocker NAMED on the blocked row (BOARD-05) rather than glyphed.
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◔ $ST_READY2  Timeout tuning" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
   grep -qF '◆ felipe' <<<"$output"
-  grep -qF "⧗ $ST_READY1" <<<"$output"
+  grep -qF "⧗ $ST_BLOCKED  Docs index page  blocked by $ST_READY1" <<<"$output"
 
-  # Footer outside the grid: GSD position, done count, ONE next action.
+  # Footer below the list: GSD position, done count, ONE next action.
   grep -qF 'phase 2/2' <<<"$output"
   grep -qF 'done: 1' <<<"$output"
   grep -qF "▶ next: continue $ST_DOING" <<<"$output"
 
-  # The closed issue never appears as a card.
+  # The closed issue never appears as a row.
   refute_in_output "$ST_CLOSED"
 }
 
-@test "long titles are truncated with an ellipsis inside the cell" {
+# REWRITTEN 2026-08-05 (Phase 21), and INVERTED on purpose: this test used to
+# be called "long titles are truncated with an ellipsis inside the cell" and
+# asserted `refute_in_output "cannot possibly fit inside one board cell"`.
+# BOARD-03 makes the opposite the contract, so the assertion is turned over
+# rather than deleted — the file keeps a test on this exact title, and the
+# history shows the day the rule changed and why.
+@test "long titles are not truncated: the whole title reaches the screen" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -115,28 +138,48 @@ board_inside() {
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
   [ "$status" -eq 0 ]
-  grep -qF '…' <<<"$output"
-  refute_in_output "cannot possibly fit inside one board cell"
+  grep -qF "cannot possibly fit inside one board cell" <<<"$output"
+  # Scoped to the task rows: six leading spaces is the grouped list's issue
+  # indent, and nothing else in this render starts there (the phase panel
+  # indents by two, PURPOSE continuations by five). The footer's `next:` line
+  # still truncates — that is the footer's contract, not the list's.
+  [ "$(grep -E '^      ' <<<"$output" | grep -c '…' || true)" -eq 0 ]
 }
 
-@test "long id prefixes are truncated so the grid stays aligned" {
+# REWRITTEN 2026-08-05 (Phase 21). It used to assert that a long bd prefix is
+# cut with `...` so every grid line keeps one width. There is no grid, and
+# nothing is cut. What it guarded — a long prefix must not break the column
+# the titles start on — is asserted directly instead.
+@test "a long bd prefix keeps every title on one column, cutting nothing" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
   bd init -q --prefix an-extremely-long-project-prefix-name \
     --non-interactive >/dev/null 2>&1
-  bd create "Long prefix issue" -t task --silent >/dev/null
+  bd create "Long prefix issue" -t task -p 1 --silent >/dev/null
+  bd create "Second long prefix issue" -t task -p 2 --silent >/dev/null
 
-  # --ascii keeps every grid character single-byte, so byte length == width.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
   [ "$status" -eq 0 ]
-  grep -qF '...' <<<"$output"
-  # Every bordered grid line (starts with + or |) has the same width.
-  [ "$(grep -E '^[+|]' <<<"$output" | awk '{ print length }' \
-      | sort -u | wc -l | tr -d ' ')" -eq 1 ]
+  grep -qF 'an-extremely-long-project-prefix-name' <<<"$output"
+  refute_in_output 'Long prefix issu...'
+  run python3 -c '
+import sys
+rows = [l for l in sys.stdin.read().splitlines() if l.startswith("      ")]
+assert len(rows) == 2, "expected two task rows, got %r" % rows
+cols = {r.index("Long prefix issue") if "Long prefix issue" in r
+        else r.index("Second long prefix issue") for r in rows}
+assert len(cols) == 1, "titles start on different columns: %r" % rows
+print("ok column %d" % cols.pop())
+' <<<"$output"
+  [ "$status" -eq 0 ]
 }
 
-@test "--max-rows caps a lane and shows the +k more overflow row" {
+# REWRITTEN 2026-08-05 (Phase 21): the cap moved from a LANE to a BUCKET,
+# because the lane stopped being a container. `+1 more` became `+3 more` on
+# this fixture for that exact reason — one loose bucket holding all four
+# issues instead of three lanes holding 2/1/1.
+@test "--max-rows caps a bucket and shows the +k more overflow row" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -144,7 +187,7 @@ board_inside() {
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --max-rows 1
   [ "$status" -eq 0 ]
-  grep -qF '+1 more' <<<"$output"
+  grep -qF '+3 more' <<<"$output"
   refute_in_output "$ST_READY2"
 }
 
@@ -187,14 +230,104 @@ board_inside() {
   grep -qF "next: continue $ST_DOING" <<<"${lines[2]}"
 }
 
-@test "non-TTY without flags defaults to --plain: tabs, no box, no escapes" {
+# BOARD-04, and the case it was written from: on 2026-08-03, ten minutes after
+# v1.4 was archived, the board still announced `v1.4`. main() reads
+# `fm["milestone"] or roadmap_milestone(...)`, so STATE.md — which nobody
+# updates at archive time — wins over the roadmap's own marker.
+#
+# make_board_fixture arms exactly that trap: STATE.md names v1.0 (ARCHIVED)
+# while the roadmap marks v1.1 open. The test archives v1.1 too and leaves
+# STATE.md untouched, then asserts the board names NEITHER — which is only
+# possible if the header stopped reading STATE.md altogether. Asserting that
+# STATE.md still says v1.0 is not decoration: without it the test cannot tell
+# "the header changed source" from "the fixture changed its mind".
+@test "archiving the open milestone stops the board from naming it" {
+  require_bd
+  make_tmp_repo
+  make_board_fixture "$PWD"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF 'v1.1 Surface' <<<"$output"
+
+  # Archive it, the way /cairn:milestone complete does: the marker on the
+  # milestone's own line.
+  sed -i.bak 's/^- 🚧 \*\*v1.1 Surface\*\*/- ✅ **v1.1 Surface**/' \
+    .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+  # A sed that matched nothing would leave the board unchanged and let every
+  # assertion below pass for the wrong reason.
+  run grep -c '🚧' .planning/ROADMAP.md
+  [ "$output" = "0" ]
+  # STATE.md is untouched and still points at the older archived cycle.
+  run grep -c '^milestone: v1.0$' .planning/STATE.md
+  [ "$output" = "1" ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF 'no open milestone' <<<"$output"
+  refute_in_output 'v1.1 Surface'
+  # And it does not fall back on STATE.md's v1.0 either — the fallback that
+  # produced the measured defect in the first place.
+  refute_in_output '· v1.0 ·'
+  # The pending phases are still on the list: BOARD-04 removes a name, never
+  # the work (CairnGo-uz6 is the other half of this, in cairn-group-model).
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '3  Phase model' <<<"$output"
+}
+
+# SPLIT IN TWO 2026-08-06 (Phase 22, PIPE-03), never deleted.
+#
+# Until this date these were ONE test, `non-TTY without flags defaults to
+# --plain`, and it ended on `[ "$output" = "$piped" ]` — the contract of the
+# coupling itself: explicit --plain byte-identical to the flagless non-TTY
+# default. Measured that morning, four command lines produced one md5
+# (e98d3096656463236c2ed12a12be90e3).
+#
+# PIPE-02 undoes that coupling on purpose, so the equality assertion was
+# describing something the phase exists to end. It was not dropped for
+# convenience: what replaces it is two POSITIVE claims, one per surface, each
+# able to fail on its own. Re-couple the two paths and the first test goes red
+# immediately — a re-coupled run carries no stage symbol at all.
+#
+# The reason the pair matters more than the equality did: an equality says the
+# two are the same without saying what either one IS. These say what each one
+# is, which is what a contract is for.
+@test "non-TTY without flags renders the grouped list in plain text" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
   make_status_fixture
 
-  # bats captures a pipe, so this run IS non-TTY — the gh model applies.
+  # bats captures a pipe, so this run IS non-TTY.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh"
+  [ "$status" -eq 0 ]
+
+  # The grouped list: counts, then a stage symbol and an id beside each title.
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
+  grep -qF "⧗ $ST_BLOCKED  Docs index page  blocked by $ST_READY1" <<<"$output"
+  # The footer and the phase panel: a pipe gets the whole board, not a part.
+  grep -qF 'phase 2/2' <<<"$output"
+  grep -qF "▶ next: continue $ST_DOING" <<<"$output"
+  grep -qF 'PENDING PHASES' <<<"$output"
+
+  # Plain text: no ANSI (PIPE-02 says so explicitly), and no grid.
+  refute_in_output "$(printf '\x1b')"
+  refute_in_output '│'
+  # The one negation this test carries: the machine format's own marking must
+  # not be here. A re-coupled non-TTY path trips this line and the greps above.
+  refute_in_output "$(printf 'READY\t')"
+}
+
+@test "--plain is the machine contract: tab-separated rows and meta rows" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
   [ "$status" -eq 0 ]
   grep -qF "$(printf 'READY\t%s\t1\tGate regex hardening' "$ST_READY1")" <<<"$output"
   grep -qF "$(printf 'DOING\t%s\t1\tStatus board renderer\tfelipe' "$ST_DOING")" <<<"$output"
@@ -202,14 +335,13 @@ board_inside() {
   grep -qF "$(printf 'PHASE\t2/2')" <<<"$output"
   grep -qF "$(printf 'DONE\t1')" <<<"$output"
   grep -qF "$(printf 'NEXT\tcontinue')" <<<"$output"
-  refute_in_output '│'
   refute_in_output "$(printf '\x1b')"
-
-  # Explicit --plain is byte-identical to the non-TTY default.
-  local piped="$output"
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
-  [ "$status" -eq 0 ]
-  [ "$output" = "$piped" ]
+  refute_in_output '│'
+  # The TSV never carried a glyph and does not start now: the stage symbols
+  # belong to the human surface, and this is the other one.
+  refute_in_output '◔'
+  refute_in_output '◕'
+  refute_in_output '⧗'
 }
 
 @test "titles are never truncated in plain mode" {
@@ -226,7 +358,18 @@ board_inside() {
   refute_in_output '…'
 }
 
-@test "--width 50 degrades to stacked lanes (no grid, headers kept)" {
+# REWRITTEN 2026-08-05 (plan 21-02). There is no stacked degrade any more:
+# it existed because three columns do not fit in 50, and one column does.
+# What the test guarded — at 50 columns the board is still a readable board,
+# with the counts and the next action, and no grid — is asserted of the list.
+#
+# The proof here is the three positive greps, NOT the refutes. Plan 21-02
+# also removed the box-drawing glyphs from Style, so `┌` and `│` no longer
+# exist anywhere in cairn-status.py and those two lines cannot go red from
+# any change to this renderer. They are kept as REINTRODUCTION guards — a
+# future phase that brings a grid back trips them — and are labelled as such
+# so nobody reads them as evidence that the list rendered.
+@test "--width 50 renders the same list, wrapped sooner" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -234,15 +377,26 @@ board_inside() {
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 50
   [ "$status" -eq 0 ]
-  grep -qF 'READY (2)' <<<"$output"
-  grep -qF 'DOING (1)' <<<"$output"
-  grep -qF 'BLOCKED (1)' <<<"$output"
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
   grep -qF "▶ next: continue $ST_DOING" <<<"$output"
   refute_in_output '┌'
   refute_in_output '│'
+  refute_in_output 'READY ('
 }
 
-@test "--width 30 degrades to the raw LANE id title list" {
+# REWRITTEN 2026-08-05 (plan 21-02). The raw degrade printed `LANE  id  title`
+# whole and let the terminal wrap it. The specific thing it guarded — at a
+# width where nothing fits, the id and the title still arrive INTACT — is
+# still true, now because the row wraps itself instead of overflowing. At 30
+# columns the id keeps its own line and the title hangs beneath it
+# (NARROW_BODY), so the assertions join the row before comparing.
+#
+# Same caveat as the 50-column test above: the two refutes are
+# reintroduction guards, not the proof. The proof is that every id and every
+# title survives the join, and that no visible ROW carries an ellipsis.
+@test "--width 30 keeps every id and title intact, wrapping instead of cutting" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -250,11 +404,32 @@ board_inside() {
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 30
   [ "$status" -eq 0 ]
-  grep -qF "READY  $ST_READY1  Gate regex hardening" <<<"$output"
-  grep -qF "DOING  $ST_DOING  Status board renderer" <<<"$output"
-  grep -qF "BLOCKED  $ST_BLOCKED  Docs index page" <<<"$output"
   refute_in_output '┌'
   refute_in_output '│'
+  run python3 -c '
+import sys
+lines = sys.stdin.read().splitlines()
+text = " ".join(l.strip() for l in lines)
+for iid, title in ((sys.argv[1], "Gate regex hardening"),
+                   (sys.argv[2], "Status board renderer"),
+                   (sys.argv[3], "Docs index page")):
+    assert iid in text, "id %s never reached the board" % iid
+    assert title in text, "title %r came back cut" % title
+# The ellipsis check belongs to the LIST rows, not the whole render: the
+# footer truncates its own `next:` line at max(20, width - 10) and has since
+# Phase 10, and the PENDING PHASES table is fixed-width by design. A blanket
+# refute here would be asserting about those while claiming to assert about
+# the list. The list ends where the footer meta line begins, and that line
+# is the only one carrying "done: ".
+end = [i for i, l in enumerate(lines) if "done: " in l]
+assert end, "the footer never rendered — the boundary below is guesswork"
+rows = [l for l in lines[:end[0]] if l.startswith("  ")]
+assert rows, "no row rendered at --width 30"
+bad = [l for l in rows if "…" in l or "..." in l]
+assert not bad, "a row came back truncated: %r" % bad
+print("ok %d rows" % len(rows))
+' "$ST_READY1" "$ST_DOING" "$ST_BLOCKED" <<<"$output"
+  [ "$status" -eq 0 ]
 }
 
 @test "color: --color=always emits SGR; NO_COLOR strips it; the flag wins" {
@@ -296,8 +471,11 @@ board_inside() {
   grep -qF "$(printf '\x1b[')" <<<"$output"
 
   # Empty NO_COLOR must not disable color (no-color.org: present AND
-  # non-empty). Only approximable without a pty: the flag-forced board
-  # still carries SGR with NO_COLOR="" in the environment.
+  # non-empty). Only approximable without a pty: the board still carries SGR
+  # with NO_COLOR="" in the environment. (Said "the flag-forced board" until
+  # 2026-08-06 — Phase 22 made the board the default on a pipe, so nothing is
+  # being forced here any more. `--width 100` in these runs is determinism,
+  # not an escape from the machine format.)
   run env NO_COLOR="" bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" \
     --width 100 --color=always
   [ "$status" -eq 0 ]
@@ -310,24 +488,43 @@ board_inside() {
   refute_in_output "$(printf '\x1b')"
 }
 
-@test "--color=always piped without --width opts into the board renderer" {
+# REWRITTEN 2026-08-06 (Phase 22), and it had to be. This test used to be
+# called `--color=always piped without --width opts into the board renderer`
+# and asserted that the flag FORCES the human renderer on a pipe. PIPE-02 made
+# the pipe render the board by default, which turned every one of its
+# assertions into something that would pass with the flag removed entirely —
+# a test that cannot fail is not a test.
+#
+# What it owns now is the claim the split actually creates: renderer and color
+# are two independent decisions. Neither half proves it alone; the pair does.
+@test "piping decides color, not the renderer" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
   make_status_fixture
 
-  # A piped run would default to --plain; --color=always must never be
-  # silently ignored, so it forces the board renderer (like --width does).
-  # SGR paints each span separately, so grep the border and the header text
+  # Same pipe, same width, no flag: the board, and not one escape byte.
+  run env COLUMNS=100 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh"
+  [ "$status" -eq 0 ]
+  grep -qF 'ready 2' <<<"$output"
+  grep -qF '◔' <<<"$output"
+  refute_in_output "$(printf '\x1b')"
+
+  # Same pipe, same width, --color=always: the same board, now painted. SGR
+  # paints each span separately, so grep the counts text and the stage symbol
   # on their own rather than as one contiguous string.
   run env COLUMNS=100 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --color=always
   [ "$status" -eq 0 ]
-  grep -qF '┌' <<<"$output"
-  grep -qF 'READY (2)' <<<"$output"
+  grep -qF 'ready 2' <<<"$output"
+  grep -qF '◔' <<<"$output"
   grep -qF "$(printf '\x1b[')" <<<"$output"
 }
 
-@test "--ascii swaps the borders, ellipsis, and glyphs" {
+# REWRITTEN 2026-08-05 (Phase 21): `+- READY (2)` was the ASCII grid header,
+# and there is no grid. The ASCII stage set takes its place, which is the
+# same claim one layer down — every glyph this script injects has an ASCII
+# form and none of the Unicode ones survives --ascii.
+@test "--ascii swaps the stage symbols, ellipsis, and glyphs" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -335,12 +532,17 @@ board_inside() {
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
   [ "$status" -eq 0 ]
-  grep -qF '+- READY (2)' <<<"$output"
+  grep -qF "o $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "O $ST_DOING  Status board renderer" <<<"$output"
+  grep -qF "~ $ST_BLOCKED  Docs index page" <<<"$output"
   grep -qF '> next: continue' <<<"$output"
   grep -qF '@ felipe' <<<"$output"
   refute_in_output '┌'
   refute_in_output '▶'
   refute_in_output '…'
+  refute_in_output '◔'
+  refute_in_output '◕'
+  refute_in_output '⧗'
 }
 
 @test "no phase-labeled ready work falls back to STATE.md's workflow step" {
@@ -462,7 +664,21 @@ board_inside() {
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
   [ "$status" -eq 0 ]
-  grep -qF 'READY (0)' <<<"$output"
+  # REWRITTEN 2026-08-05 (Phase 21): `READY (0)` was the empty lane header
+  # saying "the board rendered and found nothing". With no lanes, the list
+  # says it in words instead of leaving a hole where three empty headers
+  # used to be — the same claim, spelled so a reader can act on it.
+  #
+  # UPDATED 2026-08-06 (Phase 22, CairnGo-uz6), and the change is the fix
+  # arriving here on its own: this asserted `(no open work)` while the phase
+  # panel below it, in the same output, printed `PENDING PHASES  1`. Zero
+  # ISSUES is true; "no open work" was not, and a reader acting on it would
+  # have been acting on a contradiction. The list now names the pending phase.
+  grep -qF 'ready 0 · doing 0 · blocked 0 · done 0' <<<"$output"
+  refute_in_output '(no open work)'
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '◔ 2  API' <<<"$output"
+  grep -qF 'PENDING PHASES' <<<"$output"
   grep -qF 'no .beads/' <<<"$output"
   grep -qF '▶ next: execute-phase (phase 2)' <<<"$output"
 
@@ -1180,10 +1396,20 @@ LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
   [ "$status" -eq 0 ]
 
   # Exhaustive top-level key set: the pre-15-05 keys, unchanged, plus the
-  # one new additive "lease" key — nothing renamed, nothing dropped.
+  # additive "lease" key (15-05), "groups" (20-02) and "open_milestones"
+  # (22-03) — nothing renamed, nothing dropped. What this list guards is that
+  # no EXISTING key changes name or disappears; a genuinely additive key is
+  # expected to land here, and the one line below is where it is declared.
+  # `milestone` in particular is still the STATE.md-first read it always was:
+  # BOARD-04 moved the HUMAN surfaces onto open_milestones and deliberately
+  # left the machine key alone, because PIPE-01 freezes --plain's bytes.
+  # `landing` (30-01, PR-01) is the fourth declared additive key: which branch
+  # "delivered" means in this repository, whether that came from a decision or
+  # from detection, and whether the question could be answered at all. Declared
+  # here, in the one line this test says is where it is declared.
   local keys
   keys="$(jq -c 'keys' <<<"$output")"
-  [ "$keys" = '["blocked","counts","doing","lease","milestone","next","next_commands","note","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+  [ "$keys" = '["blocked","counts","doing","groups","landing","lease","milestone","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
 
   # Shape of the pre-existing keys is untouched.
   assert_json_eq "$output" '.counts.ready' '2'
@@ -1299,18 +1525,23 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
   [ "$status" -eq 0 ]
 
-  # Byte-for-byte regression against "board at --width 100: lanes, glyphs,
-  # footer, next action"'s own assertions — this plan must not touch any
-  # of them.
-  grep -qF '┌─ READY (2)' <<<"$output"
-  grep -qF '┬─ DOING (1)' <<<"$output"
-  grep -qF '┬─ BLOCKED (1)' <<<"$output"
-  grep -qF '└─' <<<"$output"
-  grep -qF "$ST_READY1  Gate regex hardening" <<<"$output"
-  grep -qF "$ST_READY2  Timeout tuning" <<<"$output"
-  grep -qF "$ST_DOING" <<<"$output"
+  # Regression against "board at --width 100: counts, stage symbols, footer,
+  # next action"'s own assertions — the lease plan must not touch any of
+  # them. REWRITTEN 2026-08-05 (Phase 21) in lockstep with that test: the
+  # anchors follow the grouped list, the claim ("the board above the footer
+  # is exactly what the other test pinned") is identical.
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  # `No milestone` until 2026-08-06: this fixture's roadmap has no
+  # `## Milestones` section, so before Phase 22 every issue fell into the
+  # loose group and the phase line vanished. It now groups under the unnamed
+  # group, with the phase line above the issues (CairnGo-uz6).
+  grep -qF 'No open milestone' <<<"$output"
+  refute_in_output '┌'
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◔ $ST_READY2  Timeout tuning" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
   grep -qF '◆ felipe' <<<"$output"
-  grep -qF "⧗ $ST_READY1" <<<"$output"
+  grep -qF "⧗ $ST_BLOCKED  Docs index page  blocked by $ST_READY1" <<<"$output"
   grep -qF 'phase 2/2' <<<"$output"
   grep -qF 'done: 1' <<<"$output"
   grep -qF "▶ next: continue $ST_DOING" <<<"$output"
@@ -1468,7 +1699,20 @@ EOF
   # journal genuinely does not exist before the hand-edit below. This rules
   # out the test passing only because a PRIOR observe call happened to have
   # already recorded the right thing.
-  [ ! -f .cairn/journal.jsonl ]
+  #
+  # Phase 28: the journal is PARTITIONED, one file per checkout under
+  # .cairn/journal/. The path is asked of the script itself rather than
+  # recomputed here — a test that rebuilt the slug would just be a second
+  # implementation of the naming scheme, and would keep passing while
+  # pointing at a file nothing writes. That is exactly how the pre-phase-28
+  # version of this test would have died: its `rm -f .cairn/journal.jsonl`
+  # would have deleted nothing and the diff below would have compared a
+  # render with itself.
+  local segment
+  segment="$(python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" provenance \
+    --project-dir "$PWD" --json | jq -r '.segment')"
+  [ ! -f "$segment" ]
+  [ ! -d .cairn/journal ]
 
   # Part (1): hand-edit OUTSIDE any cairn command — a plain sed on
   # ROADMAP.md, never a cairn-*.sh invocation — checks phase 1's box while
@@ -1493,8 +1737,12 @@ assert len(items) == 1, p["conflicts"]
 '
 
   # That first read's own observe call just wrote this phase's evidence into
-  # the journal for the first time — confirm it, rather than assume it.
-  [ -f .cairn/journal.jsonl ]
+  # this checkout's own partition for the first time — confirm it, rather
+  # than assume it.
+  [ -f "$segment" ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  [ "$(jq '.records | length' <<<"$output")" -gt 0 ]
 
   # Part (2): pin the fixture — no .cairn/sync.json, no lease held anywhere
   # — the only two genuinely time-varying keys the --json payload can carry.
@@ -1517,10 +1765,21 @@ assert len(items) == 1, p["conflicts"]
   # same structural proof, one call earlier.
   diff <(jq -S . <<<"$first_read_output") <(jq -S . <<<"$before_output")
 
-  # Delete the journal entirely, then render again and diff structurally
-  # against before_output. Deleting a journal that had real history in it
-  # must change zero bytes of the corroboration output.
-  rm -f .cairn/journal.jsonl
+  # Delete the journal ENTIRELY — the partition directory and the inherited
+  # single file both, because phase 28 made the surface bigger than one
+  # path. Deleting a journal that had real history in it must change zero
+  # bytes of the corroboration output.
+  rm -rf .cairn/journal
+  rm -f .cairn/journal.jsonl*
+
+  # The assertion that keeps this test from dying quietly a second time: it
+  # proves the delete actually hit its target. Without it, a `rm` aimed at
+  # the wrong path leaves the diff below comparing a render with itself —
+  # green, and measuring nothing.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '0'
+  assert_json_eq "$output" '.partitions | length' '0'
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
   [ "$status" -eq 0 ]

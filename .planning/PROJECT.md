@@ -84,6 +84,101 @@ A ordem numérica põe no fim o que pode ser cortado inteiro: a 26 (wrappers) é
 maior em volume e não é pré-requisito de nada, e a 28 (journal durável) é a única
 cujo escopo a própria pesquisa pode redefinir.
 
+## Próximo Milestone: v1.6 — o bd vira dono do estado
+
+Decidido pelo Felipe em 2026-08-06. Detalhamento e medições em `CairnGo-dhl`.
+
+**A divisão.** O GSD fica com o que ele faz bem: a **execução**, e principalmente os
+**agentes**. O bd fica com o estado: construção de tarefa, PRDs, `STATE`, `ROADMAP`,
+`REQUIREMENTS`.
+
+O que fica com o GSD, explicitamente:
+
+| workflow | o que ele traz |
+|---|---|
+| `discuss` | levantamento de decisão antes de planejar |
+| `plan` | `gsd-planner` mais o laço de verificação do `gsd-plan-checker` |
+| `execute` | `gsd-executor`, com commit atômico, desvio e checkpoint |
+| `verify` | `gsd-verifier`, análise goal-backward |
+| `quick` | trabalho lateral rastreado, sem cerimônia de fase |
+| `fast` | tarefa trivial inline, sem subagente |
+| `autonomous` | o laço fase a fase, **dirigido pelo bd** e não pelo roadmap em markdown |
+| `debug` | `gsd-debugger` e o `gsd-debug-session-manager` |
+
+São **33 agentes** no plugin, e o argumento para mantê-los não é teórico. Tudo o que
+mais valeu no v1.5 saiu deles: o `gsd-planner` achou quatro premissas erradas no
+contexto da fase 23 antes de escrever um plano; o `gsd-phase-researcher` rodou 17
+experimentos no portão `DJOUR-01` e **derrubou o requisito que o encomendou**; e o
+`gsd-verifier` encontrou, em seis verificações, a fixture cega ao defeito por
+construção, o contador que passa do próprio total e o mapa do help derivado pela
+metade. Nenhum executor tinha visto nenhum dos três.
+
+O que sai são os workflows de **autoria de estado**, não os de execução.
+
+A divisão sai de medição, não de preferência. As duas corrupções que o v1.5
+encontrou vieram da **escrita** do gsd-tools, nenhuma do workflow:
+`state.record-metric` gravou `current_phase: 18`, fase de milestone arquivado, duas
+vezes, lendo prosa obsoleta; e o `_normalizeMd` produziu `+43/−7` no ROADMAP para
+virar cinco checkboxes.
+
+**O `.planning/` não é gerado: ele deixa de ser lido.** A primeira proposta era
+renderizar os `.md` antes de invocar o GSD. Felipe apontou o furo e ele é fatal:
+gerar não economiza token nenhum, porque o GSD lê o arquivo do mesmo jeito. O ganho
+seria fonte única, não custo.
+
+A saída está em **como** os workflows leem, e a medição é favorável. Dos 91 workflows
+do gsd-core, **77 leem por camada de consulta** (`gsd_run query ...`) e só 21 leem
+arquivo direto. Os verbos são contáveis: `init.phase-op` (21 usos),
+`roadmap.get-phase` (15), `roadmap.analyze` (9), `verification.status` (8),
+`state.record-session` (6). É **uma costura**, não 53 patches.
+
+E o ponto de interceptação já existe, já prefere o local, e a cadeia de fallback foi
+escrita para ser sobrescrita:
+
+```
+_GSD_RUNTIME_ROOT = git rev-parse --show-toplevel
+  1. ${ROOT}/gsd-core/bin/gsd-tools.cjs          <- projeto vence
+  2. ${ROOT}/.claude/gsd-core/bin/gsd-tools.cjs
+  3. ${ROOT}/.codex/gsd-core/bin/...
+  4. command -v gsd-tools
+  5. $HOME/.claude/gsd-core/bin/...              <- global, último
+```
+
+O cairn põe um shim no caminho local, responde os verbos de **estado** a partir do
+bd, e delega o resto ao gsd-tools real. E aqui aparece o ganho de token que a geração
+não dava: o shim devolve **a fatia**, não o arquivo. `roadmap.get-phase 21` devolve um
+objeto de fase, não 10.572 tokens de ROADMAP.
+
+**O split é limpo, e não por acaso.** Dos oito workflows que ficam com o GSD, o total
+de leituras diretas residuais é **três**: duas em `discuss-phase`, uma em
+`plan-phase`. `execute-phase`, `verify-work`, `quick`, `autonomous` e `debug` leem
+zero arquivos e tudo por consulta; `fast` é standalone. Já os 21 que leem arquivo
+direto são quase todos os que saem: `new-project`, `new-milestone`, `edit-phase`,
+`add-backlog`, `progress`, `ship`, `import`, `cleanup`, `session-report`, `undo`.
+
+Isso reflete uma fronteira de desenho real dentro do GSD: execução lê estado por
+ferramenta, autoria escreve estado direto. A divisão proposta cai em cima dela.
+
+Migração: usuário novo recebe do `init` a informação de que a fonte é o bd; usuário
+antigo tem o `.planning` existente importado **uma** vez pelo `doctor`.
+
+**O que motivou, em tokens medidos:** `.planning/` na raiz custa 21.725 tokens em
+todo contexto de agente. O `STATE.md` sozinho custa 3.490, dos quais 2.513 são o
+bloco `Accumulated Context` com decisões das fases 1 a 6 do v1.1, milestone publicado
+em 27 de julho. As ferramentas leem 126 tokens de frontmatter.
+
+**O que não migra.** Fato migra: fase completa, requisito mapeado, plano executado,
+veredito de verificação. É pequeno, estruturado, consultável, e é o que deriva.
+Argumento fica em markdown: por que `◑` foi descartado, por que hash-chain perde duas
+vezes, o que foi recusado e por quê. Prosa em coluna de banco continua prosa e perde
+`git diff`, grep e review de PR.
+
+**O ganho não é mágico, é de custo.** Com fato em banco, "fase fechada sem evento de
+verificação" é uma consulta. Em markdown foi a fase 29 inteira, sete planos, para
+validar uma cadeia que em consulta é um join. E foi exatamente esse o defeito que
+passou: sete fases fechadas sem verificação, descoberto só quando a fase 27 foi ler a
+série.
+
 ## Context
 
 - Brownfield: mapa da codebase em `.planning/codebase/` (7 docs, 2026-07-25).

@@ -20,10 +20,65 @@ this routine health-check flow — see its own section below.
 ## What it does
 
 1. Runs `cairn-doctor.sh` (wrapper over `cairn-doctor.py`). The report opens
-   with a header (repo root, milestone, active phase), then one `✓`/`⚠`/`✗`
-   line per check with itemized findings, then an `ok`/failure footer.
+   with a header (repo root, milestone, active phase), then one
+   `✓`/`⊘`/`⚠`/`✗` line per check with itemized findings, then a footer
+   carrying a verdict word and all four counts.
 2. Explains the report to the user: failures (`✗`) block, warnings (`⚠`) are
    advisories, and warnings never change the exit code.
+
+   `⊘` is **not-applicable**: the check had nothing to check. It says the
+   comparison never happened — which is a different sentence from `✓`, "I
+   compared and it agrees". What it does **not** say is that anything is
+   wrong; it never changes the exit code either. Each one carries a `scope`
+   telling you which kind of absence it is:
+
+   - **`out-of-scope`** — the input will never exist in a repo like yours and
+     nothing is wrong. Cairn's own release manifests in a repo that is not
+     cairn are the ordinary case. Permanent, expected, no action.
+   - **`no-input`** — the input *should* exist given what your repo already
+     has, so this is a gap you can close (a `STATE.md` that is present but
+     carries no `active_phase`). The check's detail line names what is
+     missing and where to fix it.
+
+   Only `no-input` changes the footer's verdict word to `INCOMPLETE` and the
+   `--json` `ok` key to `false`. A report can be `INCOMPLETE` and still exit
+   `0` — an absent input is friction, not a state inconsistency, and exit `7`
+   spent on friction stops meaning anything.
+
+   **The `--json` keys that carry the verdict**, because "something failed"
+   and "something never ran" are different questions:
+
+   | Key | The question it answers |
+   | --- | --- |
+   | `.failed` | Did any check **fail**? The exact mirror of exit `7`. |
+   | `.ok` | Did every check both **run** and pass? False when anything failed **or** when a check inside the doctor's remit got no input. |
+   | `.counts` | How many checks landed in each of the four states (`ok`, `not-applicable`, `warn`, `fail`). The four always sum to `.checks \| length`. |
+   | `.checks[].scope` | Present **only** on a `not-applicable` check: `out-of-scope` or `no-input`. |
+
+   A consumer that wants "should I stop?" reads `.failed` (or the exit code).
+   One that wants "can I trust this green?" reads `.ok`.
+
+   **A repo with nothing written down yet.** Run the doctor on a project whose
+   `ROADMAP.md` lists no phase and you get several `⊘` and an `INCOMPLETE`
+   footer — and exit `0`. That is the report working: `req-issue` never
+   compared a requirement to an issue, `orphans` never compared a phase label
+   to a roadmap. Before, all of them said `✓`. Nothing is broken; write the
+   roadmap and each one starts comparing.
+
+   **How to tell in advance which of your checks will read `⊘`.** A count of
+   zero means two different things, and the doctor now distinguishes them:
+
+   - **`⊘` `no-input`** when the zero means *a guarantee this project wants
+     was never verified*, and there is something you can do about it: no
+     `**Requirements**:` line to read, no phase directory to find a map in,
+     no `PLAN.md` carrying the `beads:` stamp.
+   - **`✓`** when the zero makes the answer genuinely true and there is
+     nothing to do: no stale lease *because nothing is leased*, no unpaired
+     label *because every label is paired*, no issue open in a completed
+     phase *because no phase is complete yet*.
+
+   The second group is not an oversight — phase 23 evaluated each one and
+   left it alone, with the reason written beside the code that returns it.
 3. When the **label-pairs** check warns, offers a re-run with `--fix-labels`,
    which runs `cairn-relabel pair` with the active milestone **before** the
    checks so the report shows the post-fix state.
@@ -74,13 +129,53 @@ this routine health-check flow — see its own section below.
      refused a close (typically an epic whose remaining open child sits in
      a phase that is NOT complete) → close or re-phase that child, or
      re-open the phase.
-   - **orphans** (⚠) — issues labeled for a non-ROADMAP phase, or non-closed
-     with no `phase-*` label → attach the right phase label + stamp, label
-     `backlog`, or close.
+   - **orphans** (⚠; ⊘ when it has no input) — issues labeled for a
+     non-ROADMAP phase, or non-closed with no `phase-*` label → attach the
+     right phase label + stamp, label `backlog`, or close. Two independent
+     axes: the phase-label one needs a ROADMAP that lists phases and reads
+     `⊘` with scope `no-input` when it has none, while the unlabeled-issue
+     axis keeps running either way — so a `⚠` over an empty roadmap is a real
+     finding and the detail still says the other axis could not run.
+     **Exempt: an issue that is closed AND carries at least one `m-*` label
+     AND has every one of them archived under `.planning/milestones/`.** That
+     is what makes the count fall back to zero at the end of a cycle instead
+     of growing at every milestone until the check is noise — measured in
+     cairn's own repo, all 61 findings were closed issues of the four
+     archived milestones. All three conditions, and **all** the milestone
+     labels rather than any one of them, so three things keep warning: an
+     issue still **open** on a cycle that already closed (live work, worth
+     reporting), a closed issue with **no `m-*` label** (no evidence of
+     archiving — exempting there would be approving without comparing), and
+     an issue **carried into the active milestone**, which
+     [milestone.md](milestone.md) documents as a transient orphan until the
+     new roadmap places it. Nothing is exempted in silence: the detail always
+     says how many were suppressed, because a count that quietly reaches zero
+     is indistinguishable from an axis somebody switched off.
    - **label-pairs** (⚠) — step 3 above (`--fix-labels`).
-   - **claims-stale** (⚠) — in_progress + assigned issues outside the active
+   - **claims-stale** (⚠; ⊘ when it has no input) — in_progress + assigned
+     issues outside the active
      phase → finish and close, release the claim, or correct `active_phase:`
      in STATE.md.
+
+     It reports `⊘ not-applicable` / `no-input` when it **cannot run at all**,
+     which is its state in this
+     repository today: STATE.md's frontmatter carries no `active_phase`, so
+     there is nothing to compare the claims against. `no-input`, not
+     `out-of-scope`: STATE.md **is** here, it just lacks a key someone can
+     add — so this one does make the report read `INCOMPLETE`, without
+     changing the exit code. That is reported, named
+     and addressed rather than skipped in silence — measured 2026-08-04, it
+     used to read `✓ claims-stale  skipped — no active_phase in STATE.md`, a
+     check that had never run once in this project's life while wearing the
+     success marker. Five cairn surfaces read that key (`cairn-status.py`,
+     `cairn-doctor.py`, `cairn-lease.py`, `cairn-migrate.py`,
+     `hooks/session-start.sh`) and **which key `STATE.md` should carry —
+     `current_phase`, what GSD writes, or `active_phase`, what cairn reads —
+     is open in `CairnGo-rq0`**: it changes what all five read and what every
+     STATE.md already on disk means, so it is a grooming decision, not a
+     rename. Never a failure either: a check with no input is friction, not a
+     state inconsistency, and exit `7` spent on friction stops meaning
+     anything.
    - **bd-doctor** (✗) — beads' own diagnostics failed → run `bd doctor`
      directly and follow its advice.
    - **gsd-capability** (✗) — the cairn capability is not registered with the
@@ -181,9 +276,192 @@ this routine health-check flow — see its own section below.
      never a doctor failure. Shells to `cairn-lease.py status --all
      --json`; a non-zero exit or unparsable JSON degrades this check to a
      warn rather than crashing the doctor run.
+   - **release-versions** (✗; ⊘ `out-of-scope` outside cairn's own repo) —
+     the plugin version's carriers disagree
+     (`cairn/.claude-plugin/plugin.json` `version`,
+     `.claude-plugin/marketplace.json` **nested** `metadata.version`, the
+     first released CHANGELOG heading, the `v<version>` git tag) → run
+     `cairn-release.sh check` and align the carrier named in the item.
+     Applies only inside cairn's own repo. **In your repo this reads `⊘`
+     with scope `out-of-scope`, and that is the normal, permanent state** —
+     those manifests are cairn's own and will never be there, so nothing is
+     missing and the report is not incomplete. No action.
+   - **test-parallel** (⚠; ⊘ either family) — this machine cannot run the
+     bats suite in
+     parallel (GNU `parallel`, or `flock`/`shlock`, missing) → install what
+     the item names. Never fails the run: a slow suite is friction, not a
+     state inconsistency. Applies only inside cairn's own repo. Two `⊘`
+     shapes, and they mean opposite things:
+     - **outside cairn's repo** → `out-of-scope`. Normal and permanent, same
+       as **release-versions**. No action.
+     - **inside cairn's repo, with no `bats` on PATH** → `no-input`, and this
+       one *is* a gap worth closing: nothing about parallelism could be
+       concluded because the suite cannot run here at all (a different
+       sentence from "it will run slowly"). It makes the footer read
+       `INCOMPLETE`; install `bats-core` and it clears.
+   - **req-ledger** (✗; ⚠ outside its own links; ⊘ `out-of-scope` with no
+     ledger) — the requirement ledger's
+     chain disagrees with itself: an **active** requirement with no row in
+     the coverage table, a coverage **footer** claiming a different number
+     than the table holds, a phase whose `**Requirements**:` line does not
+     yield the ids the ledger assigns it, or a plan whose `SUMMARY.md` is
+     on disk while its ROADMAP checkbox still reads `- [ ]` → run
+     `cairn-bookkeep.sh reconcile --apply` (reading is the default; the
+     writing sits behind that flag). Requirements under `## Deferred` or
+     `## Out of Scope` are outside the table **by rule** and are never
+     counted as gaps — the detail line says how many were excluded that
+     way, because an unexplained absence is the same defect facing the
+     other direction.
+
+     **Where it stops, and where `req-issue` stops.** `req-issue` (check 1)
+     goes requirement → **bd issue**, and it can only count the ids it
+     manages to *read* off a phase's `**Requirements**:` line. `req-ledger`
+     goes active requirement → **row in the coverage table** → **the number
+     the footer claims**, plus the **legibility of that same line** and the
+     **plan checkboxes** of the phase.
+
+     That boundary is not theoretical. Measured 2026-08-04 in this
+     repository: **35** active requirements, **33** coverage rows (`AUTO-05`
+     and `AUTO-06` had none), a footer still reading `29 requisitos, 29
+     mapeados.`, and `req-issue` reporting `ok :: 29 requirement(s) mapped
+     to issues` — because `ROADMAP.md:400` read `**Requirements**: AUTO-01 …
+     AUTO-08` and an ellipsis is prose, not a separator, so six ids never
+     entered its count. Three numbers for one quantity, two of them wrong
+     from unrelated causes that met at 29 by coincidence, both wearing a
+     green check, for days. `req-ledger` is what would have said so.
+
+     The ledger is read **once**, by shelling out to `cairn-bookkeep.py
+     reconcile --json` — the doctor never re-parses it, because a second
+     reader is a fifth number for the same quantity. A disagreement
+     `reconcile` names *outside* these links (STATE.md's counters, its
+     free-text narrative) is surfaced as a **warning** and never spends
+     exit `7` on a check called `req-ledger`. A `.planning/` with no
+     `REQUIREMENTS.md`, or a roadmap with no coverage view at all, reads
+     `⊘` with scope `out-of-scope` — the doctor runs in users' repos, most
+     carry no coverage table, and **keeping none is a method choice, not a
+     gap**: calling it `no-input` would leave every such repo permanently
+     `INCOMPLETE` over a table it deliberately does not keep. But the
+     ledger being **unreadable**
+     (the script missing, an unexpected exit, unparsable JSON) is a
+     **failure**, never a warning: a warning does not change the exit code,
+     so degrading there would leave the doctor exiting `0` over a ledger
+     nobody managed to read.
+
+   - **response-language** (⚠) — the language chosen at install and the
+     language GSD hands to its subagents have stopped agreeing.
+     `/cairn:init` records the answer in
+     `.cairn/config.json:agents.response_language` — it has to, because when
+     it asks, `.planning/` does not exist yet and cairn is forbidden from
+     creating it — and `cairn-config.sh set` propagates that answer into
+     `.planning/config.json:response_language`, the key GSD's own workflows
+     read, the moment that file exists. Two states are worth a line: the
+     answer was recorded and **never propagated** (the post-hand-off re-run
+     was skipped), or the two files carry **different** values. Both report
+     the exact `set` command that closes it, and the second one also names
+     which value governs — GSD's, because it is read by GSD's workflows as
+     well as by cairn.
+
+     Never a failure. A divergence breaks nothing mechanically; it makes
+     half the subagents of a run answer in one language and half in another,
+     which is exactly what went unnoticed for a whole milestone and exactly
+     why it belongs in a health report rather than in an exit code. The
+     doctor reports it and writes neither file.
+
+   - **phase-landed** (⚠; ✗ for an archived cycle; ⊘ `out-of-scope` with no
+     control branch) — a phase the roadmap calls **complete** whose commits
+     are not on the branch everything has to reach. Showing the information
+     and never asking for it trains everybody not to look, so this is the
+     asking half. MEASURED 2026-08-06 on cairn's own repository: nine
+     roadmap-complete phases were not on `origin/main` (145 commits ahead) and
+     the doctor said nothing about any of them.
+
+     The whole question is read **once** from `cairn-land.sh report --json`
+     through the `CAIRN_LAND` seam — the doctor reads no git of its own, the
+     same way check 3 defers to `cairn-map.py` and check 17 to
+     `cairn-bookkeep.py`. Two readers of one fact is the defect this milestone
+     has already paid for twice.
+
+     The severity split is the point. A complete phase of the **open** cycle
+     that has not been pushed yet is `⚠`: unpushed work is the ordinary state
+     of anybody mid-cycle, it is friction and not inconsistency, and exit `7`
+     spent on friction stops meaning anything. A complete phase of an
+     **archived** milestone that never arrived is `✗`: a cycle was closed over
+     work the control branch does not have, and that is a claim the repository
+     cannot support. Both route to [/cairn:ship](ship.md); the check writes
+     nothing.
+
+     A complete phase the local history cannot place — no commit touched its
+     directory and none named it in a conventional-commit scope — is listed by
+     name, prefixed `unknown ::` and carrying its reason, and it raises
+     **nothing**. Measured: phases 7-12 of this repository predate the scope
+     convention and are attributable by neither source, and charging that
+     would hand every long-lived repo a permanent finding about history nobody
+     is going to rewrite. Named without being charged is the honest middle.
+
+   - **plan-counters** (✗; ⊘ `no-input` when `STATE.md` carries no
+     `progress:` block with both keys) — a `STATE.md` claiming more plans
+     completed than it has. MEASURED 2026-08-06 on cairn's own repository,
+     right after the close of phase 22: `total_plans: 39` against
+     `completed_plans: 47`, and `47 = 39` plan summaries `+ 8` **phase**
+     summaries. The glob that produced the second number matched
+     `NN-MM-SUMMARY.md` and `NN-SUMMARY.md` alike, while its `*-PLAN.md` pair
+     matched only plans, because a phase has no `NN-PLAN.md`. The two look
+     symmetric and the naming is not.
+
+     This check **compares and never recomputes**, and that is the whole
+     design. The writer (`cairn-bookkeep close`) and the verifier
+     (`cairn-bookkeep reconcile`) derive `completed_plans` with the *same*
+     rule, so they agreed — `reconcile` returned `disagreements: []` while
+     printing both contradictory numbers inside one JSON object. A check that
+     recounted the tree with that rule would agree too, in the act of trying to
+     catch it. So it reads the two numbers exactly as written and asks the one
+     question neither glob can answer about itself: can more plans be finished
+     than exist? `completed > total` is impossible by arithmetic, not by
+     convention.
+
+     A missing key is `⊘ no-input`, never a failure — the `progress:` block is
+     GSD's, and a repository that never grew one has nothing inconsistent about
+     it. (A repository with no `.planning/` at all never reaches this check —
+     the doctor registers zero checks there.) The finding routes to
+     `cairn-bookkeep.sh reconcile`, which owns the recount; the check writes
+     nothing.
+
+   - **state-dialect** (✗; ⊘ `out-of-scope` when `STATE.md` carries fewer
+     than two readable phase keys) — a `STATE.md` whose two phase keys name
+     two different phases. MEASURED 2026-08-05 on cairn's own repository:
+     `grep -rn current_phase cairn/` returned **zero readers**, while five
+     surfaces read `active_phase` (`cairn-status.py`, `cairn-doctor.py`,
+     `cairn-lease.py`, `cairn-migrate.py`, `hooks/session-start.sh`). cairn
+     was writing the key it does not read, and GSD writes the key cairn does
+     not read either.
+
+     The decision (2026-08-06) is **additive**: `cairn-bookkeep close` now
+     writes `active_phase` beside `current_phase`, reading stays on
+     `active_phase`, no reader changes and no repository is migrated. This
+     check is the **stated counterpart** of the duplicated key, not an extra:
+     two keys that must agree and that nobody compares is the defect this
+     cycle measured four separate times — the coverage footer against its
+     table, `req-issue` against `req-ledger`, `completed_plans` against
+     `total_plans`, and two hand-kept numbers inside one document. Writing the
+     pair without comparing it would have created the fifth case in the act of
+     fixing the fourth.
+
+     It **compares and never derives**. A phase recomputed from the roadmap
+     would agree with whichever key the same rule wrote, so the two values are
+     read exactly as written and asked the one question neither can answer
+     about itself: do they name the same phase?
+
+     Fewer than two readable keys is `⊘ out-of-scope`, never `no-input`, and
+     the distinction is load-bearing: a file with one key **has no dialect
+     disagreement to have** — speaking one dialect is the state AUTO-10 is
+     named after — the missing `active_phase` is already reported as
+     `no-input` by `claims-stale`, and a second `no-input` would drop `.ok` in
+     every GSD repository that has never run `cairn-bookkeep`, a permanent
+     false red. The finding routes to `cairn-bookkeep.sh close <N> --apply`,
+     which writes both keys; the check writes nothing.
 
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — fifteen checks in total.)
+   upgrading bd — twenty-two checks in total.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
@@ -200,7 +478,7 @@ this routine health-check flow — see its own section below.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | All ok (warnings included) — or not-applicable: `.planning/` or `.beads/` absent (one side present → suggests `/cairn:migrate`; neither → `/cairn:init`). Also `--apply-reconciliation`'s own "no longer in conflict" refusal — nothing left to apply is not a failure |
+| `0` | All ok (warnings included) — or not-applicable: `.planning/` or `.beads/` absent (one side present → suggests `/cairn:migrate`; neither → `/cairn:init`). Also any number of `⊘` checks, of either family, **including a footer reading `INCOMPLETE`**: an absent input is friction, not a state inconsistency, and exit `7` spent on friction stops meaning anything. Read `.ok` (or the footer word) for "can I trust this green", not the exit code. Also `--apply-reconciliation`'s own "no longer in conflict" refusal — nothing left to apply is not a failure |
 | `2` | Usage — notably `--fix-labels` refuses when candidates exist but the milestone is unresolvable: set `milestone:` in STATE.md frontmatter, or mark the in-progress ROADMAP milestone with 🚧, then retry. Also `--apply-reconciliation` finding no proposal for phase N (`.cairn/conflicts.json` missing, or its own `phase` field doesn't match N) |
 | `5` | `bd` unavailable |
 | `7` | At least one check **failed** (✗) — including `--close-completed` leaving a target unclosed because bd refused it (reported on the phase-complete-open check with bd's reason), and a `blocks`-severity phase-corroboration conflict. Also `--apply-reconciliation` refusing a stale proposal, a bad citation, an unrecognized `recommended_action.type`, an issue-provenance mismatch, or bd itself refusing a close/reopen it was asked to apply |
@@ -214,13 +492,32 @@ Routine health check:
 ```
 
 ```
-cairn doctor — root: ~/Projects/app · milestone: v1.0 · active phase: 3
-✓ req-issue          ✓ frontmatter-ids     ⚠ maps-fresh (phase 2 stale)
-✓ superseded-released ✓ phase-complete-open ✓ orphans
-✓ label-pairs        ✓ claims-stale        ✓ bd-doctor
-✓ gsd-capability      ✓ phase-corroboration ✓ phase-artifacts
-✓ external-ref        ✓ lease-stale
-ok (1 warning)
+[cairn-doctor] ~/Projects/app — milestone: v1.0, active phase: 3
+ ✓ req-issue            12 requirement(s) mapped to issues
+ ⚠ maps-fresh           1 of 3 phase map(s) need attention
+     - phase 2: stale map 02-BEADS-MAP.md — run cairn-map.sh 2
+ ✓ orphans              48 issue(s), no orphans
+ …
+ ⊘ release-versions     no cairn/.claude-plugin/plugin.json under this root
+                        (the version carriers are cairn's own, not a wired
+                        repo's)
+ ⊘ test-parallel        no cairn/.claude-plugin/plugin.json under this root
+                        (cairn's bats suite is cairn's own, not a wired
+                        repo's)
+[cairn-doctor] ok — 15 ok, 2 not-applicable, 1 warning(s), 0 failure(s)
+```
+
+Those two `⊘` are the ordinary state of every repo that is not cairn itself:
+`out-of-scope`, permanent, no action, and the footer still says `ok`.
+
+A check that never ran says so, and the footer says the report is incomplete
+without claiming anything failed — note the exit code is still `0`:
+
+```
+ ⊘ claims-stale         cannot check — STATE.md's frontmatter carries no
+                        'active_phase', so there is nothing to compare
+                        in_progress claims against …
+[cairn-doctor] INCOMPLETE — 16 ok, 1 not-applicable, 1 warning(s), 0 failure(s)
 ```
 
 A repo whose GSD cannot host the fusion reports it plainly:
@@ -229,7 +526,7 @@ A repo whose GSD cannot host the fusion reports it plainly:
 ✗ gsd-capability     GSD 4.x lineage — it has no 'capability' subcommand, so
                      plain /gsd:* does NOT touch bd issues. Install the
                      official core: claude plugin install gsd-core@cairngo
-FAIL — 12 ok, 0 warning(s), 1 failure(s)
+[cairn-doctor] FAIL — 15 ok, 2 not-applicable, 0 warning(s), 1 failure(s)
 ```
 
 Repair label pairs, then re-check:
@@ -242,7 +539,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 
 `--apply-reconciliation N` is the human-invoked, separate command that
 applies a semantic-escalation reconciliation proposal `/cairn:reconcile N`
-wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 15 checks
+wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 22 checks
 above and does not run alongside them — it always exits on its own instead
 of falling through to the ordinary report.
 

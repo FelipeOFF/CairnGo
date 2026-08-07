@@ -226,6 +226,73 @@ make_phase1_conflict() {
   assert_json_eq "$output" '.git_log | type' 'array'
 }
 
+@test "DJOUR-03: with the whole journal surface deleted the bundle still collects, history empty" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_corroboration_fixture
+  make_phase1_conflict
+
+  # A first collect, so the journal genuinely has history to destroy (the
+  # collect's own cairn-status.py call journals as a side effect).
+  run bash "$RECONCILE" collect 1 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local before="$output"
+  assert_json_eq "$before" '.journal.history | length > 0' 'true'
+
+  # Phase 28 made the surface bigger than one path: the partition directory
+  # AND the inherited single file. The journal script is neutralised too --
+  # otherwise the collect's own observe would repopulate what was deleted
+  # before journal_history() ever reads it, and this would prove nothing.
+  rm -rf .cairn/journal
+  rm -f .cairn/journal.jsonl*
+
+  run env CAIRN_JOURNAL=/nonexistent/path bash "$RECONCILE" collect 1 \
+    --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.journal.history' '[]'
+  assert_json_eq "$output" '.journal.last_moved' 'null'
+  # Every other section of the bundle is intact and says the same thing --
+  # the journal is evidence, never authority.
+  assert_json_eq "$output" '.phase' '1'
+  assert_json_eq "$output" '.corroboration.evidence.disk' \
+    "$(jq -r '.corroboration.evidence.disk' <<<"$before")"
+  assert_json_eq "$output" '.corroboration.evidence.bd' \
+    "$(jq -r '.corroboration.evidence.bd' <<<"$before")"
+  assert_json_eq "$output" '.corroboration.conflicts | length > 0' 'true'
+  assert_json_eq "$output" '.roadmap_excerpt | startswith("### Phase 1: Auth")' 'true'
+}
+
+@test "collect: the bundle carries EXACTLY these keys — nothing that is not evidence gets into the hash" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_corroboration_fixture
+  make_phase1_conflict
+
+  run bash "$RECONCILE" collect 1 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+
+  # An assertion on the SET, added by plan 24-03 for a specific reason. The
+  # response language the reconcile-investigator answers in is passed to it by
+  # /cairn:reconcile step 3, read from cairn-config — deliberately NOT from
+  # here. `evidence_hash` is computed over this dict (cairn-reconcile.py:
+  # 525-531) and step 2 compares it to decide whether a prior proposal can be
+  # reused; a language field in the bundle would invalidate every cached
+  # proposal on every change of language, spending a subagent over something
+  # that changed no evidence at all.
+  #
+  # So this goes red both ways, which is the point: a new field added to the
+  # bundle turns it red, and so does a field silently removed from it.
+  assert_json_eq "$output" '[keys[]] | sort | join(",")' \
+    'context_excerpt,corroboration,evidence_hash,generated_at,git_log,git_shallow,journal,phase,roadmap_excerpt'
+
+  # The two that are added AFTER the hash is taken, named so the boundary of
+  # what the hash covers stays visible in a test rather than only in a comment.
+  assert_json_eq "$output" '.evidence_hash | startswith("sha256:")' 'true'
+  assert_json_eq "$output" '.generated_at | type' 'string'
+}
+
 #-----------------------------------------------------------------------------
 # Task 2 — verify: a fully-correct proposal is valid; a proposal with one
 # bad citation is rejected wholesale (D-03).

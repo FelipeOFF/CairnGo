@@ -1,6 +1,7 @@
 ---
 description: Health-check the GSD↔beads wiring — run cairn-doctor, explain the report, route each finding to its fix
 argument-hint: "[--fix-labels] [--close-completed] [--json] [--apply-reconciliation N]"
+group: health
 ---
 
 Audit the repo's cairn wiring and walk the user through fixing what it finds.
@@ -14,17 +15,60 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" $ARGUMENTS
 Any flags the user typed (`--fix-labels`, `--close-completed`, `--json`) are
 in $ARGUMENTS and go straight onto the call; `--json` gives machine output. Exit codes: `0` all ok — warnings included, they
 never change the exit code — or not-applicable (`.planning/` or `.beads/`
-absent); `5` bd unavailable; `7` at least one check **failed** — including a
-`--close-completed` that bd refused (step 4).
+absent), **or a report whose verdict is `INCOMPLETE`**; `5` bd unavailable;
+`7` at least one check **failed** — including a `--close-completed` that bd
+refused (step 4).
+
+`INCOMPLETE` exiting `0` is deliberate: an absent input is friction, not a
+state inconsistency, and spending exit `7` on friction is how exit `7` stops
+meaning anything. The verdict of an incomplete run therefore lives only where
+it is **read** — the footer word, the `⊘` symbol, the top-level `ok` key — so
+the exit code alone can never tell you the run was complete. Step 2 is where
+you say it.
 
 Not-applicable: relay the printed note — when exactly one side exists it
 suggests `/cairn:migrate`; when neither exists, route to `/cairn:init`.
 
 ## 2. Explain the report
 
-Header shows root, milestone, and active phase; then one ✓/⚠/✗ line per check
-with itemized findings. Failures (✗) block; warnings (⚠) are advisories. Give
-the user the short version: what is inconsistent and what fixes it.
+Header shows root, milestone, and active phase; then one line per check with
+its itemized findings; then a footer carrying the verdict.
+
+**Four statuses, and the symbol is the status.** Three of them is the old
+vocabulary and it has nowhere to put a check that had nothing to check:
+
+| Symbol | Status | What it says |
+|---|---|---|
+| `✓` | `ok` | the check ran, over real input, and found nothing wrong |
+| `⊘` | `not-applicable` | the check had **no input** — it did not pass, it did not run |
+| `⚠` | `warn` | an advisory; never changes the exit code |
+| `✗` | `fail` | a state inconsistency; this is what exit `7` counts |
+
+A `⊘` comes in one of two families, and they are not the same sentence:
+
+- `out-of-scope` — the input will never exist for this **class** of repo
+  (cairn's own release manifests, in a repo that is not cairn). Permanent,
+  ordinary, no action, and it does **not** make the report incomplete.
+- `no-input` — the input *should* exist given what the repo already has (a
+  `STATE.md` with no `active_phase`, a `ROADMAP.md` with no phase). It is a
+  gap someone can close, and it is what makes the report incomplete.
+
+**Three verdicts, ranked.** A failure outranks an incomplete report, because
+"something is inconsistent" is the louder sentence:
+
+- any `✗` → **FAIL**
+- no `✗`, but at least one `⊘ no-input` → **INCOMPLETE**
+- neither → **ok**
+
+Reading `--json`: there is no `verdict` key — derive it from two booleans.
+`failed` true → FAIL. `failed` false with `ok` false → INCOMPLETE. Both
+answered → clean. `counts` carries the per-status totals, and a `⊘` check
+carries a `scope` field naming its family.
+
+Give the user the short version: what is inconsistent, and what fixes it. Two
+things you may never do — **never call a `⊘` a pass, and never report an
+INCOMPLETE run as clean**. Name the checks that had no input, say which family
+each absence belongs to, and for `no-input` say what would close the gap.
 
 ## 3. Offer `--fix-labels` when the label-pairs check warns
 
@@ -72,33 +116,38 @@ push hook fires: when `.cairn/sync.json` exists the run reminds you to run
 
 ## 5. Route the remediation per check
 
-- **req-issue** (✗) — a ROADMAP requirement has no stamped, phase-labeled
-  issue: run `/cairn:migrate` (mode C wires or creates), or for a one-off
-  create it yourself **with the stamp**:
-  `bd create "CAT-NN: <title>" -l m-<m>,phase-<N> --metadata '{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}'`.
-- **frontmatter-ids** (✗) — a PLAN.md `beads:` id is dangling or unlabeled:
-  edit the PLAN's `beads:` list, or add the missing `phase-<N>` label to the
-  issue.
-- **maps-fresh** (⚠) — regenerate each stale phase:
-  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>`.
-- **superseded-released** (⚠) — a superseded PLAN still holds open ids: close
-  them or move them to the plan that superseded it.
-- **phase-complete-open** (⚠, ✗ when a close was refused) — non-closed issues
-  whose phase labels all point at ROADMAP-complete phases (a cross-phase issue
-  with one live phase is not flagged): step 4 above (`--close-completed`), or
-  re-open the phase if it is not actually done — the note item flags when the
-  on-disk artifacts disagree with the checkbox. A ✗ here means bd refused a
-  close the run attempted; its reason is on the item.
-- **orphans** (⚠) — issues labeled for a non-ROADMAP phase, or non-closed with
-  no `phase-*` label: attach the right phase label + stamp, label `backlog`,
-  or close.
-- **label-pairs** (⚠) — step 3 above.
-- **claims-stale** (⚠) — in_progress + assigned issues outside the active
-  phase: finish and close them, release the claim, or correct
-  `active_phase:` in STATE.md.
-- **bd-doctor** (✗) — follow bd's own advice: run `bd doctor` directly.
+Two findings this command fixes itself, and they are steps 3 and 4 above:
+`label-pairs` → `--fix-labels`, `phase-complete-open` → `--close-completed`.
+A third has a one-line answer: `maps-fresh` → regenerate each stale phase with
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>`.
 
-Re-run the doctor after the fixes to confirm a clean `ok` footer.
+For every other id, the routing lives in one place:
+
+```text
+${CLAUDE_PLUGIN_ROOT}/docs/commands/doctor.md
+```
+
+That page carries an entry per check — the id, the symbols it can report, the
+`⊘` family when it has one, and the action that closes it. Read the entries
+for the ids **this run actually reported**, and give the user those actions in
+your own words, in the order the report printed them: failures first,
+`no-input` next (they are why the verdict reads INCOMPLETE), advisories last.
+
+Do **not** copy that table into this page, and do **not** write here how many
+checks there are. Both are exactly how a page like this starts lying, and this
+repository has already shipped every version of it: a page claiming fifteen
+while sixteen were registered, a docstring claiming eighteen in total while
+nineteen were, and two hand-written totals disagreeing inside a single file.
+The doctor grows almost every phase; an address survives that, a copy does
+not.
+
+An id the report prints and the table does not carry is a gap in the **table**
+— say so plainly and route the user to the check's own name, rather than
+inventing a remedy for a check you cannot read.
+
+Re-run the doctor after the fixes. A clean re-run is an `ok` footer with no
+`⊘ no-input` line — not merely exit `0`, which an INCOMPLETE run also
+returns.
 
 ## 6. Apply a verified reconciliation proposal (`--apply-reconciliation N`)
 

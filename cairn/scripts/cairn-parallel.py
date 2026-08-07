@@ -95,6 +95,27 @@ STATE.md / ROADMAP.md / REQUIREMENTS.md inside a phase worktree, which
 `prepare` reports back as `planning_files_forbidden` for whoever assembles the
 subagent's prompt.
 
+
+WHY `prepare` REPORTS THE RESPONSE LANGUAGE (phase 24, LANG-02)
+----------------------------------------------------------------
+The prompt assembler reads this payload and nothing else about the phase, so
+anything the subagent must be told has to come out of here. The language is
+one of those things, and the reason it is mechanical rather than remembered is
+a measured defect: in the v1.4 cycle every subagent this loop spawned answered
+in English against an all-Portuguese plan, and it did so with
+`.planning/config.json:response_language` ALREADY SET to `pt-BR`. A test
+asserting "the key is in the file" would have been GREEN on the exact day the
+defect happened — which is why the phase-24 test reads the value out of THIS
+payload instead.
+
+The value is resolved by cairn-config.py (`agents.response_language`, which
+GSD's own `response_language` outranks when set); it is not resolved a second
+time here, for the same reason independence is not recomputed here. The
+fallback when the subprocess fails is `(None, "unavailable")` and deliberately
+NOT `("English", ...)`: repeating the default here would be the second place
+it lives, and one setting with two defaults is where the next disagreement
+starts. A null is visible in both renders; a guessed "English" would not be.
+
 The opposite was also measured: `bd list` AND `bd create`/`bd update` from a
 second worktree resolve to the MAIN repo's database — no local DB, no daemon,
 no global registry. That is what makes the lease work across worktrees at all
@@ -136,6 +157,26 @@ acquire knows how to reclaim one — it is only flagged `lease_stale: true`.
 and three agents is about what one person can actually review before the
 review becomes rubber-stamping. It is a ceiling on human attention, not on
 anything git or bd cares about, and `--max` exists so it can be raised.
+
+That default is now a SETTING rather than a literal: with no `--max`, the
+ceiling comes from `cairn-config.py get autonomous.max_parallel`, whose own
+schema default is 3 — so a repo with no `.cairn/config.json` behaves exactly
+as it did before. An explicit `--max` always wins over the config. The config
+is read by SUBPROCESS, in cairn-status.py's fetch_lease_status() shape: a
+failed subprocess or unparsable JSON degrades to the fallback and never takes
+`batch` down with it. Config resolution is not reimplemented here, for the
+same reason independence is not recomputed here — two implementations of one
+question eventually disagree.
+
+The OTHER ceiling, `autonomous.max_cycles`, bounds a run rather than a batch,
+and it has a deliberate asymmetry: it applies only when the caller passes
+`--cycle K`. A caller that does not count cycles cannot be over one, and
+inventing a cycle number here would be exactly the second truth this file
+refuses everywhere else. Above the ceiling nothing is selected, every runnable
+phase is deferred with the ceiling named as its reason, `cycle_note` says it
+in one sentence, and the exit stays 0 — the ceiling is a planning input, not a
+gate, and the caller is what stops. `cycle_note` is its own field rather than
+a rewrite of `note`: `note` belongs to whoever computed independence.
 
 The bridge from `batch` to `prepare` is a CONTRACT, not just a shared function:
 what `batch` announces as `branch`/`worktree` has to be byte-for-byte what
@@ -438,17 +479,35 @@ it is asked to say.
 
 
 Usage:
-    cairn-parallel.py batch     [--max N] [--project-dir DIR] [--json]
+    cairn-parallel.py batch     [--max N] [--cycle K] [--project-dir DIR]
+                                [--json]
     cairn-parallel.py prepare N [--project-dir DIR] [--json]
     cairn-parallel.py reconcile [--phases 7,9] [--project-dir DIR] [--json]
-    cairn-parallel.py cleanup   [--apply] [--project-dir DIR] [--json]
+    cairn-parallel.py cleanup   [--apply] [--phase N] [--project-dir DIR]
+                                [--json]
 
     --project-dir DIR   project root for git/bd discovery (default:
                         $CLAUDE_PROJECT_DIR or cwd)
-    --max N             ceiling on how many phases `batch` selects
-                        (default: 3)
+    --max N             ceiling on how many phases `batch` selects (default:
+                        `autonomous.max_parallel` from .cairn/config.json,
+                        itself 3 when that file says nothing)
+    --cycle K           which cycle of an autonomous run this is. Past
+                        `autonomous.max_cycles` (0 = no ceiling) `batch`
+                        selects nothing and says why, exit 0 — it is a
+                        read-only planner, not a gate. Omit the flag and the
+                        cycle ceiling does not apply at all: a caller that
+                        does not count cycles cannot be over one
     --phases LIST       comma-separated phase numbers `reconcile` restricts
                         itself to (default: every phase/* branch)
+    --phase N           narrows `cleanup` to phase N's CANONICAL worktree
+                        (`<root>-phase-N`, exactly what `prepare` builds) and
+                        that phase's own lease. NOT the branch number, and
+                        the difference is measured: `phase/25-tools` and
+                        `phase/25-surfaces` both match phase 25, so a sweep
+                        keyed on the branch and fired by the close of phase
+                        25 would delete two live fronts' work. Every guard of
+                        the full sweep still applies — it is a filter on the
+                        inventory, not a laxer rule
     --apply             `cleanup` writes. Without it nothing anywhere is
                         touched, in any branch of the code — reading is the
                         default and writing is behind a named flag, as
@@ -459,11 +518,16 @@ Usage:
 Behavior:
     batch      Calls `cairn-status.py --json` ONCE (through the CAIRN_STATUS
                seam) and reports:
-                 {runnable, blocked, declared, note, max, selected[],
-                  deferred[], announcement}
+                 {runnable, blocked, inconsistent, declared, note, max, cycle,
+                  max_cycles, cycle_note, selected[], deferred[], announcement}
                `selected[]` entries carry {phase, title, slug, branch,
                worktree, next_command, reason, lease_stale}; `deferred[]`
-               entries carry {phase, reason}. `announcement` is the ready-made
+               entries carry {phase, reason}; `inconsistent[]` entries carry
+               {phase, reason, command} and name a phase that has a directory
+               under .planning/phases/ and NO entry in ROADMAP.md — left out of
+               the answer rather than scheduled (CairnGo-4oq). `deferred` means
+               "runnable, not this round"; `inconsistent` means "the roadmap
+               does not say this phase exists". `announcement` is the ready-made
                text for /cairn:autonomous step 0.4: how many phases run, why
                each one, what was left out and why, plus the honesty line when
                `declared` is false.
@@ -473,7 +537,8 @@ Behavior:
                worktree is not what any of this names. Resolves slug, branch
                and path; runs the four-step acquisition above; reports:
                  {phase, slug, branch, worktree, base_commit, created,
-                  lease: {holder, acquired_at}, planning_files_forbidden[]}
+                  lease: {holder, acquired_at}, planning_files_forbidden[],
+                  response_language, response_language_source}
                Idempotent: an existing worktree at the expected path, on the
                expected branch, re-acquires (already ours -> exit 0) and
                reports `created: false`. A path that exists but is NOT a
@@ -516,6 +581,19 @@ Behavior:
                `--apply` and otherwise lists, item by item, exactly what was
                done: {action: worktree_prune|lease_release|worktree_remove,
                ...}. Exit is 0 either way — see the asymmetry note above.
+               With `--phase N` the report carries `phase` and the whole scan
+               is narrowed to that phase's canonical worktree and lease.
+
+               A `worktree_remove` entry also carries `journal_dropped`.
+               MEASURED while wiring roadmap criterion 8: with D-05 in place
+               this script calls a journal-only worktree removable, and git's
+               own `worktree remove` refuses it (`contains modified or
+               untracked files`) because git never heard of DJOUR-03.
+               `--force` would answer that by switching off git's re-check —
+               the second independent verdict this function keeps on purpose.
+               So `.cairn/journal/`, and only it, is deleted first, and git
+               judges everything else on its own terms. A refusal after that
+               is a real one, and it is reported.
 
 Exit codes:
     0  ok (including `created: false` — reusing an existing tree is success;
@@ -542,11 +620,13 @@ Test/override seams (CONVENTIONS.md's CAIRN_* env-seam note, same shape as
 CAIRN_GBSYNC / CAIRN_MAP / CAIRN_GATE / CAIRN_JOURNAL):
     CAIRN_LEASE    default: the sibling cairn-lease.py
     CAIRN_STATUS   default: the sibling cairn-status.py
+    CAIRN_CONFIG   default: the sibling cairn-config.py
 """
 import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -567,6 +647,18 @@ CAIRN_LEASE = os.environ.get(
     "CAIRN_LEASE", str(SCRIPTS_DIR / "cairn-lease.py"))
 CAIRN_STATUS = os.environ.get(
     "CAIRN_STATUS", str(SCRIPTS_DIR / "cairn-status.py"))
+CAIRN_CONFIG = os.environ.get(
+    "CAIRN_CONFIG", str(SCRIPTS_DIR / "cairn-config.py"))
+
+# Last-resort fallback for the parallelism ceiling, used only when
+# cairn-config.py cannot be run or answers with something unreadable. It
+# echoes that script's schema default on purpose: the schema is the source,
+# this number is what keeps `batch` working when the source cannot be
+# reached. If the two ever disagree, the schema is right.
+MAX_PARALLEL_FALLBACK = 3
+# Same contract for the cycle ceiling, and 0 is the value that means "no
+# ceiling" — so a config that cannot be reached imposes none.
+MAX_CYCLES_FALLBACK = 0
 
 # Phase directory numeric-prefix matching — the house convention is that each
 # script carries its own copy of this regex rather than sharing a lib (same
@@ -587,8 +679,8 @@ PLANNING_FILES_FORBIDDEN = [".planning/STATE.md", ".planning/ROADMAP.md",
                             ".planning/REQUIREMENTS.md"]
 
 USAGE = ("usage: cairn-parallel.py {batch [--max N]|prepare N|"
-         "reconcile [--phases 7,9]|cleanup [--apply]} [--project-dir DIR] "
-         "[--json]")
+         "reconcile [--phases 7,9]|cleanup [--apply] [--phase N]} "
+         "[--project-dir DIR] [--json]")
 
 
 def die(msg, code):
@@ -737,21 +829,65 @@ def phase_slug(top, phase):
 
 
 def phase_layout(top, phase):
-    """{phase, slug, branch, worktree} — the single naming authority for both
-    verbs. `batch` announces what this returns and `prepare` creates what
-    this returns; the bridge test compares the two by realpath.
+    """{phase, slug, branch, branch_source, worktree} — the single naming
+    authority for both verbs. `batch` announces what this returns and
+    `prepare` creates what this returns; the bridge test compares the two by
+    realpath.
 
     The path is built from the ROOT's own basename plus an int phase, never
     from a user-supplied string, and is asserted to be a SIBLING of the root
-    before any caller writes there (T-18-01)."""
+    before any caller writes there (T-18-01).
+
+    THE NAME IS ADOPTED BEFORE IT IS DERIVED (FIX-02, CairnGo-r4g). MEASURED
+    live on v1.4: `batch --json` returned `slug: null` and `branch: phase/19`
+    for phase 19, which had no directory yet. Once
+    `.planning/phases/19-<slug>` exists the same phase would resolve to
+    `phase/19-<slug>` — a DIFFERENT branch for the same work. Nothing breaks
+    today because the worktree path never moves and reconcile discovers by
+    `refs/heads/phase/*`, but two branches for one phase are reachable:
+    prepare refuses a branch of the SAME name with no worktree
+    (cairn-parallel.py, cmd_prepare) and has nothing to say about one of a
+    NEW name, which is precisely what a late slug produces.
+
+    So the name comes from whatever already exists, strongest evidence first:
+
+      worktree         the canonical worktree is registered and git says what
+                       branch is checked out there. This is the identity the
+                       issue itself names as stable — the path does not move.
+      existing-branch  no canonical worktree, and EXACTLY ONE refs/heads/
+                       phase/<N> ref. That is the name prepare gave it.
+      derived          neither of those, so build the name from the slug —
+                       byte for byte what this function has always done.
+
+    WHY MORE THAN ONE BRANCH DOES NOT DIE HERE, against the house rule of
+    never taking the first of an ambiguous match: two branches for one phase
+    is the ORDINARY state of a phase split across two fronts. MEASURED in
+    this repository right now — `phase/25-tools` and `phase/25-surfaces` both
+    match phase 25. Dying would take the whole `batch` down over one phase,
+    and `batch` is the surface that decides what runs at all. The third rung
+    keeps today's behaviour exactly, and `branch_source` says the choice was
+    derived rather than read — a surface that picks among three sources and
+    does not say which is the shape of lie this phase exists to remove.
+    """
     slug = phase_slug(top, phase)
-    branch = f"phase/{phase}-{slug}" if slug else f"phase/{phase}"
     worktree = Path(top).parent / f"{Path(top).name}-phase-{phase}"
     if worktree.parent != Path(top).parent:
         die(f"refusing to place a worktree outside the repo's parent "
             f"directory: {worktree}", EXIT_GIT)
+
+    branch, source = None, "derived"
+    entry = worktree_entry_at(top, worktree)
+    if entry is not None and entry.get("branch"):
+        branch, source = entry["branch"], "worktree"
+    else:
+        same = [name for n, name in phase_branches(top) if n == phase]
+        if len(same) == 1:
+            branch, source = same[0], "existing-branch"
+    if branch is None:
+        branch = f"phase/{phase}-{slug}" if slug else f"phase/{phase}"
+
     return {"phase": phase, "slug": slug, "branch": branch,
-            "worktree": str(worktree)}
+            "branch_source": source, "worktree": str(worktree)}
 
 
 # --------------------------------------------------------------------------- #
@@ -924,16 +1060,23 @@ def cmd_prepare(args, top):
                     rolled_back, args.json)
 
     _, base_commit, _ = run_git(worktree, ["rev-parse", "HEAD"])
+    # Read from the MAIN checkout, never from the freshly created worktree:
+    # the config the operator configured is the one that governs, and a
+    # worktree is a copy of a commit, not a place anyone configured.
+    language, language_source = config_language(top)
     out = {
         "phase": phase,
         "slug": layout["slug"],
         "branch": branch,
+        "branch_source": layout["branch_source"],
         "worktree": str(worktree),
         "base_commit": base_commit or None,
         "created": created_worktree,
         "lease": {"holder": entry.get("holder"),
                   "acquired_at": entry.get("acquired_at")},
         "planning_files_forbidden": list(PLANNING_FILES_FORBIDDEN),
+        "response_language": language,
+        "response_language_source": language_source,
     }
     if args.json:
         print(json.dumps(out))
@@ -946,6 +1089,14 @@ def cmd_prepare(args, top):
               f"{out['lease']['acquired_at']}")
         print(f"[cairn-parallel] forbidden in this worktree (D-03): "
               f"{', '.join(PLANNING_FILES_FORBIDDEN)}")
+        if language is None:
+            print("[cairn-parallel] response language: unavailable "
+                  "(cairn-config could not be read) — say so in the "
+                  "announcement rather than guessing one")
+        else:
+            print(f"[cairn-parallel] response language: {language} "
+                  f"({language_source}) — the subagent's user-facing output "
+                  f"goes in it")
     sys.exit(EXIT_OK)
 
 
@@ -977,6 +1128,14 @@ def build_announcement(result):
                      f"{s['branch']}")
     for d in result["deferred"]:
         lines.append(f"  phase {d['phase']} stays out: {d['reason']}")
+    # Named BEFORE the note and the honesty line, because this one is not about
+    # scheduling at all: it says a phase on disk was left out of the answer
+    # entirely, and prints the command that fixes it (CairnGo-4oq).
+    for i in result.get("inconsistent") or []:
+        lines.append(f"  phase {i['phase']} is not schedulable: {i['reason']}"
+                     f" — {i['command']}")
+    if result.get("cycle_note"):
+        lines.append(result["cycle_note"])
     if result["note"]:
         lines.append(result["note"])
     if not result["declared"]:
@@ -986,10 +1145,104 @@ def build_announcement(result):
     return "\n".join(lines)
 
 
+def config_value(top, key, fallback):
+    """One setting out of cairn-config.py, or `fallback`.
+
+    Defensive in exactly the shape cairn-status.py's fetch_lease_status()
+    uses: a subprocess that cannot be started, a nonzero exit, unparsable
+    JSON or a payload without a `value` all degrade to the fallback. `batch`
+    is a read-only planner and a missing/broken config file is not a reason
+    to take it down — nor is it a reason to invent a second config resolver
+    here (see the docstring).
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(CAIRN_CONFIG), "get", key, "--json",
+             "--project-dir", str(top)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    if proc.returncode != 0:
+        return fallback
+    try:
+        data = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        return fallback
+    if not isinstance(data, dict) or "value" not in data:
+        return fallback
+    return data["value"]
+
+
+def config_language(top):
+    """(value, source) for `agents.response_language`, or (None,
+    "unavailable").
+
+    Same defensive shape as config_value(): a subprocess that cannot start, a
+    nonzero exit, unparsable JSON, or a payload missing either field degrades.
+    It degrades to a NULL rather than to the string "English" on purpose — see
+    the docstring: the default lives in cairn-config.py's schema and nowhere
+    else, and a guessed language would be indistinguishable from a configured
+    one at the point where it matters.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(CAIRN_CONFIG), "get",
+             "agents.response_language", "--json", "--project-dir", str(top)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None, "unavailable"
+    if proc.returncode != 0:
+        return None, "unavailable"
+    try:
+        data = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        return None, "unavailable"
+    if not isinstance(data, dict):
+        return None, "unavailable"
+    value, source = data.get("value"), data.get("source")
+    if not isinstance(value, str) or not value or not isinstance(source, str):
+        return None, "unavailable"
+    return value, source
+
+
+def config_int(top, key, fallback, minimum):
+    """config_value() narrowed to an int at or above `minimum`. bool is an int
+    subclass in Python and `true` is not a ceiling, so it is excluded."""
+    value = config_value(top, key, fallback)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return fallback
+    return value if value >= minimum else fallback
+
+
 def cmd_batch(args, top):
-    if args.max < 1:
+    if args.max is not None and args.max < 1:
         die(f"--max must be at least 1 (got {args.max})\n" + USAGE,
             EXIT_USAGE)
+    if args.cycle is not None and args.cycle < 0:
+        die(f"--cycle must be zero or more (got {args.cycle})\n" + USAGE,
+            EXIT_USAGE)
+    # An explicit --max always wins over the setting; with no flag the ceiling
+    # is autonomous.max_parallel, whose own schema default is 3 — so a repo
+    # with no .cairn/config.json selects exactly what it selected before.
+    max_selected = (args.max if args.max is not None
+                    else config_int(top, "autonomous.max_parallel",
+                                    MAX_PARALLEL_FALLBACK, 1))
+
+    # The cycle ceiling only exists for a caller that counts cycles: with no
+    # --cycle it does not apply at all, and 0 means no ceiling. Above it,
+    # `batch` selects nothing and SAYS SO — a limit enforced in silence is
+    # indistinguishable from a run that simply found no work (T-29-10).
+    max_cycles = config_int(top, "autonomous.max_cycles",
+                            MAX_CYCLES_FALLBACK, 0)
+    over_cycle = (args.cycle is not None and max_cycles > 0
+                  and args.cycle > max_cycles)
+    cycle_note = None
+    if over_cycle:
+        cycle_note = (f"cycle {args.cycle} is past the "
+                      f"autonomous.max_cycles ceiling of {max_cycles}, so no "
+                      f"phase is selected. Raise or clear it with "
+                      f"`cairn-config.sh set autonomous.max_cycles N` "
+                      f"(0 = no ceiling).")
 
     data = status_json(top)
     par = data.get("parallelism") or {}
@@ -1016,15 +1269,22 @@ def cmd_batch(args, top):
     selected = []
     deferred = []
     for n in runnable:
+        if over_cycle:
+            deferred.append({"phase": n,
+                             "reason": f"cycle {args.cycle} is above the "
+                                       f"autonomous.max_cycles ceiling of "
+                                       f"{max_cycles}"})
+            continue
         entry = held.get(n)
         if entry is not None and not entry.get("stale"):
             deferred.append({"phase": n,
                              "reason": f"lease held by {entry.get('holder')} "
                                        f"since {entry.get('acquired_at')}"})
             continue
-        if len(selected) >= args.max:
+        if len(selected) >= max_selected:
             deferred.append({"phase": n,
-                             "reason": f"above the --max {args.max} ceiling"})
+                             "reason": f"above the --max {max_selected} "
+                                       f"ceiling"})
             continue
         layout = phase_layout(top, n)
         cmd = commands.get(n) or {}
@@ -1033,6 +1293,10 @@ def cmd_batch(args, top):
             "title": cmd.get("title"),
             "slug": layout["slug"],
             "branch": layout["branch"],
+            # Which of the three sources named that branch — adopted from the
+            # canonical worktree, adopted from the one existing ref, or
+            # derived from the slug (FIX-02).
+            "branch_source": layout["branch_source"],
             "worktree": layout["worktree"],
             "next_command": cmd.get("command"),
             "reason": cmd.get("reason"),
@@ -1043,9 +1307,21 @@ def cmd_batch(args, top):
         # Passed through verbatim: whoever computed independence owns these.
         "runnable": runnable,
         "blocked": [b for b in (par.get("blocked") or [])],
+        # Passed through verbatim for the same reason as `runnable`: whoever
+        # computed independence owns the judgement that a phase is on disk
+        # without a roadmap entry. `batch` reports it, never recomputes it.
+        "inconsistent": [i for i in (par.get("inconsistent") or [])
+                         if isinstance(i, dict)],
         "declared": bool(par.get("declared")),
         "note": par.get("note"),
-        "max": args.max,
+        "max": max_selected,
+        # The cycle ceiling gets its OWN field rather than overwriting `note`:
+        # that one is passed through verbatim from whoever computed
+        # independence, and borrowing it here would put two authors' words in
+        # one place. `cycle` is null when the caller does not count cycles.
+        "cycle": args.cycle,
+        "max_cycles": max_cycles,
+        "cycle_note": cycle_note,
         "selected": selected,
         "deferred": deferred,
     }
@@ -1518,18 +1794,73 @@ def lease_release(top, phase):
     return data if isinstance(data, dict) else {}
 
 
+# The one path whose loss changes no verdict anywhere (DJOUR-03), and
+# therefore the one path that may not hold a worktree hostage.
+JOURNAL_PREFIX = ".cairn/journal/"
+
+
 def worktree_dirty(path):
-    """`git status --porcelain` non-empty in that worktree — uncommitted
-    changes AND untracked files both count, because both are work git cannot
-    reconstruct from any ref. A worktree whose directory is gone reads as
-    'not dirty' here and never reaches this function anyway: it is an
-    orphan_registration before any of this is asked."""
-    rc, out, _ = run_git(path, ["status", "--porcelain"])
+    """Does that worktree carry work git cannot reconstruct from any ref?
+
+    Uncommitted changes AND untracked files both count, because git can
+    rebuild neither. A worktree whose directory is gone reads as 'not dirty'
+    here and never reaches this function anyway: it is an
+    orphan_registration before any of this is asked.
+
+    EXCEPT `.cairn/journal/` (D-05, CairnGo-rhq). MEASURED at the close of
+    phase 28: versioning the journal made every worktree that journals stop
+    being removable, and the trap closes from both sides —
+
+        uncommitted partition -> "uncommitted changes (git cannot recreate
+                                  these)"
+        committed partition   -> "carries commits HEAD lacks"
+
+    — so a worktree only becomes removable after its partition is committed
+    AND merged back, and nothing in cairn's flow does either. The journal is
+    the one cairn artifact whose loss changes NO verdict (DJOUR-03), and that
+    is exactly why it cannot be grounds for retention: retention is for work
+    git cannot recreate, and this is not that.
+
+    THE CALL CHANGED WITH THE FILTER, AND HAD TO. MEASURED 2026-08-07 against
+    this project's own .gitignore (`.cairn/journal/*` plus
+    `!.cairn/journal/*.jsonl`):
+
+        $ git status --porcelain            # what this used to run
+        ?? .cairn/                          <- the DIRECTORY, collapsed
+        $ git status --porcelain -uall
+        ?? .cairn/journal/-0001.jsonl       <- and only now does a path
+                                               filter have a path to match
+
+    With `-u normal` git collapses a wholly-untracked directory into one
+    line, and `.cairn/` does not start with `.cairn/journal/`. A filter over
+    the old call would have been inert — correct-looking, and doing nothing.
+    `-z` comes along so paths arrive raw (no quoting, no escapes) and a
+    rename arrives as two fields instead of one line with an arrow in it.
+
+    AND IT READS THE BYTES RAW. run_git() .strip()s stdout, which eats the
+    LEADING SPACE of a porcelain status pair: ` M .cairn/journal/-0001.jsonl`
+    arrives as `M .cairn/...`, the path offset moves by one, and the filter
+    silently stops matching. MEASURED — an untracked `?? path` survives the
+    strip (it starts with `?`) while a modified ` M path` does not, so the
+    filter would have worked for the case that was tested and failed for the
+    case that was not. run_git_raw() exists for exactly this.
+
+    Anything that cannot be measured is retained, never removed.
+    """
+    rc, out, _ = run_git_raw(path, ["status", "--porcelain", "-z", "-uall"])
     if rc != 0:
-        # Unreadable is not clean. Anything that cannot be measured is
-        # retained, never removed.
         return True
-    return bool(out.strip())
+    for entry in out.split("\0"):
+        # `XY <path>`: the status pair, one space, then the path. A rename's
+        # second field is a bare path with no status pair, and it is measured
+        # by the same rule — a rename INTO .cairn/journal/ is still journal.
+        path_part = entry[3:] if len(entry) > 3 and entry[2] == " " else entry
+        if not path_part.strip():
+            continue
+        if path_part.startswith(JOURNAL_PREFIX):
+            continue
+        return True
+    return False
 
 
 def commits_ahead(top, branch):
@@ -1562,8 +1893,33 @@ def held_lease_by_holder(leases):
     return by_holder
 
 
-def cleanup_scan(top):
-    """The whole report, computed without writing anything anywhere."""
+def cleanup_scan(top, phase=None):
+    """The whole report, computed without writing anything anywhere.
+
+    With `phase`, the scan is narrowed to the CANONICAL worktree of that
+    phase — `phase_layout(top, phase)["worktree"]`, exactly and only what
+    `prepare` builds — and to that phase's own lease.
+
+    WHY THE CANONICAL PATH AND NOT THE BRANCH PATTERN, measured 2026-08-07 in
+    cairn's own repository and the reason this parameter exists at all:
+
+        $ cairn-parallel.py cleanup --json --project-dir ~/Projects/CairnGo
+        removable: CairnGo-25-surfaces, CairnGo-25-tools,
+                   CairnGo-phase-21, CairnGo-phase-24, CairnGo-phase-26
+
+    The first two are the LIVE worktrees of the two fronts of phase 25 — both
+    clean, both level with HEAD, neither holding a lease. `PHASE_BRANCH`
+    matches `phase/25-tools` and `phase/25-surfaces` as phase 25 just as
+    surely as it matches `phase/21`, so a per-phase sweep keyed on the branch
+    number, fired by the close of phase 25, would delete two agents' live
+    work. Keyed on the canonical path, the three orphans match and the two
+    live trees do not.
+
+    Everything else is unchanged: a narrowed scan applies the same dirty /
+    unmerged / lease-held guards, and the inventory check below still runs
+    against the FULL worktree list, because an inventory that cannot be
+    trusted must stop the sweep no matter how narrow it is.
+    """
     entries = worktree_entries(top)
 
     # The inventory has to contain the main checkout, or it is not an
@@ -1574,6 +1930,13 @@ def cleanup_scan(top):
         die(f"`git worktree list` did not report {top} itself — refusing to "
             f"call anything orphaned against an inventory this incomplete",
             EXIT_GIT)
+
+    # The narrowing, applied AFTER the inventory check above and before any
+    # verdict: one path, and one phase's lease.
+    only_path = None
+    if phase is not None:
+        only_path = os.path.realpath(phase_layout(top, phase)["worktree"])
+        entries = [e for e in entries if e["path"] == only_path]
 
     orphan_registrations = []
     live = []
@@ -1590,6 +1953,15 @@ def cleanup_scan(top):
 
     live_paths = set(e["path"] for e in live)
     leases = lease_status_all(top)
+    if phase is not None:
+        leases = [e for e in leases if e.get("phase") == phase]
+        # A narrowed scan cannot see the other worktrees, so it cannot tell an
+        # orphan lease from one whose holder it simply did not look at. It
+        # reports none rather than guessing — the same posture as the
+        # inventory guard above, one scope down.
+        live_paths = set(os.path.realpath(e["path"])
+                         for e in worktree_entries(top)
+                         if os.path.isdir(e["path"]))
 
     orphan_leases = []
     stale_but_live = []
@@ -1683,6 +2055,29 @@ def cleanup_apply(top, scan):
                         "holder": row["holder"],
                         "held_after": bool(after.get("held"))})
     for row in scan["removable"]:
+        # THE TWO VERDICTS DISAGREED, AND NOT BY ACCIDENT (measured while
+        # wiring criterion 8). worktree_dirty() stopped counting
+        # `.cairn/journal/` as work git cannot recreate (D-05); git's own
+        # `worktree remove` never heard of D-05 and refuses any tree holding
+        # untracked files:
+        #
+        #   fatal: '<path>' contains modified or untracked files, use --force
+        #
+        # `--force` would answer that by switching git's whole re-check off,
+        # and that re-check is the second independent verdict this function
+        # deliberately keeps. So instead: delete EXACTLY the path this script
+        # declared irrelevant, and let git judge everything else on its own
+        # terms. If git still refuses afterwards, something else was in
+        # there, the refusal is right, and it is reported.
+        dropped = None
+        journal = os.path.join(row["path"], *JOURNAL_PREFIX.strip("/")
+                               .split("/"))
+        if os.path.isdir(journal):
+            try:
+                shutil.rmtree(journal)
+                dropped = journal
+            except OSError as e:
+                dropped = f"could not remove {journal}: {e}"
         # No --force, and `branch -d` rather than -D: git re-checks "clean"
         # and "merged" on its own terms and refuses if this script read the
         # tree wrong. Two independent verdicts for one irreversible act.
@@ -1696,7 +2091,8 @@ def cleanup_apply(top, scan):
         applied.append({"action": "worktree_remove", "path": row["path"],
                         "branch": row["branch"], "ok": rc == 0,
                         "error": err or None, "branch_deleted": deleted,
-                        "branch_error": branch_error})
+                        "branch_error": branch_error,
+                        "journal_dropped": dropped})
     return applied
 
 
@@ -1735,7 +2131,8 @@ def print_cleanup(result):
 
 
 def cmd_cleanup(args, top):
-    result = cleanup_scan(top)
+    result = cleanup_scan(top, args.phase)
+    result["phase"] = args.phase
     result["apply"] = bool(args.apply)
     result["applied"] = cleanup_apply(top, result) if args.apply else []
 
@@ -1761,9 +2158,16 @@ def build_parser():
     batch = sub.add_parser("batch", help="what can run at once, with each "
                                          "phase's branch and worktree "
                                          "already resolved")
-    batch.add_argument("--max", type=int, default=3,
+    # default=None, not 3: the flag has to be distinguishable from its own
+    # absence, or `--max` could never lose to the setting it overrides.
+    batch.add_argument("--max", type=int, default=None,
                        help="ceiling on how many phases are selected "
-                            "(default: 3)")
+                            "(default: autonomous.max_parallel from "
+                            ".cairn/config.json, itself 3)")
+    batch.add_argument("--cycle", type=int, default=None, metavar="K",
+                       help="which cycle of an autonomous run this is; "
+                            "past autonomous.max_cycles nothing is selected "
+                            "(omit it and the cycle ceiling never applies)")
     batch.set_defaults(func=cmd_batch)
 
     prepare = sub.add_parser("prepare", help="create phase N's named "
@@ -1792,6 +2196,10 @@ def build_parser():
                               "orphaned leases, and remove worktrees that "
                               "are clean AND wholly merged (default: report "
                               "only)")
+    cleanup.add_argument("--phase", type=int, metavar="N",
+                         help="narrow the sweep to phase N's CANONICAL "
+                              "worktree (<root>-phase-N, exactly what "
+                              "prepare builds) and its own lease")
     cleanup.set_defaults(func=cmd_cleanup)
 
     for p in (batch, prepare, reconcile, cleanup):

@@ -11,15 +11,24 @@ if [ -x "$OLD" ]; then
   "$OLD" "$@" || exit $?
 fi
 
-GATE="${CAIRN_GATE:-/Users/felipeoliveira/.claude/plugins/cache/cairngo/cairn/1.0.0/scripts/cairn-gate.sh}"
-if ! command -v "$GATE" >/dev/null 2>&1 && [ ! -e "$GATE" ]; then
-  echo "[cairn] pre-push: cairn-gate not found ($GATE) — ship gate skipped" >&2
-  exit 0
-fi
 # Pin the gate to THIS repo: cairn-gate prefers $CLAUDE_PROJECT_DIR over the
 # cwd, so a 'git -C /other/repo push' from a Claude session would otherwise
 # gate the session's project instead of the repo being pushed.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+# The default is the gate IN THIS REPO, not an installed plugin copy. Measured
+# 2026-08-07: the generated default was an absolute path into the plugin cache
+# at cairn/1.0.0 — the version installed the day the hook was written. It still
+# resolved, so it never failed loudly; it just gated every push of this
+# repository with a gate five releases old. A checkout of cairn carries the
+# current gate at this path by construction, so it cannot go stale, and it
+# names no machine's home directory.
+# Elsewhere, or to pin a specific build, set CAIRN_GATE.
+GATE="${CAIRN_GATE:-$REPO_ROOT/cairn/scripts/cairn-gate.sh}"
+if ! command -v "$GATE" >/dev/null 2>&1 && [ ! -e "$GATE" ]; then
+  echo "[cairn] pre-push: cairn-gate not found ($GATE) — ship gate skipped" >&2
+  exit 0
+fi
 rc=0
 if command -v "$GATE" >/dev/null 2>&1; then
   "$GATE" --planning-dir "$REPO_ROOT/.planning" || rc=$?

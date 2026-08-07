@@ -1,6 +1,7 @@
 ---
 description: Reconcile external work-management tools back into bd (pull-on-demand, last-writer-wins)
 argument-hint: "[--since <iso8601>]"
+group: sync
 ---
 
 Pull edits made in the external tools (GitHub/GitLab/Jira/Asana/Azure Boards) back into

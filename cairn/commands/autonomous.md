@@ -1,6 +1,7 @@
 ---
 description: Run every remaining phase hands-off — the full cairn loop per phase (map → plan → claim → execute → close → verify), doctor between phases, ship gate at the end
 argument-hint: "[start-phase] [--sequential] [--max N] [--interactive]"
+group: loop
 ---
 
 Run the milestone to completion under the `cairn` conventions, without
@@ -25,6 +26,19 @@ a time, in the main checkout, exactly the loop this command used to run.
    **not-applicable** note (exit 0 with one side missing — e.g. `.planning/`
    without `.beads/`) also **stops**: route to `/cairn:migrate` to wire the
    missing side, or offer plain `/gsd:autonomous` instead.
+
+   That top-level note is **not** the same thing as the `⊘` a single check
+   can now carry, and the difference decides whether this run continues. A
+   report whose footer reads `INCOMPLETE` — one or more checks that had no
+   input to compare — **does not stop the run**, because the exit code did
+   not change: it is still `0`, and phase 23 kept it that way on purpose,
+   since an absent input is friction and not an inconsistency. Note which
+   checks read `⊘`, say so in the run report, and carry on. It matters
+   because those checks are the ones whose green you cannot bank on later:
+   if verification at the end leans on one of them, it is leaning on a
+   comparison that never happened, and that gap has to be closed by hand
+   (write the roadmap phase, set `active_phase:` in STATE.md) rather than
+   inferred from a passing run.
 2. bd must be available (doctor exit 5 means it isn't) — without bd there is
    no "autonomous through beads": **stop** and offer plain `/gsd:autonomous`
    instead.
@@ -156,7 +170,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-parallel.sh" prepare "$N" --json
 once per phase in `selected[]`. It creates the worktree `batch` already named
 (`<repo>-phase-<N>`, on branch `phase/<N>-<slug>`), takes that phase's lease
 pointing **at** that worktree, and prints `worktree`, `branch`, `base_commit`,
-the resulting `lease.holder` and `planning_files_forbidden`.
+the resulting `lease.holder`, `planning_files_forbidden` and
+`response_language`.
 
 Exit 3 means a live holder already owns the phase: report the holder and the
 time from the output, drop that one phase from the batch, and **carry on with
@@ -175,7 +190,7 @@ Spawn the subagents together, one per prepared phase, so they actually run
 concurrently. This is the step the announcement exists to precede.
 
 <!-- SUBAGENT-PROMPT-BEGIN -->
-Each subagent's prompt carries all five of these, literally:
+Each subagent's prompt carries all six of these, literally:
 
 - **Where it works.** The absolute worktree path and the branch name, copied
   from that phase's `prepare` output. Every command runs with that worktree as
@@ -199,6 +214,13 @@ Each subagent's prompt carries all five of these, literally:
   the bd ids closed — plus any step that failed and why. The report is
   narrative; nothing in moment 4 depends on it for a path, a branch name or a
   file list, all of which are discovered from git.
+- **What language it answers in.** The `response_language` from that phase's
+  `prepare` output, copied literally — read from the output, never remembered
+  and never inferred from the repository. Every user-facing line the subagent
+  writes goes in that language: its report back, the SUMMARY it produces, any
+  question it asks. Code, identifiers, file paths, commands and bd ids stay
+  exactly as they are. A `null` value means `prepare` could not read the
+  config: say so in the announcement instead of guessing a language.
 <!-- SUBAGENT-PROMPT-END -->
 
 **The failure of one parallel phase does not stop the others.** Report it with
@@ -246,11 +268,24 @@ Nothing in this moment happens inside a worktree.
    that picks a winner in silence destroys one side of that disagreement and
    reports success, which is the failure mode this entire phase exists to make
    impossible.
-3. **Apply the completion marks centrally.** After the merges, update
-   `.planning/STATE.md`, `.planning/ROADMAP.md` and
-   `.planning/REQUIREMENTS.md` for every phase of the batch at once, here in
-   the main checkout — this is the other half of the prohibition the subagents
-   carried.
+3. **Apply the completion marks centrally** — one command per merged phase,
+   here in the main checkout, and never by editing the three planning files
+   by hand:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh" close <N> --apply
+   ```
+   That single call marks the phase, marks every requirement whose phases are
+   all closed, moves the coverage table and its footer, ticks the plan
+   checkboxes whose `-SUMMARY.md` is on disk, moves the STATE counters,
+   regenerates the phase map and releases the lease. It is idempotent, so
+   re-running it after a partial batch is safe.
+
+   Exit 5 means `bd` was not reachable and **nothing** was written — fix that
+   and re-run; do not fall back to editing by hand. It is **not** a gate:
+   what it will not write it names under `unresolved`, and barring a phase
+   stays with `cairn-gate.sh`. Fold its report into the per-phase block this
+   step already emits. This is the other half of the prohibition the
+   subagents carried.
 
    Then run the phase checkpoint for each merged phase, also here:
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh"` (failure stops the

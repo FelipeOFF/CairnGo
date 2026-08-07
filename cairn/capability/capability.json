@@ -39,11 +39,6 @@
       "type": "boolean",
       "default": true,
       "description": "Master toggle for the cairn beads bridge. When false every cairn loop hook is inactive and the bundled scripts no-op, leaving GSD exactly as it behaves without beads."
-    },
-    "cairn.sync_push": {
-      "type": "boolean",
-      "default": true,
-      "description": "After each bd lifecycle write (create / claim / close), push the matching mirror to the external tracker configured in .cairn/sync.json (GitHub / GitLab / Jira / Asana / Azure Boards). No-op when .cairn/sync.json is absent or has no enabled backend."
     }
   },
   "steps": [],

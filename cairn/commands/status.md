@@ -1,6 +1,7 @@
 ---
 description: Render the status board — READY / DOING / BLOCKED lanes from bd, GSD position, one next action
 argument-hint: "[--brief] [--json] [--plain] [--html <path>] [--width N] [--max-rows N] [--ascii] [--color=always|never] [--planning-dir <dir>]"
+group: view
 ---
 
 Show the status board. A deterministic script renders it — `bd ready` drives

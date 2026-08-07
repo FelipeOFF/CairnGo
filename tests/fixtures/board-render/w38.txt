@@ -1,0 +1,38 @@
+ready 3 · doing 1 · blocked 1 · done 1
+
+v1.1 Surface
+  ◔ 3  Phase model — read what a phase
+       actually is
+      ◔ brd-001
+        Read the roadmap into a phase
+        model
+      ◕ brd-004
+        Hold the lease while executing
+        ◆ cairn-tests
+  ◌ 4  Board fills the screen
+      ◔ brd-002
+        Fill the screen at any width
+      ⧗ brd-005
+        Wait on the phase model
+        blocked by brd-001
+
+No milestone
+      ◔ brd-003
+        Sweep the backlog
+
+phase 3/4 Phase model — read what a phase actually is · v1.1 Surface · done: 1
+▶ next: continue brd-004 — Hold the…
+
+PENDING PHASES  2
+  table needs 44 columns — see PURPOSE
+  below, or --json
+
+PURPOSE
+  3  Phase model — read what a phase
+     actually is — nothing blocks it,
+     and phase 4 waits on it
+  4  Board fills the screen — waits on
+     phase 3
+
+  One phase can move: /cairn:work 3.
+  Phase 4 waits.

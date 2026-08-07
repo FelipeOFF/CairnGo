@@ -58,6 +58,22 @@ before installing bd, and the only interview happens at the hand-off.
   verified with `bd version`. If the user declines, an empty marker
   `$CLAUDE_PLUGIN_DATA/bd-install.skip` is created (so the session-start hook
   stops nagging) and setup **stops** — the rest needs bd.
+- **Step 3.5 — ask the response language**, and ask it *here*, before step 6
+  hands off. `/gsd:new-project` spawns its own subagents, so asking after the
+  hand-off is asking after the project's first subagents already answered in
+  the wrong language. The current state is read from
+  `cairn-config.sh get agents.response_language --json`: a `source` of `file`
+  or `planning` means a choice already exists, and init says which one and
+  **asks nothing** — an installed project is not changed without being asked.
+  Only a `source` of `default` opens the question, with **English
+  pre-selected**. The answer is written with `cairn-config.sh set
+  agents.response_language`, which propagates to
+  `.planning/config.json:response_language` if that file exists. It does not
+  exist yet in a greenfield run, which is why step 6 runs the same command
+  again once GSD has created it. Init never writes `.planning/config.json`
+  itself: `gsd-tools query config-set` would create `.planning/`, and a
+  `.planning/` holding only `config.json` makes step 0's detect answer **A**
+  instead of **D**.
 - **Step 4 — wire git + beads.** Runs
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-init.sh" "$PWD"` (idempotent):
   ensures the directory is a git repo and runs `bd init` if `.beads/` is
@@ -68,8 +84,12 @@ before installing bd, and the only interview happens at the hand-off.
   [/cairn:context-config](./context-config.md) is only for tuning and is not
   run unprompted.
 - **Step 6 — hand off** to `/gsd:new-project` for the interactive roadmap
-  interview. `.planning/` is created by GSD, never by cairn. After the
-  roadmap exists, the cairn skill takes over: one stamped bd issue per
+  interview. `.planning/` is created by GSD, never by cairn. The moment it
+  returns, the step 3.5 `set` is re-run unchanged — same command, same value,
+  idempotent — and this time the propagation fires, so GSD's own
+  `response_language` carries the choice its workflows read. A skipped re-run
+  is reported by [/cairn:doctor](./doctor.md), which names this exact command.
+  After the roadmap exists, the cairn skill takes over: one stamped bd issue per
   requirement (label pair `m-<milestone>` + `phase-<N>` and the
   `metadata.gsd` stamp), and each phase's `NN-BEADS-MAP.md` generated with
   `cairn-map.sh <N>`. The normal loop then runs under the cairn conventions,

@@ -1,6 +1,7 @@
 ---
 description: Run any beads (bd) command directly — raw passthrough
 argument-hint: <bd args…>
+group: escape
 ---
 
 Raw beads passthrough — no cairn orchestration. Run:

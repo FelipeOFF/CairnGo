@@ -1,6 +1,7 @@
 ---
 description: Investigate a detected phase conflict and propose a cited reconciliation — proposes only, never applies
 argument-hint: "<phase-number>"
+group: health
 ---
 
 Investigate phase **$ARGUMENTS**'s conflict and produce a citation-checked
@@ -53,10 +54,30 @@ Capture this run's `evidence_hash` from step 2's output now — it is the
 ONE hash value this flow will ever stamp into the proposal, never a value
 read back from the subagent.
 
+Read the response language, from the script rather than from memory:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-config.sh" get agents.response_language
+```
+
+The `claims` this subagent returns are cited prose that a person reads, so
+they are written in that language. **Paths, bd ids, hashes, branch names and
+any line quoted from the repository stay exactly as they are** — a quotation
+that was translated is not a quotation, and the whole value of a cited
+proposal is that the citation can be checked.
+
+The language deliberately does NOT travel inside the evidence bundle. Its
+`evidence_hash` is computed over the bundle (`cairn-reconcile.py:525-531`) and
+step 2 compares that hash to decide whether a previous proposal can be reused;
+a language field inside it would invalidate every cached proposal on every
+change of language, spending a subagent over something that changed no
+evidence at all.
+
 Spawn the `reconcile-investigator` subagent (Task tool), passing it the
 evidence bundle's path (`.cairn/reconcile-evidence.json`, where step 2's
-run wrote it) and the phase number, and instruct it to return **only** a
-JSON object of the shape `{"claims": [...]}` as its final message. It
+run wrote it), the phase number and that response language, and instruct it to
+return **only** a JSON object of the shape `{"claims": [...]}` as its final
+message. It
 holds no `Write`, `Edit`, `Bash`, or `NotebookEdit` tool — it cannot write
 `.cairn/conflicts.json`, or anything else, itself; see
 `cairn/agents/reconcile-investigator.md` for the full tool grant and the

@@ -1,0 +1,3 @@
+[cairn-status] phase 3/4 Phase model — read what a phase actually is · v1.1 Surface
+ready 3 · doing 1 · blocked 1 · done 1
+▶ next: continue brd-004 — Hold the lease while executing

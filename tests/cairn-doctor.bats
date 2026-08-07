@@ -5,8 +5,8 @@
 #   applicable, 2 usage / refused --fix-labels, 5 bd unavailable, 7 any
 #   check failed.
 #
-# Each test starts from the HEALTHY wired fixture (all ten checks ✓) and
-# breaks exactly one check, asserting on that check's reported status.
+# Each test starts from the HEALTHY wired fixture (all seventeen checks ✓)
+# and breaks exactly one check, asserting on that check's reported status.
 #
 # Assertion style note: a failing `[[ ]]` or `! cmd` mid-test does NOT fail
 # a bats test on this bash, so substring checks use grep -qF and negative
@@ -93,7 +93,7 @@ EOF
   fi
 }
 
-@test "healthy wired fixture: exit 0, every check ✓" {
+@test "healthy wired fixture: exit 0, nothing warns or fails, and it still reads ok" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -101,6 +101,11 @@ EOF
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
+  # `ok`, not INCOMPLETE. This fixture IS a user's repo — it carries none of
+  # cairn's own manifests — so 23-02 gave it ⊘ checks. Every one of them is
+  # out-of-scope, and the footer must still read ok: this assertion is the
+  # mechanical proof that the phase did not trade a permanent false green for
+  # a permanent false red in every repo that uses cairn.
   grep -qF "[cairn-doctor] ok" <<<"$output"
   refute_in_output "⚠"
   refute_in_output "✗"
@@ -109,8 +114,124 @@ EOF
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'true'
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks | length' '16'
-  assert_json_eq "$output" '[.checks[].status] | unique | join(",")' 'ok'
+  # The count is hardcoded ON PURPOSE: it is the canary for a check that was
+  # written and never registered in main()'s `checks` list. 16 -> 17 here
+  # came with check 16, test-parallel (29-06); 17 -> 18 with check 17,
+  # req-ledger (29-07); 18 -> 19 with check 18, response-language (phase 24).
+  #
+  # That last bump is the one this assertion was really built for, and it
+  # took the shape nothing else here can catch. Phases 23 and 24 ran in
+  # parallel worktrees and each added a check WITHOUT knowing about the
+  # other's. Neither branch's test was wrong on its own branch: 23 asserted
+  # 18 and passed, 24 asserted 19 and passed. git merged both files with NO
+  # conflict — the silent auto-merge that damaged phases 14/15 of this
+  # project — and the merged tree registered 19 checks while this literal
+  # still read 18. Two red tests, one defect, and the ONLY thing that named
+  # it was this canary.
+  #
+  # It is also the assertion that caught the reporting failure it was built
+  # for. It stayed red through a `bats tests/cairn-doctor.bats` whose log was
+  # read through `tail -15`, so the failure line scrolled out and the run was
+  # called green. The full-suite run through cairn-test.sh is what surfaced
+  # it. A number read off the end of a truncated log is not a measurement.
+  #
+  # 19 -> 20 with check 19, phase-landed (phase 30, PR-04). Edited HERE and at
+  # the second site further down in this same file, in one change, having read
+  # this note first — which is the whole point of the note. Phase 30 also found
+  # cairn-doctor.py's own docstring still saying "eighteen checks in total"
+  # while nineteen were registered: prose kept by hand goes stale, this literal
+  # does not, and that asymmetry is why the literal is the contract.
+  #
+  # 20 -> 21 with check 20, plan-counters (phase 25, criterion 6). Both sites
+  # here, the numbered list in cairn-doctor.py's docstring and the table in
+  # cairn/docs/commands/doctor.md were edited in the same change.
+  #
+  # 21 -> 22 with check 21, state-dialect (phase 25, criterion 5) — and this
+  # bump is the one the note was written for, all over again: phase 25 ran in
+  # TWO parallel worktrees, exactly the shape that made this literal wrong
+  # once. The four sites were edited in one change, from the branch that owns
+  # cairn-doctor.py; the other branch never touches it, so there is one
+  # writer and no merge to be silent about.
+  assert_json_eq "$output" '.checks | length' '22'
+  # The exact ordered set, not "unique == ok": after 23-02 this fixture has
+  # two ⊘ checks (cairn's own manifests are absent by construction), and an
+  # assertion that merely tolerated extra values would stop proving anything.
+  assert_json_eq "$output" \
+    '[.checks[].status] | unique | sort | join(",")' 'not-applicable,ok'
+  # `.failed` is the exact mirror of the exit code, and it is NOT `.ok`'s
+  # complement: `.ok` also answers "did every check in scope actually run".
+  assert_json_eq "$output" '.failed' 'false'
+  # And the load-bearing half: not one of those ⊘ is a gap.
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status=="not-applicable" and .scope=="no-input")] | length' \
+    '0'
+}
+
+# Break: derive any counter as `len(checks) - the others`, the shape
+# cairn-doctor.py carried before this phase. A fifth status would then land
+# in the success bucket in silence — a brand-new false green inside the
+# phase that exists to remove them.
+@test "report footer: four counters, summing to the check count, none by subtraction" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # One bucket per word of the vocabulary: a status with no symbol has
+  # nowhere to be counted, which is the whole point of deriving the buckets
+  # from SYMBOL's own keys.
+  assert_json_eq "$output" '.counts | length' '4'
+  assert_json_eq "$output" \
+    '[.counts | to_entries[] | .value] | add' \
+    "$(jq -r '.checks | length' <<<"$output")"
+  # Recomputed from the check list itself, so the footer's arithmetic is not
+  # taken on trust — it has to agree with a number we derived separately.
+  assert_json_eq "$output" '.counts.ok' \
+    "$(jq -r '[.checks[] | select(.status == "ok")] | length' <<<"$output")"
+  assert_json_eq "$output" '.counts["not-applicable"]' \
+    "$(jq -r '[.checks[] | select(.status == "not-applicable")] | length' \
+        <<<"$output")"
+  assert_json_eq "$output" '.counts.warn' \
+    "$(jq -r '[.checks[] | select(.status == "warn")] | length' <<<"$output")"
+  assert_json_eq "$output" '.counts.fail' \
+    "$(jq -r '[.checks[] | select(.status == "fail")] | length' <<<"$output")"
+  # Closed vocabulary: subtracting the four leaves nothing behind.
+  assert_json_eq "$output" \
+    '[.checks[].status] - ["ok","not-applicable","warn","fail"] | length' '0'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qE '^\[cairn-doctor\] ok — [0-9]+ ok, [0-9]+ not-applicable, [0-9]+ warning\(s\), [0-9]+ failure\(s\)$' \
+    <<<"$output"
+}
+
+# Break: reuse ✓ for the new state, or pick a character that renders two
+# columns wide under a CJK locale. The proof is unicodedata, never how the
+# glyph looks in this terminal — the same rule phase 21 measured for the
+# board's step symbols.
+@test "status vocabulary: four symbols, the new one distinct and single-width" {
+  make_tmp_repo
+  cat > symbol_check.py <<'PY'
+import ast
+import re
+import sys
+import unicodedata
+
+src = open(sys.argv[1]).read()
+sym = ast.literal_eval(re.search(r"SYMBOL = (\{.*?\})", src, re.S).group(1))
+assert set(sym) == {"ok", "not-applicable", "warn", "fail"}, sorted(sym)
+na = sym["not-applicable"]
+assert na != sym["ok"], f"the new state must not wear the success marker: {na}"
+for name, ch in sorted(sym.items()):
+    width = unicodedata.east_asian_width(ch)
+    assert width == "N", (name, ch, width)
+print(f"{na} U+{ord(na):04X} {unicodedata.name(na)}")
+PY
+  run python3 symbol_check.py "$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
+  [ "$status" -eq 0 ]
+  grep -qF "U+2298" <<<"$output"
 }
 
 @test "gsd-capability: the 4.x lineage fails the doctor, exit 7" {
@@ -493,11 +614,23 @@ EOF
   make_doctor_fixture
   # Both phases complete, on the ROADMAP checkbox AND on disk, so the whole
   # chain below is in scope and no divergence note fires.
+  # Marking phase 2 complete moves the derived views with it: API-01's own
+  # checkbox and every STATE plan/phase counter. Left stale they are a REAL
+  # ledger disagreement that check 17 names and fails on, which would take
+  # this test to exit 7 for a reason that has nothing to do with the bulk
+  # close it exercises.
   python3 - <<'PY'
 from pathlib import Path
 p = Path(".planning/ROADMAP.md")
 p.write_text(p.read_text().replace("- [ ] **Phase 2: API**",
                                    "- [x] **Phase 2: API**"))
+r = Path(".planning/REQUIREMENTS.md")
+r.write_text(r.read_text().replace("- [ ] **API-01**", "- [x] **API-01**"))
+s = Path(".planning/STATE.md")
+s.write_text(s.read_text()
+             .replace("  completed_phases: 1", "  completed_phases: 2")
+             .replace("  completed_plans: 1", "  completed_plans: 2")
+             .replace("  percent: 50", "  percent: 100"))
 PY
   cp .planning/phases/01-auth/01-01-SUMMARY.md \
      .planning/phases/02-api/02-01-SUMMARY.md
@@ -619,6 +752,316 @@ PY
   refute_in_output "$todo"
 }
 
+# VOID-03's second half, and the proof is DIFFERENTIAL, not a bare "the count
+# reached zero" — that would also pass if someone switched the whole axis off
+# by accident. The SAME repo with the SAME issues is run twice and exactly one
+# thing changes between the runs: whether the milestone's archived ROADMAP is
+# on disk.
+#
+# Break: exempt without looking at .planning/milestones/ at all — above all
+# the most tempting shortcut, "every closed issue is exempt", which passes the
+# second run and fails the first.
+@test "orphans: a closed issue is exempt only because its milestone is archived (differential)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local old
+  old="$(bd create "Delivered last cycle" -t task -l phase-9,m-v0.9 --silent)"
+  bd close "$old" >/dev/null
+
+  # Run 1: no archive on disk. The issue is an orphan, exactly as before.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
+  grep -qF "$old" <<<"$output"
+
+  # The single variable: /gsd:complete-milestone's own archive artifact.
+  mkdir -p .planning/milestones
+  echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
+
+  # Run 2: same repo, same issues, same labels.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .items | length' '0'
+  refute_in_output "$old"
+  # Break: exempt in SILENCE. A repo with sixty-one historical issues would
+  # then be indistinguishable from a repo with none, and the phase would have
+  # traded a permanent noise for a permanent silence.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .detail | test("1 .*archiv")' 'true'
+}
+
+# Break: write the predicate with "any archived milestone label" instead of
+# "ALL of them". This is the contour that the naive version passes every other
+# test on and fails only here — and it is the one milestone.md documents as
+# EXPECTED behaviour: a carried-over issue shows as a transient orphan until
+# the new roadmap places it, and that warning must survive.
+@test "orphans: an issue carried into the active milestone is NOT exempt" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  mkdir -p .planning/milestones
+  echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
+  local carried
+  carried="$(bd create "Carried over, not yet placed" -t task \
+    -l phase-9,m-v0.9,m-v1.0 --silent)"
+  bd close "$carried" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
+  grep -qF "$carried" <<<"$output"
+}
+
+# Break: exempt on the archive alone, forgetting the issue is still live.
+# Work left hanging off a cycle that already closed is precisely a finding
+# worth reporting, not historical noise.
+@test "orphans: an OPEN issue of an archived milestone is NOT exempt" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  mkdir -p .planning/milestones
+  echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
+  local live
+  live="$(bd create "Never finished last cycle" -t task -l phase-9,m-v0.9 \
+    --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
+  grep -qF "$live" <<<"$output"
+}
+
+# Break: exempt by absence of evidence. With no m-* label there is no proof of
+# archiving at all, and exempting anyway is the same reasoning as approving
+# because nothing was compared — the defect this whole phase removes.
+@test "orphans: a closed issue with no milestone label is NOT exempt" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  mkdir -p .planning/milestones
+  echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
+  local unstamped
+  unstamped="$(bd create "Closed, never stamped" -t task -l phase-9 --silent)"
+  bd close "$unstamped" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
+  grep -qF "$unstamped" <<<"$output"
+}
+
+# THE INVARIANT OF THE WHOLE PHASE, and the one test that would go red if a
+# fifth state were ever added without coming through here. It asserts nothing
+# about any single check on purpose.
+@test "status vocabulary invariant: four states, every ⊘ scoped, counters summing to the check count" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # 1. Closed vocabulary: subtracting the four leaves nothing.
+  assert_json_eq "$output" \
+    '[.checks[].status] - ["ok","not-applicable","warn","fail"] | length' '0'
+  # 2. Every not-applicable carries one of the two families, and nothing else
+  #    carries a scope at all.
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status=="not-applicable") | select((.scope=="out-of-scope" or .scope=="no-input") | not)] | length' \
+    '0'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status!="not-applicable") | select(has("scope"))] | length' \
+    '0'
+  # 3. The four counters sum to the number of registered checks.
+  assert_json_eq "$output" \
+    '[.counts | to_entries[] | .value] | add' \
+    "$(jq -r '.checks | length' <<<"$output")"
+  assert_json_eq "$output" '.counts | length' '4'
+}
+
+# VOID-02 / criterion 2 of the phase's ROADMAP entry, end to end. This is THE
+# proof of the phase: a repo whose roadmap lists nothing must not hand back a
+# perfectly green board.
+#
+# Break: any one of the named checks going back to approving the void. Each is
+# asserted by id, on the exact value — `!= "ok"` would be satisfied by `warn`,
+# and that is how a false green nearly walked past a test written against
+# false greens in phase 29.
+@test "empty roadmap: the checks that compared nothing say so, and the footer says the report is incomplete" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  make_roadmap_without_phases
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # The verdict moved where it is READ, not where it decides to block.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.failed' 'false'
+  assert_json_eq "$output" '.ok' 'false'
+
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-issue") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-issue") | .scope' 'no-input'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .scope' 'no-input'
+
+  # MEASURED CORRECTION to the plan: maps-fresh walks the phase DIRECTORIES on
+  # disk and never reads ROADMAP.md, so an empty roadmap leaves it with its
+  # input intact — it runs for real and reports what it FOUND (the two
+  # generated maps went stale the moment the roadmap changed under them).
+  # Asserting the exact `warn` is what proves the correction: a check that
+  # still has something to compare must keep comparing, not get swept into
+  # the promotion because a neighbouring check lost its input.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="maps-fresh") | .status' 'warn'
+
+  # Each one says WHAT was missing, not just that it gave up.
+  grep -qF "ROADMAP.md lists no phase" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "[cairn-doctor] INCOMPLETE" <<<"$output"
+  refute_in_output "✓ req-issue"
+  refute_in_output "✓ orphans"
+}
+
+# Break, and it is the expensive one: refusing check_orphans AS A WHOLE when
+# the roadmap is empty. That is the tempting, naive version of the promotion,
+# and it would hide every finding of the second axis — a phase that exists to
+# remove false green would have created new silence instead.
+@test "orphans with an empty roadmap: the axis that still works keeps reporting" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  make_roadmap_without_phases
+  local loose
+  loose="$(bd create "Loose end nobody placed" -t task --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # The exact value: warn, because there IS a finding — not not-applicable.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .status' 'warn'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="orphans") | .items | length' '1'
+  grep -qF "$loose" <<<"$output"
+  # And the information that the other axis never ran is NOT lost just
+  # because there was something to warn about.
+  grep -qF "ROADMAP.md lists no phase" <<<"$output"
+}
+
+# Break: promote the plan-inventory checks off the wrong axis. Before 23-03
+# both of these read `ok` over an empty inventory — "0 plan bead id(s)
+# verified" and "0 superseded plan(s), no live beads" are counts of nothing
+# announced as a clean bill of health.
+@test "plan-inventory checks: no PLAN.md at all is not-applicable/no-input on both axes" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  rm -f .planning/phases/*/*-PLAN.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="frontmatter-ids") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="frontmatter-ids") | .scope' 'no-input'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="superseded-released") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="superseded-released") | .scope' 'no-input'
+}
+
+# Break: read the `beads:` gap as vacuous truth. A plan with no stamp is
+# EXACTLY the gap cairn exists to prevent, so "0 ids verified" over plans that
+# are right there is the loudest possible no-input, not a pass.
+@test "frontmatter-ids: plans present but none stamped is not-applicable/no-input" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  python3 - <<'PY'
+import re
+from pathlib import Path
+for p in Path(".planning/phases").glob("*/*-PLAN.md"):
+    p.write_text(re.sub(r"^beads: .*\n", "", p.read_text(), flags=re.MULTILINE))
+PY
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="frontmatter-ids") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="frontmatter-ids") | .scope' 'no-input'
+  grep -qF "carries a 'beads:'" <<<"$output"
+  # Its sibling on the same axis DID sweep every plan and found no superseded
+  # one — that is a real answer, and it must stay `ok`.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="superseded-released") | .status' 'ok'
+}
+
+# THE PERMANENCE TEST, and it is not decoration: it is what stops a future
+# pass from promoting, by reflex, a check that phase 23 deliberately decided
+# to leave alone. Each of these four counts zero in the healthy fixture and
+# each of those zeroes is a real answer — the check swept its universe and
+# found nothing wrong in it.
+#
+# Break: promote any of them. `lease-stale` with no lease registered has not
+# "failed to check"; it looked for a stuck lease, there is none, and there is
+# nothing the operator would want to do about that.
+@test "phase 23 decided NOT to promote these four: they stay exactly ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-complete-open") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="label-pairs") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="external-ref") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="lease-stale") | .status' 'ok'
+}
+
+# Break: wire this promotion to the roadmap. maps-fresh walks
+# `.planning/phases/` on disk and never reads ROADMAP.md, so emptying the
+# phases tree is the only lever that silences it — a promotion hung off the
+# roadmap would never fire here, and would fire in the test above where the
+# check still has work to do.
+#
+# This is also the shape of a project on day one: a roadmap not yet written
+# and no phase directories. It must not read as a clean bill of health.
+@test "maps-fresh: no phase directory at all is not-applicable/no-input, not '0 maps current'" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  make_roadmap_without_phases
+  rm -rf .planning/phases/*
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="maps-fresh") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="maps-fresh") | .scope' 'no-input'
+  grep -qF "no phase directory" <<<"$output"
+  # The report as a whole says it is incomplete, and still does not block.
+  assert_json_eq "$output" '.ok' 'false'
+  assert_json_eq "$output" '.failed' 'false'
+}
+
 @test "label-pairs: phase-only label warns, --fix-labels repairs, re-run clean" {
   require_bd
   make_tmp_repo
@@ -710,6 +1153,17 @@ PY
   [ "$status" -eq 0 ]
   grep -qF "not applicable" <<<"$output"
   grep -qF "/cairn:migrate" <<<"$output"
+
+  # MEASURED 2026-08-07 while adding check 20: this path registers ZERO
+  # checks — the doctor short-circuits before the check list is built, so
+  # `.checks` is empty and `.ok` is true by construction. Any assertion here
+  # about a particular check's status or scope would pass against every
+  # implementation, which is not a proof of anything. Said out loud because
+  # the vacuous version of it was written first.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks | length' '0'
+  assert_json_eq "$output" '.ok' 'true'
 }
 
 @test "no .beads/ — not applicable, exit 0, suggests /cairn:migrate" {
@@ -956,6 +1410,132 @@ PYEOF
   grep -qF "bd last moved never observed" <<<"$item"
 }
 
+@test "last-moved: an axis observed by two checkouts names each machine and claims no order between them" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  # Phase 28: the journal is partitioned one file per checkout, so an axis
+  # CAN have been observed by more than one. Seeded as two simulated
+  # machines against one directory, which is exactly the four-worktree
+  # situation this repository was measured in.
+  local ts_a ts_b
+  ts_a="$(printf '[{"phase":1,"evidence":{"disk":"verified"}}]' \
+    | CAIRN_JOURNAL_MACHINE=hostA python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+        observe --project-dir "$PWD" --json | jq -r '.written[0].ts')"
+  ts_b="$(printf '[{"phase":1,"evidence":{"disk":"planned"}}]' \
+    | CAIRN_JOURNAL_MACHINE=hostB python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+        observe --project-dir "$PWD" --json | jq -r '.written[0].ts')"
+  [ -n "$ts_a" ]
+  [ -n "$ts_b" ]
+  [ "$ts_a" != "$ts_b" ]
+
+  local stub="$BATS_TEST_TMPDIR/observe-blocking-journal.py"
+  cat > "$stub" <<'PYEOF'
+#!/usr/bin/env python3
+import os, sys
+if sys.argv[1] == "observe":
+    sys.exit(1)
+os.execv(sys.executable,
+         [sys.executable, os.environ["CAIRN_JOURNAL_REAL"]] + sys.argv[1:])
+PYEOF
+  chmod +x "$stub"
+
+  run env CAIRN_JOURNAL="$stub" \
+      CAIRN_JOURNAL_REAL="$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # The severity is decided before the clause is ever built, and stays put.
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
+
+  local item
+  item="$(jq -r '[.checks[] | select(.id=="phase-corroboration") | .items[] | select(startswith("1:"))][0]' <<<"$output")"
+  [ "$item" != "null" ]
+  # Both machines named, both timestamps shown, and the sentence that says
+  # outright that no order is claimed between them (E14: a -16.7 ms clock
+  # offset against a 10.8 ms minimum record gap).
+  grep -qF "on hostA" <<<"$item"
+  grep -qF "on hostB" <<<"$item"
+  grep -qF "$ts_a" <<<"$item"
+  grep -qF "$ts_b" <<<"$item"
+  grep -qF "order between machines not claimed" <<<"$item"
+}
+
+@test "DJOUR-03: deleting the whole journal surface moves no status, no severity, no exit code" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  # A first run, which journals as a side effect and so leaves real history
+  # behind for the delete to have something to destroy.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  local before_status="$status"
+  local before="$output"
+  [ "$before_status" -eq 7 ]
+  # Confirm the journal genuinely has content -- otherwise the delete below
+  # proves nothing.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  [ "$(jq '.records | length' <<<"$output")" -gt 0 ]
+  grep -qF "last moved" <<<"$before"
+
+  # Phase 28 made the surface bigger than one path: the partition directory
+  # AND the inherited single file.
+  rm -rf .cairn/journal
+  rm -f .cairn/journal.jsonl*
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  assert_json_eq "$output" '.records | length' '0'
+  assert_json_eq "$output" '.partitions | length' '0'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  local after_status="$status"
+  local after="$output"
+
+  # Exact values, on both sides. Never "still fails" -- a check that went
+  # from fail to fail for a different reason would satisfy that.
+  [ "$after_status" -eq "$before_status" ]
+  assert_json_eq "$after" '.checks[] | select(.id=="phase-corroboration") | .status' \
+    "$(jq -r '.checks[] | select(.id=="phase-corroboration") | .status' <<<"$before")"
+  # Every check's status, not just the one this clause hangs off.
+  [ "$(jq -Sc '[.checks[] | {id, status}]' <<<"$before")" \
+    = "$(jq -Sc '[.checks[] | {id, status}]' <<<"$after")" ]
+  # Same number of items, in the same order, for the corroboration check.
+  [ "$(jq '[.checks[] | select(.id=="phase-corroboration") | .items[]] | length' <<<"$before")" \
+    = "$(jq '[.checks[] | select(.id=="phase-corroboration") | .items[]] | length' <<<"$after")" ]
+
+  # THE SHARP ONE. The doctor run itself journals as a side effect (its own
+  # cairn-status.py --json call observes), so the deleted journal is
+  # repopulated by the very run being measured and the `last moved` clause
+  # comes BACK -- with fresh timestamps. That is the journal rebuilding
+  # itself, not the verdict moving. So the assertion is byte equality of
+  # every corroboration item with the timestamps normalised away: if
+  # anything but a timestamp changed, this fails.
+  local norm_before norm_after
+  norm_before="$(jq -r '[.checks[] | select(.id=="phase-corroboration") | .items[]] | .[]' <<<"$before" \
+    | sed -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+/<TS>/g')"
+  norm_after="$(jq -r '[.checks[] | select(.id=="phase-corroboration") | .items[]] | .[]' <<<"$after" \
+    | sed -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+/<TS>/g')"
+  [ "$norm_before" = "$norm_after" ]
+
+  # And the case where the journal cannot come back at all: with the
+  # journal script itself unreachable, the clause is simply gone and the
+  # verdict is still the same one.
+  run env CAIRN_JOURNAL=/nonexistent/path bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq "$before_status" ]
+  refute_in_output "last moved"
+  [ "$(jq -Sc '[.checks[] | {id, status}]' <<<"$before")" \
+    = "$(jq -Sc '[.checks[] | {id, status}]' <<<"$output")" ]
+}
+
 @test "last-moved: a broken CAIRN_JOURNAL leaves status/detail identical to a working journal, only the clause is missing" {
   require_bd
   make_tmp_repo
@@ -1030,7 +1610,7 @@ PYEOF
 # .gitignore — the journal entry and its compaction siblings (Plan 16-05)
 # --------------------------------------------------------------------------- #
 
-@test "gitignore: journal.jsonl and its compaction temp siblings are never staged by git add -A" {
+@test "gitignore: the journal's per-machine scratch is never staged by git add -A, but its partition segment is" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -1047,22 +1627,32 @@ PYEOF
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 7 ]
-  [ -f .cairn/journal.jsonl ]
+  # Phase 28: the write lands in this checkout's own PARTITION, and that
+  # segment is the one thing under .cairn/ that IS meant to be versioned.
+  local segment
+  segment="$(python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" provenance \
+    --project-dir "$PWD" --json | jq -r '.segment')"
+  [ -f "$segment" ]
+  [ ! -f .cairn/journal.jsonl ]
 
-  # A leftover compaction temp sibling and its lock file — the exact
-  # shape compact()'s sibling-write-then-rename recipe (Plan 16-02) can
-  # leave behind after a crash, and the flock file it holds during a live
-  # compaction.
+  # The per-machine scratch that lives next to the segments: the partition's
+  # own compaction lock, and the shape a pre-phase-28 crash could leave in
+  # .cairn/ itself.
+  : > "$(dirname "$segment")/leftover.compact.lock"
   : > .cairn/journal.jsonl.tmp-abc123
   : > .cairn/journal.jsonl.compact.lock
 
   git add -A
 
-  run git status --porcelain
-  refute_in_output "journal.jsonl"
-
+  # Nothing per-machine is staged...
   run git diff --cached --name-only
   refute_in_output "journal.jsonl"
+  refute_in_output ".compact.lock"
+
+  # ...and the partition segment IS, because a journal that never crosses
+  # machines was the design phase 28 replaced.
+  run git diff --cached --name-only
+  grep -qF "$(basename "$segment")" <<<"$output"
 }
 
 # --------------------------------------------------------------------------- #
@@ -1134,6 +1724,18 @@ Output: src/api_extra.py
 
 </tasks>
 EOF
+  # The fixture adds a plan and a summary to phase 2, so STATE.md's plan
+  # counters move with it. Left behind they are a REAL ledger disagreement
+  # (check 17 names them), and this fixture is about phase-artifacts — a
+  # second finding riding along would make the "exactly one warning" assertion
+  # below fail for a reason that has nothing to do with what it tests.
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(p.read_text()
+             .replace("  total_plans: 2", "  total_plans: 3")
+             .replace("  completed_plans: 1", "  completed_plans: 2"))
+PY
 }
 
 # NN-VERIFICATION.md with a readable status: field — pushes phase 2's
@@ -1177,8 +1779,26 @@ EOF
 # real phase — isolating these tests to phase-artifacts' own behavior, the
 # same way the phase-corroboration tests above build single-conflict
 # fixtures on purpose.
+# Take phase 2's corroboration out of the picture so a phase-artifacts test
+# measures phase-artifacts and nothing else. The bd side must be made to AGREE
+# with what the disk actually says, and $1 names which side the disk is on:
+#
+#   done      the phase reached executed/verified -> close the bd issue
+#   underway  the phase has plans still unsummarized -> leave it open
+#
+# It used to close the issue unconditionally, and that was correct only while
+# a single -SUMMARY.md was enough to call a whole phase `executed` (FIX-05,
+# CairnGo-0po). With `executed` now meaning EVERY plan has its summary, a
+# two-plan/one-summary phase reads `planned`, and closing its issue creates a
+# real disk-vs-bd conflict instead of removing one. Which is the point of the
+# fix: the model stopped agreeing with a claim the disk does not support.
 neutralize_phase2_corroboration() {
-  bd close "$DOC_P2" >/dev/null
+  case "${1:-done}" in
+    done) bd close "$DOC_P2" >/dev/null ;;
+    underway) : ;;
+    *) echo "neutralize_phase2_corroboration: unknown disk side '$1'" >&2
+       return 1 ;;
+  esac
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
   set_state_active_phase 99
 }
@@ -1223,12 +1843,16 @@ neutralize_phase2_corroboration() {
   # unsummarized, disk_state never having reached "verified". It must stay
   # green forever, not just today.
   make_phase2_two_plans_one_summary
-  # Adding 02-01-SUMMARY.md alone (with no VERIFICATION.md) already moves
-  # phase 2's disk_state from "planned" to "executed" — still short of
-  # "verified", so phase-artifacts' own gate is unaffected, but it is
-  # ALSO enough to trip phase-corroboration's disk-vs-bd axis against the
-  # still-open DOC_P2 (an unrelated confound this test isn't about).
-  neutralize_phase2_corroboration
+  # Adding 02-01-SUMMARY.md alone used to move phase 2's disk_state from
+  # "planned" to "executed", which tripped phase-corroboration's disk-vs-bd
+  # axis against the still-open DOC_P2 — an unrelated confound this test is
+  # not about, and the reason the neutralizer closed that issue.
+  #
+  # Since FIX-05 (CairnGo-0po) `executed` means EVERY plan has its summary, so
+  # this phase reads "planned" and the confound is gone at the source: an open
+  # issue is what a phase with unsummarized plans is supposed to have. Closing
+  # it now would MANUFACTURE the conflict the neutralizer exists to remove.
+  neutralize_phase2_corroboration underway
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
@@ -1543,9 +2167,44 @@ EOF
   refute_in_output "Traceback"
   assert_json_eq "$output" '.checks[] | select(.id=="lease-stale") | .status' 'warn'
   grep -qF "lease staleness could not be computed" <<<"$output"
-  # The failure stayed scoped to lease-stale — nothing else regressed.
+  # The failure stayed scoped to lease-stale — nothing else regressed. The
+  # assertion used to read `.status != "ok"`, which phase 23 broke two plans
+  # before this one: 23-02 gave this fixture — a USER's repo, carrying none of
+  # cairn's manifests — a legitimate ⊘ on release-versions and test-parallel,
+  # and `!= "ok"` counts a ⊘ as a regression. Measured at that commit: this
+  # test returned 2 where it expected 0.
+  #
+  # So it now asks the question it always meant: did any OTHER check turn warn
+  # or fail. Named exactly, never by negating "ok" — a negation of ok is
+  # satisfied by warn, which is precisely the confusion this phase exists to
+  # remove. The two ⊘ are then pinned by id AND by family, so a THIRD one
+  # appearing (a real regression into the fourth state) still fails here.
   assert_json_eq "$output" \
-    '[.checks[] | select(.id != "lease-stale" and .status != "ok")] | length' '0'
+    '[.checks[] | select(.id != "lease-stale")
+                | select(.status == "warn" or .status == "fail")] | length' '0'
+  #
+  # THREE since phase 30: `phase-landed` joins them, and it is the same class
+  # of legitimate ⊘ the note above describes. This fixture is a git repo with
+  # no remote and no commit (make_tmp_repo), so no control branch exists to
+  # compare against — permanently, for a repo shaped like this — which is
+  # `out-of-scope` and not `no-input`. Charging it as a gap would hand every
+  # single-branch user repo a permanent INCOMPLETE footer, the exact false-red
+  # phase 23 refused. The literal is EDITED, never loosened to a subset: a
+  # subset assertion is the one that stops catching a real regression into the
+  # fourth state, and catching that is why this line exists.
+  #
+  # FOUR since phase 25: `state-dialect` joins them, same class again. This
+  # fixture's STATE.md carries active_phase and no current_phase, so there is
+  # no second dialect for it to disagree with — out-of-scope, and never
+  # no-input, which would charge every GSD repo that has not run
+  # cairn-bookkeep with a permanent gap the doctor already reports once, on
+  # claims-stale.
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status == "not-applicable") | .id] | sort | join(",")' \
+    'phase-landed,release-versions,state-dialect,test-parallel'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.status == "not-applicable") | .scope] | sort | join(",")' \
+    'out-of-scope,out-of-scope,out-of-scope,out-of-scope'
 }
 
 # --------------------------------------------------------------------------- #
@@ -1817,7 +2476,7 @@ EOF
 # Break: make the absence of the plugin manifests a failure. Red here — and it
 # would have turned every user's doctor red too, since no wired repo carries
 # cairn's own manifests.
-@test "release-versions: a repo without cairn's plugin manifests reads ok and never fails the doctor" {
+@test "release-versions: a repo without cairn's plugin manifests is out-of-scope, never a failure and never incomplete" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -1825,11 +2484,19 @@ EOF
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
+  # Was `ok` with the words "not applicable" buried in the prose; 23-02 moved
+  # them into the field. The exact value, never a negation.
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="release-versions") | .status' 'ok'
+    '.checks[] | select(.id=="release-versions") | .status' 'not-applicable'
+  # Break, and it is the one that would hurt every user of cairn: marking this
+  # `no-input`. The manifests will NEVER exist in a wired repo, so calling it
+  # a gap would leave every user repo permanently INCOMPLETE — a false red
+  # traded for a false green, which is the same defect mirrored.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="release-versions") | .scope' 'out-of-scope'
   assert_json_eq "$output" \
     '.checks[] | select(.id=="release-versions") | .items | length' '0'
-  grep -qF "not applicable" <<<"$output"
+  assert_json_eq "$output" '.ok' 'true'
 }
 
 # Break: register the check as `warn`, or forget to add it to the `checks`
@@ -1864,4 +2531,1287 @@ EOF
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 7 ]
   grep -qF "✗ release-versions" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# test-parallel (check 16, AUTO-04) — 29-06
+#
+# The environment dimension is controlled through BATS' OWN seam,
+# BATS_PARALLEL_BINARY_NAME (bats-exec-suite:8), rather than by rebuilding
+# PATH: it is the same variable bats itself reads to decide which binary to
+# fan out through, so pointing it at something that exists (or does not) asks
+# the check exactly the question bats would ask. Rebuilding PATH would also
+# have to keep bd, git and python3 reachable, which is a lot of machinery for
+# a question with a one-variable answer.
+#
+# The two branches that do NOT depend on this machine (no bats at all; the
+# report itself unavailable) go through the CAIRN_TEST seam with a stub
+# reporter, the same way the release check is driven through CAIRN_RELEASE.
+#-----------------------------------------------------------------------------
+
+# Break: drop the applicability guard. Red here — and it would put a warning
+# about GNU parallel in front of every user of a wired repo, about a bats
+# suite they do not have.
+@test "test-parallel: a repo without cairn's plugin manifest is out-of-scope, and the report stays complete" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'not-applicable'
+  # Same break as check 15's guard: `no-input` here would make every wired
+  # repo read INCOMPLETE forever over a bats suite it does not have.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
+}
+
+@test "test-parallel: with the prerequisites present the check is ok and names the job count" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The FULL set of carriers, not just plugin.json: that file is also check
+  # 15's applicability marker, so writing it alone turns release-versions on
+  # with nothing to agree with and takes the doctor to exit 7 for an
+  # unrelated reason.
+  write_release_carriers 1.5.0
+
+  # `bash` stands in for the parallel binary: it exists on every machine this
+  # suite runs on, so the ok branch is asserted deterministically instead of
+  # depending on whether the developer happens to have GNU parallel.
+  run env BATS_PARALLEL_BINARY_NAME=bash \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .detail | contains("bats -j")' 'true'
+}
+
+@test "test-parallel: a missing parallel binary warns with the fix and the measured cost, and the doctor still exits 0" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The FULL set of carriers, not just plugin.json: that file is also check
+  # 15's applicability marker, so writing it alone turns release-versions on
+  # with nothing to agree with and takes the doctor to exit 7 for an
+  # unrelated reason.
+  write_release_carriers 1.5.0
+
+  run env BATS_PARALLEL_BINARY_NAME=this-binary-does-not-exist \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # Break, and it is the expensive one: turning friction into a blockage.
+  # A slow suite is not a state inconsistency, and spending exit 7 on it
+  # teaches everyone to ignore exit 7.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'warn'
+  assert_json_eq "$output" '.ok' 'true'
+  # Break: a warning that names neither the cost nor the cure.
+  grep -qF "install parallel" <<<"$output"
+  grep -qF "64s serial" <<<"$output"
+
+  run env BATS_PARALLEL_BINARY_NAME=this-binary-does-not-exist \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "⚠ test-parallel" <<<"$output"
+}
+
+@test "test-parallel: no bats at all is not-applicable/no-input, a different sentence than 'it will be slow'" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The FULL set of carriers, not just plugin.json: that file is also check
+  # 15's applicability marker, so writing it alone turns release-versions on
+  # with nothing to agree with and takes the doctor to exit 7 for an
+  # unrelated reason.
+  write_release_carriers 1.5.0
+
+  local stub="$BATS_TEST_TMPDIR/no-bats-report.py"
+  cat > "$stub" <<'PY'
+import json
+print(json.dumps({"bats": None, "jobs": 8, "jobs_source": "cpu count",
+                  "parallel_binary": "parallel", "can_parallelize": True,
+                  "blockers": [], "measured_cost": "n/a"}))
+PY
+
+  run env CAIRN_TEST="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # Break: keep the `warn` 29-06 left here with a comment saying this branch
+  # belongs to phase 23. Nothing about parallelism was concluded, so `warn`
+  # ("it will be slow") states a fact the check never established.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'not-applicable'
+  # `no-input`, NOT `out-of-scope`: the manifest guard above already proved we
+  # are inside cairn's own tree, where the suite exists and should be runnable.
+  # A missing tool is a gap someone can close, so it DOES make the report
+  # incomplete — while still never touching the exit code.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .scope' 'no-input'
+  assert_json_eq "$output" '.ok' 'false'
+  assert_json_eq "$output" '.failed' 'false'
+  # Break: routing "no bats" into the slow-suite branch. can_parallelize is
+  # true in this report, so a check that looked at that field first would
+  # report ok on a machine that cannot run the suite at all.
+  grep -qF "cannot run here at all" <<<"$output"
+}
+
+@test "test-parallel: an unusable environment report degrades to warn, never a crash and never a failure" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # The FULL set of carriers, not just plugin.json: that file is also check
+  # 15's applicability marker, so writing it alone turns release-versions on
+  # with nothing to agree with and takes the doctor to exit 7 for an
+  # unrelated reason.
+  write_release_carriers 1.5.0
+
+  local stub="$BATS_TEST_TMPDIR/broken-report.py"
+  printf 'import sys\nsys.stderr.write("boom\\n")\nsys.exit(1)\n' > "$stub"
+
+  run env CAIRN_TEST="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # Break: letting one check's subprocess failure take the whole doctor down,
+  # or promoting it to fail. The other fifteen checks still have answers.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="test-parallel") | .status' 'warn'
+  grep -qF "exited 1" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
+# req-ledger (check 17, AUTO-07) — 29-07
+#
+# The chain nobody was validating: an active requirement has a coverage row,
+# the row count is the number the footer claims, each phase's
+# `**Requirements**:` line actually yields its ids, and a plan whose SUMMARY
+# is on disk has its checkbox ticked.
+#
+# EVERY status assertion below is on the EXACT value (`fail`, `ok`, `warn`),
+# never on "is not ok". The negation is satisfied by `warn`, and `warn` is
+# precisely the wrong state this check can fall into by accident: the
+# neighbouring defensive shell-out allowlists returncodes (0, 5), and
+# cairn-bookkeep.py reconcile spends 3 on the very disagreement this check
+# exists to report. Copied unchanged, the central case would land in the
+# "tool unavailable" branch, return `warn`, and leave the doctor exiting 0 —
+# a check against false green producing false green, passed by a test that
+# could not tell.
+#
+# The ledger itself is never re-parsed here or in the doctor: cairn-bookkeep.py
+# owns that reading, and these tests drive it through the CAIRN_BOOKKEEP seam
+# the same way the release check is driven through CAIRN_RELEASE.
+#-----------------------------------------------------------------------------
+
+# Insert LINE immediately before the first line starting with MARKER.
+# Appending to REQUIREMENTS.md instead lands the item under `## Traceability`,
+# where it is not an active requirement at all and the fixture proves nothing.
+req_insert_before() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+lines = p.read_text().splitlines()
+i = next(j for j, l in enumerate(lines) if l.startswith(sys.argv[2]))
+lines.insert(i, sys.argv[3])
+p.write_text("\n".join(lines) + "\n")
+PY
+}
+
+# Write `N requirements, M mapped.` as the coverage footer: a WHOLE line
+# directly after the last table row. cairn-bookkeep.py locates the footer by
+# POSITION, never by searching the file for its text.
+add_coverage_footer() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+from pathlib import Path
+p = Path(".planning/REQUIREMENTS.md")
+lines = p.read_text().splitlines()
+last = max(i for i, l in enumerate(lines) if re.match(r"^\|\s*[A-Za-z]", l))
+lines.insert(last + 1, f"{sys.argv[1]} requirements, {sys.argv[2]} mapped.")
+p.write_text("\n".join(lines) + "\n")
+PY
+}
+
+# Turn phase 1's readable `**Requirements**: [AUTH-01, AUTH-02]` into the
+# ellipsis this repo's ROADMAP.md:400 actually carries.
+elide_requirements_line() {
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".planning/ROADMAP.md")
+p.write_text(p.read_text().replace(
+    "**Requirements**: [AUTH-01, AUTH-02]",
+    "**Requirements**: AUTH-01 … AUTH-02"))
+PY
+}
+
+# Give phase 2 a SUMMARY on disk while its plan checkbox still reads `- [ ]`.
+# The GSD fixture writes plan items in the prose dialect (`- [ ] 02-01:
+# title`); the derived-5 link reads the filename dialect this repo's own
+# ROADMAP uses, the only one that names a file to look for on disk. The
+# STATE counter is bumped along with it so the ONE finding under test is the
+# checkbox, not a progress number riding on the same edit.
+stale_plan_checkbox() {
+  python3 - <<'PY'
+from pathlib import Path
+road = Path(".planning/ROADMAP.md")
+road.write_text(road.read_text().replace(
+    "- [ ] 02-01: Add rate limiting middleware",
+    "- [ ] 02-01-PLAN.md — Add rate limiting middleware"))
+state = Path(".planning/STATE.md")
+state.write_text(state.read_text().replace(
+    "  completed_plans: 1", "  completed_plans: 2"))
+Path(".planning/phases/02-api/02-01-SUMMARY.md").write_text(
+    "---\nphase: 02-api\nplan: '01'\nstatus: complete\n---\n\nDone.\n")
+PY
+}
+
+# A stand-in for cairn-bookkeep.py that prints PAYLOAD and exits CODE — the
+# only way to ask this check what it does with an exit code the real script
+# does not produce today.
+#
+# The payload rides in a sibling file rather than being quoted into the stub's
+# source: embedding JSON in Python in bash needs three levels of escaping to
+# agree, and the first version of this helper got it wrong silently.
+write_bookkeep_stub() {
+  local path="$1" code="$2" payload="$3"
+  printf '%s' "$payload" > "$path.payload"
+  {
+    printf 'import sys\n'
+    printf 'sys.stdout.write(open("%s.payload").read())\n' "$path"
+    printf 'sys.exit(%s)\n' "$code"
+  } > "$path"
+}
+
+# Break: skip the first link. Red — AUTO-07's whole point is that an active
+# requirement with no row went unnoticed for days.
+@test "req-ledger: an active requirement with no coverage row fails and names the id" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  req_insert_before .planning/REQUIREMENTS.md "## Traceability" \
+    "- [ ] **API-02**: Public API exposes a health endpoint"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  assert_json_eq "$output" '.ok' 'false'
+  grep -qF "API-02" <<<"$output"
+  grep -qF "no row in the coverage table" <<<"$output"
+  # The finding routes to the command that resolves it.
+  grep -qF "cairn-bookkeep.sh reconcile --apply" <<<"$output"
+}
+
+# Break: skip the second link — the one nobody thinks to write, because the
+# footer "is only prose". It is the line that read 29 while the table held 33.
+@test "req-ledger: a footer claiming another number fails and names both numbers" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  add_coverage_footer 9 9
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "9 requirements, 9 mapped." <<<"$output"
+  grep -qF "it claims 9 active requirement(s) / 9 coverage row(s)" <<<"$output"
+  grep -qF "the ledger holds 3 active requirement(s) / 3 coverage row(s)" \
+    <<<"$output"
+}
+
+# Break: inherit the blind spot that has check 1 report `ok :: 29
+# requirement(s) mapped` against 35 active requirements.
+@test "req-ledger: an elided **Requirements**: line fails, naming the phase and the ids parsed" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  elide_requirements_line
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "Phase 1:" <<<"$output"
+  grep -qF "ellipsis-between-ids" <<<"$output"
+  grep -qF "does not yield the ids the ledger assigns it" <<<"$output"
+
+  # The raw line and the ids the parser actually got, asserted on the HUMAN
+  # report: json.dumps escapes the ellipsis to …, so a grep for it
+  # against --json passes or fails for a reason that has nothing to do with
+  # this check.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "✗ req-ledger" <<<"$output"
+  grep -qF "**Requirements**: AUTH-01 … AUTH-02" <<<"$output"
+  grep -qF "parsed ['AUTH-01', 'AUTH-02']" <<<"$output"
+}
+
+# Break: leave the view 29-02 taught the bookkeeper to WRITE without a reader.
+@test "req-ledger: a plan with its SUMMARY on disk and an unticked checkbox fails, naming the plan" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  stale_plan_checkbox
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "02-01-PLAN.md" <<<"$output"
+  grep -qF "02-01-SUMMARY.md is on disk" <<<"$output"
+}
+
+# Break: a check that fails on everything would "catch" every test above and
+# be worth nothing. This is the one that proves it can say yes.
+@test "req-ledger: a coherent ledger reads ok and counts what it checked" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .items | length' '0'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .detail' \
+    'every requirement-ledger link agrees — 3 active requirement(s) against 3 coverage row(s), 0 excluded by rule (deferred / out of scope)'
+}
+
+# Break: count a deferred requirement as a gap. The doctor fills with noise
+# about requirements deliberately outside the table, and gets ignored.
+@test "req-ledger: a deferred requirement outside the table is ok, and the count is explained" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  printf '\n## Deferred (v2)\n\n- **API-09**: Webhook fanout\n' \
+    >> .planning/REQUIREMENTS.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'ok'
+  grep -qF "1 excluded by rule (deferred / out of scope)" <<<"$output"
+}
+
+# Break: the wide `except` that returns ok, AND the `warn` verdict that
+# satisfies "is not ok" while leaving the doctor at exit 0. Both are red here.
+@test "req-ledger: cairn-bookkeep.py out of place is exactly fail, and the doctor exits 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run env CAIRN_BOOKKEEP="$BATS_TEST_TMPDIR/no-such-bookkeep.py" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "the requirement ledger could not be read" <<<"$output"
+}
+
+# Break: copy check 11's allowlist `(0, 5)` unchanged. Exit 3 — the ONLY
+# verdict this check exists to report — would land in the unavailable branch
+# and the doctor would exit 0 over a ledger it was just told disagrees.
+@test "req-ledger: exit 3 with a valid report is a reading, not an unavailability (the (0, 3) allowlist)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-disagrees.py"
+  write_bookkeep_stub "$stub" 3 '{"coverage": {"rows": 3}, "requirements": {"active": ["A-01", "A-02", "A-03"], "deferred": [], "out_of_scope": []}, "disagreements": [{"kind": "coverage-row-missing", "subject": "A-03", "found": null, "expected": "a coverage table row", "source": "REQUIREMENTS.md:9"}]}'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "A-03" <<<"$output"
+  # The reading happened: the census is a parsed report, not an error string.
+  grep -qF "3 active requirement(s) against 3 coverage row(s)" <<<"$output"
+  refute_in_output "could not be read"
+}
+
+# Break: any defensive branch that returns `warn`. cairn-doctor.py's own
+# exit-code table records that a warning never changes the exit code, so a
+# warn here is a doctor approving a ledger nobody managed to read.
+@test "req-ledger: an exit outside the allowlist is fail, never warn" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-boom.py"
+  write_bookkeep_stub "$stub" 4 'boom'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "exited 4" <<<"$output"
+}
+
+# Break: return `fail` on unparsable output only when it is empty, or degrade
+# to warn the way the checks around it legitimately do.
+@test "req-ledger: an unparsable report is fail, and the doctor exits 7" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-garbage.py"
+  write_bookkeep_stub "$stub" 0 'not json at all'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'fail'
+  grep -qF "invalid JSON" <<<"$output"
+}
+
+# Break: fail a repo that keeps no coverage view. Every user's roadmap without
+# a coverage table would go to exit 7 over a table that has no business being
+# there — the trap check 15 documents, one check over.
+@test "req-ledger: a roadmap with no coverage view is out-of-scope, never a failure and never incomplete" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-no-view.py"
+  write_bookkeep_stub "$stub" 3 '{"coverage": {"rows": 0}, "requirements": {"active": [], "deferred": [], "out_of_scope": []}, "disagreements": [{"kind": "coverage-view-missing", "subject": "coverage table", "found": null, "expected": "a coverage table", "source": "ROADMAP.md"}]}'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'not-applicable'
+  # Break: calling this a gap. Keeping no coverage view is a METHOD choice a
+  # project is entitled to make — the comment on REQ_LEDGER_VOID_KIND says so
+  # — and marking it `no-input` would make every such repo read INCOMPLETE
+  # forever over a table it deliberately does not keep.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
+  grep -qF "no coverage view" <<<"$output"
+}
+
+# Break: convert this guard and leave it unproved. It is the branch a repo
+# that keeps no REQUIREMENTS.md at all lands on, and before 23-02 no test
+# touched it — a promotion nobody proves is a promotion nobody notices
+# regressing.
+@test "req-ledger: a .planning/ with no REQUIREMENTS.md is out-of-scope, never a failure" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  rm .planning/REQUIREMENTS.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .scope' 'out-of-scope'
+  # It still names WHAT is missing — the routing survives the promotion.
+  grep -qF "REQUIREMENTS.md" <<<"$output"
+}
+
+# Break: silently drop a disagreement this check does not claim. An
+# unexplained absence is the defect the phase removes; so is spending exit 7
+# on `state-narrative-stale`, free text reconcile itself declines to rewrite.
+@test "req-ledger: a disagreement outside its links is surfaced as warn, never exit 7 and never dropped" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  local stub="$BATS_TEST_TMPDIR/bookkeep-aside.py"
+  write_bookkeep_stub "$stub" 3 '{"coverage": {"rows": 3}, "requirements": {"active": ["A-01", "A-02", "A-03"], "deferred": [], "out_of_scope": []}, "disagreements": [{"kind": "state-narrative-stale", "subject": "last_activity_desc", "found": "old prose", "expected": {"fase": 2}, "source": "STATE.md"}]}'
+
+  run env CAIRN_BOOKKEEP="$stub" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-ledger") | .status' 'warn'
+  grep -qF "last_activity_desc" <<<"$output"
+  grep -qF "outside req-ledger's own links" <<<"$output"
+}
+
+# Break: write the function and forget to add it to main()'s `checks` list —
+# the quietest way for a new check not to exist, and the one no test that
+# calls the function directly would ever catch.
+@test "req-ledger: the check is registered and reported in --json" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.checks[].id] | index("req-ledger") != null' \
+    'true'
+}
+
+#-----------------------------------------------------------------------------
+# claims-stale with no input (check 8, AUTO-08's mechanical half) — 29-07
+#
+# The purest specimen of the defect this phase removes, measured 2026-08-04
+# in cairn's own repo: `✓ claims-stale  skipped — no active_phase in
+# STATE.md` — a check that had never run once in the project's life, wearing
+# the success marker. The verdict changes; the DIALECT does not. Which key
+# STATE.md should carry (`current_phase`, what GSD writes, or `active_phase`,
+# what cairn reads) is a business rule open in CairnGo-rq0, and no test here
+# takes a side.
+#-----------------------------------------------------------------------------
+
+# Remove the frontmatter key entirely — the state of every repo whose
+# STATE.md was written by GSD.
+drop_state_active_phase() {
+  python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r'^active_phase: ".*?"\n', "", p.read_text(),
+                    flags=re.MULTILINE))
+PY
+}
+
+# Break (three times over): keep the `ok` — the state of this check before
+# 29-07 — or keep the `warn` 29-07 left as a placeholder for this phase, or
+# promote a missing input to a blocking failure. This branch is the tracer
+# slice: STATE.md IS here, so the key it lacks is a GAP, not a repo the check
+# has no business running in — hence no-input, and hence `.ok` false.
+@test "claims-stale: no active_phase is not-applicable/no-input, routes, and never blocks" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  drop_state_active_phase
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # A check with no input is friction, not a state inconsistency: exit 7
+  # spent on friction stops meaning anything. The verdict moved where it is
+  # READ, not where it decides to block.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.failed' 'false'
+  # The health key can no longer be true while a check inside the doctor's
+  # remit never received its input.
+  assert_json_eq "$output" '.ok' 'false'
+  # The exact value, never "is not ok": the old verdict WAS ok, then warn,
+  # and a negation would also accept a fail that has no business being one.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
+  grep -qF "cannot check" <<<"$output"
+  grep -qF "active_phase" <<<"$output"
+  grep -qF "CairnGo-rq0" <<<"$output"
+  # The finding routes: it names the surfaces that read the key.
+  grep -qF "cairn-lease.py" <<<"$output"
+  grep -qF "hooks/session-start.sh" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "⊘ claims-stale" <<<"$output"
+  refute_in_output "✓ claims-stale"
+  refute_in_output "⚠ claims-stale"
+  # The footer says the report is incomplete without saying anything failed.
+  grep -qF "[cairn-doctor] INCOMPLETE" <<<"$output"
+  refute_in_output "[cairn-doctor] FAIL"
+}
+
+# Break: a branch that never returns ok makes the check lie in the other
+# direction. This is the first proof in this project that it approves when it
+# actually has something to compare.
+@test "claims-stale: with active_phase present the check really runs and returns ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  # The fixture ships active_phase: "2"; DOC_P2 is the phase-2 issue, so an
+  # in_progress claim on it is INSIDE the active phase and must not flag.
+  bd update "$DOC_P2" --status in_progress --assignee tester >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .detail' \
+    'no assigned in_progress issues outside phase 2'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .items | length' '0'
+}
+
+# Break: delete the check instead of fixing its verdict — the lazy way out,
+# and the one the id list catches.
+@test "claims-stale: no verdict change removes a check from the report" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  drop_state_active_phase
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # 22 since check 21, state-dialect (phase 25) — see the long note on the same
+  # assertion near the top of this file for why the merge, and not either
+  # branch, is what made this literal wrong once, and why BOTH sites are
+  # edited in one change.
+  assert_json_eq "$output" '.checks | length' '22'
+  assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
+    'true'
+}
+
+# ─── check 20, plan-counters (CairnGo-6bx, phase 25 criterion 6) ─────────────
+#
+# MEASURED 2026-08-06, right after the close of phase 22:
+#
+#   .planning/STATE.md          on disk
+#   total_plans:     39         NN-MM-PLAN.md ...... 39
+#   completed_plans: 47   <---  NN-MM-SUMMARY.md ... 39
+#   percent:         91         NN-SUMMARY.md ....... 8     47 = 39 + 8
+#
+# `cairn-bookkeep reconcile` returned `disagreements: []` over that file while
+# printing both contradictory numbers inside the SAME JSON object: writer and
+# verifier derive completed_plans with one rule, so they agree. This check
+# exists because it does NOT recompute — `completed > total` is impossible by
+# arithmetic and needs nothing from either glob.
+
+# Set STATE.md's two plan counters to COMPLETED ($1) of TOTAL ($2).
+set_state_plan_counters() {
+  COMPLETED="$1" TOTAL="$2" python3 - <<'PY'
+import os
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+t = p.read_text()
+t = re.sub(r"^(\s*)total_plans:.*$",
+           lambda m: f"{m.group(1)}total_plans: {os.environ['TOTAL']}",
+           t, count=1, flags=re.MULTILINE)
+t = re.sub(r"^(\s*)completed_plans:.*$",
+           lambda m: f"{m.group(1)}completed_plans: {os.environ['COMPLETED']}",
+           t, count=1, flags=re.MULTILINE)
+p.write_text(t)
+PY
+}
+
+@test "plan-counters fails a STATE.md claiming more plans done than exist" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  set_state_plan_counters 47 39
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="plan-counters") | .status][0]' 'fail'
+  # Both numbers reach the operator: a finding that says "the counters
+  # disagree" without saying which two numbers is not actionable.
+  printf '%s' "$output" | jq -r \
+    '[.checks[] | select(.id=="plan-counters") | .items[]][0]' \
+    | grep -qF '47'
+  printf '%s' "$output" | jq -r \
+    '[.checks[] | select(.id=="plan-counters") | .items[]][0]' \
+    | grep -qF '39'
+}
+
+@test "plan-counters passes a STATE.md whose two numbers are possible" {
+  # The negative half. Without it, "always fail" would pass the test above,
+  # and this check runs on every doctor invocation in every repository.
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  set_state_plan_counters 39 39
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="plan-counters") | .status][0]' 'ok'
+}
+
+@test "plan-counters reports no input, never ok, when STATE.md has no counters" {
+  # A missing `progress:` block is GSD's absence, not an inconsistency — and
+  # saying `ok` over an input that never arrived is the shape phase 23 removed
+  # from this file. The value asserted is the exact one, never the negation.
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r"^\s*(total_plans|completed_plans):.*\n", "",
+                    p.read_text(), flags=re.MULTILINE))
+PY
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="plan-counters") | .status][0]' 'not-applicable'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="plan-counters") | .scope][0]' 'no-input'
+}
+
+# Break: take a side on the dialect. Writing `active_phase` into STATE.md (or
+# teaching any cairn surface to read `current_phase`) resolves the symptom by
+# deciding a business rule that belongs to grooming, and it silently changes
+# what every repo with a STATE.md already on disk means.
+# The title was "…and never reads current_phase" until phase 25: check 21,
+# state-dialect, now READS current_phase — to compare it, never to stand in
+# for it. The abstention this test protects is claims-stale's, and it is
+# unchanged: no synonym, no fallback, no second reader of one fact.
+@test "claims-stale: the doctor never writes active_phase, and never takes current_phase as its synonym" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  drop_state_active_phase
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".planning/STATE.md")
+lines = p.read_text().splitlines(keepends=True)
+lines.insert(1, 'current_phase: "2"\n')   # the dialect GSD actually writes
+p.write_text("".join(lines))
+PY
+  cp .planning/STATE.md "$BATS_TEST_TMPDIR/state-before.md"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # current_phase is NOT adopted as a synonym: the check still has no input.
+  # The value moved with 23-01 (warn -> not-applicable); the abstention this
+  # test protects did not, and the assertion is still on the exact value.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
+  # And STATE.md is byte-identical — the doctor is read-only about this.
+  run diff "$BATS_TEST_TMPDIR/state-before.md" .planning/STATE.md
+  [ "$status" -eq 0 ]
+}
+
+#-----------------------------------------------------------------------------
+# LANG-02 (plan 24-03) — check 18, response-language: the net under the one
+# step of the install flow that is prose.
+#
+# /cairn:init records the answer in .cairn/config.json (it must: when it asks,
+# .planning/ does not exist and cairn is forbidden from creating it), and the
+# propagation into .planning/config.json:response_language — the key GSD's own
+# workflows read — fires when cairn-config.py `set` runs again after the
+# /gsd:new-project hand-off. A step in prose is the thing that gets skipped,
+# and that skip is invisible: nothing breaks, half the subagents just answer
+# in the wrong language. That is what this check makes visible.
+#
+# Every assertion below is on the EXACT status value, never on a negation.
+#-----------------------------------------------------------------------------
+
+# Write .cairn/config.json's language ($1) and/or .planning/config.json's ($2).
+# An empty argument means "leave that file without the key".
+write_language_pair() {
+  mkdir -p .cairn .planning
+  if [ -n "$1" ]; then
+    printf '{\n  "agents": {\n    "response_language": "%s"\n  }\n}\n' "$1" \
+      > .cairn/config.json
+  else
+    printf '{}\n' > .cairn/config.json
+  fi
+  if [ -n "$2" ]; then
+    printf '{\n  "response_language": "%s"\n}\n' "$2" > .planning/config.json
+  else
+    printf '{\n  "commit_docs": true\n}\n' > .planning/config.json
+  fi
+}
+
+@test "response-language: the two files agreeing is ok, and says the language out loud" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "Portuguese" "Portuguese"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'ok'
+  # Breaks on a check that warns when everything is right — noise trains
+  # people to stop reading the report.
+  grep -qF "Portuguese" <<<"$output"
+}
+
+@test "response-language: an install answer that never reached GSD's config warns and names the exact command" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "Portuguese" ""
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # THE case this check exists for: step 6 of /cairn:init skipped. Breaks if
+  # the skip passes in silence, which is the whole defect.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'warn'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .items | length' '1'
+  grep -qF "set agents.response_language 'Portuguese'" <<<"$output"
+
+  # warn, not fail: a divergence breaks nothing mechanically, and spending
+  # exit 7 on it would train everyone to ignore exit 7.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "response-language" <<<"$output"
+}
+
+@test "response-language: two different values warn, showing both and naming which one governs" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "Portuguese" "Japanese"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'warn'
+  # Both values shown, and the winner named: GSD's key governs, so leaving the
+  # reader to guess would reproduce the confusion the check reports.
+  grep -qF "'Japanese'" <<<"$output"
+  grep -qF "'Portuguese'" <<<"$output"
+  grep -qF "/gsd:config" <<<"$output"
+}
+
+@test "response-language: no recorded answer at all is ok, not a warning" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "" ""
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # Breaks on a check that nags every repo that never ran /cairn:init's
+  # language step — there is nothing to keep in agreement.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'ok'
+}
+
+@test "response-language: the doctor writes neither file, in any of the states" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  write_language_pair "Portuguese" "Japanese"
+  cp .cairn/config.json "$BATS_TEST_TMPDIR/cairn-before.json"
+  cp .planning/config.json "$BATS_TEST_TMPDIR/planning-before.json"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="response-language") | .status' 'warn'
+
+  # The doctor reports; cairn-config.py set is what writes. Breaks on a check
+  # that "helpfully" fixes the divergence it found.
+  run diff "$BATS_TEST_TMPDIR/cairn-before.json" .cairn/config.json
+  [ "$status" -eq 0 ]
+  run diff "$BATS_TEST_TMPDIR/planning-before.json" .planning/config.json
+  [ "$status" -eq 0 ]
+}
+
+# --------------------------------------------------------------------------- #
+# Check 19, phase-landed (PR-04, phase 30) — a phase the roadmap calls complete
+# whose work never entered the control branch.
+#
+# The doctor reads NO git for this. cairn-land.py owns every git read behind
+# the question and the doctor invokes it through the CAIRN_LAND seam, the same
+# shape checks 3 and 17 use for cairn-map.py and cairn-bookkeep.py. The last
+# test in this block pins that: a stubbed CAIRN_LAND changes the verdict, which
+# it could not do if the answer were re-derived here.
+#
+# Every assertion is on the exact status value. `!= "ok"` is satisfied by
+# `warn`, by `fail` AND by `not-applicable`, which are four different
+# instructions to whoever reads the report.
+# --------------------------------------------------------------------------- #
+
+# Commit the fixture and point a remote-tracking ref at it. `update-ref` writes
+# exactly the ref a fetch would, so no remote and no network are involved.
+land_commit_and_publish() {
+  git add -A >/dev/null 2>&1 || true
+  git commit -qm "feat(01-01): the auth phase" >/dev/null 2>&1
+  git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
+}
+
+@test "phase-landed: a complete phase on the control branch reads ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items | length' '0'
+}
+
+@test "phase-landed: a complete phase ahead of the control branch warns" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+  # Phase 1's closing commit lands AFTER the control branch was published —
+  # the shape of this whole repository today, and of anybody mid-cycle.
+  git commit -q --allow-empty -m "chore(01): close phase 1" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # WARN and not FAIL, and the exit code proves the distinction: unpushed work
+  # is friction, and exit 7 spent on friction stops meaning anything.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'warn'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .detail | test("/cairn:ship")' \
+    'true'
+  # The finding NAMES the phase and the branch — a warning that says only
+  # "something did not land" is the silence this check exists to remove.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0]
+     | test("phase 1") and test("origin/main")' 'true'
+}
+
+@test "phase-landed: an ARCHIVED milestone's phase that never landed fails" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+  # A closed cycle, on disk, exactly the way /gsd:complete-milestone leaves it.
+  mkdir -p .planning/milestones/v0.9-phases/03-legacy
+  echo "# archived" > .planning/milestones/v0.9-ROADMAP.md
+  git add -A >/dev/null
+  git commit -qm "chore: archive v0.9" >/dev/null
+  # ...and work attributed to phase 3 that the control branch does not have.
+  # Attributed by SCOPE, because the archive moved the directory out of
+  # .planning/phases/ — which is precisely the case the second attribution
+  # source exists for.
+  git commit -q --allow-empty -m "feat(03-01): the legacy phase" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # FAIL, and exit 7: this is not "I have not pushed yet", it is a cycle
+  # CLOSED over work the control branch does not have.
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'fail'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0] | test("ARCHIVED")' \
+    'true'
+  assert_json_eq "$output" '.failed' 'true'
+}
+
+@test "phase-landed: a complete phase the history cannot place raises nothing" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # A history that names no phase in a scope AND never touched the phase
+  # directory — so neither attribution source can place phase 1. This is the
+  # shape of phases 7-12 of this repository, MEASURED 2026-08-06: archived from
+  # cycles that predate the conventional-commit scope convention.
+  echo readme > README.md
+  git add README.md >/dev/null
+  git commit -qm "initial import" >/dev/null
+  git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # `ok`, on the exact value: an unplaceable phase is NAMED and not charged.
+  # Charging it would hand every long-lived repo a permanent finding about
+  # history nobody is going to rewrite — the false-red phase 23 refused.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'ok'
+  # Named, though. Silence about it would be the opposite defect.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0] | test("unknown ::")' \
+    'true'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0] | test("no-commits")' \
+    'true'
+}
+
+@test "phase-landed: no control branch is out-of-scope, never a gap" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  git add -A >/dev/null 2>&1 || true
+  git commit -qm "feat(01-01): the auth phase" >/dev/null 2>&1
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'not-applicable'
+  # out-of-scope, NOT no-input: a single-branch repo has nothing to compare
+  # against permanently, and `no-input` would clear `.ok` and hand every one
+  # of them an INCOMPLETE footer forever.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
+}
+
+@test "phase-landed: a broken CAIRN_LAND degrades to warn, never to fail" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+
+  local stub="$BATS_TEST_TMPDIR/broken-land.py"
+  printf '%s\n' 'import sys' 'sys.exit(9)' > "$stub"
+  run env CAIRN_LAND="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  refute_in_output "Traceback"
+  # WARN and not FAIL: the doctor could not ask the question, which is not the
+  # same as the answer being bad. Same degrade shape as check 11.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'warn'
+  assert_json_eq "$output" '.failed' 'false'
+}
+
+@test "phase-landed: the verdict comes from cairn-land.py, not from git here" {
+  # THE SEAM, pinned. A stub that answers a DIFFERENT verdict than the real
+  # repository would changes the report — which it could not do if this check
+  # re-read git itself. Breaks by: writing a `git merge-base` into
+  # cairn-doctor.py, which is how one fact acquires a second answer.
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+
+  local stub="$BATS_TEST_TMPDIR/stub-land.py"
+  cat > "$stub" <<'PY'
+import json
+print(json.dumps({
+    "control": {"branches": ["origin/invented"], "source": "config",
+                "detail": "stubbed"},
+    "phases": {"1": {"status": "unlanded", "commits": 4, "sources": ["scope"],
+                     "branches": {"origin/invented": "unlanded"},
+                     "reason": None, "pr": {"status": "unknown"}}},
+    "answered": True, "reason": None, "detail": "stubbed"}))
+PY
+  run env CAIRN_LAND="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'warn'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0]
+     | test("origin/invented")' 'true'
+  # And the real run of the same fixture reads `ok` — without this line the
+  # assertion above would pass against a check that always warns.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'ok'
+}
+
+# ─── check 21, state-dialect (CairnGo-ctr, AUTO-10, phase 25 criterion 5) ────
+#
+# MEASURED 2026-08-05, reconfirmed 2026-08-07 in this checkout:
+#
+#   $ grep -rn current_phase cairn/     -> ZERO readers
+#   $ grep -rln active_phase cairn/     -> cairn-status.py, cairn-doctor.py,
+#                                          cairn-lease.py, cairn-migrate.py,
+#                                          hooks/session-start.sh
+#   $ sed -n 5p .planning/STATE.md      -> current_phase: 30   (no active_phase)
+#
+# cairn wrote the key nothing here reads. The owner decided (2026-08-06) to
+# write BOTH, and made the comparison part of the decision: two keys that must
+# agree and that nobody compares is this cycle's defect, measured four times.
+
+# Replace the fixture's `active_phase: "N"` with `current_phase: N` — the
+# frontmatter of every STATE.md GSD has ever written, and the state this repo
+# was measured in on 2026-08-05.
+speak_gsd_dialect_only() {
+  python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r'^active_phase: "(.*?)"$', r"current_phase: \1",
+                    p.read_text(), flags=re.MULTILINE))
+PY
+}
+
+# Add `current_phase: N` beside the fixture's own active_phase.
+add_current_phase() {
+  N="$1" python3 - <<'PY'
+import os
+import re
+from pathlib import Path
+p = Path(".planning/STATE.md")
+p.write_text(re.sub(r'^(active_phase: ".*?")$',
+                    lambda m: m.group(1) + "\ncurrent_phase: "
+                    + os.environ["N"],
+                    p.read_text(), count=1, flags=re.MULTILINE))
+PY
+}
+
+# Break three ways: drop the check from the registry; compare the keys with a
+# phase recomputed from the roadmap (which would agree with whichever key the
+# same rule wrote, and never fail); or downgrade the disagreement to a warn,
+# which is the false green this whole cycle removes.
+@test "state-dialect: two keys naming two different phases is a FAIL that routes" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  add_current_phase 1     # the fixture's active_phase is "2"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.failed' 'true'
+  # The exact value, never "is not ok": `warn` and `not-applicable` both
+  # satisfy a negation, and both would be wrong here.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'fail'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .items[0]' \
+    'current_phase 1 != active_phase 2'
+  # It routes to the one command that owns both keys.
+  grep -qF "cairn-bookkeep.sh close" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
+  [ "$status" -eq 7 ]
+  grep -qF "✗ state-dialect" <<<"$output"
+}
+
+# The negative half: without it, "always fails" would pass a check that runs
+# on every doctor invocation in every repository.
+@test "state-dialect: two keys naming the same phase is ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  add_current_phase 2     # agrees with the fixture's active_phase "2"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .detail' \
+    "STATE.md's two phase keys agree on phase 2"
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | has("scope")' 'false'
+}
+
+# The assignment that had to be argued instead of measured, and the one a
+# careless version gets wrong: ONE key is out-of-scope, never no-input.
+#
+# Break: return no-input here. Every GSD repository that has never run
+# cairn-bookkeep — which is all of them, including this fixture — would get
+# `.ok: false` forever, a permanent false red, and check 8 already reports the
+# very same missing key as its own no-input. One gap, counted once.
+@test "state-dialect: one key only is out-of-scope, and never a gap" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  # The fixture as it ships: active_phase and no current_phase.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
+
+  # And the mirror image — the dialect every GSD STATE.md speaks.
+  speak_gsd_dialect_only
+  ! grep -qF "active_phase" "$PWD/.planning/STATE.md"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .scope' 'out-of-scope'
+  # `.ok` is false here — but because of check 8's no-input on the missing
+  # active_phase, not because of this one. Asserted at the check, so the two
+  # verdicts cannot be confused for each other.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
+}
+
+# THE CRITERION, END TO END, and the only test here that drives both halves of
+# AUTO-10 in one run: a STATE.md in the GSD dialect, the check that has never
+# once run in this project's life reporting no input over it, cairn-bookkeep
+# writing the key cairn reads, and the same check running afterwards.
+#
+# Break: revert STATE_KEYS_WRITTEN or the anchor condition in build_plan and
+# the second half of this test goes back to no-input — which is exactly the
+# measurement of 2026-08-05.
+@test "AUTO-10: close --apply lands active_phase, and claims-stale stops reporting no input" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+
+  speak_gsd_dialect_only
+  grep -qF "current_phase: 2" "$PWD/.planning/STATE.md"
+  ! grep -qF "active_phase" "$PWD/.planning/STATE.md"
+
+  # Before: the measured false green's successor — a check with no input.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-bookkeep.sh" close 2 --apply \
+    --no-tracker --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # The key cairn reads is in the file, beside the key GSD writes, naming the
+  # same phase — so check 21 has something to compare and agrees.
+  grep -qF "current_phase: 2" "$PWD/.planning/STATE.md"
+  grep -qF "active_phase: 2" "$PWD/.planning/STATE.md"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="claims-stale") | has("scope")' 'false'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="state-dialect") | .status' 'ok'
 }

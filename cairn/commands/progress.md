@@ -1,5 +1,6 @@
 ---
 description: Roadmap-level project progress (GSD)
+group: view
 ---
 
 Run `/gsd:progress` and summarize roadmap and phase completion. For the

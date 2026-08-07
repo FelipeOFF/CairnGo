@@ -2,19 +2,20 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Legible State
-current_phase: 20
-current_phase_name: Group model
+current_phase: 25
+active_phase: 25
+current_phase_name: Measured cleanup
 status: planning
-stopped_at: v1.5 aberto — roadmap e requisitos escritos, nenhuma fase planejada
-last_updated: "2026-08-03T12:00:00.000Z"
-last_activity: 2026-08-03
-last_activity_desc: Milestone v1.5 Legible State aberto (9 fases, 24 requisitos)
+stopped_at: Completed 29-04-PLAN.md
+last_updated: "2026-08-07T14:36:24.940Z"
+last_activity: 2026-08-07
+last_activity_desc: Fases 21, 23, 24 e 26 fechadas — milestone v1.5 Legible State (11 fases, 41 requisitos)
 progress:
-  total_phases: 9
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 11
+  completed_phases: 11
+  total_plans: 49
+  completed_plans: 49
+  percent: 100
 ---
 
 # Project State
@@ -70,6 +71,7 @@ Last activity: 2026-07-31 — Fases 14 e 15 em paralelo, mescladas e fechadas
 | Phase 06 P01 | 45min | 2 tasks | 3 files |
 | Phase 06 P02 | 32min | 3 tasks | 5 files |
 | Phase 06 P03 | 51min | 2 tasks | 2 files |
+| Phase 29 P04 | 50min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -111,6 +113,10 @@ Recent decisions affecting current work:
 - [Phase 06]: bench-publish.py porta o mecanismo exato de split_markers/replace-only-inner/append-never-destroy/write-only-when-changed de cairn-map.py, parametrizado por par de marcador — usado tanto para BENCHMARKS.md quanto para o teaser do README
 - [Phase 06]: bench-all.sh nunca assume gasto pelo ambiente: modo default é sempre --dry-run mesmo com ANTHROPIC_API_KEY presente; --yes exige a flag explícita E a chave não-vazia; contrato de invocação zero provado por tripwire mecânico, não só leitura de código
 - [Phase 06]: Verificado gaps_found (18/19 must-haves) em 2026-07-26 — ver 06-VERIFICATION.md. 1 gap minor/não-bloqueante, aceito: ROADMAP SC2 (gráficos SVG commitados) não satisfeito literalmente — zero SVG commitado no repo, por design (regra de honestidade de 06-CONTEXT.md: nenhum número sintético é commitado como se fosse resultado real). Bloqueado por ANTHROPIC_API_KEY ausente (confirmado independentemente); mesma disciplina já aceita nas Phases 4 e 5. Toda a maquinaria (bench-chart.py, bench-publish.py, bench-all.sh) foi reproduzida manualmente de ponta a ponta nesta verificação com dados reais (não sintéticos) do stub — determinismo, honestidade de dados nulos, regeneração byte-idêntica fora dos marcadores, e os gates de segurança dry-run/--yes todos confirmados independentemente. Falta apenas a coleta de dados ao vivo (decisão de gasto do operador, ~$40), um comando de distância (`bench-all.sh --yes`). REPT-01/03/04 plenamente satisfeitos; REPT-02 satisfeito na maquinaria, pendente na população de dados reais. Milestone v1.1: 6/6 fases executadas e verificadas — pronto para gate/ship.
+- [Phase 29]: 29-04: denylist do detector Jira sai do REQUIREMENTS ativo mais os milestones arquivados, por regex crua (27 prefixos, zero sobreviventes)
+- [Phase 29]: 29-04: git-log sozinho nunca liga detected (21/21 falsos positivos); branch liga sozinho (0 em 25)
+- [Phase 29]: 29-04: .claudeAiMcpEverConnected fica fora do predicado, marcado como ASSUMIDO — nao foi medido se significa agora ou alguma vez
+- [Phase 29]: 29-04: jira.link entra no schema fechado do cairn-config.py em vez de gravado por fora — um dono por arquivo
 
 ### Pending Todos
 
@@ -139,9 +145,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T19:47:35.864Z
-Stopped at: Phase 13 context gathered
-Resume file: .planning/phases/13-state-corroboration/13-CONTEXT.md
+Last session: 2026-08-05T04:02:01.357Z
+Stopped at: Completed 29-04-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

@@ -110,7 +110,7 @@ None — plan executed exactly as written. One process note, not a code deviatio
 
 ## Process Note: accidental `git stash` (self-reported, not part of the plan's scope)
 
-While reconstructing the per-task commit split described above, I ran `git stash push -- cairn/scripts/cairn-status.py` to temporarily revert Task 1's code for the RED proof. **This was a mistake** — `git stash` writes to `refs/stash` in the shared parent `.git/` directory (`/Users/felipeoliveira/Projects/CairnGo/.git`), which is common to this worktree, the `CairnGo-phase-15` worktree, and the orchestrator's own checkout, not scoped to this worktree. The plan's own execution instructions explicitly prohibit `git stash` in a worktree for exactly this reason.
+While reconstructing the per-task commit split described above, I ran `git stash push -- cairn/scripts/cairn-status.py` to temporarily revert Task 1's code for the RED proof. **This was a mistake** — `git stash` writes to `refs/stash` in the shared parent `.git/` directory (`~/Projects/CairnGo/.git`), which is common to this worktree, the `CairnGo-phase-15` worktree, and the orchestrator's own checkout, not scoped to this worktree. The plan's own execution instructions explicitly prohibit `git stash` in a worktree for exactly this reason.
 
 I did not run `git stash pop` or `git stash drop` to recover — both are also prohibited, and popping could silently apply this stash's diff onto whatever another worktree's HEAD happens to be at pop time. Instead I recovered by copying the in-memory file content back from a plain-file backup I had already made in the scratchpad directory (`cp` — not a git operation), which restored the exact same bytes with no ambiguity. The stash entry itself is still present:
 

@@ -210,6 +210,109 @@ PYEOF
 }
 
 #-----------------------------------------------------------------------------
+# Plan 24-01 / LANG-02 — the response language AT THE DELIVERY POINT.
+#
+# Why these four tests read `prepare`'s payload and not a config file: the
+# defect they exist to close happened with the key ALREADY SET. In the v1.4
+# cycle every subagent this loop spawned answered in English against an
+# all-Portuguese plan while `.planning/config.json:69` said `pt-BR` — so a
+# test asserting "the key is in the file" would have been GREEN on the day it
+# broke. What the prompt assembler actually reads is this payload
+# (cairn/commands/autonomous.md step 2 lists its fields, and the five items of
+# the SUBAGENT-PROMPT block come out of them), so the value is read from here.
+#
+# What is NOT proven here, said plainly rather than left implicit: that the
+# model pastes the value into the Task tool's prompt. bats cannot spawn the
+# Task tool — the same boundary cairn/commands/reconcile.md:29-31 already
+# records for its own gate. The other half of the proof is a region assertion
+# over the delimited prompt block, in tests/cairn-parallel-autonomous.bats.
+#-----------------------------------------------------------------------------
+
+@test "prepare reports the response language from .cairn/config.json when GSD's config does not carry one" {
+  require_bd
+  make_parallel_fixture
+  # The fixture has .planning/ but no config.json — which is exactly the shape
+  # a repo has right after /cairn:init asks and before /gsd:new-project has
+  # written GSD's own config.
+  [ ! -e "$MAIN_ROOT/.planning/config.json" ]
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set agents.response_language \
+    Portuguese --project-dir "$MAIN_ROOT"
+
+  run bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  # Breaks if the key governs nowhere — that is, if it is a declared setting
+  # read by nothing, the exact defect cairn-config.py's entry rule exists for.
+  assert_json_eq "$output" '.response_language' 'Portuguese'
+  assert_json_eq "$output" '.response_language_source' 'file'
+
+  # The operator reads the human render before spawning anything, so the
+  # language has to be visible there too, not only in --json.
+  git -C "$MAIN_ROOT" worktree remove --force "$MAIN_ROOT-phase-2"
+  git -C "$MAIN_ROOT" branch -D phase/2-api
+  run bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "response language: Portuguese" <<<"$output"
+}
+
+@test "prepare reports GSD's response_language when it is set, and names it as the source" {
+  require_bd
+  make_parallel_fixture
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set agents.response_language \
+    Portuguese --project-dir "$MAIN_ROOT"
+  printf '{\n  "response_language": "Japanese"\n}\n' \
+    > "$MAIN_ROOT/.planning/config.json"
+
+  run bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  # Breaks on inverted precedence: cairn's subagents answering Portuguese
+  # while GSD's ~30 workflows answer Japanese in the same run.
+  assert_json_eq "$output" '.response_language' 'Japanese'
+  assert_json_eq "$output" '.response_language_source' 'planning'
+}
+
+@test "prepare reports English by default when neither config carries a language" {
+  require_bd
+  make_parallel_fixture
+  [ ! -e "$MAIN_ROOT/.cairn/config.json" ]
+  [ ! -e "$MAIN_ROOT/.planning/config.json" ]
+
+  run bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  # Breaks if the default stops reaching the delivery point — the payload
+  # would carry null and the prompt would have nothing to copy.
+  assert_json_eq "$output" '.response_language' 'English'
+  assert_json_eq "$output" '.response_language_source' 'default'
+}
+
+@test "a cairn-config that cannot answer degrades to a visible null, and prepare still exits 0" {
+  require_bd
+  make_parallel_fixture
+  local stub="$BATS_TEST_TMPDIR/config-stub.py"
+  cat > "$stub" <<'PYEOF'
+import sys
+sys.exit(3)
+PYEOF
+
+  run env CAIRN_CONFIG="$stub" \
+    bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT" --json
+  # Exit zero is the assertion: a broken config file is not a reason to refuse
+  # to prepare a worktree.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.response_language' 'null'
+  assert_json_eq "$output" '.response_language_source' 'unavailable'
+
+  # And it degrades to null rather than to a guessed "English": a guessed
+  # language would be indistinguishable from a configured one at the exact
+  # point where the difference matters.
+  git -C "$MAIN_ROOT" worktree remove --force "$MAIN_ROOT-phase-2"
+  git -C "$MAIN_ROOT" branch -D phase/2-api
+  run env CAIRN_CONFIG="$stub" \
+    bash "$PARALLEL" prepare 2 --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "response language: unavailable" <<<"$output"
+}
+
+#-----------------------------------------------------------------------------
 # Task 2: batch — a CONSUMER of cairn-status.py's parallelism block, and the
 # bridge to prepare.
 #-----------------------------------------------------------------------------
@@ -240,6 +343,67 @@ PYEOF
   assert_json_eq "$output" '[.selected[] | select(.phase == 7) | .next_command][0]' '/cairn:plan 7'
   assert_json_eq "$output" '[.selected[] | select(.phase == 7) | .reason][0]' 'nothing blocks it'
   assert_json_eq "$output" '[.selected[] | select(.phase == 9) | .title][0]' 'Beta'
+  # A stub with nothing inconsistent yields an empty list, never a missing key:
+  # a consumer that filters on this field must not have to know two shapes.
+  assert_json_eq "$output" '.inconsistent | length' '0'
+}
+
+@test "batch passes parallelism.inconsistent through verbatim and prints the command that resolves it" {
+  # MEASURED 2026-08-05 (CairnGo-4oq). `.planning/phases/30-did-it-land/` held
+  # one 30-CONTEXT.md and nothing else:
+  #
+  #   $ grep -c 'Phase 30' .planning/ROADMAP.md
+  #   0
+  #   $ cairn-parallel.sh batch --json
+  #   runnable: [..., 30]
+  #   deferred: [{phase: 30, reason: 'above the --max 3 ceiling'}]
+  #
+  # The ONLY thing keeping the tool from recommending a phase with no goal, no
+  # requirement and no acceptance criterion was the concurrency ceiling. This
+  # asserts the two halves of the fix at the batch layer: the phase never
+  # reaches `runnable`, and it is named out loud rather than dropped.
+  require_bd
+  make_parallel_fixture
+  STATUS_STUB="$BATS_TEST_TMPDIR/status-stub-inconsistent.py"
+  cat > "$STATUS_STUB" <<'PYEOF'
+#!/usr/bin/env python3
+import json
+print(json.dumps({
+    "parallelism": {
+        "runnable": [7],
+        "blocked": [],
+        "inconsistent": [
+            {"phase": 30,
+             "reason": "phase 30 has a directory under .planning/phases/ but "
+                       "no entry in ROADMAP.md, so nothing says what it is "
+                       "for or when it is done",
+             "command": "/cairn:phase add 30"},
+        ],
+        "declared": True,
+        "note": "One phase can move: /cairn:plan 7.",
+    },
+    "next_commands": [
+        {"command": "/cairn:plan 7", "phase": 7, "title": "Alpha",
+         "reason": "nothing blocks it", "blocked": False},
+    ],
+    "phases": [],
+}))
+PYEOF
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.runnable | join(",")' '7'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7'
+  assert_json_eq "$output" '.inconsistent | length' '1'
+  assert_json_eq "$output" '.inconsistent[0].phase' '30'
+  assert_json_eq "$output" '.inconsistent[0].command' '/cairn:phase add 30'
+  # Phase 30 is neither selected nor deferred: `deferred` means "runnable, not
+  # this round", and this phase is not runnable at all.
+  assert_json_eq "$output" '[.deferred[].phase] | length' '0'
+  # The announcement an operator actually reads carries it too.
+  printf '%s' "$output" | jq -r '.announcement' | grep -qF 'phase 30 is not schedulable'
+  printf '%s' "$output" | jq -r '.announcement' | grep -qF '/cairn:phase add 30'
 }
 
 @test "batch drops a runnable phase whose lease is held by a live holder, names the holder, and keeps the other one" {
@@ -277,6 +441,154 @@ PYEOF
   assert_json_eq "$output" '[.selected[].phase] | join(",")' '7'
   assert_json_eq "$output" '[.deferred[].phase] | join(",")' '9'
   assert_json_eq "$output" '[.deferred[] | select(.phase == 9) | .reason][0]' 'above the --max 1 ceiling'
+}
+
+#-----------------------------------------------------------------------------
+# The setting reaching its consumer (phase 29-03). A written key is not a read
+# key, so these assert the ceiling `batch` APPLIES — the selection itself —
+# and not what the config file happens to contain.
+#-----------------------------------------------------------------------------
+
+@test "the ceiling comes from autonomous.max_parallel: the setting changes which phases batch selects, not just what it reports" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  # No --max anywhere: an implementation that ignored the setting would keep
+  # its old argparse default of 3 and select both phases.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_parallel 1 \
+    --project-dir "$MAIN_ROOT"
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '1'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7'
+  assert_json_eq "$output" '[.deferred[] | select(.phase == 9) | .reason][0]' 'above the --max 1 ceiling'
+
+  # Raising the setting raises the real ceiling, same command, same stub.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_parallel 5 \
+    --project-dir "$MAIN_ROOT"
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '5'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+}
+
+@test "with no .cairn/config.json the ceiling is still 3 — no existing repo changes behavior" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+  [ ! -e "$MAIN_ROOT/.cairn/config.json" ]
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '3'
+}
+
+@test "an explicit --max wins over the setting, in both directions" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_parallel 1 \
+    --project-dir "$MAIN_ROOT"
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --max 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '2'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_parallel 5 \
+    --project-dir "$MAIN_ROOT"
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --max 1 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '1'
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7'
+}
+
+@test "a config resolver that cannot be run does not take batch down: the ceiling degrades to 3" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  local missing="$BATS_TEST_TMPDIR/nowhere/cairn-config.py"
+  run env CAIRN_STATUS="$STATUS_STUB" CAIRN_CONFIG="$missing" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '3'
+  refute_in_output "Traceback"
+
+  # Same for a resolver that answers with something unreadable.
+  local garbage="$BATS_TEST_TMPDIR/garbage-config.py"
+  cat > "$garbage" <<'PYEOF'
+#!/usr/bin/env python3
+print("not json either")
+PYEOF
+  run env CAIRN_STATUS="$STATUS_STUB" CAIRN_CONFIG="$garbage" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.max' '3'
+  refute_in_output "Traceback"
+}
+
+@test "the cycle ceiling has teeth: at the limit batch still selects, past it it selects nothing and names the ceiling and the cycle" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_cycles 2 \
+    --project-dir "$MAIN_ROOT"
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --cycle 2 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.cycle_note' 'null'
+
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --cycle 3 --project-dir "$MAIN_ROOT" --json
+  # A read-only planner: exit stays 0, the caller is what stops.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.selected | length' '0'
+  assert_json_eq "$output" '.max_cycles' '2'
+  assert_json_eq "$output" '.cycle' '3'
+  # Zero selected AND a reason. A ceiling enforced in silence looks exactly
+  # like a run that found no work.
+  assert_json_eq "$output" '.cycle_note | contains("2")' 'true'
+  assert_json_eq "$output" '.cycle_note | contains("cycle 3")' 'true'
+  assert_json_eq "$output" '[.deferred[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.announcement | contains("max_cycles")' 'true'
+}
+
+@test "the cycle ceiling does not apply to a caller that does not count cycles, and 0 is no ceiling at all" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  # A ceiling in force, but no --cycle: nothing to be over.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_cycles 2 \
+    --project-dir "$MAIN_ROOT"
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.cycle' 'null'
+  assert_json_eq "$output" '.cycle_note' 'null'
+
+  # Back to the default of 0: a ceiling nobody asked for must not appear.
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set autonomous.max_cycles 0 \
+    --project-dir "$MAIN_ROOT"
+  run env CAIRN_STATUS="$STATUS_STUB" \
+    bash "$PARALLEL" batch --cycle 99 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.selected[].phase] | join(",")' '7,9'
+  assert_json_eq "$output" '.max_cycles' '0'
+  assert_json_eq "$output" '.cycle_note' 'null'
 }
 
 @test "the bridge: for TWO phases, the branch and worktree batch announces are byte-for-byte the ones prepare creates, and the two trees are isolated" {
@@ -1392,6 +1704,16 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   run bash "$LEASE" status 7 --project-dir "$MAIN_ROOT" --json
   assert_json_eq "$output" '.stale' 'true'
 
+  # Phase 28 versioned the journal, and this test used to commit that
+  # partition here AND merge it back, because otherwise the worktree carried
+  # "uncommitted work" and the assertion below about the lease would have had
+  # to accept a second, TRUE reason. Phase 25 (D-05, CairnGo-rhq) removed the
+  # premise instead of the assertion: `.cairn/journal/` is the one cairn
+  # artifact whose loss changes no verdict, so it is no longer grounds for
+  # retention and neither the commit nor the merge is needed. What keeps this
+  # tree out of `removable` is the lease, and only the lease — which is what
+  # this test was always about.
+
   run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.stale_but_live | length' '1'
@@ -1586,4 +1908,346 @@ EOF
   run bash "$PARALLEL" cleanup --project-dir "$MAIN_ROOT" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.orphan_leases | length' '0'
+}
+
+#-----------------------------------------------------------------------------
+# CairnGo-rhq (D-05) — the journal stopped being grounds for retention
+#
+# MEASURED at the close of phase 28, and the trap closes from both sides:
+#
+#   uncommitted partition -> "uncommitted changes (git cannot recreate these)"
+#   committed partition   -> "carries commits HEAD lacks"
+#
+# so a worktree that journalled only became removable after its partition was
+# committed AND merged back, and nothing in cairn's flow does either. The
+# journal is the one cairn artifact whose loss changes no verdict (DJOUR-03),
+# which is exactly why it may not hold a tree hostage.
+#
+# And the measurement that decided the IMPLEMENTATION, taken 2026-08-07
+# against this project's own .gitignore:
+#
+#   $ git status --porcelain          -> ?? .cairn/                (collapsed)
+#   $ git status --porcelain -uall    -> ?? .cairn/journal/-0001.jsonl
+#
+# A path filter over the old call would have been inert.
+#-----------------------------------------------------------------------------
+
+# Break: put `--porcelain` back without `-uall`. git collapses the wholly
+# untracked `.cairn/` into one line, `.cairn/` does not start with
+# `.cairn/journal/`, and the filter silently stops matching — the tree is
+# retained again and this test says so.
+@test "cleanup: a worktree whose only untracked work is the journal is removable" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  mkdir -p "$MAIN_ROOT-phase-7/.cairn/journal"
+  printf '{"event":"lease_changed"}\n' \
+    > "$MAIN_ROOT-phase-7/.cairn/journal/-0001.jsonl"
+  # The premise, stated rather than assumed: git really does see this as
+  # untracked work in that tree.
+  run git -C "$MAIN_ROOT-phase-7" status --porcelain -uall
+  grep -qF ".cairn/journal/-0001.jsonl" <<<"$output"
+
+  run bash "$PARALLEL" cleanup --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.retained | length' '0'
+  assert_json_eq "$output" '.removable | length' '1'
+  assert_json_eq "$output" '.removable[0].branch' 'phase/7-alpha'
+}
+
+# The negative half, and without it "nothing is ever dirty" would pass a rule
+# that decides an irreversible removal.
+@test "cleanup: one other untracked file beside the journal still retains" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  mkdir -p "$MAIN_ROOT-phase-7/.cairn/journal"
+  printf '{"event":"lease_changed"}\n' \
+    > "$MAIN_ROOT-phase-7/.cairn/journal/-0001.jsonl"
+  echo "work nobody else has a copy of" > "$MAIN_ROOT-phase-7/wip.txt"
+
+  run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.removable | length' '0'
+  assert_json_eq "$output" '.retained | length' '1'
+  assert_json_eq "$output" \
+    '.retained[0].reasons | join(";") | contains("uncommitted changes")' 'true'
+  [ -d "$MAIN_ROOT-phase-7" ]
+  [ -f "$MAIN_ROOT-phase-7/wip.txt" ]
+}
+
+# A tracked file EDITED inside the journal directory is still journal — the
+# filter is about the path, not about the untracked-ness.
+@test "cleanup: a committed journal partition, modified in place, still does not retain" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  mkdir -p "$MAIN_ROOT-phase-7/.cairn/journal"
+  printf '{"event":"one"}\n' > "$MAIN_ROOT-phase-7/.cairn/journal/-0001.jsonl"
+  git -C "$MAIN_ROOT-phase-7" add .cairn/journal/-0001.jsonl
+  git -C "$MAIN_ROOT-phase-7" commit -q -m "journal partition"
+  git -C "$MAIN_ROOT" merge --no-edit -q phase/7-alpha
+  printf '{"event":"two"}\n' >> "$MAIN_ROOT-phase-7/.cairn/journal/-0001.jsonl"
+  run git -C "$MAIN_ROOT-phase-7" status --porcelain
+  grep -qF ".cairn/journal/-0001.jsonl" <<<"$output"
+
+  run bash "$PARALLEL" cleanup --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.removable | length' '1'
+  assert_json_eq "$output" '.retained | length' '0'
+}
+
+# Degradation is unchanged: what cannot be measured is retained.
+@test "cleanup: an unreadable git status in a worktree still retains it" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  # Break the worktree's link to the repo: `git status` there now fails.
+  rm -f "$MAIN_ROOT-phase-7/.git"
+  echo "gitdir: /nowhere/at/all" > "$MAIN_ROOT-phase-7/.git"
+
+  run bash "$PARALLEL" cleanup --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.removable | length' '0'
+  assert_json_eq "$output" '.retained | length' '1'
+}
+
+#-----------------------------------------------------------------------------
+# CairnGo-r4g / FIX-02 — the branch name stopped drifting when the directory
+# arrives late
+#
+# MEASURED live on v1.4: `batch --json` returned `slug: null` and
+# `branch: phase/19` for phase 19, which had no directory yet. Once
+# .planning/phases/19-<slug> exists, the same phase would resolve to
+# `phase/19-<slug>` — a second branch for one phase, reachable by removing
+# the worktree and preparing again.
+#-----------------------------------------------------------------------------
+
+# Break: derive the name from the slug unconditionally, the way this function
+# read before FIX-02. `prepare` then builds phase/7-alpha next to the
+# phase/7 it made a moment ago, and this test names both.
+@test "prepare: a branch made before the phase directory keeps its name after the directory appears" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+  # A phase with NO directory — the measured v1.4 shape.
+  rm -rf "$MAIN_ROOT/.planning/phases/07-alpha"
+
+  run bash "$PARALLEL" prepare 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.branch' 'phase/7'
+  assert_json_eq "$output" '.slug' 'null'
+  assert_json_eq "$output" '.branch_source' 'derived'
+
+  # The directory arrives afterwards, which is the ordinary order of things:
+  # prepare before planning.
+  mkdir -p "$MAIN_ROOT/.planning/phases/07-alpha"
+  echo "phase 7" > "$MAIN_ROOT/.planning/phases/07-alpha/07-01-PLAN.md"
+
+  # The worktree is still registered, so the name comes from IT — and the
+  # re-prepare is the idempotent path, which is exactly where a drifting name
+  # would fork a second branch.
+  run bash "$PARALLEL" prepare 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.branch' 'phase/7'
+  assert_json_eq "$output" '.branch_source' 'worktree'
+  assert_json_eq "$output" '.created' 'false'
+  # And the slug is reported as what it now is — the NAME is stable, the
+  # phase's slug is a fact about the tree and is not hidden.
+  assert_json_eq "$output" '.slug' 'alpha'
+
+  # Remove the worktree and the ref alone still carries the identity, which
+  # is the case the issue names: "duas branches para a mesma fase são
+  # possíveis se alguém apagar a worktree e repetir".
+  run bash "$LEASE" release 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  # --force because prepare journalled into this tree, and git itself refuses
+  # a worktree carrying untracked files. That refusal is the same friction
+  # CairnGo-rhq measures one layer up, showing up here in git's own voice.
+  git -C "$MAIN_ROOT" worktree remove --force "$MAIN_ROOT-phase-7"
+
+  run env CAIRN_STATUS="$STATUS_STUB" bash "$PARALLEL" batch \
+    --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.selected[] | select(.phase==7) | .branch] | join(",")' 'phase/7'
+  assert_json_eq "$output" \
+    '[.selected[] | select(.phase==7) | .branch_source] | join(",")' \
+    'existing-branch'
+
+  # AND THIS IS THE DEFECT, EXACTLY. Prepared again with the worktree gone,
+  # prepare now resolves phase 7 to the branch that EXISTS and hits the
+  # refusal it has always had for that case (exit 4, "already exists but has
+  # no worktree — refusing to guess"). Before FIX-02 it resolved to
+  # phase/7-alpha, which does not exist, sailed past that refusal and made a
+  # SECOND branch for one phase — in silence, and that is what the issue
+  # names as reachable.
+  run bash "$PARALLEL" prepare 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 4 ]
+  grep -qF "branch 'phase/7' already exists but has no worktree" <<<"$output"
+  run git -C "$MAIN_ROOT" for-each-ref --format='%(refname:short)' 'refs/heads/phase/*'
+  [ "$output" = "phase/7" ]
+}
+
+# The third rung, unchanged from before FIX-02, and named as derived.
+@test "prepare: with no branch and no worktree the name is still built from the slug" {
+  require_bd
+  make_parallel_fixture
+
+  run bash "$PARALLEL" prepare 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.branch' 'phase/7-alpha'
+  assert_json_eq "$output" '.slug' 'alpha'
+  assert_json_eq "$output" '.branch_source' 'derived'
+}
+
+# Two branches for one phase is the ORDINARY state of a phase split across two
+# fronts — measured in this repository as phase/25-tools and
+# phase/25-surfaces. Dying on the ambiguity would take the whole batch down
+# over one phase.
+#
+# Break: die() on len(same) > 1. This test then gets no report at all.
+@test "batch: two branches for one phase report a derived name instead of killing the run" {
+  require_bd
+  make_parallel_fixture
+  write_status_stub
+
+  git -C "$MAIN_ROOT" branch phase/7-tools
+  git -C "$MAIN_ROOT" branch phase/7-surfaces
+
+  run env CAIRN_STATUS="$STATUS_STUB" bash "$PARALLEL" batch \
+    --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.selected[] | select(.phase==7) | .branch] | join(",")' 'phase/7-alpha'
+  assert_json_eq "$output" \
+    '[.selected[] | select(.phase==7) | .branch_source] | join(",")' 'derived'
+  # The other phase in the stub is untouched by any of this.
+  assert_json_eq "$output" \
+    '[.selected[] | select(.phase==9) | .branch] | join(",")' 'phase/9-beta'
+}
+
+#-----------------------------------------------------------------------------
+# CairnGo-ce3 — `cleanup --phase N`, and the measurement that fixed its scope
+#
+# MEASURED 2026-08-07 against cairn's own repository, read-only:
+#
+#   $ cairn-parallel.py cleanup --json --project-dir ~/Projects/CairnGo
+#   removable: CairnGo-25-surfaces, CairnGo-25-tools,
+#              CairnGo-phase-21, CairnGo-phase-24, CairnGo-phase-26
+#   retained:  []
+#
+# Two findings in one line. The three orphans the issue names were ALREADY
+# removable — clean, wholly merged, and `cleanup` has always known how to take
+# them; nobody ever called it. And the first two are the LIVE worktrees of the
+# two fronts of phase 25, matched as "phase 25" by PHASE_BRANCH exactly like
+# phase/21 is. A per-phase sweep keyed on the branch number would have deleted
+# two agents' live work at the close of phase 25.
+#-----------------------------------------------------------------------------
+
+# Break: scope the sweep by `PHASE_BRANCH.match(branch)` instead of the
+# canonical path. The sibling worktree in this test is on phase/7-surfaces,
+# which matches phase 7 just as well, and --apply deletes it.
+@test "cleanup --phase N: only the canonical worktree of N, never a sibling on another branch of it" {
+  require_bd
+  make_parallel_fixture
+
+  # The canonical one, exactly what prepare builds.
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  # And a second front of the SAME phase, the shape this repository is in
+  # right now with phase/25-tools and phase/25-surfaces.
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-7-surfaces" -b phase/7-surfaces
+
+  run bash "$PARALLEL" cleanup --phase 7 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.phase' '7'
+  assert_json_eq "$output" '.removable | length' '1'
+  assert_json_eq "$output" '.removable[0].branch' 'phase/7-alpha'
+
+  run bash "$PARALLEL" cleanup --phase 7 --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  [ ! -d "$MAIN_ROOT-phase-7" ]
+  # The other front is exactly where it was, branch included.
+  [ -d "$MAIN_ROOT-7-surfaces" ]
+  run git -C "$MAIN_ROOT" rev-parse --verify --quiet refs/heads/phase/7-surfaces
+  [ "$status" -eq 0 ]
+}
+
+# The narrowed sweep applies every guard the full one does — it is a filter on
+# the inventory, not a second, laxer rule.
+@test "cleanup --phase N: a dirty canonical worktree is retained, exactly as in a full sweep" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  echo "work nobody else has a copy of" > "$MAIN_ROOT-phase-7/wip.txt"
+
+  run bash "$PARALLEL" cleanup --phase 7 --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.removable | length' '0'
+  assert_json_eq "$output" '.retained | length' '1'
+  [ -d "$MAIN_ROOT-phase-7" ]
+  [ -f "$MAIN_ROOT-phase-7/wip.txt" ]
+}
+
+# A phase with no canonical worktree is a silent no-op, not an error: closing
+# a phase nobody prepared a worktree for is ordinary.
+@test "cleanup --phase N: a phase with no canonical worktree resolves nothing and exits 0" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-9" -b phase/9-beta
+
+  run bash "$PARALLEL" cleanup --phase 7 --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.removable | length' '0'
+  assert_json_eq "$output" '.retained | length' '0'
+  assert_json_eq "$output" '.applied | length' '0'
+  # And the OTHER phase's worktree was never in scope.
+  [ -d "$MAIN_ROOT-phase-9" ]
+}
+
+# THE TWO VERDICTS, AND WHY ONE PATH IS DELETED BEFORE THE OTHER RUNS.
+# MEASURED while wiring criterion 8: with D-05 in place this script calls a
+# journal-only worktree removable, and git's own `worktree remove` then
+# refuses it —
+#
+#   fatal: '<path>' contains modified or untracked files, use --force
+#
+# — because git never heard of DJOUR-03. `--force` would answer that by
+# switching git's whole re-check off, and that re-check is the second
+# independent verdict on an irreversible act. So the journal, and only the
+# journal, is deleted first.
+#
+# Break: drop the rmtree and this removal fails with git's message; or reach
+# for --force and the `wip.txt` case above stops being protected by git as
+# well as by this script.
+@test "cleanup --apply: a journal-only worktree is actually removed, without --force" {
+  require_bd
+  make_parallel_fixture
+
+  git -C "$MAIN_ROOT" worktree add -q "$MAIN_ROOT-phase-7" -b phase/7-alpha
+  mkdir -p "$MAIN_ROOT-phase-7/.cairn/journal"
+  printf '{"event":"lease_changed"}\n' \
+    > "$MAIN_ROOT-phase-7/.cairn/journal/-0001.jsonl"
+  # git's own refusal, stated rather than assumed.
+  run git -C "$MAIN_ROOT" worktree remove "$MAIN_ROOT-phase-7"
+  [ "$status" -ne 0 ]
+  grep -qF "contains modified or untracked files" <<<"$output"
+
+  run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.applied[] | select(.action=="worktree_remove")] | length' '1'
+  assert_json_eq "$output" \
+    '.applied[] | select(.action=="worktree_remove") | .ok' 'true'
+  # Named, not silent: the one path this script deleted on its own account.
+  assert_json_eq "$output" \
+    '.applied[] | select(.action=="worktree_remove") | .journal_dropped
+     | test("\\.cairn/journal")' 'true'
+  [ ! -d "$MAIN_ROOT-phase-7" ]
 }

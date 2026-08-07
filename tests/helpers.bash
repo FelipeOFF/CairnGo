@@ -11,9 +11,18 @@
 #   make_bd_fixture DIR [PREFIX]
 #                           bd init + epic, two children (one closed),
 #                           one standalone with a blocks dep and a label
+#   make_board_fixture DIR  deterministic board fixture: .planning/ tree with
+#                           every roadmap shape + bd db with FIXED issue ids
+#                           (needs bd >= 1.1.0 for `bd create --id`)
+#   make_drift_fixture DIR  this repo's OWN planning files, frozen while they
+#                           still disagree (tests/fixtures/bookkeep-drift/),
+#                           plus the phase tree rebuilt from phases.tsv and a
+#                           baseline commit
 #   make_env_asserting_claude_stub
 #                           claude stub that echoes its own observed HOME/env/
 #                           argv into the canned JSON payload it emits
+#   make_pinned_home DIR    an empty HOME to pass as HOME=..., with the
+#                           toolchain still resolvable inside it
 #   extract_frontmatter F   print the YAML frontmatter block of F
 #   assert_frontmatter_key F KEY
 #   assert_json_eq JSON FILTER EXPECTED
@@ -303,6 +312,33 @@ Before declaring plan complete:
 EOF
 }
 
+# Rewrite make_gsd_fixture's ROADMAP.md so it lists NO phase at all, keeping
+# everything else about the fixture intact. This is the VOID-02 scenario: a
+# repo whose roadmap has nothing to compare against, where a check that counts
+# zero must not read as success.
+#
+# It EDITS the standard fixture rather than standing up a parallel one on
+# purpose — two fixtures for the same repo shape diverge inside a month, and
+# then a test proves something about a repo nobody has.
+#
+# NOTE, measured: this affects the checks that read ROADMAP.md (req-issue,
+# orphans, phase-complete-open), and NOT maps-fresh, which walks the phase
+# DIRECTORIES on disk. Emptying `.planning/phases/` is a different lever.
+make_roadmap_without_phases() {
+  local dir="${1:-$PWD}"
+  cat > "$dir/.planning/ROADMAP.md" <<'EOF'
+# Roadmap: Fixture Project
+
+## Overview
+
+The phases have not been written down yet.
+
+## Phases
+
+## Phase Details
+EOF
+}
+
 # Initialize bd in DIR (default prefix "tst") and create four issues:
 #   BD_EPIC          epic, P1
 #   BD_CHILD_OPEN    task, child of the epic, open
@@ -321,6 +357,184 @@ make_bd_fixture() {
   bd close "$BD_CHILD_CLOSED" >/dev/null
   BD_STANDALONE="$(bd create "API rate limiting" -t feature -l cairn-sync --deps "blocks:$BD_CHILD_OPEN" --silent)"
   popd >/dev/null || return 1
+}
+
+# Build the deterministic board fixture in DIR: a .planning/ tree carrying
+# every roadmap shape the phase model reads, plus a bd database whose issue
+# ids are FIXED. Callers must require_bd first. Runs inside DIR and restores
+# the previous cwd.
+#
+# Determinism is the whole point of this one. tests/fixtures/board-render/
+# holds a byte-for-byte reference render of this fixture, so anything that
+# varies between two builds destroys it. Two guards, both load-bearing:
+#
+#   * `bd init --prefix brd` passes a LITERAL prefix. bd derives the prefix
+#     from the directory name when nobody passes one, and make_tmp_repo names
+#     that directory with mktemp — so a derived prefix varies per build and
+#     drags the "explicit" ids along with it.
+#   * every `bd create` passes --id (needs bd >= 1.1.0), and every issue gets
+#     a distinct priority: fetch_lanes sorts by (priority, id), and equal
+#     priorities would leave lane order resting on the id tiebreak alone.
+#
+# Without both, two identical builds render different boards — measured
+# during planning: pm-ghk/pm-ezn on one build, pm-11m/pm-org on the next.
+#
+# DELIBERATE, do not "fix" it: STATE.md and ROADMAP.md disagree about the
+# current milestone. STATE.md names v1.0, the ARCHIVED cycle, while the
+# roadmap marks v1.1 as the open one. That reproduces the defect measured on
+# 2026-08-03, ten minutes after v1.4 was archived — main() does
+# `milestone = fm["milestone"] or roadmap_milestone(...)`, so STATE.md wins
+# and the board keeps announcing a dead cycle. Phase 20-02 needs this trap
+# armed: a group model that takes the label from STATE.md renders the
+# archived name and turns that plan's test red, which is the point.
+make_board_fixture() {
+  local dir="$1"
+  local p="$dir/.planning"
+  mkdir -p "$p/phases/03-phase-model"
+
+  # All three shapes at once: a `## Milestones` list (one archived, one
+  # open), `## Phases` checkbox lines (two complete, two pending), and a
+  # `## Progress` table carrying the per-phase milestone column. The grammar
+  # mirrors write_roadmap() in tests/cairn-phase-model.bats on purpose —
+  # inventing a second dialect of the same fixture helps nobody.
+  cat > "$p/ROADMAP.md" <<'EOF'
+# Roadmap: Board Fixture
+
+## Milestones
+
+- ✅ **v1.0 Foundations** — Phases 1-2
+- 🚧 **v1.1 Surface** — Phases 3-4
+
+## Phases
+
+- [x] Phase 1: Signup and login (2/2 plans) — completed 2026-07-01
+- [x] **Phase 2: Rate limiting** - the API layer on top
+- [ ] Phase 3: Phase model — read what a phase actually is (PANEL-01)
+- [ ] Phase 4: Board fills the screen (PANEL-04, PANEL-05)
+
+## Progress
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+| ----- | --------- | -------------- | ------ | --------- |
+| 1. Signup and login | v1.0 | 2/2 | Complete | 2026-07-01 |
+| 2. Rate limiting | v1.0 | 1/1 | Complete | 2026-07-02 |
+| 3. Phase model | v1.1 | 0/1 | Not started | — |
+| 4. Board fills the screen | v1.1 | 0/? | Not started | — |
+EOF
+
+  cat > "$p/STATE.md" <<'EOF'
+---
+milestone: v1.0
+active_phase: 3
+next_action: execute-phase
+---
+
+# Project State
+
+Phase 3 of 4 (Phase model)
+EOF
+
+  cat > "$p/phases/03-phase-model/03-01-PLAN.md" <<'EOF'
+---
+phase: 03-phase-model
+plan: "01"
+type: execute
+wave: 1
+depends_on: []
+autonomous: true
+---
+
+<objective>
+Read what a phase actually is.
+</objective>
+EOF
+
+  pushd "$dir" >/dev/null || return 1
+  bd init -q --prefix brd --non-interactive >/dev/null 2>&1
+  # Created blocked-first so the blocker can name it: `blocks:X` puts X on
+  # the BLOCKED lane, so X has to exist by then.
+  bd create "Wait on the phase model" --id brd-005 -t task -p 4 \
+    -l phase-4 --silent >/dev/null
+  bd create "Read the roadmap into a phase model" --id brd-001 -t feature \
+    -p 0 -l phase-3 --deps "blocks:brd-005" --silent >/dev/null
+  bd create "Fill the screen at any width" --id brd-002 -t feature -p 1 \
+    -l phase-4 --silent >/dev/null
+  # No phase label at all: the loose issue phase 20-02's unphased group needs.
+  bd create "Sweep the backlog" --id brd-003 -t chore -p 2 --silent >/dev/null
+  # DOING lane. The assignee is a literal, never $USER — the reference render
+  # is committed and read back on other machines.
+  bd create "Hold the lease while executing" --id brd-004 -t task -p 3 \
+    -l phase-3 -a cairn-tests --silent >/dev/null
+  bd update brd-004 --status in_progress >/dev/null 2>&1
+  # One closed issue, so the footer's `done:` count is not zero.
+  bd create "Ship the foundations" --id brd-006 -t task -p 2 -l phase-1 \
+    --silent >/dev/null
+  bd close brd-006 >/dev/null 2>&1
+  popd >/dev/null || return 1
+}
+
+# Build the drift fixture in DIR: this repository's OWN ROADMAP.md,
+# REQUIREMENTS.md and STATE.md as frozen by
+# tests/fixtures/bookkeep-drift/capture.sh, while they still disagree with
+# each other, plus the phase tree those files describe.
+#
+# The .md files are COPIED, never rewritten — the whole value of this fixture
+# is that it is a byte copy of a real, committed, drifted state (29-CONTEXT.md,
+# D-02). The phase tree is rebuilt from phases.tsv with EMPTY files of the
+# right names, because every counter under test counts NAMES, not content.
+#
+# It ends with `git add -A` + `git commit`, and that commit is load-bearing:
+# make_tmp_repo runs `git init` and configures a user but never commits
+# anything (there is no `git commit` anywhere else in this file), so without
+# this one the fixture files stay untracked and `git diff` against a tree with
+# no HEAD returns empty. A write test proving "only the planned lines moved"
+# would then pass against a 35-line reflow just as happily as against a
+# one-character edit. The commit is the denominator of that diff. If
+# make_tmp_repo ever grows a commit of its own this becomes harmless
+# redundancy — do not assume it will.
+make_drift_fixture() {
+  local dir="$1"
+  local src="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
+  local p="$dir/.planning"
+  mkdir -p "$p/phases"
+
+  local name
+  for name in ROADMAP REQUIREMENTS STATE; do
+    cp "$src/$name.md" "$p/$name.md"
+  done
+
+  # phases.tsv: phase_dir<TAB>plans<TAB>summaries<TAB>has_verification<TAB>
+  # has_phase_summary. Comment lines start with '#'. The plan/summary numbers
+  # are regenerated as NN-01..NN-<count>, which is how the frozen ROADMAP's
+  # own `Plans:` lists name them.
+  #
+  # has_phase_summary writes NN-SUMMARY.md — the summary of the PHASE, which
+  # is not a plan. It exists because its absence is what kept CairnGo-6bx away
+  # from every test in this repository: `*-SUMMARY.md` matched both shapes and
+  # nothing on disk ever carried the second one.
+  local phase_dir plans summaries has_ver has_phase_sum nn i idx
+  while IFS=$'\t' read -r phase_dir plans summaries has_ver has_phase_sum; do
+    case "$phase_dir" in ''|'#'*) continue ;; esac
+    mkdir -p "$p/phases/$phase_dir"
+    nn="${phase_dir%%-*}"
+    for ((i = 1; i <= plans; i++)); do
+      idx="$(printf '%02d' "$i")"
+      : > "$p/phases/$phase_dir/$nn-$idx-PLAN.md"
+    done
+    for ((i = 1; i <= summaries; i++)); do
+      idx="$(printf '%02d' "$i")"
+      : > "$p/phases/$phase_dir/$nn-$idx-SUMMARY.md"
+    done
+    if [ "$has_ver" = "1" ]; then
+      : > "$p/phases/$phase_dir/$nn-VERIFICATION.md"
+    fi
+    if [ "$has_phase_sum" = "1" ]; then
+      : > "$p/phases/$phase_dir/$nn-SUMMARY.md"
+    fi
+  done < "$src/phases.tsv"
+
+  git -C "$dir" add -A
+  git -C "$dir" commit -q -m "fixture baseline"
 }
 
 # Write an executable claude stub to $BATS_TEST_TMPDIR/claude-env-stub (path
@@ -370,6 +584,55 @@ assert_frontmatter_key() {
     echo "frontmatter key '$key' missing in $file" >&2
     return 1
   }
+}
+
+# Nanosecond mtime of FILE, through python3.
+#
+# `stat` is the trap here and it has bitten this suite twice. The flag differs
+# by platform (`stat -f %m` on macOS, `stat -c %Y` on GNU), so the portable
+# spelling people reach for is `stat -f %m f 2>/dev/null || stat -c %Y f` —
+# which is what tests/cairn-wrap.bats carried until 2026-08-07, when the full
+# suite passed on macOS and the same test failed on the CI runner. Nobody wants
+# a portability shim deciding a verdict, so this reads the number from the same
+# stdlib call on every platform.
+#
+# Nanoseconds, not seconds, and that is the other half: a rewrite inside the
+# same second is invisible to a seconds-resolution comparison, so a test that
+# exists to prove "no write happened" would pass over the write it was written
+# to catch.
+file_mtime_ns() {
+  python3 -c "import os,sys;print(os.stat(sys.argv[1]).st_mtime_ns)" "$1"
+}
+
+# Create DIR and print it, as a HOME to pin with `env HOME=...`.
+#
+# Why this exists, measured 2026-08-06. Tests pin HOME so that a contributor's
+# own config cannot decide a test — cairn-jira.bats reads `mcp` from
+# ~/.claude.json, cairn-migrate.bats reads the same. That intent is right and
+# stays. What the pin did NOT intend is to move the language runtime, and on a
+# machine where python3 is an asdf shim it does exactly that: asdf resolves the
+# version from $HOME/.tool-versions, so an empty HOME kills python3 with exit
+# 126 before a single line of cairn runs.
+#
+#   $ cd /tmp/repo && env HOME=/tmp/empty python3 --version
+#   No version is set for command python3
+#   STATUS=126
+#
+# That took out 17 tests (14 in cairn-jira.bats, 3 in cairn-migrate.bats) in
+# the full suite of 2026-08-06 — none of them a code regression; the same tests
+# passed on 2026-08-05. So the pinned HOME carries the version manager's
+# manifest and nothing else. A machine without asdf has no ~/.tool-versions and
+# the copy is simply skipped, which is why this is not guarded on `asdf`
+# itself: the file's presence IS the condition.
+#
+# Deliberately NOT copied: ~/.claude.json, ~/.claude/, or anything else from
+# the real HOME. Widening this past the toolchain would give back exactly the
+# contamination the pin exists to prevent.
+make_pinned_home() {
+  local dir="$1"
+  mkdir -p "$dir"
+  [ -f "$HOME/.tool-versions" ] && cp "$HOME/.tool-versions" "$dir/.tool-versions"
+  printf '%s\n' "$dir"
 }
 
 # Assert that JSON piped through a jq FILTER equals EXPECTED (raw output).

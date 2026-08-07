@@ -39,6 +39,17 @@ Behavior:
        first sentence of `**Goal:**`) — per D-03, this is the phase's
        `purpose`, and it is `null` only when the phase has no detail block
        at all.
+
+       Since Phase 22 (BOARD-04) STATE.md's `milestone:` no longer names the
+       milestone on any human surface. It is the pointer that keeps aiming at
+       the archived cycle (MEASURED 2026-08-03, ten minutes after v1.4 was
+       archived: the board still read `v1.4`), so the footer, --brief and the
+       HTML head all read `open_milestones` — the `🚧` marker on the
+       ROADMAP's own `## Milestones` line, the same source phase_groups()
+       has used since Phase 20 — through milestone_label(). `--plain` still
+       carries the STATE.md read on its `MILESTONE` row, because PIPE-01
+       freezes the machine contract; that asymmetry is deliberate, recorded,
+       and tracked as an issue rather than smuggled into a byte change here.
     4. Synthesize ONE next action. In order: an in_progress issue exists →
        continue it; else the highest-priority ready issue labeled
        m-<milestone>,phase-<active>; else STATE.md's next_action; else the
@@ -84,17 +95,128 @@ Behavior:
        read anywhere in this script, so a missing or broken
        cairn-journal.py degrades to a stderr warning and changes nothing
        else about this run (JOUR-03) — see journal_observe_phases().
-    5. Render. TTY: box-drawing kanban board sized to the terminal, degrading
-       gracefully — columns (>= 64 cols) → stacked lanes (>= 40 cols) → raw
-       list (< 40 cols). Non-TTY without an output flag: --plain
-       automatically (gh model — zero escape bytes, tab-separated,
-       untruncated). --width N forces the board renderer at that width
-       (deterministic for tests and pipes); --color=always likewise opts
-       into the board renderer when piped, so the flag is never silently
-       ignored (--ascii alone does not force it). All bd/STATE.md text is
-       passed through clean(), which strips C0/C1 control bytes — titles
-       from remote trackers can't inject escape sequences or forge rows.
-    5b. Below the columned/stacked board, `phase_panel_lines()` prints a
+    4f. `--json` also carries a top-level `groups` key (never anything
+       nested inside `phases[]`): the same model read as the hierarchy
+       milestone → phase → issue. Each group is `{type, key, label, items}`
+       with `type` `"milestone"` or `"unphased"`, and `items` is always a
+       list of `{phase, issues}` buckets — the unphased group has exactly
+       one, with `phase` null. Open milestone groups come in the roadmap's
+       own order, the unphased group is always last, and a group with no
+       buckets is not emitted at all, so no group ever wears the last
+       archived name. A roadmap with NO open cycle emits one group carrying
+       the pending phases, `key` null and label `No open milestone` (Phase
+       22, CairnGo-uz6 — until then it emitted nothing and the list said
+       `(no open work)` while the table counted phases). "Open" is the
+       marker on the milestone's own `## Milestones` line (`🚧` /
+       `(in progress)`), never STATE.md's `milestone:`, which keeps pointing
+       at the archived cycle. An issue's
+       `phase-N` labels are the ONLY thing that places it (the smallest
+       phase it names among the ones some emitted group claims, else the
+       unphased group); dependency edges are deliberately never read here,
+       because they currently conflate provenance with blocking across
+       archived cycles (FIX-04). Nothing is deduplicated, so the multiset of
+       ids across every bucket equals the multiset on the lanes. See
+       phase_groups() and roadmap_milestones().
+    4g. What the group model rests on, measured and presumed. MEASURED
+       2026-08-03: this repository's own ROADMAP carries 5 milestones with
+       exactly 1 open (`v1.5`, phases 20-29); the phase-model fixture's
+       roadmap carries 2 with 1 open (`v1.1`, phases 3-4); make_gsd_fixture
+       writes no `## Milestones` section at all and yields 0, which is the
+       shape every pre-20 test runs on; and the `## Milestone: v1.5 ... 🚧`
+       heading sitting immediately below the list does not reopen the
+       section (the heading regex is anchored and plural on purpose).
+       MEASURED: without `bd create --id`, two identically built repos
+       produce different issue ids, so a render carrying ids is not
+       byte-stable — which is why the reference fixture pins every id.
+       MEASURED, and the reason placement reads labels and nothing else:
+       phase 26 renders as blocked by phase 9, a cycle archived two
+       milestones earlier, because a `discovered-from` edge counts as a
+       block and an archived phase is never in the completed-phase set
+       (FIX-04, phase 25's repair — not this one's). PRESUMED, with no
+       formal guarantee anywhere: that every milestone of this project keeps
+       writing itself as a list item whose bold span starts with a version
+       token. If that shape changes, roadmap_milestones() returns an empty
+       list and the model falls silent — zero milestone groups, every issue
+       in the unphased group — which is the correct failure mode, and the
+       reason the rule is written to fall that way rather than to guess.
+    5. Render. TTY: ONE grouped list, at every width. The hierarchy is the
+       step-4 `groups` model read straight down — open milestone, then its
+       phases in roadmap order, then that phase's tasks, with `unphased`
+       last so work nobody routed is visible instead of lost. There is no
+       width degrade: three columns did not fit a narrow terminal and one
+       column fits any, so the columns/stacked/raw ladder (>= 64 / >= 40 /
+       < 40 cols) that stood here until Phase 21 had nothing left to solve
+       and went out with the renderers it chose between.
+
+       Row shape. A stage symbol of exactly ONE cell, then the key (phase
+       number or issue id) padded to the widest key AMONG THE VISIBLE ROWS,
+       then the body. The title is never truncated: it wraps per cell with
+       the continuation aligned under the body, and a single token wider
+       than the column overflows rather than being split — a cut token is
+       a lie about the title, an overflowing one is the terminal's own
+       wrap. Below NARROW_BODY cells of body room the row stops trying to
+       sit the body beside the key and drops it to its own indented lines
+       (MEASURED at --width 30 with an 11-cell id: 9 cells inline versus 22
+       stacked; nothing is truncated either way, so this is a legibility
+       decision and it carries its own test). Each bucket is capped at
+       --max-rows with a dim `+k more`, and the counts line at the top is
+       the same text `--brief` prints.
+
+       MEASURED 2026-08-05 (unicodedata.east_asian_width): the five stage
+       symbols `◌ ◔ ◕ ✓ ⧗` are all `N` — one cell in every locale. `○`
+       U+25CB, `◑` U+25D1 and `◆` U+25C6 were the obvious candidates and
+       all three are `A`: one cell in a Latin locale, TWO in a CJK one.
+       char_width() returns 2 only for W and F, so an `A` symbol counts 1
+       here and draws 2 there, and this script cannot tell the difference
+       (it reads no locale, and inventing that read would be inventing a
+       source of truth). The defense is to not use `A` at all.
+
+       DECIDED 2026-08-06 (Phase 22, CairnGo-hbo), where Phase 21 had left a
+       finding: the `A`-width characters outside the stage symbols are NOT
+       going away, and the board's alignment is therefore GUARANTEED IN A
+       WESTERN LOCALE AND NOT IN A CJK ONE. That is a boundary, not a
+       pending fix. Measured 53 occurrences on a --width 100 render, of
+       which 12 are accented letters of the board's own Portuguese prose —
+       so choosing different glyphs cannot solve it, and resolving `A` from
+       the environment would mean inventing a source of truth this script
+       refuses to invent. The full measurement and the argument live in
+       char_width()'s docstring, next to the ruler they are about.
+
+       ASSUMED, not proved: that one issue reaches the list at most twice
+       (once in_progress, once blocked), because `bd list --status
+       in_progress` and `bd blocked` are independent queries. The FIFO in
+       group_rows() does not depend on the number — the assumption is only
+       about what is observed in practice.
+
+       DELIBERATE: a phase row never carries the blocked symbol. A phase is
+       not blocked by the same mechanism an issue is, and FIX-04 (phase
+       25's repair) is where "archived phase counted as complete" gets
+       fixed; borrowing the blocked glyph here would encode a state this
+       model does not actually compute.
+
+       Non-TTY: the SAME renderer, in plain text (Phase 22, PIPE-02). Until
+       2026-08-06 a flagless non-TTY run degraded to --plain, so the machine
+       format was what a pipe, a redirect and a subprocess all got. It no
+       longer does: without a tty the board renders exactly as it does with
+       one, minus the two things a tty decides. MEASURED 2026-08-06: Style
+       resolves color to False because _color_enabled() ends at
+       isatty(stdout), so the output carries zero escape bytes; and
+       terminal_cols() returns 80, because shutil.get_terminal_size falls
+       back to (80, 24) when stdout is a pipe and $COLUMNS is unset — the
+       same width a terminal without $COLUMNS gets. --width N and
+       --color=always no longer select a renderer, because there is nothing
+       left to select: they are width and color, and that is all.
+
+       THE BOUNDARY THIS CREATES, and it is the one thing to read here: a
+       script doing `cairn-status > file` and expecting TSV now receives the
+       board. The fix is to write --plain, which is the only door to the
+       machine format and is byte-for-byte what it always was (PIPE-01,
+       pinned in tests/fixtures/machine-contract/nontty-pre-split.txt).
+
+       All bd/STATE.md text is passed through clean(), which strips C0/C1
+       control bytes — titles from remote trackers can't inject escape
+       sequences or forge rows.
+    5b. Below the grouped list, `phase_panel_lines()` prints a
        PENDING PHASES table (`#`, `phase`, `state`, `rsch`, `plans`, `issues`,
        `verify`, `waits`, `next` — the same step-4d/4c fields the HTML page
        renders) and a PURPOSE list keyed by phase number, each line pairing
@@ -107,6 +229,16 @@ Behavior:
        `phase: None` pair (`/cairn:ship`, `/cairn:milestone complete`) prints
        there with no phase-number prefix, so the terminal never shows less
        than `--json` or the HTML page.
+
+       An unresolved tension, recorded rather than papered over (D-08 of
+       the Phase 21 context): step 5 promises a task title is never cut,
+       and this table still cuts a PHASE title — at --width 50 the `phase`
+       column comes out as a bare `…`. The table is fixed-width by design
+       and MEASURED 2026-08-05 it has a floor of 92 cells, so it overflows
+       at EVERY width from 64 to 90 as well — including widths that were
+       already on the wide path before Phase 21, which is what makes this a
+       pre-existing defect of this function rather than a cost of the
+       grouped list. No criterion of Phase 21 reaches it; it has an issue.
     6. When .cairn/sync.json exists, append a sync-staleness line from the
        last-pull watermarks in .cairn/state.json (missing or older than 24h
        → suggest /cairn:sync-pull).
@@ -134,19 +266,29 @@ Behavior:
        HTML escaping, so a title carrying markup renders as text.
 
     --json      one machine line: {ready, doing, blocked, counts, milestone,
-                phase, next, sync, stale_complete, note, lease} (+ html:
-                {file, changed} when --html also ran)
-    --plain     tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA) plus
-                PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color, no
-                truncation
+                open_milestones, phase, phases, next_commands, parallelism,
+                groups, next, sync, stale_complete, note, lease} (+ html:
+                {file, changed} when --html also ran). `milestone` is the
+                STATE.md-first read it always was; `open_milestones` is what
+                the ROADMAP marks open, and is what every human surface
+                names (Phase 22, BOARD-04)
+    --plain     the machine contract, and ONLY the flag reaches it (Phase
+                22): tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA)
+                plus PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color,
+                no truncation. No condition of the environment selects it
     --brief     three lines: position, counts, next action
     --width N   render the board at N columns (overrides terminal size)
-    --max-rows N  cap rows per lane (default 15); overflow shows "+k more"
-    --ascii     +-| borders and "..." (also automatic on non-UTF-8 stdout)
+    --max-rows N  cap rows per bucket (default 15); overflow shows "+k more".
+                Per BUCKET since Phase 21, not per lane: the cap follows the
+                thing the list actually groups by
+    --ascii     one-character stage symbols and "..." (also automatic on
+                non-UTF-8 stdout). The +-| border set it used to swap in
+                went out with the box-drawing renderer
     --color     always|never; default: auto. Precedence: --color >
                 CAIRN_NO_COLOR > NO_COLOR (present and non-empty, even "0")
-                > TERM=dumb > isatty(stdout). `always` also opts a piped
-                run into the board renderer (see 5)
+                > TERM=dumb > isatty(stdout). Color only: since Phase 22 a
+                piped run already renders the board, so there is no renderer
+                for this flag to opt into (see 5)
     --html P    write/refresh the HTML board at P and print one confirmation
                 line. Composes with --planning-dir and --json (which reports
                 the write instead of the line); rejected with --plain /
@@ -191,15 +333,25 @@ CAIRN_JOURNAL = os.environ.get(
     "CAIRN_JOURNAL",
     str(Path(__file__).resolve().parent / "cairn-journal.py"))
 
+# Same seam, same convention, for the landing report (Phase 30, PR-01).
+# cairn-land.py owns every git read behind "did this work enter the control
+# branch"; this script re-derives none of it. Two readers of git that could
+# disagree about the same repository is the defect this milestone has already
+# paid for twice, and a `git merge-base` call written HERE would be the third.
+CAIRN_LAND = os.environ.get(
+    "CAIRN_LAND",
+    str(Path(__file__).resolve().parent / "cairn-land.py"))
+
 USAGE = ("usage: cairn-status.py [--json] [--plain] [--brief] [--width N] "
          "[--max-rows N] [--ascii] [--color=always|never] "
          "[--planning-dir <dir>] [--html <path>]")
 
-MIN_INNER = 18          # narrowest readable lane content
-MAX_INNER = 40          # widest useful lane content
-N_LANES = 3
-STACK_BELOW = N_LANES * (MIN_INNER + 2) + (N_LANES + 1)   # 64 cols
-RAW_BELOW = 40
+# MIN_INNER / MAX_INNER / N_LANES / STACK_BELOW / RAW_BELOW lived here until
+# Phase 21. They sized a three-column kanban and the two width degrades it
+# needed (columns >= 64 -> stacked lanes >= 40 -> raw list), all of which
+# existed for one reason: three columns do not fit in a narrow terminal. One
+# column fits in any terminal, so the degrades had nothing left to solve and
+# went out with the constants.
 SYNC_STALE_SECONDS = 24 * 3600
 DEFAULT_MAX_ROWS = 15
 
@@ -242,12 +394,88 @@ ROADMAP_TRAILING_PAREN = re.compile(r"\s*\(([^()]*)\)\s*$")
 ROADMAP_PLANS = re.compile(r"^(\d+)\s*/\s*(\d+)\s+plans?$", re.IGNORECASE)
 REQ_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d+(?:\s*,\s*[A-Z][A-Z0-9]*-\d+)*$")
 
+# The `## Milestones` list (roadmap_milestones(), phase 20). The heading match
+# is anchored and plural on purpose: this repo's own ROADMAP carries a
+# `## Milestone: v1.5 Legible State 🚧` heading immediately BELOW the list, and
+# a looser pattern would open the section a second time on it and read the
+# phase checkboxes that follow as milestone items.
+MILESTONES_HEADING = re.compile(r"^##\s+Milestones\s*$", re.IGNORECASE)
+ANY_H2 = re.compile(r"^##\s+")
+MILESTONE_ITEM = re.compile(r"^\s*[-*]\s+(.+)$")
+MILESTONE_BOLD = re.compile(r"\*\*([^*]+)\*\*")
+# `Phases 20-29`, `Phases 3 - 4`, `Phase 7` — read from the text AFTER the
+# bold span, never from inside it, so a milestone NAMED after a phase cannot
+# be mistaken for a range.
+MILESTONE_RANGE = re.compile(r"\bPhases?\s+0*(\d+)(?:\s*[-–—]\s*0*(\d+))?",
+                             re.IGNORECASE)
+# The SAME two markers roadmap_milestone() accepts, deliberately: two readers
+# of "which cycle is open" that disagree would be the defect this phase exists
+# to avoid, wearing a different name.
+MILESTONE_IN_PROGRESS = re.compile(r"\(in progress\)", re.IGNORECASE)
+
+# Label of the group holding work that belongs to no emitted milestone group.
+# A module constant, not a literal at the emit site: phase 21 owns how this
+# reads on the board and needs one place to change it. English like every
+# other string this CLI prints (READY, PENDING PHASES, PURPOSE).
+UNPHASED_KEY = "unphased"
+UNPHASED_LABEL = "No milestone"
+# Deliberately close to UNPHASED_LABEL, and they can share a screen. They say
+# different things: this one is "the ROADMAP declares no open cycle", that one
+# is "this issue names no phase any emitted group claims". The pair is
+# exercised together by a test in tests/cairn-group-model.bats precisely so
+# the closeness stays checked instead of assumed.
+NO_OPEN_MILESTONE_LABEL = "No open milestone"
+
 # "## Detalhe das fases" prose blocks (Phase 14): a THIRD phase-reference
 # shape, an H3 heading, distinct in form from ANY_PHASE's checkbox line and
 # TABLE_PHASE_ANY's table row — it can never collide with either.
 DETAIL_PHASE_HEADING = re.compile(r"^###\s+Phase\s+0*(\d+)\b")
 CARD_LABEL = re.compile(r"^\*\*Card:\*\*\s*(.*)$")
 GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
+# The external tracker key of a whole phase, same block, same single pass.
+# The label is `Tracker`, not `Card`: `**Card:**` already means the phase's
+# one-sentence purpose in this roadmap, and reusing the word inside the same
+# block would make the parser and the reader disagree about which one a line
+# is.
+TRACKER_LABEL = re.compile(r"^\*\*Tracker:\*\*\s*(.*)$")
+# The phase's declared dependencies, written as prose in the same detail block.
+# MEASURED 2026-08-05 (CairnGo-64u): `cairn-parallel batch` announced phases 21
+# and 22 as concurrent while the roadmap said `**Depende de:** Phase 21` under
+# 22, because the only two sources read were PLAN.md frontmatter (which exists
+# only after someone plans the phase) and bd edges (which exist only after
+# someone runs `bd dep add`). The roadmap is the authority on which phases
+# exist; it is also the authority on which of them wait on which.
+#
+# Both bold shapes, because both are in use: this repository writes
+# `**Depende de:**` (colon inside) and the gsd-core template writes
+# `**Depends on**:` (colon outside).
+DEPENDS_LABEL = re.compile(
+    r"^\*\*(?:Depends?\s+on|Depende\s+de)(?::\*\*|\*\*:)\s*(.*)$", re.I)
+# `Phase 21`, `Fase 21`, `Phases 20` — the anchor always carries a number, so
+# "Nothing (first phase)" declares nothing.
+DEP_PHASE_REF = re.compile(r"(?:phases?|fases?)\s*[:#]?\s*0*(\d+)", re.I)
+# The numbers that may follow the anchor in a list: `Phase 20, 21 and 22`.
+# Applied with .match() at the position the previous number ended, never with
+# .search(), so a number further down the sentence cannot join the list.
+DEP_PHASE_MORE = re.compile(r"\s*(?:,|;|&|\+|\be\b|\band\b)\s*0*(\d+)", re.I)
+# Where a dependency DECLARATION ends and its justification begins. Both are on
+# the same line in this project's roadmap:
+#
+#   **Depende de:** Phase 21 — é o render agrupado que o caminho não-TTY emite.
+#   **Depende de:** nada. Independente do board; pode correr em paralelo com
+#                   20-22.
+#
+# Reading the whole block would take the second line as a declaration of three
+# dependencies from a sentence that says the opposite. The em dash or the end
+# of the first sentence is the cut. `\.(?=\s|$)` never fires inside `v1.5`.
+DEP_DECLARATION_END = re.compile(r"[—–]|\.(?=\s|$)")
+# bd dependency edge types that record a relationship WITHOUT blocking.
+# MEASURED on this repository's `bd list --all --json` (2026-08-07): exactly two
+# types exist across 50 edges — `blocks` (42) and `discovered-from` (8). Only
+# the second is listed here, and the list stays at what was measured: an
+# unrecognised type keeps counting as a block (see dep_target_ids()), so a type
+# bd grows later fails safe instead of silently unblocking a phase.
+NON_BLOCKING_DEP_TYPES = frozenset(["discovered-from"])
 # Recognizes ANY bold label line, both the colon-inside shape (`**Card:**`)
 # and the colon-outside shape used by `**Requirements**:` elsewhere in the
 # same blocks. Used only to know when to STOP collecting continuation text
@@ -264,6 +492,12 @@ BOLD_LABEL = re.compile(r"^\*\*[^*]+\*\*:|^\*\*[^*]+:\*\*")
 # Inline **bold** / __bold__ / *italic* / _italic_ inside a Card or Goal, with
 # the marked words kept. Applied only to the purpose text, never to a label.
 INLINE_EMPHASIS = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_")
+
+# Backend half of an `external_ref`, as cairn's own writers emit it:
+# cairn-doctor.py --link-refs writes `gh-<number>`, a Jira sync writes
+# `jira-<KEY>`. Stripped for DISPLAY only — see tracker_key().
+TRACKER_BACKEND_PREFIX = re.compile(r"^(?:jira|gh|github|gl|gitlab|linear)-",
+                                    re.IGNORECASE)
 
 
 def die(msg, code):
@@ -408,11 +642,36 @@ def in_done_phase(iss, done_set):
 
 
 def trim_issue(iss):
-    """Stable, minimal issue dict for the JSON summary."""
+    """Stable, minimal issue dict for the JSON summary.
+
+    `external_ref` is bd's own field, carried RAW — prefix included, exactly
+    the bytes `bd update --external-ref` stored (`cairn-doctor.py --link-refs`
+    already writes it in production, as `gh-<n>`). The board strips the
+    backend prefix for display via tracker_key(); this dict never does. A
+    consumer that reads the JSON gets the datum, not a rendering of it.
+
+    `landed` (Phase 30, PR-01) is the per-TASK half of "did this enter the
+    control branch", and it is a PROJECTION of the task's phases, not a second
+    reading of git. MEASURED 2026-08-06, and it is why: 41 commit bodies in
+    this repository name a bd issue id and every sampled one is a prose
+    reference (`bd issue CairnGo-gbu`, `(CairnGo-0rk)`), not an attribution.
+    Reading six times the log bytes to infer a link nobody wrote is how a
+    board invents a fact. A task's work is its phase's work, and when the task
+    names no phase the answer is `unknown` with the reason spelled out — never
+    a guess and never a silent `landed`.
+
+    It is READ off the raw issue here, not computed here, because the human
+    render reads it off that same raw dict (issue_body_spans() never sees a
+    trimmed issue — the same reason `_stale` lives there). Computing it in two
+    places would be two things that can disagree about one row. main() writes
+    it exactly once, through issue_landing().
+    """
     return {"id": str(iss.get("id") or "?"),
             "title": iss.get("title", ""),
             "priority": issue_priority(iss),
             "assignee": iss.get("assignee") or None,
+            "external_ref": iss.get("external_ref") or None,
+            "landed": iss.get("_landed") or unknown_landing(LAND_NO_REPORT),
             "labels": as_str_list(iss.get("labels")),
             "blocked_by": as_str_list(iss.get("blocked_by"))}
 
@@ -461,6 +720,130 @@ def fetch_lease_status(root, active_phase, bd_ok):
         return None
 
 
+# ------------------------------------------------------- did the work land?
+
+# The vocabulary, as constants rather than literals at the comparison sites,
+# because every assertion about landing in the suite is on the EXACT value —
+# `!= "landed"` would be satisfied by `partial` AND by `unknown`, which are
+# opposite instructions to whoever reads the board.
+LAND_LANDED = "landed"
+LAND_PARTIAL = "partial"
+LAND_UNLANDED = "unlanded"
+LAND_UNKNOWN = "unknown"
+# Reasons, one per way the question can go unanswered. cairn-land.py owns the
+# first three; the fourth is this script's own, because only this script knows
+# what a bd issue is.
+LAND_NO_REPORT = "no-report"
+LAND_NO_COMMITS = "no-commits"
+LAND_NO_PHASE = "no-phase"
+
+
+def unknown_landing(reason):
+    """The shape every landing answer has, carrying no answer.
+
+    Always the same keys, so a consumer never has to branch on presence — the
+    same rule `tracker` follows, one plan earlier: additive for ALL rows, not
+    only the ones with a value.
+    """
+    return {"status": LAND_UNKNOWN, "branches": {}, "commits": 0,
+            "reason": reason, "pr": None}
+
+
+def fetch_landing(root, planning_dir):
+    """data["landing"]: cairn-land.py's whole report, or None when it could
+    not be read.
+
+    One subprocess call, the same shell-out-and-parse-defensively shape
+    fetch_lease_status() uses for cairn-lease.py: a missing script, a crashed
+    child or unparsable JSON degrades to None, never a crash and never a
+    fabricated verdict. `sys.executable`, so the child stays inside whatever
+    interpreter (and whatever tripwire) this process is running under.
+
+    THIS IS THE ONLY WAY GIT ENTERS THIS SCRIPT. There is no `git` string
+    anywhere else in this file, which is the property
+    tests/cairn-tracker-card.bats' structural inventory can actually check.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_LAND, "report", "--json",
+             "--project-dir", str(root), "--planning-dir", str(planning_dir)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        payload = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def phase_landing(landing, n):
+    """The landing row for phase `n`, always in the same shape.
+
+    A phase ABSENT from the report is not landed and is not unlanded: no
+    commit in the local history could be attributed to it, so the answer is
+    `unknown` naming that reason. Collapsing it into `unlanded` would tell
+    somebody to push work that may not exist.
+    """
+    if not isinstance(landing, dict):
+        return unknown_landing(LAND_NO_REPORT)
+    row = (landing.get("phases") or {}).get(str(n))
+    if not isinstance(row, dict):
+        return unknown_landing(landing.get("reason") or LAND_NO_COMMITS)
+    return {"status": row.get("status") or LAND_UNKNOWN,
+            "branches": row.get("branches") or {},
+            "commits": row.get("commits") or 0,
+            "reason": row.get("reason"),
+            # Carried whole, never re-derived and never flattened to a number:
+            # the `unknown` half of it is the load-bearing half, and it only
+            # means anything with its `reason` and its `detail` attached.
+            "pr": row.get("pr")}
+
+
+def combine_landing(values):
+    """One word over several phases' verdicts, on exact values only.
+
+    `unknown` is contagious upward on purpose: a task spanning a phase that
+    could be located and one that could not has NOT been shown to have landed,
+    and saying so is the whole point of the fourth word.
+    """
+    values = list(values)
+    if not values:
+        return LAND_UNKNOWN
+    if any(v == LAND_UNKNOWN for v in values):
+        return LAND_UNKNOWN
+    if all(v == LAND_LANDED for v in values):
+        return LAND_LANDED
+    if all(v == LAND_UNLANDED for v in values):
+        return LAND_UNLANDED
+    return LAND_PARTIAL
+
+
+def issue_landing(iss, landing):
+    """A task's landing, projected from the phases its labels name."""
+    ns = sorted(issue_phase_ns(iss))
+    if not ns:
+        return unknown_landing(LAND_NO_PHASE)
+    rows = [phase_landing(landing, n) for n in ns]
+    branches = {}
+    for row in rows:
+        for name, value in row["branches"].items():
+            branches[name] = combine_landing(
+                [branches[name], value] if name in branches else [value])
+    return {"status": combine_landing(r["status"] for r in rows),
+            "branches": branches,
+            "commits": sum(r["commits"] for r in rows),
+            "reason": next((r["reason"] for r in rows if r["reason"]), None),
+            # The PR of a task spanning two phases is not one number, and this
+            # never invents one: it carries the block only when exactly one
+            # phase answered, and `None` otherwise. `None` here means "this
+            # projection has nothing to say", which is a different silence
+            # from cairn-land.py's `unknown` and wears a different value.
+            "pr": rows[0]["pr"] if len(rows) == 1 else None}
+
+
 # --------------------------------------------------------------- GSD reading
 
 def read_lines(path):
@@ -490,6 +873,32 @@ def phase_disk_state(pdir):
     disagree exactly when it matters — a phase can be planned and executed with
     nobody having ticked the box, and a box can be ticked over a phase whose
     SUMMARY was never written.
+
+    `executed` MEANS EVERY PLAN HAS ITS SUMMARY, not "at least one summary
+    exists". MEASURED 2026-08-03 in the phase 29 pre-flight (CairnGo-0po,
+    FIX-05): phase 20 had three PLAN.md and one summary — wave 1 closed, waves
+    2 and 3 pending — and this function answered `executed` while
+    phase_plan_counts() answered 1 of 3 in the same model. The card was right
+    and the collapsed value was wrong. check_phase_corroboration() then
+    compared `executed` against the still-open bd issue, raised a `blocks`
+    conflict and the doctor exited 7 over a phase that was a third done; an
+    autonomous run stops on that by its own stopping rule. With `planned`,
+    disk and bd agree and there is no conflict to fabricate.
+
+    The comparison runs on phase_plan_counts(), which matches `NN-MM-PLAN.md`
+    and `NN-MM-SUMMARY.md` by SHAPE. That also settles a second confusion the
+    suffix test could not: `NN-SUMMARY.md` — the summary of the PHASE — ends in
+    `-SUMMARY.md` as well, and used to be enough on its own. Same asymmetry
+    CairnGo-6bx measured in cairn-bookkeep.py's counters.
+
+    THE FOUR VALUES STAY FOUR (constraint inherited from phase 13):
+    phase_next_command() indexes a raw dict on this, so a fifth value is a
+    straight KeyError. A partly-summarized phase is `planned`, which is what it
+    was before its first summary landed.
+
+    A directory with a summary and NO plan keeps the old suffix answer, and
+    that is deliberate: with nothing to compare against there is no "every",
+    and changing it would move the exit code of a path that is green today.
     """
     if pdir is None or not pdir.is_dir():
         return "none"
@@ -497,6 +906,9 @@ def phase_disk_state(pdir):
     has = lambda suffix: any(n.endswith(suffix) for n in names)  # noqa: E731
     if has("-VERIFICATION.md"):
         return "verified"
+    done, total = phase_plan_counts(pdir)
+    if total:
+        return "executed" if done == total else "planned"
     if has("-SUMMARY.md"):
         return "executed"
     if has("-PLAN.md"):
@@ -679,12 +1091,34 @@ def verification_status(pdir):
 def plan_depends_on(pdir, dir_to_number):
     """Phase numbers this phase's plans declare in `depends_on:` frontmatter.
 
-    The roadmap does not carry dependencies, but PLAN.md does, and that is
-    what makes 'these two can run at the same time' computable rather than
-    guessed. Entries may be phase dir names or bare numbers.
+    One of THREE sources, alongside the roadmap's `**Depends on:**` prose and
+    bd's own edges. Entries may be phase dir names or bare numbers.
+
+    A bare number is a phase number ONLY when this phase has no plan of that
+    index. MEASURED 2026-08-07 on this repository: GSD writes `depends_on:` in
+    a PLAN's frontmatter to order the WAVES inside one phase —
+    `22-02-PLAN.md` carries `depends_on: ["01"]`, meaning plan 22-01 — and
+    reading every bare number as a phase made phase 22 depend on phases 1, 2, 3
+    and 4 of an archived milestone. It stayed invisible because those four are
+    complete; with any of them pending, phase 22 would have read blocked by
+    work it has nothing to do with. Same family as FIX-04.
+
+    The discriminator is on disk and exact: the token `01` is a plan reference
+    when `<nn>-01-PLAN.md` exists in this directory. An unpadded `1` does not
+    match `<nn>-01-PLAN.md` and stays a phase, which is what keeps a real
+    dependency on phase 1 expressible.
     """
     if pdir is None or not pdir.is_dir():
         return []
+    # PLAN_FILE already captures the index: `22-01-PLAN.md` -> "01", which is
+    # the token verbatim. Comparison stays on the literal string, so `01` and
+    # `1` are different tokens on purpose.
+    plan_indexes = set()
+    for p in pdir.iterdir():
+        if p.is_file():
+            pm = PLAN_FILE.match(p.name)
+            if pm:
+                plan_indexes.add(pm.group(1))
     deps = set()
     for p in sorted(pdir.iterdir()):
         if not (p.is_file() and PLAN_FILE.match(p.name)):
@@ -701,6 +1135,9 @@ def plan_depends_on(pdir, dir_to_number):
             for raw in m.group(1).split(","):
                 tok = raw.strip().strip("'\"").strip()
                 if not tok:
+                    continue
+                if tok in plan_indexes:
+                    # A plan of THIS phase, not a phase. See the docstring.
                     continue
                 if tok.isdigit():
                     deps.add(int(tok))
@@ -762,28 +1199,34 @@ def roadmap_phase_rows(planning_dir):
     rows = {}
 
     def slot(n):
+        # Reaching slot() at all means ROADMAP.md named this phase somewhere —
+        # a checkbox line, a progress-table row or a `### Phase N:` detail
+        # heading. `in_roadmap` records that, so phase_model() can tell a phase
+        # the plan declares from a phase that exists only as a directory
+        # somebody created (CairnGo-4oq).
         return rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [], "purpose": None,
+            "requirements": [], "purpose": None, "tracker": None,
+            "in_roadmap": True, "roadmap_depends_on": [],
         })
 
     # State machine for the "## Detalhe das fases" prose blocks, tracked
     # across the same single pass below (no second file read): detail_phase
     # is the `### Phase N:` block currently open (or None), collecting is
-    # None/"card"/"goal" naming which label is being gathered, buffer holds
-    # its continuation lines so far. card_text/goal_text are resolved once
-    # after the loop, per phase number.
+    # None/"card"/"goal"/"tracker" naming which label is being gathered,
+    # buffer holds its continuation lines so far. card_text/goal_text/
+    # tracker_text are resolved once after the loop, per phase number.
     detail_phase = None
     collecting = None
     buffer = []
-    card_text, goal_text = {}, {}
+    card_text, goal_text, tracker_text, depends_text = {}, {}, {}, {}
 
     def flush():
         # Joins the buffered continuation lines into one cleaned string and
-        # files it under the label ("card"/"goal") currently being
-        # collected, keyed by the detail block it belongs to. A no-op when
-        # nothing is being collected.
+        # files it under the label ("card"/"goal"/"tracker"/"depends")
+        # currently being collected, keyed by the detail block it belongs to.
+        # A no-op when nothing is being collected.
         nonlocal collecting, buffer
         if collecting is not None:
             text = " ".join(b for b in buffer if b).strip()
@@ -795,7 +1238,9 @@ def roadmap_phase_rows(planning_dir):
             # that distinction is worth carrying into the card.
             text = INLINE_EMPHASIS.sub(
                 lambda m: next(g for g in m.groups() if g is not None), text)
-            target = card_text if collecting == "card" else goal_text
+            target = {"card": card_text, "goal": goal_text,
+                      "tracker": tracker_text,
+                      "depends": depends_text}[collecting]
             target[detail_phase] = text
         collecting = None
         buffer = []
@@ -819,6 +1264,23 @@ def roadmap_phase_rows(planning_dir):
             if m:
                 flush()
                 collecting = "goal"
+                buffer = [m.group(1).strip()]
+                continue
+            m = TRACKER_LABEL.match(line)
+            if m:
+                # Same machine, same pass, same flush() — a third label, not
+                # a second read of the file.
+                flush()
+                collecting = "tracker"
+                buffer = [m.group(1).strip()]
+                continue
+            m = DEPENDS_LABEL.match(line)
+            if m:
+                # A fourth label on the SAME single pass — the roadmap is read
+                # once here, and the dependency prose is not a second read of
+                # the file (CairnGo-64u).
+                flush()
+                collecting = "depends"
                 buffer = [m.group(1).strip()]
                 continue
             if collecting is not None:
@@ -880,7 +1342,7 @@ def roadmap_phase_rows(planning_dir):
                 row["completed_on"] = cell
     flush()  # a Card/Goal block running to EOF with no trailing `---`
 
-    for n in set(card_text) | set(goal_text):
+    for n in set(card_text) | set(goal_text) | set(tracker_text):
         slot(n)
         card, goal = card_text.get(n), goal_text.get(n)
         if card:
@@ -893,8 +1355,50 @@ def roadmap_phase_rows(planning_dir):
         else:
             purpose = None
         rows[n]["purpose"] = clean(purpose) if purpose else None
+        # A phase with a Tracker and no Card/Goal joins the union above and
+        # gets `purpose = None` — which is what slot() already gave it, so
+        # nothing that existed before this label moves.
+        tracker = tracker_text.get(n)
+        rows[n]["tracker"] = (clean(tracker) or None) if tracker else None
+
+    for n, text in depends_text.items():
+        slot(n)
+        rows[n]["roadmap_depends_on"] = [d for d in roadmap_dep_phases(text)
+                                         if d != n]
 
     return rows
+
+
+def roadmap_dep_phases(text):
+    """Phase numbers a `**Depends on:**` line DECLARES, never the ones its
+    justification happens to mention.
+
+    Two steps, and the first is what makes the second safe. The declaration is
+    cut from the justification at the first em dash or the end of the first
+    sentence (DEP_DECLARATION_END); only then are `Phase N` anchors read out of
+    what survives. Without the cut, phase 23's real roadmap line —
+    `**Depende de:** nada. Independente do board; pode correr em paralelo com
+    20-22.` — would declare a dependency on 20, 21 and 22 out of a sentence
+    stating the opposite.
+    """
+    if not text:
+        return []
+    m = DEP_DECLARATION_END.search(text)
+    head = text[:m.start()] if m else text
+    out = set()
+    for anchor in DEP_PHASE_REF.finditer(head):
+        out.add(int(anchor.group(1)))
+        # `Phase 20, 21 and 22` is one declaration of three, so the list is
+        # walked forward from where the anchor's number ended. Anything that is
+        # not an immediately adjacent separator-plus-number stops the walk.
+        pos = anchor.end()
+        while True:
+            more = DEP_PHASE_MORE.match(head, pos)
+            if not more:
+                break
+            out.add(int(more.group(1)))
+            pos = more.end()
+    return sorted(out)
 
 
 def dep_target_ids(iss):
@@ -906,10 +1410,26 @@ def dep_target_ids(iss):
     list of ids and no `dependencies` at all. Reading only the first shape
     loses every edge whose target is still open — which is exactly the set the
     parallelism answer is about.
+
+    Only edges that actually BLOCK are collected. MEASURED 2026-08-03: phase 26
+    rendered as "waits on phase 9" over a `discovered-from` edge, which
+    /cairn:quick documents literally as "records provenance WITHOUT blocking" —
+    bd itself reported the issue as [READY] and only cairn disagreed. Every
+    entry of `dependencies` carries a `type` (measured on this repository's own
+    `bd list --all --json`: keys are created_at, created_by, depends_on_id,
+    issue_id, metadata, type; values seen are `blocks` and `discovered-from`),
+    and it had never been read.
+
+    A missing or unrecognised `type` still counts as a block — the flat
+    `blocked_by` shape carries no type at all, and it comes from `bd blocked`,
+    which has already applied this same judgement at the source. Unknown means
+    "treat it as blocking", never "drop it".
     """
     out = []
     for dep in iss.get("dependencies") or []:
         if isinstance(dep, dict):
+            if str(dep.get("type") or "").strip() in NON_BLOCKING_DEP_TYPES:
+                continue
             tid = str(dep.get("depends_on_id") or "").strip()
             if tid:
                 out.append(tid)
@@ -991,7 +1511,7 @@ def journal_observe_phases(root, phases):
               f"observation: unparsable output ({e})", file=sys.stderr)
 
 
-def phase_model(planning_dir, issues=None, bd_ok=True):
+def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     """Every phase, described once, for all three surfaces to render from.
 
     The board, `--json` and the HTML page previously each re-derived what they
@@ -1007,6 +1527,13 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
     whether `issues` is a trustworthy read of bd; when False (bd unreachable)
     the bd axis reports "unknown" rather than fabricating agreement.
 
+    `landing` (Phase 30, PR-01) is cairn-land.py's already-fetched report, and
+    it is a PARAMETER rather than a fetch made here, deliberately: main() reads
+    it once and hands the same dict to this function and to trim_issue(), so
+    the phase rows and the task rows can never describe the same branch
+    differently. `None` means nobody fetched, and every row then reads
+    `unknown` / `no-report` — the honest answer, never a silent `unlanded`.
+
     Once every phase's evidence/corroboration below is computed, this
     function ends with exactly ONE batched call to journal_observe_phases()
     (Phase 16, D-01/D-02) — a pure, best-effort side effect appended AFTER
@@ -1019,10 +1546,15 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
     rows = roadmap_phase_rows(planning_dir)
     dirs = phase_dirs(planning_dir)
     for n in dirs:
+        # A directory is evidence that somebody started THINKING about a phase,
+        # never evidence that the phase exists in the plan (CairnGo-4oq). These
+        # rows carry in_roadmap=False, and parallelism() keeps them out of
+        # `runnable` and names them instead.
         rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
-            "requirements": [], "purpose": None,
+            "requirements": [], "purpose": None, "tracker": None,
+            "in_roadmap": False, "roadmap_depends_on": [],
         })
     dir_to_number = {d.name: n for n, d in dirs.items()}
     bd_edges = issue_phase_deps(issues or [])
@@ -1046,6 +1578,7 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
         row = dict(rows[n])
         pdir = dirs.get(n)
         row["dir"] = str(pdir.relative_to(root)) if pdir else None
+        row["landed"] = phase_landing(landing, n)
         row["disk_state"] = phase_disk_state(pdir)
         row["research_done"] = phase_has_research(pdir)
         row["issues_done"], row["issues_total"] = phase_issue_counts(
@@ -1069,7 +1602,14 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
         if row["plans_total"] is None:
             done, total = phase_plan_counts(pdir)
             row["plans_done"], row["plans_total"] = done, total
-        deps = set(plan_depends_on(pdir, dir_to_number)) | bd_edges.get(n, set())
+        # THREE sources, and the third is the roadmap's own prose. PLAN.md
+        # frontmatter exists only once someone has planned the phase and a bd
+        # edge exists only once someone ran `bd dep add`, so a declared-but-
+        # unplanned dependency was invisible to both — which is exactly how
+        # phases 21 and 22 were announced as concurrent (CairnGo-64u).
+        deps = (set(plan_depends_on(pdir, dir_to_number))
+                | bd_edges.get(n, set())
+                | set(row.get("roadmap_depends_on") or []))
         row["depends_on"] = sorted(d for d in deps if d != n)
         out.append(row)
 
@@ -1079,8 +1619,18 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
     # 10" long after 10 was finished.
     done_set = {p["number"] for p in out
                 if p["complete"] or p["disk_state"] == "verified"}
+    # ...and a dependency on a phase THIS roadmap does not list at all is a
+    # dependency on an archived cycle. MEASURED 2026-08-03 (FIX-04): phase 26
+    # read "waits on phase 9", archived with v1.2 two milestones earlier — it
+    # is not in ROADMAP.md, so it never entered done_set and blocked forever.
+    # Completing an archived milestone is not a thing anyone can do; the work
+    # shipped. `known` is every phase this model has a row for, so the rule
+    # fires only for a target outside the model entirely, never for a pending
+    # phase of the current cycle.
+    known = {p["number"] for p in out}
     for p in out:
-        p["blocked_by"] = [d for d in p["depends_on"] if d not in done_set]
+        p["blocked_by"] = [d for d in p["depends_on"]
+                           if d not in done_set and d in known]
         p["next_command"] = phase_next_command(p)
     # Every phase's evidence/corroboration is fully computed above — this is
     # the ONE place in the whole module where the batch gets observed into
@@ -1267,20 +1817,37 @@ def join_numbers(ns):
 def parallelism(model):
     """What can proceed at the same time, right now, and how honest that is.
 
-    Returns {runnable, blocked, note, declared}. `runnable` is every pending
-    phase nothing still open blocks; two or more of those are independent of
-    each other by construction, because a dependency between them would have
-    blocked the later one.
+    Returns {runnable, blocked, inconsistent, note, declared}. `runnable` is
+    every pending phase nothing still open blocks; two or more of those are
+    independent of each other by construction, because a dependency between
+    them would have blocked the later one.
 
     `declared` is the honesty flag. Independence is only as good as what is
     written down: a roadmap where nobody registered a dependency reports every
     phase as free, which is a statement about the records rather than about the
     work. The note says so instead of implying the graph was checked.
+
+    `inconsistent` is the set this function refuses to answer about: a phase
+    that exists on disk and NOT in ROADMAP.md. MEASURED 2026-08-05
+    (CairnGo-4oq): a directory holding one 30-CONTEXT.md and nothing else came
+    back in `runnable`, and the only thing that stopped `cairn-parallel batch`
+    from recommending a phase with no goal, no requirement and no acceptance
+    criterion was the concurrency ceiling. A directory is evidence that someone
+    started thinking; the roadmap is the authority on what exists.
     """
     pending = pending_phases(model)
+    off_roadmap = [p for p in pending if not p.get("in_roadmap", True)]
+    pending = [p for p in pending if p.get("in_roadmap", True)]
     runnable = [p for p in pending if not p["blocked_by"] and p["next_command"]]
     blocked = [p for p in pending if p["blocked_by"]]
     declared = any(p["depends_on"] for p in model)
+    inconsistent = [{
+        "phase": p["number"],
+        "reason": (f"phase {p['number']} has a directory under "
+                   f".planning/phases/ but no entry in ROADMAP.md, so nothing "
+                   f"says what it is for or when it is done"),
+        "command": f"/cairn:phase add {p['number']}",
+    } for p in off_roadmap]
 
     if not pending:
         note = "Nothing pending — the milestone is ready to ship."
@@ -1307,8 +1874,17 @@ def parallelism(model):
     if not declared and pending:
         note += (" No dependencies are declared anywhere in this roadmap, so "
                  "this reflects what is recorded, not a verified ordering.")
+    if inconsistent:
+        # Named in the note as well as in the field: a caller reading only the
+        # prose still hears that something on disk was left out of the answer,
+        # which is the whole point of not silently dropping it.
+        note += (" Phase "
+                 f"{join_numbers([i['phase'] for i in inconsistent])} "
+                 "is on disk but not in ROADMAP.md, so it is left out of this "
+                 "answer entirely — add it to the roadmap first.")
     return {"runnable": [p["number"] for p in runnable],
             "blocked": [p["number"] for p in blocked],
+            "inconsistent": inconsistent,
             "declared": declared, "note": note}
 
 
@@ -1369,6 +1945,155 @@ def next_commands(model, milestone=None):
     return out
 
 
+def phase_groups(model, milestones, issues):
+    """The hierarchy milestone → phase → issue, as a list of groups.
+
+    A pure derivation of `model` + the roadmap's milestone list + the open
+    issues, in the line of parallelism(model) and next_commands(model): no
+    I/O, no bd, testable on its own, and a TOP-LEVEL key of the model rather
+    than anything nested inside `phases[]` (D-02) — a consumer reading
+    `phases[]` today reads exactly the same rows tomorrow.
+
+    Each group is `{type, key, label, items}`, `type` being `"milestone"` or
+    `"unphased"`. `items` is homogeneous across both types: always a list of
+    `{phase, issues}` buckets, the unphased group carrying exactly one bucket
+    whose `phase` is None. A consumer iterating `items` never has to know
+    which kind of group it is holding. No group and no bucket carries a
+    count: a count is len(), and a second spelling of the same number is a
+    second thing that can disagree — which is the whole reason this file
+    exists.
+
+    A phase belongs to a milestone by, in this order: its own `milestone`
+    cell from the roadmap's `## Progress` table (explicit and per-phase, so
+    it wins), else the milestone line's `first..last` range (the only path in
+    a roadmap that has no progress table, like this repository's own). Only
+    phases that EXIST in `model` become buckets: inventing a phase out of a
+    range is the same class of lie as naming an archived cycle. Groups come
+    out in the roadmap's own order, filtered to the open ones (D-03: a
+    milestone with no buckets is not emitted at all, so no group ever wears
+    the last archived name); buckets inside a group come out by ascending
+    phase number; the unphased group is always last.
+
+    When NO milestone is open, ONE group is emitted carrying the PENDING
+    phases, labelled NO_OPEN_MILESTONE_LABEL with `key` None (Phase 22,
+    CairnGo-uz6). Until then that case produced zero groups and the board
+    contradicted itself on one screen: `(no open work)` in the list while the
+    footer and the table counted phases. The D-03 promise that mattered is
+    intact and is now stronger — no group wears an archived name, AND the
+    absence of an open cycle is stated positively instead of by silence.
+
+    Issue placement reads ONE thing: `issue_phase_ns()`, the issue's own
+    `phase-N` labels. An issue goes to the bucket of the SMALLEST phase it
+    names among those some emitted group claims, and to the unphased group
+    when it names none of them.
+
+    This function deliberately does NOT read `dependencies`, `blocked_by`,
+    `depends_on` or `dep_target_ids()`. Measured 2026-08-03: phase 26 renders
+    as blocked by phase 9 — a cycle archived two milestones earlier — because
+    dep_target_ids() counts every edge without looking at its type (a
+    `discovered-from` edge, which /cairn:quick documents as provenance and
+    not as a block, counts as a block) and because the pending filter tests
+    against a completed-phase set an archived phase is never part of. That is
+    FIX-04, phase 25's repair. Grouping by edge would import the whole
+    confusion into the group model, so placement rests on labels alone.
+
+    Only OPEN issues are passed in (main() calls with ready + doing +
+    blocked): a group describes work still to do, and the lease bookkeeping
+    issue was already filtered out upstream (Phase 15, D-05). Inside a
+    bucket, issues keep the order the lanes deliver them in (READY, then
+    DOING, then BLOCKED) — the model introduces no second ordering.
+
+    No deduplication, and that is part of the contract: `doing` and
+    `blocked` are independent bd queries, so one issue can legitimately
+    arrive twice. Placement is per INPUT OCCURRENCE, so the multiset of ids
+    across every bucket is exactly the multiset of ids on the lanes — which
+    is what makes "nothing was lost and nothing was doubled" checkable by
+    comparing the two sorted lists.
+    """
+    by_number = {p["number"]: p for p in model}
+    explicit = {}
+    for p in model:
+        key = p.get("milestone")
+        if key:
+            explicit.setdefault(key, set()).add(p["number"])
+
+    groups = []
+    buckets = {}
+    for ms in milestones:
+        if not ms["open"]:
+            continue
+        numbers = set(explicit.get(ms["key"], ()))
+        if ms["first"] is not None:
+            # Range only for phases the progress table left unassigned: an
+            # explicit cell naming another milestone is never overridden by
+            # a range that happens to span this phase.
+            numbers.update(n for n, p in by_number.items()
+                           if not p.get("milestone")
+                           and ms["first"] <= n <= ms["last"])
+        items = []
+        for n in sorted(numbers):
+            if n not in by_number or n in buckets:
+                continue
+            bucket = {"phase": n, "issues": []}
+            buckets[n] = bucket
+            items.append(bucket)
+        if not items:
+            continue
+        groups.append({"type": "milestone", "key": ms["key"],
+                       "label": ms["label"], "items": items})
+
+    if not any(ms["open"] for ms in milestones):
+        # NO OPEN CYCLE (Phase 22, CairnGo-uz6). Without this, a roadmap that
+        # declares no open milestone produced no phase bucket at all, and the
+        # board contradicted itself on one screen — MEASURED 2026-08-06 on a
+        # one-phase roadmap with no `## Milestones` section:
+        #
+        #     (no open work)          <- this list
+        #   phase 1/1 Alpha           <- the footer
+        #   PENDING PHASES  1         <- the table
+        #
+        # Three surfaces, two answers. With an issue carrying `phase-1` the
+        # second symptom showed instead: the issue rendered under the loose
+        # group and the phase line vanished, label and all.
+        #
+        # `type` stays "milestone" and `key` is None. A third type value would
+        # make every `if group["type"] == "milestone"` already written stop
+        # seeing this group; the group IS the grouping-by-milestone, it simply
+        # has no milestone to name, and `key: None` says that in the model
+        # while the label says it in words.
+        #
+        # PENDING phases only, not all of them: with no cycle to bound the
+        # scope, "every phase since the project started" is a list that only
+        # grows. Pending is exactly the set `PENDING PHASES` counts, and
+        # making those two agree IS the fix.
+        #
+        # The condition is "no open cycle", never "no group was emitted". An
+        # open cycle that claims no existing phase is a case nobody measured,
+        # and inventing behaviour for it would be guessing; it falls through
+        # to the old shape on purpose.
+        items = []
+        for p in pending_phases(model):
+            n = p["number"]
+            if n in buckets:
+                continue
+            bucket = {"phase": n, "issues": []}
+            buckets[n] = bucket
+            items.append(bucket)
+        if items:
+            groups.append({"type": "milestone", "key": None,
+                           "label": NO_OPEN_MILESTONE_LABEL, "items": items})
+
+    loose = {"phase": None, "issues": []}
+    for iss in issues:
+        named = sorted(n for n in issue_phase_ns(iss) if n in buckets)
+        target = buckets[named[0]] if named else loose
+        target["issues"].append(str(iss.get("id") or "?"))
+    if loose["issues"]:
+        groups.append({"type": "unphased", "key": UNPHASED_KEY,
+                       "label": UNPHASED_LABEL, "items": [loose]})
+    return groups
+
+
 def state_frontmatter(planning_dir):
     """{milestone, active_phase, next_action} from STATE.md's YAML
     frontmatter, parsed by regex (no YAML lib) — missing keys are None."""
@@ -1392,11 +2117,71 @@ def roadmap_milestone(planning_dir):
     """Milestone marked in progress in ROADMAP.md (🚧 / '(in progress)' line
     carrying a vN[.N...] token), or None."""
     for line in read_lines(planning_dir / "ROADMAP.md"):
-        if "🚧" in line or re.search(r"\(in progress\)", line, re.IGNORECASE):
+        if "🚧" in line or MILESTONE_IN_PROGRESS.search(line):
             m = VERSION_TOKEN.search(line)
             if m:
                 return m.group(0)
     return None
+
+
+def roadmap_milestones(planning_dir):
+    """[{key, label, open, first, last}] from the `## Milestones` list.
+
+    The list, and only the list: the section opens at a `## Milestones`
+    heading and closes at the next `## ` heading. Each list item carrying a
+    bold span that STARTS with a version token is a milestone — the token is
+    the key (`v1.1`), the whole bold span cleaned is the label
+    (`v1.1 Surface`), and the `Phases A-B` (or lone `Phase A`, with
+    `last == first`) read from the text AFTER the bold span is the range.
+    A milestone whose line declares no range gets `first = last = None`.
+
+    `open` is the marker on the milestone's OWN line — `🚧`, or
+    `(in progress)` in any case, the same two roadmap_milestone() accepts.
+    Everything else (`✅`, `shipped`, an archive link, no marker at all) is
+    closed. Deliberately conservative: nothing infers openness from position
+    in the list, from recency, or from STATE.md, because a group announcing
+    an archived cycle is exactly the measured defect (2026-08-03, ten minutes
+    after v1.4 was archived, the board still read `MILESTONE v1.4`) that this
+    phase must not reproduce under a new key.
+
+    Measured 2026-08-03: 5 milestones and exactly 1 open (`v1.5`, phases
+    20-29) in this repository's own ROADMAP; 2 and 1 open (`v1.1`, phases
+    3-4) in the test fixtures' roadmap; 0 in a roadmap with no such section.
+    """
+    out = []
+    in_section = False
+    for line in read_lines(planning_dir / "ROADMAP.md"):
+        if MILESTONES_HEADING.match(line):
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        if ANY_H2.match(line):
+            break
+        m = MILESTONE_ITEM.match(line)
+        if not m:
+            continue
+        item = m.group(1)
+        bold = MILESTONE_BOLD.search(item)
+        if not bold:
+            continue
+        text = bold.group(1).strip()
+        token = VERSION_TOKEN.match(text)
+        if not token:
+            continue
+        first = last = None
+        rng = MILESTONE_RANGE.search(item[bold.end():])
+        if rng:
+            first = int(rng.group(1))
+            last = int(rng.group(2)) if rng.group(2) else first
+        out.append({
+            "key": token.group(0),
+            "label": clean(text),
+            "open": "🚧" in line or bool(MILESTONE_IN_PROGRESS.search(line)),
+            "first": first,
+            "last": last,
+        })
+    return out
 
 
 # ------------------------------------------------------------ sync staleness
@@ -1525,6 +2310,44 @@ def synthesize_next(ready, doing, milestone, active_phase, next_action,
 # ------------------------------------------------------- width and truncation
 
 def char_width(ch):
+    """Terminal cells one character occupies: 2 for W and F, 0 for combining
+    marks / ZWJ / variation selectors, 1 for everything else.
+
+    THE BOUNDARY THIS DRAWS, decided in Phase 22 (CairnGo-hbo) and written
+    here because here is where the ruler lives:
+
+        The board's column alignment is guaranteed in a WESTERN locale.
+        It is NOT guaranteed in a CJK locale.
+
+    east_asian_width returns `A` (ambiguous) for a large set of characters
+    that occupy ONE cell in a Latin locale and TWO in a CJK one. This
+    function counts them as 1, which is right in the first case and wrong in
+    the second, and the script cannot tell which it is in.
+
+    MEASURED 2026-08-06 on a --width 100 render of this repository: 53
+    occurrences of `A`-width characters, 9 distinct —
+
+        —  EM DASH        28      …  ELLIPSIS       8
+        ·  MIDDLE DOT      4      ▶                 1
+        á ê ó í é         12  ← accented letters, in the board's own prose
+
+    Those 12 are the number that decides it. Swapping `—` for `-` and `…` for
+    `...` would remove 36 of the 53 and fix NOTHING: this project's prose is
+    Portuguese, and every accented letter is `A`. Choosing different glyphs
+    cannot solve a problem the language itself creates.
+
+    The alternative was resolving `A` from the environment, and it is
+    refused for the reason this file already refuses it once, in Phase 21's
+    choice of stage symbols: it would mean reading LANG/LC_CTYPE and deciding
+    by heuristic what only the terminal emulator actually knows — "inventing
+    that read would be inventing a source of truth". Solving half of it (the
+    symbols) and guessing the other half (the prose) is worse than one honest
+    boundary.
+
+    What the Phase 21 defence still buys: the five stage symbols are all `N`,
+    so the LIST's own columns hold in either locale. What remains exposed is
+    the punctuation and the prose around them.
+    """
     if ch == "‍" or "︀" <= ch <= "️":
         return 0                       # ZWJ / variation selectors
     if unicodedata.combining(ch):
@@ -1557,6 +2380,55 @@ def truncate(s, width, ell):
     return "".join(out).rstrip() + ell
 
 
+def wrap_spans(spans, width):
+    """Greedy wrap of styled spans at `width` DISPLAY CELLS.
+
+    The grouped list (Phase 21) never truncates a title, so it needs the
+    other answer to "the text is longer than the room": a continuation line.
+    textwrap cannot give it — textwrap counts characters, and this module
+    measures everything with display_width(). Using two rulers in one file is
+    how a CJK title silently overflows a column that says it fits.
+
+    Breaks on whitespace only. A single token wider than `width` OVERFLOWS on
+    a line of its own rather than being split: cutting an id or a URL in half
+    is a form of truncation, and BOARD-03 excludes exactly the case where the
+    line cannot fit. Leading whitespace is dropped from every continuation
+    line and trailing whitespace from every line, so a wrapped line never
+    carries padding it did not ask for.
+
+    Returns a list of span lists (always at least one), each element having
+    the same (text, sgr) shape render_spans() consumes — the styling of the
+    dim tracker key and the dim done-phase marker survives the wrap.
+    """
+    if width <= 0:
+        return [list(spans)]
+    tokens = []
+    for text, sgr in spans:
+        for part in re.split(r"(\s+)", text):
+            if part:
+                tokens.append((part, sgr))
+    lines, cur, used = [], [], 0
+    for tok, sgr in tokens:
+        w = display_width(tok)
+        if tok.isspace():
+            if cur:                       # never open a line with a space
+                cur.append((tok, sgr))
+                used += w
+            continue
+        if cur and used + w > width:
+            while cur and cur[-1][0].isspace():
+                cur.pop()
+            lines.append(cur)
+            cur, used = [], 0
+        cur.append((tok, sgr))
+        used += w
+    while cur and cur[-1][0].isspace():
+        cur.pop()
+    if cur:
+        lines.append(cur)
+    return lines or [[("", None)]]
+
+
 # C0 (minus \t and \n, which the whitespace collapse turns into spaces),
 # DEL, and C1 — ESC, CSI, OSC and friends. Titles can come from remote
 # trackers via sync-pull, so control bytes are attacker-reachable.
@@ -1566,6 +2438,34 @@ CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 def clean(text):
     """One safe display line: strip control bytes, collapse whitespace."""
     return re.sub(r"\s+", " ", CONTROL_CHARS.sub("", str(text))).strip()
+
+
+def tracker_key(ref):
+    """The human half of an `external_ref`, for display on the board.
+
+    `jira-DTP-142` is two things joined: a backend name nobody quotes and the
+    key everybody does. The board shows the second. A ref that is already bare
+    (`DTP-142`) shows as it is.
+
+    DELIBERATE DEVIATION from 29-05-PLAN.md, which lists `gh-` among the
+    prefixes to strip unconditionally. MEASURED: cairn-doctor.py --link-refs
+    writes `gh-<number>` in production, so the most common real ref in this
+    repository is `gh-42`, and stripping it leaves `42` — a bare digit sitting
+    next to an issue id on a fixed-width board, naming nothing. So the prefix
+    comes off only when what survives still identifies the issue on its own,
+    which a pure number does not: `jira-DTP-142` -> `DTP-142`, while `gh-42`
+    keeps its prefix.
+
+    Display only. The stored ref is never rewritten — `--json` carries it raw,
+    prefix included, so nothing downstream has to guess what was cut.
+    """
+    ref = clean(ref)
+    if not ref:
+        return ""
+    stripped = TRACKER_BACKEND_PREFIX.sub("", ref, count=1)
+    if stripped and not stripped.isdigit():
+        return stripped
+    return ref
 
 
 # ------------------------------------------------------------------ rendering
@@ -1578,21 +2478,62 @@ class Style:
         self.ascii = opts["ascii"] or "utf" not in enc
         self.color = self._color_enabled(opts)
         if self.ascii:
-            self.tl, self.tm, self.tr = "+", "+", "+"
-            self.bl, self.bm, self.br = "+", "+", "+"
-            self.h, self.v = "-", "|"
+            # The box-drawing vocabulary (tl/tm/tr, bl/bm/br, h, v) lived
+            # here until Phase 21. Its only reader was render_board, and the
+            # AST says nothing else in this file — not render_plain, not the
+            # phase panel, not the HTML — ever read one. Write-only state is
+            # worse than absent state: it tells the next reader a grid still
+            # exists somewhere.
             self.ell, self.sep = "...", " | "
             self.g_next, self.g_dep, self.g_who = ">", "<-", "@"
             self.g_stale = "*"
             self.g_conflict, self.g_informs = "x", "!"
+            self.g_card = "#"
+            # Landing marker (Phase 30). `^` — the work going up into the
+            # control branch. One character, and free: `x`, `!`, `*`, `#`,
+            # `>`, `@`, `.`, `o`, `O`, `v` and `~` are all already spent
+            # inside this same output.
+            self.g_land = "^"
+            # Stage symbols, ASCII fallback: exactly ONE character each, which
+            # is what makes "the columns close aligned in both modes" a
+            # mechanical claim — every column of the grouped block lands on
+            # the same cell as its Unicode counterpart, because 1 cell == 1
+            # char. `x`, `!`, `*` and `#` were rejected not on taste but on
+            # collision inside the same output: they already are g_conflict,
+            # g_informs, g_stale and g_card.
+            self.s_none, self.s_planned, self.s_doing = ".", "o", "O"
+            self.s_done, self.s_blocked = "v", "~"
         else:
-            self.tl, self.tm, self.tr = "┌", "┬", "┐"
-            self.bl, self.bm, self.br = "└", "┴", "┘"
-            self.h, self.v = "─", "│"
             self.ell, self.sep = "…", " · "
             self.g_next, self.g_dep, self.g_who = "▶", "⧗", "◆"
             self.g_stale = "·"
             self.g_conflict, self.g_informs = "✗", "⚠"
+            # External tracker card. U+29C9 is east-asian-width N, like the
+            # ⧗ already used for dependencies — one cell everywhere, so it
+            # can never widen a lane on a CJK terminal.
+            self.g_card = "⧉"
+            # Landing marker (Phase 30, PR-01): an arrow arriving at a bar,
+            # which is the whole sentence — the work reaching the branch
+            # everything has to reach. MEASURED 2026-08-06 with
+            # unicodedata.east_asian_width: U+2912 is `N`, one cell
+            # everywhere, so it can never widen a row on a CJK terminal. The
+            # obvious candidates ▲ U+25B2 and △ U+25B3 are both `A` and were
+            # rejected on that measurement, exactly as the stage symbols
+            # below were.
+            self.g_land = "⤒"
+            # Stage symbols (Phase 21, BOARD-02). MEASURED 2026-08-05 with
+            # unicodedata.east_asian_width: all five are `N`, i.e. one cell
+            # everywhere. `○` U+25CB, `◑` U+25D1 and `◆` U+25C6 were the
+            # obvious candidates and all three are `A` — one cell in a Latin
+            # locale, TWO in a CJK one. char_width() above returns 2 only for
+            # W and F, so an `A` symbol counts 1 here and draws 2 there, and
+            # nothing in this script can detect the difference (it reads no
+            # locale, and inventing that read would be inventing a source of
+            # truth). The defense is to not use `A` at all, which is why
+            # tests/cairn-grouped-board.bats asserts the property through
+            # unicodedata and never through how the glyph looks.
+            self.s_none, self.s_planned, self.s_doing = "◌", "◔", "◕"
+            self.s_done, self.s_blocked = "✓", "⧗"
 
     def asciify(self, text):
         """Downgrade the punctuation this script itself injects. Issue titles
@@ -1631,91 +2572,327 @@ def render_spans(spans, style):
     return "".join(style.paint(text, sgr) for text, sgr in spans)
 
 
-def make_cell(lane, iss, inner, style):
-    """One card as spans: `id  title` (+ ⧗ dep on BLOCKED, ◆ assignee on
-    DOING). Only glyphs and high-priority ids get color — never the whole
-    card. The id is capped at inner - 8 cells so a long bd prefix can never
-    push the card past the lane (the title keeps at least a sliver)."""
-    iid = truncate(clean(iss.get("id", "?")), max(1, inner - 8), style.ell)
-    title = clean(iss.get("title", ""))
-    id_sgr = SGR_BOLD if issue_priority(iss) <= 1 else None
+# --------------------------------------------------------- the grouped list
+#
+# Phase 21 replaces the three-lane kanban on the human render path. The lanes
+# spent the terminal's width divided by three and cut every title at ~28
+# cells; with 40 tasks READY became 40 rows and the other two lanes stood
+# empty. What goes in its place is ONE list, grouped by the model Phase 20
+# built (open milestone -> phase -> task), each row carrying its stage in a
+# single-cell symbol and its title whole.
 
-    suffix = []
-    if lane == "DOING" and iss.get("assignee"):
-        who = truncate(clean(iss["assignee"]), 12, style.ell)
-        suffix = [("  ", None), (style.g_who, SGR_YELLOW), (" " + who, None)]
-    elif lane == "BLOCKED" and as_str_list(iss.get("blocked_by")):
-        dep = clean(as_str_list(iss.get("blocked_by"))[0])
-        suffix = [("  ", None), (style.g_dep, SGR_RED), (" " + dep, None)]
-    if iss.get("_stale"):
-        # Discreet roadmap-complete marker (see docstring step 4b) — dim,
-        # ASCII-safe under --ascii, dropped like any suffix when too narrow.
-        suffix += [("  ", None), (style.g_stale + "done-phase", SGR_DIM)]
-
-    used = display_width(iid) + 2
-    suffix_w = sum(display_width(t) for t, _ in suffix)
-    if suffix and inner - used - suffix_w < 6:
-        suffix, suffix_w = [], 0      # too narrow — the title wins
-    title_t = truncate(title, inner - used - suffix_w, style.ell)
-    spans = [(iid, id_sgr), ("  ", None), (title_t, None)] + suffix
-    pad = inner - sum(display_width(t) for t, _ in spans)
-    if pad > 0:
-        spans.append((" " * pad, None))
-    return spans
+GROUP_INDENT = ""
+PHASE_INDENT = "  "
+ISSUE_INDENT = "      "
+NO_WORK_TEXT = "(no open work)"
+# Below this many cells left for the body, the row stops trying to put the
+# title beside the id and drops it to its own indented lines. MEASURED at
+# --width 30 with an 11-cell id: the inline budget is 9 cells, so every word
+# lands on a line of its own — nothing truncated, and nothing readable
+# either. The stacked form gives the same row 22 cells. 24 is the smallest
+# budget that still holds a short phrase per line.
+NARROW_BODY = 24
 
 
-def lane_rows(lane, items, inner, max_rows, style):
-    """Visible cells for a lane, with a dim `+k more` overflow row."""
-    rows = [make_cell(lane, i, inner, style) for i in items[:max_rows]]
-    extra = len(items) - max_rows
-    if extra > 0:
-        text = f"+{extra} more"
-        rows.append([(text, SGR_DIM), (" " * (inner - len(text)), None)])
+def stage_symbol(kind, obj, style):
+    """The stage of one row, as (symbol, sgr). ONE decision point.
+
+    A phase row reads its own disk state: complete or `verified` -> done,
+    `executed` -> in progress, `planned` -> planned, `none` -> not planned.
+
+    A task row reads the LANE it arrived on: BLOCKED -> blocked, DOING -> in
+    progress, READY -> planned.
+
+    A phase row DELIBERATELY never renders the blocked symbol, even when
+    `blocked_by` is non-empty. MEASURED 2026-08-03 and still true: phase 26
+    renders as blocked by phase 9, a cycle archived two milestones earlier,
+    because dep_target_ids() counts every edge without looking at its type
+    and the pending filter tests against a completed-phase set an archived
+    phase is never part of (FIX-04, phase 25's repair). phase_groups()
+    refused to read edges for exactly this reason — its own docstring says
+    so — and painting a phase blocked from the same data would import the
+    whole confusion into a new surface. A phase symbol describes progress on
+    disk and nothing else; the `waits` column of the phase panel keeps
+    telling the other story where it is already understood.
+    """
+    if kind == "phase":
+        if obj.get("complete") or obj.get("disk_state") == "verified":
+            return style.s_done, SGR_GREEN
+        return ({"executed": style.s_doing,
+                 "planned": style.s_planned}.get(obj.get("disk_state"),
+                                                 style.s_none), SGR_DIM)
+    lane_sgr = dict(LANES).get(kind)
+    return ({"BLOCKED": style.s_blocked,
+             "DOING": style.s_doing}.get(kind, style.s_planned), lane_sgr)
+
+
+def group_rows(data, max_rows):
+    """The grouped list as rows, with no width and no color decided yet.
+
+    Structure comes from `data["groups"]` — the Phase 20 model — and is never
+    re-derived here: open milestones in the roadmap's order, buckets by
+    ascending phase, `unphased` last. Each row is one of:
+
+        {"kind": "group", "label": str}
+        {"kind": "phase", "number": int, "phase": <model row>}
+        {"kind": "issue", "lane": str,   "issue": <raw bd dict>}
+        {"kind": "more",  "count": int}
+
+    An id is resolved to its issue through a FIFO queue per id, filled from
+    `data["_lanes"]` in (READY, DOING, BLOCKED) order. That is not
+    bookkeeping fussiness, it is phase_groups()' documented contract: it
+    places PER INPUT OCCURRENCE and does not deduplicate, because
+    `bd list --status in_progress` and `bd blocked` are independent queries
+    and one issue can legitimately arrive twice. Consuming a per-id queue in
+    the order the ids appear reproduces the exact (occurrence, lane) pairing
+    without inventing a second placement — which is the one thing this file
+    exists to prevent. An id with no queue left (unreachable today:
+    phase_groups() is only ever handed what the lanes produced) still renders,
+    on the READY lane, from a minimal dict — never dropped in silence.
+
+    `max_rows` caps issues PER BUCKET, with the same `+k more` row the lanes
+    used. A lane was the container; a bucket is the container now. Group and
+    phase rows are never capped: they are the structure, not the content.
+    """
+    queues = {}
+    for (lane, _), items in zip(LANES, data.get("_lanes") or []):
+        for iss in items:
+            queues.setdefault(str(iss.get("id") or "?"), []).append(
+                (lane, iss))
+
+    by_number = {p["number"]: p for p in (data.get("phases") or [])}
+    rows = []
+    for group in data.get("groups") or []:
+        rows.append({"kind": "group", "label": group["label"]})
+        for bucket in group["items"]:
+            n = bucket["phase"]
+            if n is not None and n in by_number:
+                rows.append({"kind": "phase", "number": n,
+                             "phase": by_number[n]})
+            ids = bucket["issues"]
+            for iid in ids[:max_rows]:
+                queue = queues.get(iid)
+                lane, iss = queue.pop(0) if queue else ("READY", {"id": iid})
+                rows.append({"kind": "issue", "lane": lane, "issue": iss})
+            if len(ids) > max_rows:
+                rows.append({"kind": "more", "count": len(ids) - max_rows})
     return rows
 
 
-def lane_header_text(name, count, seg_w, style):
-    text = f"{name} ({count})"
-    if display_width(text) > seg_w - 3:
-        name_t = truncate(name, seg_w - 3 - display_width(f" ({count})"),
-                          style.ell)
-        text = f"{name_t} ({count})"
-    return text
+def counts_parts(data, style):
+    """`ready N · doing N · blocked N · done N` as spans.
+
+    ONE spelling, two surfaces: --brief has printed this line since Phase 10,
+    and the grouped list needs it because the lane headers that used to carry
+    the four numbers (`READY (3)`) are gone. Extracted rather than copied —
+    a second copy is a second thing that can drift.
+    """
+    c = data["counts"]
+    return [("ready ", None), (str(c["ready"]), None), (style.sep, SGR_DIM),
+            ("doing ", None), (str(c["doing"]), SGR_YELLOW),
+            (style.sep, SGR_DIM),
+            ("blocked ", None), (str(c["blocked"]), SGR_RED),
+            (style.sep, SGR_DIM),
+            ("done ", None), (str(c["closed"]), SGR_GREEN)]
 
 
-def render_board(lanes_items, counts, inner, max_rows, style):
-    seg_w = inner + 2
-    lines = []
+def issue_body_spans(lane, iss, style):
+    """A task row's text after the id: the title, then its suffixes.
 
-    # Top border with embedded lane headers: ┌─ READY (2) ──┬─ DOING (1) ─...
-    spans = [(style.tl, SGR_BORDER)]
-    for idx, ((name, sgr), items) in enumerate(zip(LANES, lanes_items)):
-        text = lane_header_text(name, counts[idx], seg_w, style)
-        fill = seg_w - 3 - display_width(text)
-        spans += [(style.h + " ", SGR_BORDER), (text, sgr), (" ", None),
-                  (style.h * fill, SGR_BORDER)]
-        spans.append((style.tm if idx < N_LANES - 1 else style.tr,
-                      SGR_BORDER))
-    lines.append(render_spans(spans, style))
+    Everything here WRAPS and nothing here is ever dropped. The lane cell was
+    a fixed width, so make_cell() had to rank its suffixes and shed them
+    (the tracker key first, then the rest, the title always winning); a row
+    that wraps has nothing to rank. The property that replaces that
+    precedence is stronger: at every width, every suffix is on the line.
 
-    per_lane = [lane_rows(name, items, inner, max_rows, style)
-                for (name, _), items in zip(LANES, lanes_items)]
-    n_rows = max(1, max(len(r) for r in per_lane))
-    empty = [(" " * inner, None)]
-    for r in range(n_rows):
-        spans = [(style.v, SGR_BORDER)]
-        for cells in per_lane:
-            cell = cells[r] if r < len(cells) else empty
-            spans += [(" ", None)] + cell + [(" ", None),
-                                             (style.v, SGR_BORDER)]
-        lines.append(render_spans(spans, style))
+    A blocked row names EVERY blocker, not just the first, and names them in
+    words rather than reusing the hourglass the stage symbol already spent —
+    success criterion 4 is that the row says who blocks it without a second
+    command, and `blocked by brd-001, brd-007` says it.
+    """
+    spans = [(clean(iss.get("title", "")), None)]
+    if lane == "BLOCKED" and as_str_list(iss.get("blocked_by")):
+        names = ", ".join(clean(b)
+                          for b in as_str_list(iss.get("blocked_by")))
+        spans += [("  ", None), (f"blocked by {names}", SGR_RED)]
+    elif lane == "DOING" and iss.get("assignee"):
+        spans += [("  ", None), (style.g_who, SGR_YELLOW),
+                  (" " + clean(iss["assignee"]), None)]
+    if iss.get("_stale"):
+        spans += [("  ", None), (style.g_stale + "done-phase", SGR_DIM)]
+    if iss.get("external_ref"):
+        key = tracker_key(iss["external_ref"])
+        if key:
+            spans += [("  ", None), (style.g_card, SGR_DIM),
+                      (" " + key, SGR_DIM)]
+    spans += landing_spans(iss.get("_landed"), style)
+    return spans
 
-    spans = [(style.bl, SGR_BORDER)]
-    for idx in range(N_LANES):
-        spans.append((style.h * seg_w, SGR_BORDER))
-        spans.append((style.bm if idx < N_LANES - 1 else style.br,
-                      SGR_BORDER))
-    lines.append(render_spans(spans, style))
+
+def landing_text(landed):
+    """The landing suffix as one string, or "" when there is nothing to say.
+
+    STRICTLY CONDITIONAL ON THE DATUM, which is the rule plan 29-05 proved and
+    this one inherits: with no control branch resolved there is no suffix, no
+    space, no byte. That is what keeps the seven committed reference renders
+    identical — their fixture is a git repo with no remote and no commit, so
+    `branches` is empty and this function returns "" for every row.
+
+    An `unknown` verdict renders nothing HERE and says its reason in --json.
+    The distinction is deliberate and it is not the one D-03 forbids: "no PR
+    was found" must never be reported as "there is no PR" (plan 30-02 owns
+    that), but "nobody has told this repo what its control branch is" is not a
+    finding about the work at all, and printing `unknown` on every row of
+    every board of every user would be noise, not honesty. /cairn:doctor is
+    where an absent answer gets named.
+    """
+    if not isinstance(landed, dict):
+        return ""
+    branches = landed.get("branches") or {}
+    if not branches:
+        return ""
+    inn = sorted(b for b, v in branches.items() if v == LAND_LANDED)
+    part = sorted(b for b, v in branches.items() if v == LAND_PARTIAL)
+    out = sorted(b for b, v in branches.items() if v == LAND_UNLANDED)
+    parts = []
+    if inn:
+        parts.append(", ".join(inn))
+    if part:
+        parts.append("partly in " + ", ".join(part))
+    if out:
+        parts.append("not in " + ", ".join(out))
+    # The pull request joins ONLY when the history actually names one. An
+    # `unknown` prints nothing here — and that is not the silence D-03 forbids:
+    # what is forbidden is claiming there is NO pull request, and a card that
+    # prints nothing claims nothing. The reason travels in --json, and naming
+    # an absence out loud is /cairn:doctor's job, not a card's.
+    pr = landed.get("pr")
+    if isinstance(pr, dict) and pr.get("number") is not None:
+        text = f"#{pr['number']}"
+        review = pr.get("review")
+        if isinstance(review, dict) and review.get("state"):
+            # THE STATE NEVER RENDERS WITHOUT ITS AGE, on any surface. A
+            # pull-request state with no age is worse than none, because it
+            # looks current — and this one came out of a cache file that
+            # nothing on this code path ever refreshes.
+            text += (f" {clean(review['state']).lower()}"
+                     f" ({review_age_text(review)})")
+        parts.append(text)
+    return " · ".join(parts)
+
+
+def review_age_text(review):
+    """`3h ago` / `5d ago, stale` — the age, and the word when it is old.
+
+    Never returns an empty string for a cache that has a state: read_review_
+    cache() in cairn-land.py already treats a stamp-less cache as absent, so a
+    `review` that reached here always has an age to print.
+    """
+    seconds = max(0, int(review.get("age_seconds") or 0))
+    for limit, unit, size in ((60, "s", 1), (3600, "m", 60),
+                              (86400, "h", 3600)):
+        if seconds < limit:
+            age = f"{seconds // size}{unit}"
+            break
+    else:
+        age = f"{seconds // 86400}d"
+    return f"{age} ago, stale" if review.get("stale") else f"{age} ago"
+
+
+def landing_spans(landed, style):
+    """The landing suffix as spans, with the glyph. Empty list = no suffix."""
+    text = landing_text(landed)
+    if not text:
+        return []
+    return [("  ", None), (style.g_land, SGR_DIM),
+            (" " + style.asciify(text), SGR_DIM)]
+
+
+def render_groups(data, width, max_rows, style):
+    """The grouped list: counts, then open milestone -> phase -> task.
+
+    Column widths are computed once over every row that will actually print,
+    so every title starts on the same cell whatever the id lengths are. The
+    prefix (indent + symbol + id/number) is fixed width; the body wraps into
+    what is left with wrap_spans(), and each continuation line is indented to
+    the body column. Nothing is truncated at any width — that is BOARD-03,
+    and it is why `truncate()` no longer appears on this path even though it
+    still serves the phase panel and the footer.
+
+    No count is printed on a group or phase row. A count is len(), and the
+    numbers are already spelled once at the top and once in the phase panel;
+    a third spelling is a third thing that can disagree, which is the reason
+    phase_groups() refused to store one in the first place.
+    """
+    rows = group_rows(data, max_rows)
+    lines = [render_spans(counts_parts(data, style), style)]
+    if not rows:
+        lines.append("")
+        lines.append(render_spans([(PHASE_INDENT + NO_WORK_TEXT, SGR_DIM)],
+                                  style))
+        lines.append("")
+        return lines
+
+    ids = [clean(str(r["issue"].get("id") or "?"))
+           for r in rows if r["kind"] == "issue"]
+    id_w = max((display_width(i) for i in ids), default=0)
+    num_w = max((len(str(r["number"])) for r in rows if r["kind"] == "phase"),
+                default=1)
+
+    for row in rows:
+        if row["kind"] == "group":
+            lines.append("")
+            lines.append(render_spans(
+                [(GROUP_INDENT + style.asciify(clean(row["label"])),
+                  SGR_BOLD)], style))
+            continue
+        if row["kind"] == "more":
+            lines.append(render_spans(
+                [(ISSUE_INDENT + f"+{row['count']} more", SGR_DIM)], style))
+            continue
+        if row["kind"] == "phase":
+            p = row["phase"]
+            glyph, sgr = stage_symbol("phase", p, style)
+            indent = PHASE_INDENT
+            prefix = [(indent, None), (glyph, sgr), (" ", None),
+                      (str(row["number"]).rjust(num_w), None), ("  ", None)]
+            body = [(style.asciify(clean(p.get("title") or "(untitled)")),
+                     None)]
+            # Same rule as the task row's own suffixes: it wraps, it is never
+            # dropped, and it only exists when the datum does.
+            body += landing_spans(p.get("landed"), style)
+        else:
+            iss = row["issue"]
+            glyph, sgr = stage_symbol(row["lane"], iss, style)
+            iid = clean(str(iss.get("id") or "?"))
+            indent = ISSUE_INDENT
+            prefix = [(indent, None), (glyph, sgr), (" ", None),
+                      (iid.ljust(id_w + len(iid) - display_width(iid)),
+                       SGR_BOLD if issue_priority(iss) <= 1 else None),
+                      ("  ", None)]
+            body = issue_body_spans(row["lane"], iss, style)
+        prefix_w = sum(display_width(t) for t, _ in prefix)
+        if width - prefix_w < NARROW_BODY:
+            # Too narrow to sit the body beside the id: the id keeps its own
+            # line and the body drops below it, hanging two cells past this
+            # row's own indent. Nothing is lost either way — these are the
+            # same bytes in a shape a 30-column terminal can actually read.
+            # The hang is deliberately 2 past the row indent and not the
+            # body column: at these widths the body column IS most of the
+            # line, so aligning to it would leave nowhere to wrap into.
+            lines.append(render_spans(prefix, style).rstrip())
+            hang = indent + "  "
+            hang_w = display_width(hang)
+            for cont in wrap_spans(body, width - hang_w):
+                lines.append(render_spans([(hang, None)] + cont,
+                                          style).rstrip())
+            continue
+        wrapped = wrap_spans(body, width - prefix_w)
+        lines.append(render_spans(prefix + wrapped[0], style).rstrip())
+        for cont in wrapped[1:]:
+            lines.append(render_spans([(" " * prefix_w, None)] + cont,
+                                      style).rstrip())
+    lines.append("")
     return lines
 
 
@@ -1725,16 +2902,24 @@ def meta_parts(data, style, include_done=True):
 
     The title comes from the shared phase model. `phase 10/12` alone says
     where you are on a count and nothing about what you are doing.
+
+    The milestone segment is milestone_label() since Phase 22 (BOARD-04): the
+    cycle the ROADMAP marks open, or `no open milestone` in words. It is
+    printed whenever there IS a roadmap position to speak of, and skipped
+    entirely when there is not — announcing "no open milestone" about a repo
+    with no roadmap at all answers a question nobody asked, and the
+    `(no roadmap position)` fallback below is already the right answer there.
     """
     parts = []
     phase = data["phase"]
-    if phase["active"] is not None and phase["total"]:
+    has_roadmap = phase["active"] is not None and phase["total"]
+    if has_roadmap:
         head = [(f"phase {phase['active']}/{phase['total']}", None)]
         if phase.get("title"):
             head.append((f" {style.asciify(phase['title'])}", SGR_DIM))
         parts.append(head)
-    if data["milestone"]:
-        parts.append([(data["milestone"], None)])
+    if has_roadmap or data.get("open_milestones"):
+        parts.append([(style.asciify(milestone_label(data)), None)])
     if include_done:
         parts.append([("done: ", None),
                       (str(data["counts"]["closed"]), SGR_GREEN)])
@@ -1754,6 +2939,110 @@ STATE_TABLE_FLOOR = 16       # enough for "x conflict -" (12 cells) plus a
                               # and unicode (1-cell ellipsis)
 RSCH_W, PLANS_W, ISSUES_W = 5, 6, 7
 VERIFY_W, WAITS_W, NEXT_W = 16, 7, 16   # 16: fits "needs-revision" (14) whole
+
+# The hard minimums, used only when the comfortable FLOORs above do not fit
+# (Phase 22, CairnGo-cdx). MEASURED 2026-08-06 against the real strings:
+# `not planned` is 11 cells and is the longest of the four state labels, so
+# 11 is where `state` stops before it starts cutting a word it could have
+# shown whole; 8 is what the `phase` column already gets at --width 100,
+# which makes it a value the board has always rendered rather than one
+# invented here.
+PHASE_TABLE_MIN = 8
+STATE_TABLE_MIN = 11
+
+# The optional columns, in VISUAL order (this is the order they print in),
+# each with its natural width and its floor.
+#
+# THE FLOOR RULE, and it is one rule: a column never shrinks below its own
+# HEADER. A column whose title renders as `issu…` is worse than a column that
+# is absent and named — the first lies about being there, the second says it
+# left. `verify` is the one floor above its header (6): `verified` and
+# `pending` are 8 and 7 cells, and a verdict column that cannot show its own
+# most common verdicts is not carrying information, it is carrying an
+# ellipsis.
+PANEL_COLUMNS = (("rsch", RSCH_W, 4), ("plans", PLANS_W, 5),
+                 ("issues", ISSUES_W, 6), ("verify", VERIFY_W, 8),
+                 ("waits", WAITS_W, 5))
+
+# SACRIFICE ORDER — shrink in this order, then drop in this order. Each
+# position has a reason, because an order without one is taste:
+#   waits   the same fact is spelled out in words in PURPOSE below
+#   rsch    a yes/— signal that rarely decides anything on its own
+#   verify  only ever speaks about a phase that already executed
+#   issues  \ the two that answer "how far has it got", kept longest
+#   plans   /
+# `#`, `phase`, `state` and `next` are the core and never leave: without them
+# the table answers neither "which phase" nor "what do I do with it".
+PANEL_SACRIFICE = ("waits", "rsch", "verify", "issues", "plans")
+# Cells the phase TITLE must keep before a `**Tracker:**` key is allowed to
+# reserve room beside it. 12 is a readable abbreviation ("Phase model…");
+# below it the key falls out and the title takes the whole column back.
+TRACKER_TITLE_FLOOR = 12
+
+
+def panel_note_lines(text, width, style):
+    """One dim, indented, WRAPPED note under the table.
+
+    Wrapped and not truncated, for a reason specific to what these notes say:
+    both of them are about something not fitting, and a message about not
+    fitting that itself runs off the edge is the exact joke CairnGo-cdx was.
+    `width - 2` is the two-cell indent every line of this section carries.
+    """
+    out = []
+    for chunk in textwrap.wrap(style.asciify(text), max(20, width - 2)) or [""]:
+        out.append(render_spans([("  ", None), (chunk, SGR_DIM)], style))
+    return out
+
+
+def panel_columns(width, num_w):
+    """Which optional columns the table can afford at `width`, and how wide.
+
+    Returns `(present, widths, dropped, available)`: the optional columns
+    still printing in visual order, their resolved widths, the names that had
+    to go, and the cells left over for `phase` + `state`. An `available`
+    below PHASE_TABLE_MIN + STATE_TABLE_MIN means not even the core fits and
+    the table must not print at all.
+
+    WHY THIS FUNCTION EXISTS (CairnGo-cdx). The six optional widths used to be
+    summed unconditionally, so the table had a FLOOR it silently exceeded:
+    MEASURED 2026-08-06, `76 + num_w - 1 + len(next)` cells — 90 in the test
+    fixture, 92 in this repository — meaning it overflowed at EVERY width from
+    30 to 89, with `phase` collapsed to a single `…` and the other six columns
+    not giving up one character. It was already a defect; Phase 22 made it
+    urgent, because PIPE-02 sends a flagless non-TTY run through this table at
+    80 columns.
+
+    The order is shrink-then-drop, both in PANEL_SACRIFICE order. Shrinking
+    first is what keeps a column on screen when it is one cell short of
+    fitting; dropping second is what stops a column from shrinking into an
+    ellipsis. A column that shrank does NOT grow back when a later column is
+    dropped: re-solving after every drop would be a better packing and a
+    worse contract, because the width a column ends up with would depend on
+    what happened to a column somewhere else.
+    """
+    widths = {n: w for n, w, _ in PANEL_COLUMNS}
+    floors = {n: f for n, _, f in PANEL_COLUMNS}
+    present = [n for n, _, _ in PANEL_COLUMNS]
+
+    def available():
+        # margin(2) + `#` + every present column + `next`, with a 2-cell
+        # gutter between each pair. Columns = 1 + 1 + 1 + len(present) + 1,
+        # so gutters = len(present) + 3.
+        return width - (2 + num_w + sum(widths[n] for n in present)
+                        + NEXT_W + 2 * (len(present) + 3))
+
+    need = PHASE_TABLE_MIN + STATE_TABLE_MIN
+    for name in PANEL_SACRIFICE:
+        if available() >= need:
+            break
+        widths[name] = max(floors[name], widths[name] - (need - available()))
+    dropped = []
+    for name in PANEL_SACRIFICE:
+        if available() >= need:
+            break
+        present.remove(name)
+        dropped.append(name)
+    return present, widths, dropped, available()
 
 
 def phase_panel_lines(data, width, style):
@@ -1782,11 +3071,28 @@ def phase_panel_lines(data, width, style):
     # carried entirely by `global_cmds`, computed below).
     num_w = max((len(str(p["number"])) for p in pending), default=1)
 
+    cols, col_w, dropped, available = panel_columns(width, num_w)
+    # The table prints only when the core still fits. PURPOSE below is NOT
+    # gated on this: it carries every pending phase, its number, its purpose
+    # and its routing reason, WRAPPED, at any width — which is why "print no
+    # table here" loses nothing, and would not be a legitimate answer for the
+    # grouped list above.
+    show_table = bool(pending) and available >= PHASE_TABLE_MIN + STATE_TABLE_MIN
+
     if pending:
         lines.append(render_spans(
             [("PENDING PHASES", SGR_BOLD),
              (f"  {len(pending)}", SGR_DIM)], style))
+    if pending and not show_table:
+        # It does not print a row wider than the board was asked for — that
+        # was CairnGo-cdx — and it does not print a mangled one either. It
+        # says how much room it needs and where the same facts still are.
+        short_by = PHASE_TABLE_MIN + STATE_TABLE_MIN - available
+        lines += panel_note_lines(
+            f"table needs {width + short_by} columns — "
+            f"see PURPOSE below, or --json", width, style)
 
+    if show_table:
         # Pass 1: gather each row's raw (untruncated) content. The `state`
         # column's width is only known once every row's real need is known
         # (a conflict/unknown verdict's marker+detail can run to ~70-80
@@ -1817,6 +3123,12 @@ def phase_panel_lines(data, width, style):
             rows.append({
                 "p": p, "state_raw": state_raw, "state_sgr": sgr,
                 "title": style.asciify(p["title"] or "(untitled)"),
+                # Rendered into the `phase` column below, never as a column
+                # of its own: a new column prints its header and its empty
+                # cells on EVERY board, which would move the committed
+                # reference renders for phases that carry no tracker at all.
+                "tracker": tracker_key(p["tracker"]) if p.get("tracker")
+                else None,
                 "rsch": phase_research_text(p),
                 "plans": phase_progress_text(p) or "—",
                 "issues": phase_issues_text(p),
@@ -1831,60 +3143,84 @@ def phase_panel_lines(data, width, style):
         # need. This is what lets a plain "not planned" render at its full
         # width while a ~76-cell conflict detail also renders whole at a
         # wide terminal, from the same formula, with no special-casing.
-        fixed = (2 + num_w + 2 + 2 + 2  # margin, "#", gutters around phase/state
-                 + RSCH_W + 2 + PLANS_W + 2 + ISSUES_W + 2 + VERIFY_W + 2
-                 + WAITS_W + 2 + NEXT_W)
-        available = max(0, width - fixed)
+        #
+        # `available` now comes from panel_columns() (Phase 22), which has
+        # already shrunk or dropped whatever the width could not hold — so
+        # the two FLOORs below still describe comfort at a wide terminal, and
+        # the MINs they fall back to describe survival at a narrow one.
         natural_state = max((display_width(r["state_raw"]) for r in rows),
                             default=STATE_TABLE_FLOOR)
-        cap = max(STATE_TABLE_FLOOR, available - PHASE_TABLE_FLOOR)
-        state_w = max(STATE_TABLE_FLOOR, min(natural_state, cap))
-        phase_w = max(1, available - state_w)
+        state_floor = min(STATE_TABLE_FLOOR,
+                          max(STATE_TABLE_MIN, available - PHASE_TABLE_MIN))
+        cap = max(state_floor, available - PHASE_TABLE_FLOOR)
+        state_w = max(state_floor, min(natural_state, cap))
+        phase_w = max(PHASE_TABLE_MIN, available - state_w)
 
         # Header sub-row, built from the SAME width variables as the data
-        # rows below, so header and data always line up.
-        lines.append(render_spans([
+        # rows below, so header and data always line up — including which
+        # optional columns exist at all.
+        header = [
             ("  ", None), ("#".rjust(num_w), SGR_DIM), ("  ", None),
             ("phase".ljust(phase_w), SGR_DIM), ("  ", None),
-            ("state".ljust(state_w), SGR_DIM), ("  ", None),
-            ("rsch".ljust(RSCH_W), SGR_DIM), ("  ", None),
-            ("plans".ljust(PLANS_W), SGR_DIM), ("  ", None),
-            ("issues".ljust(ISSUES_W), SGR_DIM), ("  ", None),
-            ("verify".ljust(VERIFY_W), SGR_DIM), ("  ", None),
-            ("waits".ljust(WAITS_W), SGR_DIM), ("  ", None),
-            ("next", SGR_DIM),
-        ], style))
+            ("state".ljust(state_w), SGR_DIM),
+        ]
+        for name in cols:
+            header += [("  ", None), (name.ljust(col_w[name]), SGR_DIM)]
+        header += [("  ", None), ("next", SGR_DIM)]
+        lines.append(render_spans(header, style))
 
         for r in rows:
             p = r["p"]
             state_text = style.asciify(
                 truncate(r["state_raw"], state_w, style.ell))
-            lines.append(render_spans([
+            # The tracker key rides beside the title, which is what already
+            # identifies the phase. Unlike make_cell()'s card suffix, here
+            # the key gets its budget RESERVED and the title truncates around
+            # it, because MEASURED: `phase` is a squeezed column (8 cells at
+            # --width 100, 50 at 140), the title is already truncated in it
+            # at every ordinary terminal size, and a suffix that only fits
+            # when nothing else needs the room shows up above ~160 columns
+            # and nowhere else — a feature nobody would ever see. The key is
+            # short and fixed; the title is long and already cut. Reserving
+            # for the short one costs a few characters of a name that is
+            # abbreviated anyway.
+            #
+            # The floor is what stops that from going absurd: below
+            # TRACKER_TITLE_FLOOR cells left for the title, the key falls out
+            # instead, so a narrow board never renders `Ph…  ⧉ DTP-777`.
+            phase_cell = r["title"]
+            if r["tracker"]:
+                key = f"  {style.g_card} {r['tracker']}"
+                key_w = display_width(key)
+                if phase_w - key_w >= TRACKER_TITLE_FLOOR:
+                    phase_cell = truncate(r["title"], phase_w - key_w,
+                                          style.ell) + key
+            spans = [
                 ("  ", None),
                 (str(p["number"]).rjust(num_w), None),
                 ("  ", None),
-                (truncate(r["title"], phase_w, style.ell).ljust(phase_w),
+                (truncate(phase_cell, phase_w, style.ell).ljust(phase_w),
                  None),
                 ("  ", None),
                 (state_text.ljust(state_w), r["state_sgr"]),
-                ("  ", None),
-                (truncate(r["rsch"], RSCH_W, style.ell).ljust(RSCH_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["plans"], PLANS_W, style.ell).ljust(PLANS_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["issues"], ISSUES_W, style.ell).ljust(ISSUES_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["verify"], VERIFY_W, style.ell).ljust(VERIFY_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["waits"], WAITS_W, style.ell).ljust(WAITS_W),
-                 SGR_DIM),
-                ("  ", None),
-                (truncate(r["next"], NEXT_W, style.ell), r["next_sgr"]),
-            ], style))
+            ]
+            for name in cols:
+                w = col_w[name]
+                spans += [("  ", None),
+                          (truncate(r[name], w, style.ell).ljust(w), SGR_DIM)]
+            spans += [("  ", None),
+                      (truncate(r["next"], NEXT_W, style.ell), r["next_sgr"])]
+            lines.append(render_spans(spans, style))
+
+        if dropped:
+            # A column that vanished without a word is the same class of lie
+            # as a title cut without an ellipsis. Name them, and say where
+            # the same facts are still whole. Through panel_note_lines(),
+            # because a message ABOUT not fitting that does not itself fit is
+            # the joke this whole plan exists to stop telling.
+            lines += panel_note_lines(
+                f"hidden at this width: {', '.join(dropped)} — widen, or "
+                "/cairn:status --json", width, style)
 
         if n_blocks or n_informs:
             # The itemized per-source detail lives in /cairn:doctor and
@@ -1902,7 +3238,13 @@ def phase_panel_lines(data, width, style):
                               SGR_YELLOW))
             spans.append((style.asciify(" — /cairn:doctor for the itemized "
                                         "report"), SGR_DIM))
-            lines.append(render_spans(spans, style))
+            # Wrapped, not printed flat: MEASURED 2026-08-06 this line is 52
+            # cells and ran off a --width 50 board — the same overflow as
+            # CairnGo-cdx, in the same section, on a line nobody had counted.
+            # wrap_spans keeps the red/yellow markers coloured across the
+            # break; textwrap would flatten them to plain text.
+            for i, cont in enumerate(wrap_spans(spans[1:], max(20, width - 2))):
+                lines.append(render_spans([("  ", None)] + cont, style))
 
     # PURPOSE: the routing reason moves here from the deleted NEXT COMMANDS
     # section (D-02). This is the ONE place text wraps instead of truncating
@@ -1921,7 +3263,13 @@ def phase_panel_lines(data, width, style):
     if pending or global_cmds:
         lines.append("")
         lines.append(render_spans([("PURPOSE", SGR_BOLD)], style))
-        wrap_w = max(30, width - num_w - 4)
+        # `max(30, ...)` until 2026-08-06, which overrode the width it was
+        # given: MEASURED at --width 30, PURPOSE wrapped its text at 30 cells
+        # and then indented it by num_w + 4, producing 35-36 cell lines on a
+        # 30-cell board. Same defect as CairnGo-cdx, on the block directly
+        # under the table. The floor is now low enough to never fight the
+        # subtraction, and the subtraction is what makes the indent fit.
+        wrap_w = max(10, width - num_w - 4)
         for p in pending:
             text = phase_purpose_text(p)
             reason = reason_by_phase.get(p["number"])
@@ -1951,8 +3299,10 @@ def phase_panel_lines(data, width, style):
         lines.append("")
         # Wrapped rather than truncated: this one is a sentence, and a
         # sentence cut at the terminal edge loses the half that qualifies it.
+        # Same correction as PURPOSE above: the floor no longer overrides the
+        # width, so the two-cell indent stays inside the board.
         for i, chunk in enumerate(textwrap.wrap(style.asciify(par["note"]),
-                                                max(30, width - 2))):
+                                                max(10, width - 2))):
             lines.append(render_spans(
                 [("  " if i else "  ", None), (chunk, SGR_DIM)], style))
     return lines
@@ -1985,6 +3335,36 @@ def lease_line_text(data):
             f"{clean(lease.get('acquired_at') or '')}")
 
 
+def milestone_label(data):
+    """What the HUMAN surfaces call the current milestone (BOARD-04).
+
+    The open cycles of `data["open_milestones"]`, which come from the marker
+    on the ROADMAP's own `## Milestones` line (`🚧` / `(in progress)`) and
+    never from STATE.md's `milestone:` — that pointer keeps naming the
+    archived cycle, which is the measured defect (2026-08-03, ten minutes
+    after v1.4 was archived, the board still read `v1.4`).
+
+    One open cycle: its label, the SAME string the group row prints, so the
+    header and the list cannot spell the same milestone two ways. More than
+    one: the first plus ` +N`, because omitting the others in silence is the
+    thing this function exists to stop. None: `no open milestone`, in words —
+    BOARD-04 asks the board to say so, not to fall quiet and let the reader
+    assume.
+
+    One read, shared by the terminal footer, --brief and the HTML foot, in
+    the line of lease_line_text() (13-01, D-04). `--plain` deliberately does
+    NOT use it: it carries data["milestone"] as it always has, because
+    PIPE-01 freezes the machine contract byte for byte.
+    """
+    open_ms = data.get("open_milestones") or []
+    if not open_ms:
+        return "no open milestone"
+    label = clean(open_ms[0]["label"] or open_ms[0]["key"] or "")
+    if len(open_ms) > 1:
+        return f"{label} +{len(open_ms) - 1}"
+    return label
+
+
 def footer_lines(data, width, style):
     lines = [render_spans(meta_parts(data, style), style)]
     nxt = style.asciify(data["next"]["text"])
@@ -2007,33 +3387,6 @@ def footer_lines(data, width, style):
             [("note: ", SGR_DIM), (style.asciify(data["note"]), None)],
             style))
     return lines
-
-
-def render_stacked(data, width, max_rows, style):
-    """Lanes stacked vertically for narrow terminals (>= 40 cols)."""
-    lines = []
-    for (name, sgr), items in zip(LANES, data["_lanes"]):
-        lines.append(render_spans(
-            [(f"{name} ({len(items)})", sgr)], style))
-        for iss in items[:max_rows]:
-            cell = make_cell(name, iss, width - 2, style)
-            lines.append("  " + render_spans(cell, style).rstrip())
-        extra = len(items) - max_rows
-        if extra > 0:
-            lines.append("  " + render_spans([(f"+{extra} more", SGR_DIM)],
-                                             style))
-        lines.append("")
-    return lines + footer_lines(data, width, style)
-
-
-def render_raw(data, style):
-    """Bare `LANE  id  title` list for very narrow terminals (< 40 cols)."""
-    lines = []
-    for (name, _), items in zip(LANES, data["_lanes"]):
-        for iss in items:
-            lines.append(f"{name}  {clean(iss.get('id', '?'))}  "
-                         f"{clean(iss.get('title', ''))}")
-    return lines + footer_lines(data, 80, style)
 
 
 def render_plain(data):
@@ -2073,7 +3426,6 @@ def render_plain(data):
 
 
 def render_brief(data, style):
-    c = data["counts"]
     head = render_spans([("[cairn-status] ", None)] +
                         meta_parts(data, style, include_done=False), style)
     if data["sync"]["configured"] and data["sync"]["stale"]:
@@ -2086,13 +3438,9 @@ def render_brief(data, style):
                   else "stale phases")
         head += render_spans([(style.sep, SGR_DIM), (marker, SGR_RED)],
                              style)
-    counts = render_spans(
-        [("ready ", None), (str(c["ready"]), None), (style.sep, SGR_DIM),
-         ("doing ", None), (str(c["doing"]), SGR_YELLOW),
-         (style.sep, SGR_DIM),
-         ("blocked ", None), (str(c["blocked"]), SGR_RED),
-         (style.sep, SGR_DIM),
-         ("done ", None), (str(c["closed"]), SGR_GREEN)], style)
+    # The same spans the grouped list prints at its top — one spelling of the
+    # four numbers, shared, so the two surfaces cannot disagree.
+    counts = render_spans(counts_parts(data, style), style)
     nxt = render_spans([(style.g_next, SGR_GREEN), (" next: ", SGR_BOLD),
                         (style.asciify(data["next"]["text"]), None)], style)
     return [head, counts, nxt]
@@ -2591,10 +3939,14 @@ def html_band(data):
 def html_head(data):
     phase = data["phase"]
     bits = []
-    if data["milestone"]:
+    if phase["active"] is not None and phase["total"] or data.get(
+            "open_milestones"):
         # A milestone is a name, so it is set in the page's own voice. Mono
         # is kept for the things that are actually data: the phase numbers.
-        bits.append(f'<span class="m">{esc(data["milestone"])}</span>')
+        # milestone_label() since Phase 22 (BOARD-04) — the third human
+        # surface reading the one spelling, so the page can never announce a
+        # cycle the terminal already stopped naming.
+        bits.append(f'<span class="m">{esc(milestone_label(data))}</span>')
     if phase["active"] is not None and phase["total"]:
         bits.append(f'phase <span class="n">{esc(phase["active"])}</span> of '
                     f'<span class="n">{phase["total"]}</span>')
@@ -3000,7 +4352,14 @@ def main():
     # ONE phase model, built once. Every surface below renders from this list
     # rather than re-deriving what it needs, so the terminal board, --json and
     # the HTML page cannot describe the same phase differently.
-    phases = phase_model(planning_dir, ready + doing + blocked + closed, bd_ok=bd_ok)
+    # ONE landing report per render (Phase 30, PR-01), read before the model
+    # and handed to everything that renders from it. Fetched here rather than
+    # inside phase_model() so the phase rows and the task rows below are
+    # answering out of the SAME dict — a second read of git is a second thing
+    # that can describe this repository differently.
+    landing = fetch_landing(root, planning_dir)
+    phases = phase_model(planning_dir, ready + doing + blocked + closed,
+                         bd_ok=bd_ok, landing=landing)
     all_phases, done_phases = roadmap_phases(planning_dir, phases)
     # Cross-check (docstring step 4b): open issues whose phase labels are
     # all roadmap-complete keep their lane but get flagged. _stale drives
@@ -3017,8 +4376,18 @@ def main():
         note = (f"{len(stale_ids)} open issue(s) belong to roadmap-complete "
                 "phases. run /cairn:doctor --close-completed")
     fm = state_frontmatter(planning_dir)
+    # DELIBERATELY UNCHANGED (Phase 22, BOARD-04). This still reads STATE.md
+    # first, which is exactly the source that keeps pointing at the archived
+    # cycle — and render_plain() prints it verbatim on its `MILESTONE\t...`
+    # row. PIPE-01 forbids moving the TSV by one byte, so the machine contract
+    # keeps publishing what it always published. The human surfaces stopped
+    # following it: see open_milestones below and milestone_label(). The
+    # tension is real and is tracked as an issue, not fixed in silence here.
     milestone = fm["milestone"] or roadmap_milestone(planning_dir)
     milestone = clean(milestone) if milestone else None
+    # ONE read of the milestone list, shared with phase_groups() below: two
+    # reads of the same file are two things that can disagree.
+    milestones = roadmap_milestones(planning_dir)
     active_phase = normalize_phase(fm["active_phase"])
     nxt = synthesize_next(ready, doing, milestone, active_phase,
                           fm["next_action"], done_phases)
@@ -3028,6 +4397,12 @@ def main():
     # read shared by the terminal footer, --plain and the HTML foot.
     lease = fetch_lease_status(root, active_phase, bd_ok)
 
+    # The per-task landing, written ONCE onto the raw issue (underscore key,
+    # exactly like `_stale` above) so the human render and trim_issue() below
+    # answer out of the same computed value instead of each doing its own.
+    for iss in ready + doing + blocked:
+        iss["_landed"] = issue_landing(iss, landing)
+
     data = {
         "ready": [trim_issue(i) for i in ready],
         "doing": [trim_issue(i) for i in doing],
@@ -3035,6 +4410,16 @@ def main():
         "counts": {"ready": len(ready), "doing": len(doing),
                    "blocked": len(blocked), "closed": n_closed},
         "milestone": milestone,
+        # Additive (Phase 22, BOARD-04): the cycles the ROADMAP itself marks
+        # open, in roadmap order — the same source phase_groups() reads, and
+        # never STATE.md. A LIST, not a scalar: a scalar would force this to
+        # pick one in silence when a roadmap declares two open cycles, and
+        # picking in silence is the family of defect BOARD-04 exists to end.
+        # Empty means the roadmap declares no open cycle, which is a fact the
+        # board states out loud rather than papering over — see
+        # milestone_label().
+        "open_milestones": [{"key": ms["key"], "label": ms["label"]}
+                            for ms in milestones if ms["open"]],
         "phase": {"active": active_phase,
                   "total": len(all_phases) or None,
                   "completed": len(done_phases),
@@ -3048,10 +4433,21 @@ def main():
         # What can proceed at the same time — the input for splitting work
         # across agents, and for /cairn:autonomous to state the order it chose.
         "parallelism": parallelism(phases),
+        # The same model seen as a hierarchy: open milestone → phase → issue,
+        # plus one last group for work no emitted group claims.
+        "groups": phase_groups(phases, milestones, ready + doing + blocked),
         "next": nxt,
         "sync": {k: sync[k] for k in ("configured", "stale", "detail",
                                       "last_pull")},
         "stale_complete": stale_ids,
+        # Which branch "delivered" means in this repository, where that answer
+        # came from (`config` after somebody confirmed it, `detected` before,
+        # `none` when there is nothing to compare against), and whether the
+        # report could be produced at all. Additive and always present: a
+        # consumer reads `landing.control.source` to know whether it is
+        # looking at a decision or at a guess, without having to ask a second
+        # command. `null` only when cairn-land.py itself could not be run.
+        "landing": landing,
         "note": note,
         "lease": lease,
         # Underscore keys are renderer-private: the --json summary filters
@@ -3091,28 +4487,36 @@ def main():
     style = Style(opts)
     if opts["brief"]:
         lines = render_brief(data, style)
-    elif opts["plain"] or (opts["width"] is None and
-                           opts["color"] != "always" and
-                           not sys.stdout.isatty()):
-        # Non-TTY without flags gets the machine format automatically (the
-        # gh model): zero escape bytes, nothing truncated. --color=always
-        # opts into the board renderer like --width does — the flag must
-        # never be silently ignored.
+    elif opts["plain"]:
+        # THE FLAG, AND ONLY THE FLAG (Phase 22, PIPE-02). Until 2026-08-06
+        # this branch also fired whenever stdout was not a tty, so --plain did
+        # two incompatible jobs: the TSV scripts consume, and the automatic
+        # fallback for anyone without a terminal. That is how the machine
+        # format ended up on the screen of someone who only wanted to look at
+        # the board.
+        #
+        # A non-TTY run now takes the SAME human branch a terminal takes, and
+        # the two differences are decided where they always were: Style turns
+        # color off because isatty() is False (the precedence at the end of
+        # _color_enabled), and terminal_cols() returns 80 (MEASURED
+        # 2026-08-06: shutil.get_terminal_size falls back to (80, 24) with
+        # stdout on a pipe and no $COLUMNS) — the same width a terminal
+        # without $COLUMNS gets. No condition of the environment selects the
+        # machine format any more.
+        #
+        # The coupling was a deliberate decision once: it kept box-drawing out
+        # of pipes. Phase 21 removed the last box-drawing glyph from this
+        # file, so the reason died before this line did.
         lines = render_plain(data)
     else:
+        # ONE human renderer, every width. The two width degrades this branch
+        # used to pick between existed because three columns do not fit in a
+        # narrow terminal; a single grouped list fits everywhere and simply
+        # wraps sooner.
         cols = opts["width"] if opts["width"] is not None else terminal_cols()
-        if cols < RAW_BELOW:
-            lines = render_raw(data, style)
-        elif cols < STACK_BELOW:
-            lines = render_stacked(data, cols, opts["max_rows"], style)
-        else:
-            inner = max(MIN_INNER,
-                        min(MAX_INNER, (cols - (N_LANES + 1)) // N_LANES - 2))
-            counts = [len(ready), len(doing), len(blocked)]
-            lines = render_board(data["_lanes"], counts, inner,
-                                 opts["max_rows"], style)
-            lines += footer_lines(data, cols, style)
-            lines += phase_panel_lines(data, cols, style)
+        lines = render_groups(data, cols, opts["max_rows"], style)
+        lines += footer_lines(data, cols, style)
+        lines += phase_panel_lines(data, cols, style)
     out = "\n".join(lines)
     try:
         print(out)

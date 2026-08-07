@@ -24,9 +24,12 @@
 #   - a failed apply step gets one retry, lands in the journal with status
 #     "failed" (directed replay on the next run), and the summary lists
 #     the failed ids/kinds;
-#   - detect --json sniffs Jira keys from commits/branches behind a
-#     frequency guard (>= 3 of the SAME prefix) and a local REQ-prefix
-#     exclusion, plus env JIRA_* / atlassian.net remote signals.
+#   - detect --json sniffs Jira keys from commits/branches behind three
+#     guards — a frequency guard (>= 3 of the SAME prefix), a REQ-prefix
+#     denylist that spans the ACTIVE requirements AND the archived
+#     milestone ones, and a weak-signal guard where `git-log` alone never
+#     flips `detected` — plus env JIRA_* / atlassian.net remote / declared
+#     Atlassian MCP signals.
 #
 # Assertion style note: substring checks use grep -qF and exact checks use
 # `[ ]` (a failing `[[ ]]` mid-test does not fail a bats test on this bash).
@@ -815,4 +818,96 @@ PLANEOF
   run MIGRATE detect --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.external.jira.prefixes | join(",")' "ABC,ZED"
+}
+
+# HOME is pinned to an empty dir in the tests below because `mcp` is now a
+# detection signal read from ~/.claude.json. Without the pin, a contributor
+# who happens to have an Atlassian MCP server declared would flip `detected`
+# and fail a test about something else entirely.
+
+@test "detect denylists requirement prefixes from ARCHIVED milestones too" {
+  make_tmp_repo
+  make_gsd_fixture "$CAIRN_TMP_REPO"
+
+  # An archived milestone written in the `### FOO-01:` heading shape — the
+  # shape parse_requirements_md's REQ_ITEM does NOT match (it only matches
+  # `- **ID**: title`). Building the denylist through that parser instead of
+  # a raw JIRA_KEY regex lets FOO survive, and building it from the ACTIVE
+  # requirements alone lets it survive too. Both are how this repo came to
+  # report nine of its own requirement prefixes as a Jira project.
+  mkdir -p .planning/milestones
+  cat > .planning/milestones/v1.0-REQUIREMENTS.md <<'EOF'
+# Requirements: v1.0 (archived)
+
+### FOO-01: the archived requirement
+### FOO-02: its neighbour
+EOF
+
+  git commit -q --allow-empty -m "FOO-123: shipped back in v1.0"
+  git commit -q --allow-empty -m "FOO-124: the follow-up"
+  git commit -q --allow-empty -m "FOO-125: and one more"
+  # branches too, so the exclusion is what keeps it out — not the weak-signal
+  # guard doing the work by accident
+  git branch FOO-126-fix
+  git branch FOO-127-fix
+  git branch FOO-128-fix
+
+  run env HOME="$(make_pinned_home "$BATS_TEST_TMPDIR/empty-home")" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-migrate.sh" detect --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.external.jira.prefixes | index("FOO") // "absent"' "absent"
+  assert_json_eq "$output" '.external.jira.detected' "false"
+}
+
+@test "a key only in commit messages is reported but never detects" {
+  make_tmp_repo
+  make_gsd_fixture "$CAIRN_TMP_REPO"
+
+  # Measured on this repo (29-CONTEXT.md's signal table): a key in a commit
+  # message is 21/21 false positives, 100%. So the prefix is reported — it is
+  # information — and `detected` stays false. Delete the weak-signal guard and
+  # this goes true, which was literally this repository's state.
+  git commit -q --allow-empty -m "DTP-101: wire the login flow"
+  git commit -q --allow-empty -m "DTP-102: and its tests"
+  git commit -q --allow-empty -m "DTP-103 hotfix"
+
+  run env HOME="$(make_pinned_home "$BATS_TEST_TMPDIR/empty-home")" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-migrate.sh" detect --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.external.jira.prefixes | join(",")' "DTP"
+  assert_json_eq "$output" '.external.jira.signals | join(",")' "git-log"
+  assert_json_eq "$output" '.external.jira.detected' "false"
+
+  # ...and the evidence the question will show comes back with it: the
+  # commit SUBJECTS the key was found in, capped at three, in `git log`
+  # order — newest first, which is the useful end for "is this repo using
+  # Jira today". The literal below is the newest of the three on purpose.
+  assert_json_eq "$output" '.external.jira.samples.DTP.commit_count' "3"
+  assert_json_eq "$output" \
+    '.external.jira.samples.DTP.commits[0]' "DTP-103 hotfix"
+  assert_json_eq "$output" '.external.jira.samples.DTP.commits | length' "3"
+  assert_json_eq "$output" '.external.jira.samples.DTP.branch_count' "0"
+}
+
+@test "the same key in a branch name is the signal that does detect" {
+  make_tmp_repo
+  make_gsd_fixture "$CAIRN_TMP_REPO"
+
+  # The mirror of the test above, and the reason the weak-signal guard names
+  # git-log specifically instead of demanding two signals: a branch name is
+  # the clean channel (0 matches in 25 branches here), so one branch flips it.
+  git commit -q --allow-empty -m "DTP-101: wire the login flow"
+  git commit -q --allow-empty -m "DTP-102: and its tests"
+  git commit -q --allow-empty -m "DTP-103 hotfix"
+  git branch DTP-104-refresh-tokens
+
+  run env HOME="$(make_pinned_home "$BATS_TEST_TMPDIR/empty-home")" \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-migrate.sh" detect --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.external.jira.detected' "true"
+  assert_json_eq "$output" \
+    '.external.jira.signals | contains(["git-log", "branches"])' "true"
+  assert_json_eq "$output" \
+    '.external.jira.samples.DTP.branches[0]' "DTP-104-refresh-tokens"
 }

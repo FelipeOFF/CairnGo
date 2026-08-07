@@ -58,12 +58,40 @@ jobs:
       - name: Install bats-core
         # sudo: the runner user cannot mkdir under /usr/local/share/man,
         # which npm needs for the package's man pages (EACCES otherwise).
-        run: sudo npm install -g bats
+        #
+        # GNU parallel is what `bats --jobs` needs, and its absence is NOT a
+        # silent degradation — measured on bats 1.14.0 with parallel off PATH:
+        #   bats-exec-suite: line 323: parallel: command not found
+        #   # bats warning: Executed 0 instead of expected 2 tests
+        #   exit 1
+        # It runs ZERO tests and fails loudly, so a broken install here turns CI
+        # red rather than passing a suite that never ran. Installing it is still
+        # required; the failure mode just is not the quiet one.
+        # Nearly every test here builds a throwaway git repo and
+        # a bd database, so the suite is dominated by per-test setup and splits
+        # across cores well. Measured locally: tests/cairn-map.bats 64s serial
+        # -> 33s at -j 6.
+        run: |
+          sudo npm install -g bats
+          sudo apt-get update -qq && sudo apt-get install -y -qq parallel
 
       - name: Lint Python scripts
         run: python3 -m py_compile cairn/scripts/*.py cairn/adapters/*.py cairn/capability/scripts/*.py benchmarks/scripts/*.py
 
       - name: Run tests
+        # One door, here and locally: cairn-test.sh resolves the job count,
+        # checks what `bats -j` actually needs BEFORE composing the command,
+        # and passes bats' exit code through untranslated (a runner that
+        # swallowed it would paint this job green over a red suite).
+        #
+        # --jobs 4 stays explicit: GitHub's standard runner has 4 cores, and a
+        # job count above the core count buys nothing here because the
+        # bottleneck is per-test `git init` and `bd init`, not CPU.
+        #
+        # `parallel --version` stays too. It is what makes the log say which
+        # of the two paths this run took: with it present the composed command
+        # carries `-j 4`, without it the runner drops the flag and says so.
         run: |
           bd version
-          bats tests/
+          parallel --version | head -1
+          bash cairn/scripts/cairn-test.sh --jobs 4 tests/

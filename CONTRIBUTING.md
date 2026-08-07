@@ -28,12 +28,28 @@
 ## Tests
 
 ```bash
-bats tests/
+bash cairn/scripts/cairn-test.sh          # the runner
+bats tests/                               # still works, always will
 ```
+
+The runner does two things `bats tests/` does not: it picks the job count
+(`--jobs N`, else `test.jobs` in `.cairn/config.json`, else your core count),
+and it checks what `bats -j` actually needs *before* composing the command —
+dropping `-j` and telling you why when a prerequisite is missing. It is
+convenience, never a gate: `bats tests/` is the same suite and stays
+supported. `cairn-test.sh --print-command` prints the exact command it would
+run, and runs nothing.
 
 - Requires [bats-core](https://github.com/bats-core/bats-core), `jq`, and,
   for the integration tests, a real `bd` binary (`brew install beads`).
   Tests that need `bd` skip cleanly when it is missing.
+- **Optional:** GNU `parallel` (`brew install parallel` /
+  `apt-get install parallel`). Without it the suite runs serial —
+  `tests/cairn-map.bats` alone is 64s serial against 33s at `-j 6`. Without
+  it, `bats -j` does **not** fall back to serial; it runs zero tests and
+  exits 1, which is why the runner removes the flag rather than passing it
+  through. `cairn-doctor.sh` reports its absence as a warning, never a
+  failure.
 - The seam: tests invoke scripts by their CLI against disposable fixture
   repos (see `tests/helpers.bash` — `make_gsd_fixture`, `make_bd_fixture`)
   and assert on files, exit codes and `bd list --json`. Never test script

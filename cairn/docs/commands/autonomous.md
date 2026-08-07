@@ -44,12 +44,14 @@ loop, so every phase also passes through the full bd bookkeeping — claim →
    live holder leaves the batch and the run continues). *Execute* one subagent
    per phase concurrently — each handed its worktree path and branch from
    `prepare`'s own output, told to run `/cairn:work N` and `/cairn:verify N`
-   there, forbidden to touch the three planning files, and told to commit on
-   its branch without merging or pushing. *Reconcile, merge, mark, clean up*
+   there, forbidden to touch the three planning files, told to commit on
+   its branch without merging or pushing, and told which
+   `response_language` to write its user-facing output in — also copied from
+   `prepare`'s output rather than remembered. *Reconcile, merge, mark, clean up*
    in the main checkout: `cairn-parallel.sh reconcile --json` first (exit 6
    stops; `planning_writes` is shown even at exit 0), then one plain
-   `git merge --no-ff` per branch, then the completion marks for every phase
-   applied together, then `cairn-parallel.sh cleanup --apply`.
+   `git merge --no-ff` per branch, then one `cairn-bookkeep.sh close <N>
+   --apply` per merged phase, then `cairn-parallel.sh cleanup --apply`.
 4. **Per phase, once merged:** the checkpoint runs in the main checkout —
    `cairn-doctor.sh` plus `bd list -l m-<milestone>,phase-N --all` showing no
    issue with a status other than `closed`, the same semantics the ship gate
@@ -108,8 +110,9 @@ success.
 - `.beads/` — claims, status transitions and closes for every phase issue,
   plus the per-phase lease taken by `cairn-parallel.sh prepare`
 - `ROADMAP.md` / `STATE.md` / `REQUIREMENTS.md` — phase completion state, via
-  GSD; in a parallel run these are written **only** in the main checkout, after
-  the merges, for every phase of the batch at once
+  `cairn-bookkeep.sh close <N> --apply` (see `docs/commands/bookkeep.md`), one
+  call per merged phase; in a parallel run these are written **only** in the
+  main checkout, after the merges
 - `../<repo>-phase-<N>/` — one sibling worktree per parallel phase, on branch
   `phase/<N>-<slug>`; created by `prepare` and removed by `cleanup --apply`
   once clean and wholly merged

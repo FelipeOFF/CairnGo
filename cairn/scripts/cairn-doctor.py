@@ -12,12 +12,59 @@ Usage:
                     [--close-completed] [--link-refs]
                     [--apply-reconciliation N]
 
-Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
+Checks (each reported as {id, status: ok|not-applicable|warn|fail, detail,
+items[]}, plus `scope` when and only when the status is not-applicable):
+
+THE FOURTH STATUS, `not-applicable` (phase 23, VOID-01). It says the check had
+nothing to check — as opposed to `ok`, which says it compared something and
+found it consistent. The word is not new: four detail strings already wrote
+"not applicable" in prose while wearing `ok`, and this only moves it into the
+field tools read.
+
+It carries a `scope`, because two very different absences were wearing one
+word. MEASURED (2026-08-05), and the reason the split exists: the suite's own
+healthy fixture is a USER's repo, with no cairn manifests, so three checks are
+absent there by construction. Making every absence mean "incomplete" would
+have handed every user repo a permanent false red — the same defect as the
+false green, mirrored.
+
+  out-of-scope  the input will never exist for this class of repo and nothing
+                is wrong (cairn's own manifests in a repo that is not cairn).
+                Permanent, ordinary, and it leaves the report complete.
+  no-input      the input SHOULD exist given what the repo already has, so the
+                absence is a gap someone can close (a STATE.md present but
+                carrying no active_phase; a ROADMAP.md present but listing no
+                phase). This one, and only this one, clears the top-level `ok`.
+
+ASSIGNMENT IS A WRITTEN DECISION, NOT A MEASUREMENT: each branch's family is
+chosen by the rule above and recorded at the branch. What WAS measured is the
+symbol: `⊘` (U+2298) reports east_asian_width "N", one column even under a CJK
+locale, checked with unicodedata and asserted by the suite — never eyeballed.
+`◌` (U+25CC) was rejected on purpose: it is already a step symbol on the
+status board, and reusing it would collide two vocabularies.
+
+COUNTING. The footer counts one bucket per word of the vocabulary, and the
+buckets are SYMBOL's own keys, so a status with no symbol has nowhere to be
+counted and die()s instead of landing in the success bucket. Nothing is
+derived by subtraction — that shape is exactly how a fourth status would have
+arrived pre-approved. The four counters sum to the number of registered
+checks, always.
+
+The top-level keys that carry the verdict: `counts` (the four numbers),
+`failed` (the exact mirror of the exit code) and `ok` (which also answers "did
+every check inside the doctor's remit receive its input"). "Something failed"
+and "something never ran" are different questions and get different keys.
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — sixteen
-                        checks in total.
+                        version output -> WARN. Runs first — twenty-two
+                        checks in total. (This line read `eighteen` while
+                        nineteen were registered, from phase 24 until
+                        phase 30 measured it: a hand-maintained count in
+                        prose is the fifth one this repository has caught
+                        going stale. tests/cairn-doctor.bats asserts the
+                        real number in two places, and both are edited
+                        together or the canary there says why.)
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
                         metadata.gsd.req matches, scoped to the phase's
@@ -25,15 +72,45 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         (issues from other milestones are ignored;
                         m-*-less legacy issues count, same semantics as
                         cairn-gate). Missing -> FAIL.
+                        WHERE IT STOPS, measured 2026-08-04: it can only
+                        count the ids it manages to READ off a phase's
+                        '**Requirements**:' line, so in this repo it
+                        reported `ok :: 29 requirement(s) mapped to
+                        issues` against 35 active requirements —
+                        ROADMAP.md:400 reads '**Requirements**: AUTO-01 …
+                        AUTO-08' and an ellipsis is prose, not a
+                        separator, so six ids never entered the count.
+                        Not a mapping bug: the limit of the source it
+                        reads, and exactly the limit check 17
+                        (req-ledger) covers.
+                        NO '**Requirements**:' LINE ANYWHERE (phase 23 /
+                        VOID-02) -> NOT-APPLICABLE / no-input, never `ok`:
+                        the mapping was never verified in this repo, and
+                        writing the line is a concrete action.
     2. frontmatter-ids  every id in a non-superseded PLAN.md's 'beads:'
                         frontmatter exists in bd and carries the plan's
                         phase-<N> label. Dangling id or wrong label -> FAIL.
+                        Nothing to verify (phase 23) -> NOT-APPLICABLE /
+                        no-input, in BOTH its shapes: no non-superseded
+                        PLAN.md at all, and plans on disk carrying no
+                        'beads:' id — an unstamped plan is the very gap
+                        cairn exists to prevent, so it is the loudest
+                        no-input there is, not a vacuous pass.
     3. maps-fresh       cairn-map.py --check per phase dir that has issues
                         or a map (its exit codes reused: 3 stale -> WARN;
                         a missing map where issues exist -> WARN).
+                        No phase dir carrying either (phase 23) ->
+                        NOT-APPLICABLE / no-input. NOTE, measured: this
+                        check's input is .planning/phases/ ON DISK — it
+                        never reads ROADMAP.md, so an empty roadmap leaves
+                        it running for real.
     4. superseded-released  PLAN.md with 'status: superseded' whose beads:
                         ids are still open/in_progress -> WARN (release or
-                        move them).
+                        move them). No PLAN.md at all (phase 23) ->
+                        NOT-APPLICABLE / no-input, the same axis as check 2
+                        and therefore the same verdict. Plans present with
+                        none superseded stays `ok`: that is a real sweep of
+                        every plan, not an absent input.
     5. phase-complete-open  non-closed issues whose phase-<N> labels ALL
                         point at phases ROADMAP.md marks COMPLETE -> WARN
                         (FAIL only when a --close-completed the operator
@@ -76,10 +153,29 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         with bd's own refusal reason and turns this check
                         FAIL (exit 7) — a close the operator asked for and
                         did not get is never silent.
-    6. orphans          issues labeled phase-<N> where N is not a ROADMAP
-                        phase -> WARN; non-closed issues with NO phase-*
-                        label at all (excluding migrated-todo/backlog/
-                        quick labels) -> WARN.
+    6. orphans          TWO INDEPENDENT AXES. Axis 1: issues labeled
+                        phase-<N> where N is not a ROADMAP phase -> WARN;
+                        needs the roadmap. Axis 2: non-closed issues with NO
+                        phase-* label at all (excluding migrated-todo/
+                        backlog/quick labels) -> WARN; never reads the
+                        roadmap. With an EMPTY roadmap (phase 23 / VOID-02
+                        + the first half of VOID-03) axis 1 cannot run, and
+                        the verdict then depends on axis 2: a finding still
+                        WARNs, and only a run with nothing from either axis
+                        is NOT-APPLICABLE / no-input. Refusing the whole
+                        check would swallow axis 2's findings — trading a
+                        false green for a new silence. Axis 1 EXEMPTS an
+                        issue that is closed AND carries at least one m-*
+                        label AND has every one of them archived under
+                        .planning/milestones/ (VOID-03's second half), so
+                        the historical count falls to zero at the end of a
+                        cycle instead of growing forever. All three
+                        conditions, and ALL milestones not ANY: an open
+                        issue, an issue with no m-* label, and an issue
+                        carried into the active milestone all keep warning.
+                        The detail always says how many were exempted — a
+                        silent exemption is indistinguishable from a
+                        switched-off axis.
     7. label-pairs      issues with a phase-* label but no m-* label ->
                         WARN. --fix-labels repairs them via
                         'cairn-relabel.py pair --milestone <active>' BEFORE
@@ -88,8 +184,18 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         unresolvable.
     8. claims-stale     in_progress issues with an assignee whose phase-<N>
                         label differs from STATE.md's active_phase -> WARN
-                        (possible stale claim). Skipped when active_phase
-                        is unresolvable.
+                        (possible stale claim). When active_phase is
+                        unresolvable the check CANNOT RUN, and that is
+                        reported as WARN naming the missing key, the five
+                        cairn surfaces that read it, and CairnGo-rq0 where
+                        the current_phase-vs-active_phase decision lives —
+                        never `ok`. Measured 2026-08-04 before the change:
+                        `claims-stale :: ok :: skipped — no active_phase in
+                        STATE.md`, a check that had never run once in this
+                        project's life while wearing the success marker
+                        (AUTO-08). Still never FAIL: a check with no input
+                        is friction, not a state inconsistency, and exit 7
+                        spent on friction stops meaning anything.
     9. bd-doctor        run 'bd doctor'; first line captured as the
                         summary, pass/fail as bd reports it (exit 0 -> ok,
                         else FAIL).
@@ -218,18 +324,210 @@ Checks (each reported as {id, status: ok|warn|fail, detail, items[]}):
                         which carry none of these manifests, and a naive
                         version of this check would report `missing` and
                         drive every one of them to exit 7. Elsewhere it
-                        reports ok with a "not applicable" detail, the
-                        same "0 = ok, or not applicable" semantics the
-                        exit-code table below already documents. A
+                        reports not-applicable / out-of-scope: the carriers
+                        are cairn's own and will never exist there, so
+                        nothing is missing and the report stays complete.
+                        Exit stays 0, the same "0 = ok, or not applicable"
+                        semantics the exit-code table below documents. A
                         non-zero-and-not-6 cairn-release.py exit or
                         unparsable JSON degrades to WARN rather than
                         crashing the whole doctor run over this one check
                         (same degrade shape as check_lease_stale()).
+    16. test-parallel   (AUTO-04) whether this machine can run the bats
+                        suite in parallel, ROUTED from 'cairn-test.py
+                        --check-env' through the CAIRN_TEST env seam rather
+                        than recomputed here — that script owns the
+                        measurement of what `bats -j` actually requires (the
+                        parallel binary at bats-exec-suite:323 AND flock-or-
+                        shlock at lib/bats-core/semaphore.bash:26-33; miss
+                        either one and bats runs ZERO tests and exits 1
+                        rather than degrading to serial). A missing
+                        prerequisite -> WARN, itemizing each absence with
+                        its install command plus the measured cost of
+                        running serial (64s against 33s on
+                        tests/cairn-map.bats at -j 6). No bats at all ->
+                        NOT-APPLICABLE / no-input, a different sentence: the
+                        suite cannot run here at all, so nothing about
+                        parallelism was concluded. `no-input` because the
+                        guard below already proved we are inside cairn's own
+                        tree, where the suite exists — a missing tool is a
+                        gap someone can close, so it makes the report read
+                        INCOMPLETE.
+                        NEVER fails the run: running the suite slowly is
+                        friction, not a state inconsistency, and spending
+                        exit 7 on friction is how exit 7 stops meaning
+                        anything. APPLIES ONLY when
+                        cairn/.claude-plugin/plugin.json exists under the
+                        project root — same guard and same reason as check
+                        15, and same verdict: not-applicable / out-of-scope,
+                        since a wired repo has no cairn bats suite to
+                        run. A non-zero exit or unparsable JSON from
+                        cairn-test.py degrades to WARN.
+    17. req-ledger      (AUTO-07) the requirement ledger's own chain, the
+                        one nothing was validating: every ACTIVE
+                        requirement has a row in the coverage table, the
+                        table's row count is the number the coverage
+                        footer claims, each phase's '**Requirements**:'
+                        line actually yields the ids the ledger assigns
+                        it, and a plan whose SUMMARY is on disk has its
+                        ROADMAP checkbox ticked. Requirements under
+                        `## Deferred` / `## Out of Scope` are outside the
+                        table BY RULE and never counted as gaps — the
+                        detail says how many were excluded that way,
+                        because an unexplained absence is the same defect
+                        pointing the other way. Read by shelling out to
+                        cairn-bookkeep.py `reconcile --json` through the
+                        CAIRN_BOOKKEEP seam (same pattern as checks 3, 15,
+                        16); the ledger is NEVER re-parsed here, since a
+                        second reader is a fifth number for one quantity.
+                        WHERE IT STOPS vs check 1: check 1 goes
+                        requirement -> bd issue and can only count the ids
+                        it manages to read; this one goes active
+                        requirement -> coverage row -> footer claim, and
+                        covers the legibility of the very line check 1
+                        reads. Measured 2026-08-04 in this repo: 35 active
+                        requirements, 33 coverage rows (AUTO-05 and
+                        AUTO-06 have none), a footer still claiming '29
+                        requisitos, 29 mapeados.', and check 1 reporting
+                        29 from an unrelated cause — three numbers for one
+                        quantity, two wrong, meeting at 29 by accident,
+                        both wearing a green check. A broken link -> FAIL
+                        (exit 7), routed by name to `cairn-bookkeep.sh
+                        reconcile --apply`. A disagreement reconcile names
+                        OUTSIDE these links (STATE.md's counters and its
+                        free-text narrative) is surfaced as WARN and never
+                        spends exit 7 on a check called req-ledger. No
+                        coverage view at all (no '## Cobertura' in
+                        ROADMAP.md, no '## Traceability' in
+                        REQUIREMENTS.md), and no REQUIREMENTS.md at all ->
+                        NOT-APPLICABLE / out-of-scope, the same verdict
+                        checks 15/16 use, since the doctor runs in USERS'
+                        repos and keeping no coverage view is a method
+                        choice, not a gap. The ledger being UNREADABLE
+                        (script gone, exit outside the (0, 3) allowlist,
+                        unparsable JSON) -> FAIL, never WARN: a warning
+                        does not change the exit code, so degrading here
+                        would leave the doctor exiting 0 over a ledger
+                        nobody read. Writes nothing.
+    18. response-language  (LANG-02) the two homes of the one answer still
+                        agree. `/cairn:init` records the installation's
+                        choice in `.cairn/config.json:agents.
+                        response_language` — it must, since at the moment
+                        it asks, `.planning/` does not exist and cairn is
+                        forbidden from creating it — and `cairn-config.py
+                        set` propagates it into `.planning/config.json:
+                        response_language`, which is the key GSD's own ~30
+                        workflows read when they spawn subagents. On a
+                        greenfield install that propagation depends on one
+                        re-run after the `/gsd:new-project` hand-off, and a
+                        step in prose is exactly the thing that gets
+                        skipped. WARN, never FAIL, and the reason is
+                        written rather than assumed: a disagreement breaks
+                        nothing mechanically, it makes half a run's
+                        subagents answer in one language and half in
+                        another — which is what nobody noticed in v1.4.
+                        Spending exit 7 on it would train people to ignore
+                        exit 7. It reads the two files RAW, the one place
+                        this repository's usual "shell out to the script
+                        that owns the rule" would be wrong: `cairn-config.
+                        py get` returns the RESOLVED value, so asking it
+                        would report a single agreeing answer in exactly
+                        the situation this check exists to catch. Writes
+                        nothing.
+    19. phase-landed    (PR-04, Phase 30) a phase the roadmap calls
+                        complete whose commits are not on the control
+                        branch. The whole question — which branch, which
+                        commits, did they arrive — is read ONCE from
+                        cairn-land.py through the CAIRN_LAND seam, the
+                        same shape checks 3 and 17 use for cairn-map.py
+                        and cairn-bookkeep.py; no git is read here.
+                        MEASURED 2026-08-06, and the reason it exists:
+                        nine roadmap-complete phases of this repository
+                        are not on origin/main (145 commits ahead) and
+                        the doctor said nothing about any of them.
+                        Complete phase of the OPEN cycle not yet on the
+                        branch -> WARN: unpushed work is the normal state
+                        of anybody mid-cycle, it is friction and not
+                        inconsistency, and exit 7 spent on friction stops
+                        meaning anything (same distinction as checks 8
+                        and 14). Complete phase of an ARCHIVED milestone
+                        that never arrived -> FAIL: a cycle was CLOSED
+                        over work the control branch does not have, which
+                        is a claim the repository cannot support. A phase
+                        the local history cannot place -> named in items
+                        with the word `unknown` and its reason, raising
+                        NOTHING: measured, phases 7-12 here predate the
+                        conventional-commit scope convention and are
+                        attributable by neither source, and charging that
+                        would hand every long-lived repo a permanent
+                        finding about history nobody will rewrite. The
+                        universe of "complete" is roadmap_completed_
+                        phases() UNION the phase dirs under .planning/
+                        milestones/<key>-phases/ — the current ROADMAP.md
+                        lists only the open cycle, so reading it alone
+                        would make the FAIL rung unreachable by
+                        construction. No control branch, or nothing
+                        complete anywhere -> NOT-APPLICABLE / out-of-
+                        scope. A cairn-land.py that could not run or
+                        answered unparsably -> WARN, never FAIL (same
+                        degrade shape as check 11). Writes nothing; every
+                        finding routes to /cairn:ship.
+    20. plan-counters   (CairnGo-6bx, Phase 25 criterion 6) STATE.md
+                        claiming more plans completed than it has.
+                        MEASURED 2026-08-06, right after the close of
+                        phase 22: `total_plans: 39` against
+                        `completed_plans: 47`, because 47 = 39 plan
+                        summaries + 8 PHASE summaries, and the glob that
+                        produced it matched both while its `*-PLAN.md`
+                        pair matched only plans. This check COMPARES and
+                        never recomputes: writer and verifier derived that
+                        number with the same rule and therefore agreed
+                        while printing both contradictory values in one
+                        JSON object, so a recount with the writer's rule
+                        would reproduce the defect inside the check meant
+                        to catch it. `completed > total` is impossible by
+                        arithmetic, not by convention, and needs to know
+                        nothing about either glob. Both numbers present
+                        and possible -> OK; `completed > total` -> FAIL;
+                        no .planning/, no STATE.md, or a `progress:` block
+                        without both keys -> NOT-APPLICABLE / no-input,
+                        because GSD owns that block and a repo that never
+                        grew one is not inconsistent. Writes nothing; the
+                        finding routes to `cairn-bookkeep.sh reconcile`,
+                        which owns the recount. NO .planning/ AT ALL is
+                        NOT-APPLICABLE / out-of-scope, never no-input —
+                        a defensive branch the CLI never reaches, since
+                        main() registers zero checks in that repo.
+    21. state-dialect   (CairnGo-ctr, AUTO-10, Phase 25 criterion 5)
+                        STATE.md's two phase keys naming two different
+                        phases. MEASURED 2026-08-05: cairn-bookkeep wrote
+                        `current_phase` and `grep -rn current_phase
+                        cairn/` returned ZERO readers, while five surfaces
+                        read `active_phase`. The owner's decision
+                        (2026-08-06) is to write BOTH, additively, and
+                        THIS CHECK IS THE STATED COUNTERPART of that
+                        duplication: two keys that must agree and that
+                        nobody compares is the defect this cycle measured
+                        four times, so writing the pair without comparing
+                        it would create the fifth case while fixing the
+                        fourth. It COMPARES, never derives — a phase
+                        recomputed from the roadmap would agree with
+                        whichever key the same rule wrote. Both present
+                        and equal -> OK; both present and different ->
+                        FAIL; FEWER THAN TWO readable -> NOT-APPLICABLE /
+                        out-of-scope, never no-input: one key is no
+                        disagreement (it is the state AUTO-10 is named
+                        after), check 8 already reports the missing
+                        active_phase as no-input, and a second no-input
+                        would drop `.ok` in every GSD repo that never ran
+                        cairn-bookkeep — a permanent false red. Writes
+                        nothing; the finding routes to `cairn-bookkeep.sh
+                        close <N> --apply`, which writes both keys.
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-
                     escalation reconciliation proposal for phase N. Not one
-                    of the 16 checks above — a fixer, the same category as
+                    of the 22 checks above — a fixer, the same category as
                     --close-completed/--fix-labels/--link-refs, but the only
                     one of the four that always exits on its own rather
                     than falling through to the ordinary report, since its
@@ -275,7 +573,14 @@ Exit codes:
        .beads/ absent — the doctor is for wired repos. When exactly one
        side exists the note suggests /cairn:migrate. ALSO:
        --apply-reconciliation's own "phase N is no longer in conflict"
-       refusal — nothing left to apply is not a failure.
+       refusal — nothing left to apply is not a failure. ALSO: any number
+       of checks reporting `not-applicable`, of EITHER family, including a
+       run whose footer reads INCOMPLETE. That is deliberate, not an
+       oversight: an absent input is friction, not a state inconsistency,
+       and spending exit 7 on friction is how exit 7 stops meaning
+       anything. The verdict of an incomplete report moved where it is
+       READ (the footer word, the symbol, the top-level `ok` key), never
+       where it decides to block.
     2  usage error, or --fix-labels refused (milestone unresolvable), or
        --apply-reconciliation found no proposal for phase N (missing
        .cairn/conflicts.json, or its own 'phase' field doesn't match N).
@@ -303,7 +608,35 @@ EXIT_USAGE = 2
 EXIT_NO_BD = 5
 EXIT_FAILED = 7
 
-SYMBOL = {"ok": "✓", "warn": "⚠", "fail": "✗"}
+# Phase 23 / VOID-01. The fourth status: a check that had nothing to check.
+# The word is not invented here — four `detail` strings already SAID "not
+# applicable" in prose while wearing `ok`; this only moves it into the field
+# tools read.
+NOT_APPLICABLE = "not-applicable"
+
+# ...and the two families of it, which are NOT the same sentence (T-04).
+# The rule that assigns them:
+#   out-of-scope  the input will never exist for this CLASS of repo and
+#                 nothing is wrong — cairn's own manifests in a repo that is
+#                 not cairn. Permanent, ordinary, and it does NOT make the
+#                 report incomplete.
+#   no-input      the input SHOULD exist given what the repo already has, so
+#                 its absence is a gap someone can close — a STATE.md with no
+#                 active_phase, a ROADMAP.md with no phase.
+# Only `no-input` clears summary["ok"]. Without the split, every user repo
+# would trade a permanent false green for a permanent false red, which is the
+# same defect mirrored rather than progress.
+NA_OUT_OF_SCOPE = "out-of-scope"
+NA_NO_INPUT = "no-input"
+
+# The single source of the status vocabulary: main() derives its counting
+# buckets from these keys, so a status with no symbol has nowhere to be
+# counted and cannot slip in unnoticed. Every glyph measures east_asian_width
+# "N" (single column even under a CJK locale) — measured with unicodedata,
+# never eyeballed, and asserted by the suite. ⊘ (U+2298) is the new one; ◌
+# (U+25CC) was rejected on purpose, it is already a step symbol on the status
+# board and reusing it would collide two vocabularies.
+SYMBOL = {"ok": "✓", "not-applicable": "⊘", "warn": "⚠", "fail": "✗"}
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -324,6 +657,25 @@ CAIRN_JOURNAL = os.environ.get(
 # owns them.
 CAIRN_RELEASE = os.environ.get(
     "CAIRN_RELEASE", str(SCRIPTS_DIR / "cairn-release.py"))
+CAIRN_TEST = os.environ.get(
+    "CAIRN_TEST", str(SCRIPTS_DIR / "cairn-test.py"))
+
+# Test/override seam for check_req_ledger()'s single read of the requirement
+# ledger (AUTO-07) — same CAIRN_* convention as the three seams above. The
+# doctor never re-parses the ledger: cairn-bookkeep.py owns that reading, and
+# a second parser is how a repo ends up with a fifth number for the same
+# quantity (T-29-31).
+CAIRN_BOOKKEEP = os.environ.get(
+    "CAIRN_BOOKKEEP", str(SCRIPTS_DIR / "cairn-bookkeep.py"))
+
+# Test/override seam for check_phase_landed() (Phase 30, PR-04) — same CAIRN_*
+# convention as the seams above. The doctor reads NO git of its own: cairn-
+# land.py owns "did this work enter the control branch", cairn-status.py's
+# board renders from the same report, and a `git merge-base` written here would
+# be the second reader of one fact — which is the defect this milestone has
+# already paid for twice.
+CAIRN_LAND = os.environ.get(
+    "CAIRN_LAND", str(SCRIPTS_DIR / "cairn-land.py"))
 
 PHASE_LABEL = re.compile(r"^phase-(\d+)$")
 PHASE_HEAD = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\b")
@@ -334,6 +686,10 @@ TABLE_PHASE = re.compile(r"^\s*\|\s*0*(\d+)[.)\s][^|]*\|.*\|\s*Complete\s*\|",
 REQ_LINE = re.compile(r"^\*\*Requirements\*\*\s*:(.*)$")
 REQ_ID = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
 VERSION_TOKEN = re.compile(r"\bv\d+(?:\.\d+)*\b")
+# The filename /gsd:complete-milestone leaves in .planning/milestones/ when it
+# archives a cycle. Anchored on both ends: the archived ROADMAP is the
+# evidence, and a REQUIREMENTS file or a phases/ directory is not (T-18).
+ARCHIVED_ROADMAP = re.compile(r"^(v\d+(?:\.\d+)*)-ROADMAP\.md$")
 DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
 PR_NUMBER = re.compile(r"\(#(\d+)\)")
 
@@ -383,6 +739,61 @@ def state_frontmatter(planning_dir):
     return out
 
 
+def state_plan_counters(planning_dir):
+    """{'total_plans': int|None, 'completed_plans': int|None} — the two numbers
+    exactly AS WRITTEN under `progress:` in STATE.md.
+
+    Nothing here counts a file. That is the whole point: the defect this feeds
+    (CairnGo-6bx) is a writer and a verifier sharing one wrong rule and
+    therefore agreeing, so recomputing either number with the writer's rule
+    would reproduce the defect inside the check meant to catch it.
+    """
+    out = {"total_plans": None, "completed_plans": None}
+    lines = read_lines(planning_dir / "STATE.md")
+    if not lines or lines[0].strip() != "---":
+        return out
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^\s*(total_plans|completed_plans)\s*:\s*(.+?)\s*$",
+                     line)
+        if not m:
+            continue
+        digits = re.search(r"\d+", m.group(2).split("#", 1)[0])
+        if digits:
+            out[m.group(1)] = int(digits.group(0))
+    return out
+
+
+def state_phase_dialect(planning_dir):
+    """{'current_phase': int|None, 'active_phase': int|None} — the two phase
+    keys of STATE.md's frontmatter, each exactly AS WRITTEN.
+
+    Nothing here derives a phase from the roadmap, from the phase tree, or
+    from anything else. That is the whole point: the check this feeds exists
+    because a writer and a verifier sharing one rule AGREE, so a phase
+    recomputed here would agree with whichever key was written by the same
+    rule and the disagreement between the two would stay invisible.
+
+    A key whose value carries no digits (`current_phase: null`, an empty
+    value) reads as absent: there is no number there to disagree with.
+    """
+    out = {"current_phase": None, "active_phase": None}
+    lines = read_lines(planning_dir / "STATE.md")
+    if not lines or lines[0].strip() != "---":
+        return out
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^(current_phase|active_phase)\s*:\s*(.+?)\s*$", line)
+        if not m:
+            continue
+        digits = re.search(r"\d+", m.group(2).split("#", 1)[0])
+        if digits:
+            out[m.group(1)] = int(digits.group(0))
+    return out
+
+
 def roadmap_milestone(planning_dir):
     """Milestone marked in progress in ROADMAP.md (🚧 / '(in progress)'
     line carrying a vN[.N...] token), or None."""
@@ -392,6 +803,32 @@ def roadmap_milestone(planning_dir):
             if m:
                 return m.group(0)
     return None
+
+
+def archived_milestones(planning_dir):
+    """Milestone keys ('v1.1', 'v1.2', ...) whose ROADMAP sits archived under
+    .planning/milestones/ — the on-disk evidence that a cycle actually closed.
+
+    /gsd:complete-milestone archives the ROADMAP, the REQUIREMENTS and the
+    phase tree there when it closes a milestone (cairn/commands/milestone.md),
+    so the archived roadmap is the most direct and the cheapest proof that the
+    cycle is over. Nothing is inferred from position in a list, from recency,
+    or from STATE.md — the same discipline cairn-status already holds by
+    reading the milestone list off the roadmap itself (phase 23, T-18).
+
+    Returns an empty set and never raises when the directory is absent, which
+    is the ordinary case in a user's repo that has not closed a cycle yet.
+    """
+    keys = set()
+    try:
+        entries = list((planning_dir / "milestones").iterdir())
+    except OSError:
+        return keys
+    for entry in entries:
+        m = ARCHIVED_ROADMAP.match(entry.name)
+        if m:
+            keys.add(m.group(1))
+    return keys
 
 
 def roadmap_phases_and_reqs(planning_dir):
@@ -627,6 +1064,44 @@ def in_milestone(issue, milestone):
     return milestone is None or not m_labels or f"m-{milestone}" in m_labels
 
 
+def milestone_keys(issue):
+    """Milestone keys from the issue's m-<key> labels, read the same way
+    phase_nums() reads phase-<N> — one shape for reading a label, not a
+    third one invented here."""
+    return {lb[2:] for lb in issue["labels"]
+            if lb.startswith("m-") and lb[2:]}
+
+
+def in_archived_milestone(issue, archived):
+    """True when this issue belongs entirely to cycles that already closed —
+    the exemption VOID-03's second half grants the orphans check, so the
+    count of historical findings falls to zero at the end of a cycle instead
+    of growing forever until the operator learns to ignore the check.
+
+    THREE conditions, all at once (phase 23, T-19), and each exclusion is a
+    finding somebody still wants:
+
+      closed          work still live on a cycle that already closed is
+                      exactly a finding worth reporting, not historical noise.
+      has an m-* label
+                      with no milestone label there is no evidence of
+                      archiving at all, and exempting anyway is the same
+                      reasoning as approving because nothing was compared —
+                      the defect this whole phase removes.
+      ALL of them archived, not ANY
+                      the same ALL/ANY distinction in_done_phase and
+                      --close-completed already hold. milestone.md documents
+                      that an issue carried into the NEW cycle shows up as a
+                      transient orphan until the new roadmap places it, and
+                      says that warning is expected: one active-milestone
+                      label is enough to keep it.
+    """
+    if issue.get("status") != "closed":
+        return False
+    keys = milestone_keys(issue)
+    return bool(keys) and keys <= set(archived)
+
+
 # --------------------------------------------------------------------------- #
 # the checks
 # --------------------------------------------------------------------------- #
@@ -648,8 +1123,20 @@ def check_req_issue(issues, reqs_by_phase, milestone):
                 items.append(f"{req} (phase {n}): no issue with "
                              f"metadata.gsd.req == {req}")
     if not total:
-        detail = "no '**Requirements**:' lists found in ROADMAP.md"
-    elif items:
+        # Phase 23 / VOID-02 (CairnGo-ca3). This used to read `ok` with the
+        # detail "no '**Requirements**:' lists found" — a check announcing
+        # success over a comparison it never made. `no-input`, not
+        # `out-of-scope`: the mapping requirement -> issue is a guarantee this
+        # project WANTS, it has simply never been verified here, and writing
+        # the line in ROADMAP.md is a concrete thing the operator can do.
+        return {"id": "req-issue", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": "nothing to compare — ROADMAP.md lists no phase "
+                          "with a '**Requirements**:' line, so no requirement "
+                          "was ever checked against an issue here; add the "
+                          "line to a phase's section in ROADMAP.md",
+                "items": []}
+    if items:
         detail = f"{len(items)} of {total} requirement(s) unmapped"
     else:
         detail = f"{total} requirement(s) mapped to issues"
@@ -661,9 +1148,11 @@ def check_frontmatter_ids(plans, issues):
     by_id = {i.get("id"): i for i in issues}
     items = []
     checked = 0
+    live_plans = 0
     for plan in plans:
         if plan["status"] == "superseded":
             continue
+        live_plans += 1
         for bid in plan["beads"]:
             checked += 1
             iss = by_id.get(bid)
@@ -673,6 +1162,25 @@ def check_frontmatter_ids(plans, issues):
                 labels = ", ".join(iss["labels"]) or "none"
                 items.append(f"{plan['rel']}: {bid} lacks label "
                              f"phase-{plan['phase']} (labels: {labels})")
+    if not checked:
+        # Phase 23 / VOID-02. `0 plan bead id(s) verified` was a count of
+        # nothing wearing the success marker. Two ways to get here, one
+        # sentence each, and BOTH are no-input:
+        #   - no non-superseded PLAN.md at all: nothing was planned yet, so
+        #     the stamp guarantee has never been verified in this repo;
+        #   - plans on disk carrying no `beads:` id: an unstamped plan is
+        #     precisely the gap cairn exists to prevent, so this is the
+        #     loudest no-input there is, not a vacuous pass.
+        if not live_plans:
+            detail = ("nothing to compare — no non-superseded PLAN.md on "
+                      "disk, so no plan bead id has ever been checked here")
+        else:
+            detail = (f"nothing to compare — none of the {live_plans} "
+                      "non-superseded PLAN.md file(s) carries a 'beads:' "
+                      "frontmatter id, so no plan is stamped with the issues "
+                      "it delivers — run cairn-map.sh <N> after stamping")
+        return {"id": "frontmatter-ids", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT, "detail": detail, "items": []}
     detail = (f"{len(items)} of {checked} plan bead id(s) broken" if items
               else f"{checked} plan bead id(s) verified")
     return {"id": "frontmatter-ids", "status": "fail" if items else "ok",
@@ -709,6 +1217,22 @@ def check_maps_fresh(root, planning_dir, issues):
             first = text.splitlines()[0] if text else ""
             items.append(f"phase {n}: cairn-map --check exit "
                          f"{proc.returncode}: {first}")
+    if not checked:
+        # Phase 23 / VOID-02. This used to read `ok :: 0 phase map(s)
+        # current`, which is a count of nothing announced as a clean bill of
+        # health. MEASURED CORRECTION to the plan that asked for this: the
+        # insumo here is NOT the roadmap — this function never reads it — it
+        # is `.planning/phases/` on disk. An empty roadmap leaves this check
+        # running for real, and only an empty phases/ tree silences it.
+        # `no-input`: a project with phases should have maps, and generating
+        # them is one command away.
+        return {"id": "maps-fresh", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": "nothing to compare — no phase directory under "
+                          f"{planning_dir.name}/phases/ carries either an "
+                          "issue or a generated map, so no map's freshness "
+                          "was ever checked here",
+                "items": []}
     detail = (f"{len(items)} of {checked} phase map(s) need attention"
               if items else f"{checked} phase map(s) current")
     return {"id": "maps-fresh", "status": "warn" if items else "ok",
@@ -716,6 +1240,16 @@ def check_maps_fresh(root, planning_dir, issues):
 
 
 def check_superseded_released(plans, issues):
+    if not plans:
+        # Phase 23 / VOID-02. Same axis as check_frontmatter_ids and
+        # therefore the same verdict: with no PLAN.md on disk this guarantee
+        # has never been verified here, and writing a plan is the action.
+        return {"id": "superseded-released", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": "nothing to compare — no PLAN.md on disk, so no "
+                          "superseded plan's beads have ever been checked "
+                          "here",
+                "items": []}
     by_id = {i.get("id"): i for i in issues}
     items = []
     n_superseded = 0
@@ -731,6 +1265,10 @@ def check_superseded_released(plans, issues):
     detail = (f"{len(items)} bead(s) still live under superseded plan(s)"
               if items else f"{n_superseded} superseded plan(s), "
                             "no live beads")
+    # Phase 23 evaluated and KEPT `ok` here. `n_superseded == 0` with plans on
+    # disk is not an absent input: the check swept EVERY plan, found none
+    # superseded, and that is a real answer with nothing for the operator to
+    # do. The no-input case is the empty inventory, handled at the top.
     return {"id": "superseded-released", "status": "warn" if items else "ok",
             "detail": detail, "items": items}
 
@@ -791,28 +1329,103 @@ def check_phase_complete_open(issues, completed, disk_done, milestone,
         detail += (f" — {len(close_failures)} refused by bd, still open")
     status = ("fail" if close_failures
               else "warn" if n_flagged else "ok")
+    # Phase 23 evaluated and KEPT `ok`. "ROADMAP marks no phase complete" is
+    # the ordinary, correct state of a project in its first milestone, and
+    # there is no action behind it: the check looked for non-closed issues in
+    # completed phases, the set of completed phases is empty, so the set of
+    # findings is genuinely empty too. Vacuous truth with nothing to fix is
+    # not the same as an input that failed to arrive.
     return {"id": "phase-complete-open", "status": status,
             "detail": detail, "items": items}
 
 
-def check_orphans(issues, roadmap_phases):
-    items = []
+def check_orphans(issues, roadmap_phases, archived=frozenset()):
+    """Check 6, id "orphans" — TWO INDEPENDENT AXES in one loop, and keeping
+    them distinguishable is the whole difficulty of this function.
+
+      axis 1  an issue LABELED phase-<N> where N is not a ROADMAP phase.
+              Needs the roadmap; with an empty one there is nothing to
+              compare against and the axis cannot run. Exempts an issue whose
+              cycles all closed (in_archived_milestone) — see below.
+      axis 2  a non-closed issue with NO phase-* label at all (minus the
+              NO_PHASE_EXEMPT labels). Never touches the roadmap, and works
+              perfectly well with an empty one.
+
+    Phase 23 / VOID-02 + VOID-03's first half. Before it, an empty roadmap
+    made axis 1 silently skip and the whole check report `ok :: N issue(s),
+    no orphans` — approval for a comparison that never happened. The naive
+    promotion is to refuse the CHECK when the roadmap is empty; that would
+    swallow every axis-2 finding, and a phase that exists to remove false
+    green cannot go creating new silence. So the verdict depends on axis 2:
+    an axis-2 finding still WARNs, and only a run with nothing from either
+    axis reports not-applicable. Either way the detail SAYS axis 1 could not
+    run, so that fact is never lost — not even when there is a warning to
+    print on top of it.
+
+    VOID-03's second half, the archived-milestone exemption on axis 1. Every
+    closed cycle leaves its phases behind, so the population axis 1 sweeps
+    grows at every milestone and never shrinks: measured in this repo on
+    2026-08-05, all 61 findings were closed issues of the four archived
+    milestones. A warning that only grows becomes noise and the operator
+    learns to ignore the check — the same death by desensitization this phase
+    fights from the other side. in_archived_milestone() holds the predicate
+    and names the three cases deliberately left OUT of it.
+
+    The exemption is never silent: `exempted` counts the issues that WOULD
+    have been reported and the detail says so. A repo with sixty-one
+    historical issues has to stay distinguishable from a repo with none,
+    otherwise the phase would have traded a permanent noise for a permanent
+    silence — and an exemption nobody can see is indistinguishable from an
+    axis somebody switched off.
+    """
+    unplaced = []           # axis 1 findings
+    unlabeled = []          # axis 2 findings
+    exempted = 0            # axis 1 findings suppressed by archiving
     for iss in issues:
         nums = phase_nums(iss)
         if nums:
             if roadmap_phases:
-                for n in nums:
-                    if n not in roadmap_phases:
-                        items.append(f"{iss.get('id', '?')}: labeled "
-                                     f"phase-{n} but ROADMAP.md has no "
-                                     f"phase {n}")
+                missing = [n for n in nums if n not in roadmap_phases]
+                if not missing:
+                    continue
+                # Counted only for an issue axis 1 would otherwise have
+                # reported, so the number the detail prints is the number of
+                # warnings actually suppressed — not a tally of every closed
+                # issue in the tracker.
+                if in_archived_milestone(iss, archived):
+                    exempted += 1
+                    continue
+                for n in missing:
+                    unplaced.append(f"{iss.get('id', '?')}: labeled "
+                                    f"phase-{n} but ROADMAP.md has no "
+                                    f"phase {n}")
         elif (iss.get("status") != "closed"
                 and not NO_PHASE_EXEMPT.intersection(iss["labels"])):
-            items.append(f"{iss.get('id', '?')}: no phase-* label "
-                         f"({iss.get('status')}: "
-                         f"{iss.get('title', '')})")
+            unlabeled.append(f"{iss.get('id', '?')}: no phase-* label "
+                             f"({iss.get('status')}: "
+                             f"{iss.get('title', '')})")
+    items = unplaced + unlabeled
+
+    if not roadmap_phases:
+        blind = ("the phase-label axis could not run — ROADMAP.md lists no "
+                 "phase to compare labels against")
+        if items:
+            return {"id": "orphans", "status": "warn",
+                    "detail": f"{len(items)} orphan issue(s), and {blind}",
+                    "items": items}
+        return {"id": "orphans", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": f"nothing to compare — {blind}; the unlabeled-issue "
+                          f"axis ran and found nothing over "
+                          f"{len(issues)} issue(s)",
+                "items": []}
+
+    # The exemption is stated wherever it applied, warning or not: the reader
+    # of a count that just fell to zero has to be able to see WHY it fell.
+    exempt_note = (f" (+{exempted} closed issue(s) of archived milestone(s) "
+                   f"exempted)" if exempted else "")
     detail = (f"{len(items)} orphan issue(s)" if items
-              else f"{len(issues)} issue(s), no orphans")
+              else f"{len(issues)} issue(s), no orphans") + exempt_note
     return {"id": "orphans", "status": "warn" if items else "ok",
             "detail": detail, "items": items}
 
@@ -842,14 +1455,81 @@ def check_label_pairs(issues, milestone, fixed, fix_error):
                   else "every phase-labeled issue carries an m-* label")
         if fixed:
             detail += f" (fixed {fixed} via cairn-relabel pair)"
+    # Phase 23 evaluated and KEPT `ok` for the zero counts here, both of them.
+    # An empty tracker is already reported by other checks, so saying it again
+    # from this one adds a second voice for one fact; and issues present with
+    # every pair intact is the check having swept and approved. Neither is an
+    # absent input.
     return {"id": "label-pairs", "status": status,
             "detail": detail, "items": items}
 
 
+# Every cairn surface that READS STATE.md's active_phase, measured
+# 2026-08-04 (`grep -rln active_phase cairn/`, docstring-only mentions
+# excluded): naming them is what makes the no-input verdict below routable
+# instead of a shrug.
+ACTIVE_PHASE_READERS = ("cairn-status.py", "cairn-doctor.py",
+                        "cairn-lease.py", "cairn-migrate.py",
+                        "hooks/session-start.sh")
+
+# Where the decision this check is waiting on actually lives. A non-ok state
+# with no address becomes noise in two weeks.
+ACTIVE_PHASE_ISSUE = "CairnGo-rq0"
+
+
 def check_claims_stale(issues, milestone, active_phase):
+    """Check 8, id "claims-stale" — in_progress issues assigned outside the
+    active phase.
+
+    THE NO-INPUT BRANCH IS NOT `ok`, AND THAT IS THE POINT (AUTO-08).
+    Measured before this change, in this very repository:
+
+        ✓ claims-stale   skipped — no active_phase in STATE.md
+
+    A check that has never run once in this project's life, wearing the
+    success marker. STATE.md here carries `current_phase` (what GSD writes)
+    and every cairn reader looks for `active_phase`, so the input has never
+    arrived — and `ok` said everything was fine about a comparison that
+    never happened. A phase about tools reporting false green cannot leave
+    standing the purest specimen the repo owns.
+
+    NOT `fail` EITHER, and the line is deliberate: this is a check with no
+    INPUT, not a state inconsistency. Spending exit 7 on friction is how
+    exit 7 stops meaning anything (the same line check 16 draws, and the
+    same one check 14 draws for a reclaimable lease). So: `warn`, with the
+    missing key named, the five readers named, and the open decision
+    addressed by id — the shape check_external_ref() already uses for its
+    shallow-clone branch, which likewise cannot check rather than having
+    checked and found nothing.
+
+    PHASE 23 ARRIVED, AND THIS BRANCH IS `not-applicable` / `no-input`.
+    29-07 left `warn` as a placeholder with a note saying so; VOID-01 made
+    `not-applicable` first-class and this is its verdict now. The family is
+    `no-input`, not `out-of-scope`, and the rule that decides it is: STATE.md
+    IS here, it simply lacks a key someone can add. That is a gap, not a repo
+    this check has no business running in — so it DOES clear summary["ok"]
+    (the report is incomplete) while leaving the exit code at 0.
+
+    WHICH KEY STATE.md SHOULD CARRY IS NOT DECIDED HERE. `current_phase`
+    versus `active_phase` changes what five surfaces read and what every
+    repo with a STATE.md already on disk means; that is a business rule, it
+    is grooming, and it is open in CairnGo-rq0. Not one line here takes a
+    side: nothing is renamed, nothing is migrated, and no `active_phase` key
+    is written anywhere.
+    """
     if active_phase is None:
-        return {"id": "claims-stale", "status": "ok",
-                "detail": "skipped — no active_phase in STATE.md",
+        return {"id": "claims-stale", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": "cannot check — STATE.md's frontmatter carries no "
+                          "'active_phase', so there is nothing to compare "
+                          "in_progress claims against (this check has never "
+                          "run here). "
+                          f"{len(ACTIVE_PHASE_READERS)} cairn surfaces read "
+                          f"that key ({', '.join(ACTIVE_PHASE_READERS)}); "
+                          f"which key STATE.md should carry is open in "
+                          f"{ACTIVE_PHASE_ISSUE}. Not a failure: a check "
+                          "with no input is friction, not a state "
+                          "inconsistency",
                 "items": []}
     items = []
     for iss in issues:
@@ -1067,16 +1747,34 @@ def _last_moved_clause(last_moved, sources):
     a blank, never a fabricated timestamp. Returns "" (append nothing)
     when LAST_MOVED itself is None — the journal call failed or was never
     attempted, and the item's EXISTING (pre-Plan-16-05) text is left
-    completely untouched in that case."""
+    completely untouched in that case.
+
+    Phase 28 (DJOUR-02) adds one branch: the journal is now partitioned
+    one file per checkout, so an axis can have been observed by SEVERAL
+    checkouts. In that case cairn-journal.py reports no single `ts` — a
+    single timestamp across machines would be an ordering claim, and E14
+    measured that the clock agreement available (−16.7 ms NTP offset) is
+    coarser than the resolution needed (10.8 ms minimum record gap). The
+    clause then NAMES each machine and says outright that no order is
+    claimed between them. Still purely additive: severity, status and
+    exit code were all decided before this function was ever called."""
     if last_moved is None:
         return ""
     clauses = []
     for source in sources:
         entry = last_moved.get(source)
-        if entry:
-            clauses.append(f"{source} last moved {entry.get('ts')}")
-        else:
+        if not entry:
             clauses.append(f"{source} last moved never observed")
+            continue
+        candidates = entry.get("candidates")
+        if candidates:
+            seen = ", ".join(
+                f"{c.get('ts')} on {c.get('machine') or 'unknown machine'}"
+                for c in candidates)
+            clauses.append(f"{source} last moved {seen} (order between "
+                           "machines not claimed)")
+        else:
+            clauses.append(f"{source} last moved {entry.get('ts')}")
     return ", ".join(clauses)
 
 
@@ -1418,6 +2116,14 @@ def check_external_ref(root, planning_dir, issues, do_write):
     exactly the vacuous-check failure mode this milestone exists to avoid.
     """
     if git_is_shallow(root):
+        # PHASE 23 CONSIDERED PROMOTING THIS BRANCH TO not-applicable AND
+        # REFUSED, on the record so nobody reopens it without the argument.
+        # It reads like the new state ("cannot be trusted"), but the check
+        # RAN — it still counts how many closed issues lack a ref, and only
+        # the git evidence for PROPOSING a backfill is unavailable. And the
+        # missing input has a one-line cure (git fetch --unshallow). Partial
+        # execution plus a one-command fix is environment friction, which is
+        # exactly the sentence `warn` exists to say.
         return {"id": "external-ref", "status": "warn",
                 "detail": "shallow clone — git history cannot be trusted "
                           "for --link-refs (D-08); run against a full "
@@ -1452,6 +2158,10 @@ def check_external_ref(root, planning_dir, issues, do_write):
               f"(run --link-refs to backfill)")
     if linked:
         detail += f" — linked {len(linked)} via --link-refs"
+    # Phase 23 evaluated and KEPT `ok`. Zero closed issues means the check
+    # swept the closed set — which is empty — and there is nothing waiting to
+    # be linked. It already refuses to warn merely because history predates
+    # the convention, and the same reasoning covers the empty case.
     return {"id": "external-ref",
             "status": "warn" if remaining_candidates else "ok",
             "detail": detail, "items": items}
@@ -1524,6 +2234,11 @@ def check_lease_stale(root):
                 f"or run cairn-lease.sh release {phase} to clear it now")
     detail = (f"{len(items)} stale phase lease(s)" if items
               else "no stale phase leases")
+    # Phase 23 evaluated and KEPT `ok`, and this is the cleanest example of
+    # the line: the check looks for a STUCK lease. No lease registered means
+    # it looked, there is none stuck, and there is nothing anyone would want
+    # to do. Vacuously true with no action behind it is a real `ok`, not a
+    # check that failed to run.
     return {"id": "lease-stale", "status": "warn" if items else "ok",
             "detail": detail, "items": items}
 
@@ -1556,10 +2271,14 @@ def check_release_versions(root):
     `missing: cairn/.claude-plugin/plugin.json does not exist` and drive
     every user's doctor to exit 7 over a file that has no business being
     there. So it applies ONLY when cairn/.claude-plugin/plugin.json exists
-    under the project root; everywhere else it reports "ok" with a "not
-    applicable" detail — the same "0 = ok, or not applicable" semantics the
-    module docstring's exit-code table already documents for the doctor as
-    a whole.
+    under the project root; everywhere else it reports `not-applicable` with
+    scope `out-of-scope` (phase 23) — the word used to sit in the detail
+    prose while the status said `ok`, and this is the same sentence in the
+    field tools read. `out-of-scope`, not `no-input`: these manifests are
+    cairn's own and will NEVER exist in a wired repo, so nothing is missing
+    and the report stays complete. Still exit 0, for the reason the module
+    docstring's exit-code table already gives: an absent input is friction,
+    not a state inconsistency.
 
     Inside THIS repo a divergence is "fail", not "warn": it is an
     inconsistency that blocks a release, and only "fail" reaches exit 7.
@@ -1568,10 +2287,11 @@ def check_release_versions(root):
     doctor run over this one check.
     """
     if not (root / RELEASE_PLUGIN_MANIFEST).is_file():
-        return {"id": "release-versions", "status": "ok",
-                "detail": f"not applicable — no {RELEASE_PLUGIN_MANIFEST} "
-                          "under this root (the version carriers are "
-                          "cairn's own, not a wired repo's)",
+        return {"id": "release-versions", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": f"no {RELEASE_PLUGIN_MANIFEST} under this root "
+                          "(the version carriers are cairn's own, not a "
+                          "wired repo's)",
                 "items": []}
     try:
         proc = subprocess.run(
@@ -1616,6 +2336,834 @@ def check_release_versions(root):
     return {"id": "release-versions", "status": "ok",
             "detail": f"every version carrier agrees on {version}"
                       f"{tag_note}",
+            "items": []}
+
+
+def check_test_parallel(root):
+    """Check 16, id "test-parallel" (AUTO-04) — can this machine run the
+    suite in parallel, and if not, what does that cost and what fixes it.
+
+    The absence of GNU parallel is the kind of thing nobody discovers:
+    nothing breaks, everything is slow. So it becomes a doctor check. But
+    what it may NOT become is a doctor FAILURE — running the suite slowly is
+    friction, not a state inconsistency, and spending exit 7 on friction
+    trains everyone to ignore exit 7. This check never returns "fail".
+
+    The verdict is ROUTED, not recomputed: cairn-test.py --check-env owns the
+    knowledge of what `bats -j` actually requires (the parallel binary AND
+    flock-or-shlock, both measured), and this check only turns its report
+    into a status. Same shell-out-to-a-sibling-script shape check_maps_fresh
+    uses for cairn-map.py, check_lease_stale for cairn-lease.py and
+    check_release_versions for cairn-release.py — and the same reason: one
+    file knows the rule, so the rule cannot drift into disagreeing with
+    itself.
+
+    APPLICABILITY, the same trap check_release_versions dodges. The doctor
+    runs in USERS' repos, which have a .planning/ and a .beads/ and no reason
+    on earth to run cairn's bats suite. Warning them about GNU parallel would
+    be noise about a suite they do not have. So this check applies only where
+    cairn's own plugin manifest is — the same marker, for the same reason.
+
+    A machine with no bats at all says the suite cannot run here AT ALL, which
+    is a different sentence from "it will run slowly" — and phase 23 gave that
+    sentence its own status. 29-06 left it as `warn` with a note pointing here;
+    it is now `not-applicable` / `no-input`. `no-input` and not `out-of-scope`,
+    because the manifest guard below has ALREADY filtered: we are inside
+    cairn's own tree, where the suite exists and should be runnable, so a
+    missing tool is a gap someone can close, not a repo this check has no
+    business running in. It therefore makes the report read INCOMPLETE — and
+    still never touches the exit code.
+
+    THE GUARD ITSELF is the other family: no cairn manifest means no cairn
+    suite, permanently and correctly, so it is `out-of-scope` and leaves the
+    report complete.
+    """
+    if not (root / RELEASE_PLUGIN_MANIFEST).is_file():
+        return {"id": "test-parallel", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": f"no {RELEASE_PLUGIN_MANIFEST} under this root "
+                          "(cairn's bats suite is cairn's own, not a wired "
+                          "repo's)",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_TEST, "--check-env", "--project-dir",
+             str(root)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"id": "test-parallel", "status": "warn",
+                "detail": f"could not run cairn-test.py --check-env: {e}",
+                "items": []}
+    if proc.returncode != 0:
+        return {"id": "test-parallel", "status": "warn",
+                "detail": f"cairn-test.py --check-env exited "
+                          f"{proc.returncode}: "
+                          f"{proc.stderr.strip() or '(no stderr)'}",
+                "items": []}
+    try:
+        data = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError as e:
+        return {"id": "test-parallel", "status": "warn",
+                "detail": f"cairn-test.py --check-env did not return valid "
+                          f"JSON: {e}",
+                "items": []}
+    if not isinstance(data, dict):
+        return {"id": "test-parallel", "status": "warn",
+                "detail": "cairn-test.py --check-env returned no report",
+                "items": []}
+
+    if not data.get("bats"):
+        return {"id": "test-parallel", "status": NOT_APPLICABLE,
+                "scope": NA_NO_INPUT,
+                "detail": "bats is not on PATH — the suite cannot run here "
+                          "at all, so nothing about parallelism can be "
+                          "concluded (brew install bats-core / "
+                          "npm install -g bats)",
+                "items": []}
+    if data.get("can_parallelize"):
+        return {"id": "test-parallel", "status": "ok",
+                "detail": f"the suite can run in parallel "
+                          f"(bats -j {data.get('jobs')}, from "
+                          f"{data.get('jobs_source')})",
+                "items": []}
+
+    items = [f"{b.get('what')} — fix: {b.get('fix')}"
+             for b in data.get("blockers") or []]
+    items.append(f"cost of running serial: {data.get('measured_cost')}")
+    return {"id": "test-parallel", "status": "warn",
+            "detail": "the suite will run serial here — `bats -j` is missing "
+                      "a prerequisite (never a doctor failure: this is "
+                      "friction, not inconsistency)",
+            "items": items}
+
+
+# --------------------------------------------------------------------------- #
+# check 17 — req-ledger (AUTO-07)
+# --------------------------------------------------------------------------- #
+# cairn-bookkeep.py reconcile's OWN exit-code contract, named rather than
+# inlined. `reconcile` (read-only) exits 3 when it named at least one
+# disagreement and 0 when it named none — cairn-bookkeep.py's own
+# EXIT_DISAGREEMENT = 3, the same 3 cairn-reconcile.py:154 spends on a
+# disagreement verdict and the same one cairn-map.py --check uses for "stale".
+#
+# THE ALLOWLIST IS (0, 3) AND NOT (0, 5), AND THE DIFFERENCE IS THE WHOLE
+# CHECK. The neighbouring defensive shell-out, check_phase_corroboration(),
+# allowlists (0, 5) because that is cairn-status.py's contract. Copied here
+# unchanged, 3 — the ONLY verdict this check exists to report — would fall
+# into the "tool unavailable" branch, that branch would return "warn", and
+# the exit-code table above records that a warning never changes the exit
+# code. The doctor would exit 0 against a ledger it had just been told
+# disagrees, and a test asserting "the status is not ok" would stay green on
+# the `warn`. Hence: every status assertion for this check is on the exact
+# value, and every unavailability verdict below is "fail".
+BOOKKEEP_EXIT_OK = 0
+BOOKKEEP_EXIT_DISAGREEMENT = 3
+
+# reconcile's disagreement vocabulary, split by what THIS check claims.
+# Written out by name on purpose: a set built by exclusion ("everything that
+# is not X") silently adopts whatever kind reconcile grows next, and this
+# check would start failing repos over a rule nobody here reviewed.
+#
+# The requirement-ledger chain — AUTO-07's four links, plus the two siblings
+# of the same derivation (a row that outlived its requirement; a requirement
+# checkbox lagging its own complete phases). All are
+# `cairn-bookkeep.sh reconcile --apply` territory, all FAIL.
+REQ_LEDGER_CHAIN_KINDS = (
+    "coverage-row-missing",          # link 1: active requirement -> table row
+    "coverage-row-orphan",           # link 1, the other direction
+    "footer-count-stale",            # link 2: the table -> the footer's claim
+    "requirements-line-unreadable",  # link 3: the phase's Requirements line
+    "plan-checkbox-stale",           # link 4: SUMMARY on disk -> plan checkbox
+    "requirement-checkbox-stale",    # reconcile's derived 2, same chain
+)
+
+# Named by reconcile, outside this check's remit: STATE.md's own views. They
+# are still SURFACED — an unexplained absence is the exact defect this phase
+# removes — but they never spend exit 7 on a check called `req-ledger`, and
+# `state-narrative-stale` is free text reconcile itself declines to rewrite,
+# so failing on it would be a red that the routed command cannot clear.
+REQ_LEDGER_OUT_OF_REMIT_KINDS = (
+    "state-counter-stale",
+    "state-narrative-stale",
+)
+
+# "This repo has no coverage view at all" is not a broken ledger, it is no
+# ledger. The doctor runs in USERS' repos, and a naive version of this check
+# would drive every roadmap without a coverage table to exit 7 — the same
+# trap check_release_versions() documents. Phase 23 landed, and this branch is
+# `not-applicable` with scope `out-of-scope`.
+#
+# `out-of-scope`, not `no-input`, and the reason is right here in this
+# comment: keeping no coverage view is a METHOD CHOICE a project is entitled
+# to make, and most user repos make it. Calling it a gap would leave every one
+# of them reading INCOMPLETE forever over a table they deliberately do not
+# keep — a permanent false red where there used to be a permanent false green,
+# which is the same defect mirrored rather than removed. The exit code does
+# not move: the "0 = ok, or not applicable" semantics of the exit-code table
+# stayed true through this phase; what changed is that "not applicable" now
+# has a place of its own in the report instead of disguising itself as `ok`.
+#
+# ACCEPTED GAP, named rather than hidden: with no coverage view the plan
+# checkbox link (link 4) goes unchecked too, because the check is refused as
+# a whole. Splitting it per-link would let a repo with no ledger still be
+# failed over unticked plan checkboxes, which is the user-repo trap again.
+REQ_LEDGER_VOID_KIND = "coverage-view-missing"
+
+# reconcile's own preconditions, checked here first so that its EXIT_USAGE
+# (2) never arrives from this cause: it die()s when any of the three planning
+# files is absent, and "this repo keeps no REQUIREMENTS.md" must read as "no
+# ledger to check", not as "the ledger reader is broken".
+REQ_LEDGER_SOURCES = ("ROADMAP.md", "REQUIREMENTS.md", "STATE.md")
+
+# The command every finding routes to. A findings line that does not name
+# the command that resolves it trains everyone to scroll past it.
+REQ_LEDGER_FIX = "cairn-bookkeep.sh reconcile --apply"
+
+
+def req_ledger_source(root, source):
+    """A finding's file:line relative to the repo root when it sits under it
+    — the report is read next to the repo, not next to /."""
+    if not source:
+        return ""
+    text = str(source)
+    prefix = f"{root}{os.sep}"
+    return text[len(prefix):] if text.startswith(prefix) else text
+
+
+def req_ledger_pair(value):
+    """reconcile states the footer as TWO quantities ([active, mapped]).
+    Rendered as 'A active requirement(s) / B coverage row(s)' when it is that
+    pair, and verbatim otherwise — the shape belongs to cairn-bookkeep.py, so
+    this reads it defensively instead of asserting it."""
+    if isinstance(value, list) and len(value) == 2:
+        return f"{value[0]} active requirement(s) / {value[1]} coverage row(s)"
+    return repr(value)
+
+
+def req_ledger_item(root, finding):
+    """One reconcile disagreement rendered as one doctor item.
+
+    Every line names its SUBJECT (the requirement id, the phase, the plan
+    file, the footer) and the concrete values that disagree. "The ledger is
+    inconsistent" routes nowhere; naming AUTO-05, or 29 against 35/33, is
+    what makes the finding actionable — and an unknown kind still renders
+    (found/expected verbatim) rather than vanishing.
+    """
+    kind = finding.get("kind") or "?"
+    subject = finding.get("subject") or "?"
+    found = finding.get("found")
+    expected = finding.get("expected")
+    extra = finding.get("detail")
+    if not isinstance(extra, dict):
+        extra = {}
+    where = req_ledger_source(root, finding.get("source"))
+
+    if kind == "coverage-row-missing":
+        what = "active requirement with no row in the coverage table"
+    elif kind == "coverage-row-orphan":
+        what = ("a coverage table row for a requirement the requirements "
+                "section no longer lists as active")
+    elif kind == "footer-count-stale":
+        what = (f"the footer reads {extra.get('raw')!r} — it claims "
+                f"{req_ledger_pair(found)}, the ledger holds "
+                f"{req_ledger_pair(expected)}")
+    elif kind == "requirements-line-unreadable":
+        what = (f"its '**Requirements**:' line does not yield the ids the "
+                f"ledger assigns it — raw {extra.get('raw')!r}, parsed "
+                f"{found}, signals {extra.get('signals')}")
+    elif kind == "plan-checkbox-stale":
+        what = (f"{extra.get('summary')} is on disk but the plan's ROADMAP "
+                f"checkbox still reads {found!r}")
+    elif kind == "requirement-checkbox-stale":
+        what = (f"every phase carrying it ({extra.get('phases')}) is "
+                f"complete but its checkbox still reads {found!r}")
+    else:
+        what = f"found {found!r}, expected {expected!r}"
+    return f"{subject}: {what} [{kind}]" + (f" {where}" if where else "")
+
+
+def req_ledger_unavailable(why):
+    """The one verdict shape for "this check could not run".
+
+    ALWAYS "fail", NEVER "warn" and never "ok". A doctor that approves
+    because it could not check is the disease this whole milestone treats,
+    and `warn` is a quiet way of approving: the exit-code table above states
+    that a warning never changes the exit code, so a `warn` here leaves the
+    doctor exiting 0 over a ledger nobody read (T-29-29 / T-29-29b).
+    """
+    return {"id": "req-ledger", "status": "fail",
+            "detail": f"the requirement ledger could not be read: {why}",
+            "items": []}
+
+
+def check_response_language(root):
+    """Check 18, id "response-language" (LANG-02) — the two homes of the one
+    answer still agree.
+
+    `/cairn:init` records the installation's answer in
+    `.cairn/config.json:agents.response_language` (it must: at the moment it
+    asks, `.planning/` does not exist and cairn is forbidden from creating
+    it), and `cairn-config.py set` propagates it into
+    `.planning/config.json:response_language` the moment that file exists —
+    because THAT is the key GSD's own ~30 workflows read when they spawn their
+    subagents. The propagation of a greenfield install therefore depends on
+    one re-run of that command after the `/gsd:new-project` hand-off, and a
+    step in prose is exactly the thing that gets skipped. This check is the
+    net under it.
+
+    WARN, never FAIL, and the reason is written rather than assumed: a
+    disagreement breaks nothing mechanically. It makes half the subagents of a
+    run answer in one language and half in another — which is precisely what
+    nobody noticed last time, and precisely why it deserves a line in a health
+    report instead of silence. Spending exit 7 on it would train people to
+    ignore exit 7.
+
+    Read-only. It never writes either file: the doctor reports, and
+    `cairn-config.py set` is what writes.
+
+    AND IT READS THE TWO FILES RAW, which is the one place this repository's
+    usual "shell out to the script that owns the rule" would be wrong.
+    `cairn-config.py get` returns the RESOLVED value — GSD's key when it is
+    set, cairn's otherwise — so asking it would report a single, agreeing
+    answer in exactly the situation this check exists to catch. The resolver
+    hides the disagreement on purpose; the doctor's job is to see it. There is
+    no second resolver here: nothing below decides which value wins, it only
+    reports that two files say different things and which one governs.
+    """
+    cairn_path = root / ".cairn" / "config.json"
+    planning_path = root / ".planning" / "config.json"
+
+    def _read_json(path):
+        if not path.is_file():
+            return None
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    cairn_data = _read_json(cairn_path)
+    cairn_value = None
+    if isinstance(cairn_data, dict):
+        agents = cairn_data.get("agents")
+        if isinstance(agents, dict):
+            candidate = agents.get("response_language")
+            if isinstance(candidate, str) and candidate.strip():
+                cairn_value = candidate
+
+    if cairn_value is None:
+        return {"id": "response-language", "status": "ok",
+                "detail": "no installation answer recorded in "
+                          ".cairn/config.json — nothing to keep in agreement",
+                "items": []}
+
+    planning_data = _read_json(planning_path)
+    if planning_data is None:
+        return {"id": "response-language", "status": "ok",
+                "detail": f"'{cairn_value}' recorded; "
+                          ".planning/config.json is absent or unreadable, so "
+                          "there is nothing to propagate into yet",
+                "items": []}
+
+    planning_raw = planning_data.get("response_language")
+    planning_value = (planning_raw
+                      if isinstance(planning_raw, str) and planning_raw.strip()
+                      else None)
+    fix = (f"bash cairn/scripts/cairn-config.sh set "
+           f"agents.response_language '{cairn_value}'")
+
+    if planning_value is None:
+        return {"id": "response-language", "status": "warn",
+                "detail": f"'{cairn_value}' was chosen at install but never "
+                          f"reached .planning/config.json:response_language, "
+                          f"which is the key GSD's own workflows read when "
+                          f"they spawn subagents",
+                "items": [f"run: {fix}"]}
+
+    if planning_value != cairn_value:
+        return {"id": "response-language", "status": "warn",
+                "detail": f"the two disagree: .planning/config.json says "
+                          f"'{planning_value}', .cairn/config.json says "
+                          f"'{cairn_value}'. GSD's key governs, so every "
+                          f"subagent answers in '{planning_value}'",
+                "items": [f"to make cairn's record agree: {fix}",
+                          "to change the language for everything: "
+                          "/gsd:config, which writes GSD's key"]}
+
+    return {"id": "response-language", "status": "ok",
+            "detail": f"'{cairn_value}' in both .cairn/config.json and "
+                      f".planning/config.json — every spawned subagent "
+                      f"answers in it",
+            "items": []}
+
+
+def archived_phase_numbers(planning_dir):
+    """Phase numbers whose directory sits under .planning/milestones/<key>-
+    phases/ — the on-disk evidence that the cycle that owned them closed.
+
+    Same discipline as archived_milestones() one level up: nothing is inferred
+    from position in a list, from recency, or from STATE.md. /gsd:complete-
+    milestone moves the phase tree there when it closes a cycle, so the
+    directory's location IS the fact.
+    """
+    out = set()
+    try:
+        entries = list((planning_dir / "milestones").iterdir())
+    except OSError:
+        return out
+    for entry in entries:
+        if not entry.is_dir() or not entry.name.endswith("-phases"):
+            continue
+        try:
+            children = list(entry.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            m = DIR_PREFIX.match(child.name)
+            if child.is_dir() and m:
+                out.add(int(m.group(1)))
+    return out
+
+
+def check_phase_landed(root, planning_dir, completed):
+    """Check 19, id "phase-landed" (PR-04) — a phase the roadmap calls complete
+    whose work never entered the control branch.
+
+    Showing the information and not asking for it trains everybody not to look.
+    MEASURED 2026-08-06, and it is why this check exists: this repository has
+    ten roadmap-complete phases whose commits are not on `origin/main`
+    (`git rev-list --count origin/main..HEAD` = 145), and the doctor exited 7
+    without saying one word about any of them.
+
+    THE LEDGER OF LANDING IS READ ONCE, BY INVOCATION, NEVER REIMPLEMENTED
+    HERE. cairn-land.py owns every git read behind the question, through the
+    CAIRN_LAND seam — the same shell-out-to-a-sibling shape check_maps_fresh()
+    uses for cairn-map.py and check_req_ledger() for cairn-bookkeep.py. A
+    second `git merge-base` in this file would be a second answer to one
+    question, which is the family of defect that produced check 17.
+
+    STATUS LADDER, and every rung is a deliberate value, never a negation:
+      * a complete phase of an ARCHIVED milestone whose
+        work never entered the control branch      -> "fail" (exit 7)
+      * a complete phase of the OPEN cycle whose
+        work has not entered it yet                -> "warn"
+      * every complete phase has landed            -> "ok"
+      * no control branch to compare against, or
+        no complete phase at all                   -> "not-applicable",
+                                                      scope "out-of-scope"
+      * cairn-land.py could not be run or answered
+        unparsably                                 -> "warn", never "fail"
+
+    WHY THE OPEN CYCLE IS ONLY A WARN. Unpushed work is the normal state of
+    anybody in the middle of a cycle — it is friction, not inconsistency — and
+    spending exit 7 on friction is how 7 stops meaning anything. Same
+    distinction plans 29-06 and 29-07 drew. The archived case is genuinely
+    different: a cycle was CLOSED over work that is not on the control branch,
+    and that is a claim the repository cannot support.
+
+    WHY `unknown` RAISES NOTHING. A complete phase the local history cannot
+    place (no commit touched its directory and no commit named it in a
+    conventional-commit scope) is reported by name in `items`, prefixed with
+    the word `unknown` and carrying its reason — and it does NOT move the
+    status. MEASURED in this repository: phases 7 through 12 are archived from
+    cycles that predate the scope convention and are attributable by neither
+    source. Turning that into a warning would hand every long-lived repo a
+    permanent finding about history nobody is going to rewrite, which is the
+    false-red this doctor already refused once (phase 23). Silence about it
+    would be the opposite defect, so it is named without being charged.
+
+    WHERE THE COMPLETE PHASES COME FROM, AND WHY IT IS A UNION. `completed` is
+    roadmap_completed_phases(), which reads the CURRENT .planning/ROADMAP.md —
+    and MEASURED 2026-08-06, that file lists only the open cycle: nine phases
+    here, none of the nineteen already archived. Reading it alone would make
+    the `fail` rung unreachable by construction, because the phases it exists
+    to catch are exactly the ones an archive removed from that file. So the
+    universe is that set UNION the phase directories sitting under
+    .planning/milestones/<key>-phases/, which are complete by construction —
+    a cycle only archives when it closes.
+
+    This check WRITES NOTHING. Every finding routes by name to /cairn:ship.
+    """
+    archived = archived_phase_numbers(planning_dir)
+    delivered = set(completed) | archived
+    if not delivered:
+        return {"id": "phase-landed", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "no phase is marked complete in ROADMAP.md and none "
+                          "is archived under .planning/milestones/, so there "
+                          "is no delivered work to look for on a control "
+                          "branch",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_LAND, "report", "--json",
+             "--project-dir", str(root), "--planning-dir", str(planning_dir)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"id": "phase-landed", "status": "warn",
+                "detail": f"could not run {Path(CAIRN_LAND).name}: {e} — "
+                          "whether complete work reached the control branch "
+                          "is unknown for this run",
+                "items": []}
+    if proc.returncode != 0:
+        return {"id": "phase-landed", "status": "warn",
+                "detail": f"{Path(CAIRN_LAND).name} report exited "
+                          f"{proc.returncode}: "
+                          f"{(proc.stderr or '').strip()[:200]}",
+                "items": []}
+    try:
+        report = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError as e:
+        report = None
+        detail = str(e)
+    if not isinstance(report, dict):
+        return {"id": "phase-landed", "status": "warn",
+                "detail": f"{Path(CAIRN_LAND).name} report --json did not "
+                          "answer with an object — refusing to guess whether "
+                          "complete work reached the control branch",
+                "items": []}
+
+    control = report.get("control") or {}
+    branches = control.get("branches") or []
+    if not branches:
+        why = control.get("detail") or "no branch to compare against"
+        return {"id": "phase-landed", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": f"no control branch could be resolved here ({why}),"
+                          " so whether the work landed is a question this "
+                          "repository cannot be asked",
+                "items": []}
+
+    rows = report.get("phases") or {}
+    failures, warnings, unknowns = [], [], []
+    for n in sorted(delivered):
+        row = rows.get(str(n))
+        if not isinstance(row, dict) or row.get("status") == "unknown":
+            reason = ((row or {}).get("reason")
+                      or report.get("reason") or "no-commits")
+            unknowns.append(f"unknown :: phase {n} — {reason}: the local "
+                            "history places no commit in this phase, so "
+                            "whether its work landed cannot be answered here")
+            continue
+        if row.get("status") == "landed":
+            continue
+        missing = sorted(b for b, v in (row.get("branches") or {}).items()
+                         if v != "landed")
+        where = ", ".join(missing) or "the control branch"
+        item = (f"phase {n} is complete and its {row.get('commits')} "
+                f"commit(s) are not on {where}")
+        if n in archived:
+            failures.append(f"{item} — and its milestone is ARCHIVED: the "
+                            "cycle closed over work the control branch does "
+                            "not have")
+        else:
+            warnings.append(item)
+
+    items = failures + warnings + unknowns
+    census = (f"{len(delivered)} complete phase(s) ({len(archived)} archived),"
+              f" control branch {', '.join(branches)} "
+              f"({control.get('source')})")
+    if failures:
+        return {"id": "phase-landed", "status": "fail",
+                "detail": f"{len(failures)} archived-milestone phase(s) never "
+                          f"reached the control branch — {census}: run "
+                          "/cairn:ship",
+                "items": items}
+    if warnings:
+        return {"id": "phase-landed", "status": "warn",
+                "detail": f"{len(warnings)} complete phase(s) have not "
+                          f"reached the control branch yet — {census}: run "
+                          "/cairn:ship",
+                "items": items}
+    return {"id": "phase-landed", "status": "ok",
+            "detail": f"every complete phase the history can place is on the "
+                      f"control branch — {census}",
+            "items": items}
+
+
+def check_plan_counters(planning_dir):
+    """Check 20, id "plan-counters" (CairnGo-6bx, roadmap criterion 6) — a
+    STATE.md claiming more plans done than it has.
+
+    MEASURED 2026-08-06, right after the close of phase 22, and still true on
+    2026-08-07 before the fix landed:
+
+        .planning/STATE.md          on disk
+        total_plans:     39         NN-MM-PLAN.md ...... 39
+        completed_plans: 47   <---  NN-MM-SUMMARY.md ... 39
+        percent:         91         NN-SUMMARY.md ....... 8     47 = 39 + 8
+
+    WHY THIS CHECK COMPARES AND DOES NOT RECOMPUTE. The defect was never the
+    arithmetic — it was that the writer (cairn-bookkeep.py's compute_counters)
+    and the verifier (`cairn-bookkeep reconcile`) derive completed_plans with
+    the SAME rule, so they agreed while printing 28 and 33 in one JSON object.
+    A check that recounted the tree with that rule would agree too, in the very
+    act of trying to catch it. So this one reads the two numbers exactly as
+    written and asks a question neither glob can answer for itself: can more
+    plans be finished than exist? `completed > total` is impossible by
+    arithmetic, not by convention, and it needs to know nothing about how
+    either number was produced.
+
+    STATUS LADDER, every rung a deliberate value:
+      * completed_plans > total_plans           -> "fail" (exit 7)
+      * both readable and possible              -> "ok"
+      * no .planning/ at all                    -> "not-applicable",
+                                                   scope "out-of-scope"
+      * .planning/ present but STATE.md missing
+        the pair under `progress:`              -> "not-applicable",
+                                                   scope "no-input"
+
+    A missing key is NOT a failure: STATE.md's progress block is GSD's, and a
+    repository that never grew one has nothing inconsistent about it. Saying
+    `ok` over an absent input is the shape phase 23 removed from this file.
+
+    THE TWO SCOPES ARE NOT INTERCHANGEABLE. A `.planning/` that IS here with
+    the pair missing is a GAP — `no-input`, and `.ok` goes false. No
+    `.planning/` at all means the question does not apply — `out-of-scope`.
+
+    That first branch is DEFENSIVE, not reachable from the CLI, and it is
+    written down here because a test asserting it would be vacuous: MEASURED
+    2026-08-07, `cairn-doctor.sh --json` in a repo without `.planning/`
+    returns `"checks": []` — main() short-circuits before the check list is
+    built, so no check of any status is registered at all. The branch keeps
+    the honest value for any future caller that reaches this function
+    directly; nothing in the suite can prove it, and pretending otherwise
+    would be a test that passes against every implementation.
+
+    This check WRITES NOTHING. Its finding routes to `cairn-bookkeep.sh
+    reconcile`, which owns the recount.
+    """
+    if planning_dir is None or not planning_dir.is_dir():
+        return {"id": "plan-counters", "status": NOT_APPLICABLE,
+                "scope": "out-of-scope",
+                "detail": "no .planning/ directory — this repo has no plan "
+                          "counters to be wrong about",
+                "items": []}
+    counters = state_plan_counters(planning_dir)
+    total, done = counters["total_plans"], counters["completed_plans"]
+    if total is None or done is None:
+        missing = [k for k in ("total_plans", "completed_plans")
+                   if counters[k] is None]
+        return {"id": "plan-counters", "status": NOT_APPLICABLE,
+                "scope": "no-input",
+                "detail": ("STATE.md carries no " + " and no ".join(missing) +
+                           " under progress:, so there is nothing to compare"),
+                "items": []}
+    if done > total:
+        return {"id": "plan-counters", "status": "fail",
+                "detail": (f"STATE.md claims {done} completed plans out of "
+                           f"{total} — more plans finished than exist. Run "
+                           f"cairn-bookkeep.sh reconcile --json to see which "
+                           f"side of the pair the tree disagrees with"),
+                "items": [f"progress.completed_plans {done} > "
+                          f"progress.total_plans {total}"]}
+    return {"id": "plan-counters", "status": "ok",
+            "detail": f"STATE.md reports {done} of {total} plans completed",
+            "items": []}
+
+
+def check_state_dialect(planning_dir):
+    """Check 21, id "state-dialect" (CairnGo-ctr, AUTO-10, roadmap criterion
+    5) — the two phase keys of STATE.md naming two different phases.
+
+    WHY THIS CHECK IS PART OF THE DECISION AND NOT A NICE-TO-HAVE. MEASURED
+    2026-08-05: cairn-bookkeep wrote `current_phase` and `grep -rn
+    current_phase cairn/` found ZERO readers, while five surfaces read
+    `active_phase` (cairn-status.py, cairn-doctor.py, cairn-lease.py,
+    cairn-migrate.py, hooks/session-start.sh). The owner's decision
+    (2026-08-06) is to write BOTH, additively — and its stated cost is a
+    duplicated key. Two keys that must agree and that nobody compares is the
+    defect this cycle measured FOUR separate times (the coverage footer
+    against its table, req-issue against req-ledger, completed_plans against
+    total_plans, two hand-written numbers inside one document). Writing the
+    pair without comparing the pair would have created the fifth case in the
+    act of fixing the fourth, so the comparison ships with the duplication.
+
+    IT COMPARES AND NEVER DERIVES. Neither number is recomputed from the
+    roadmap or the phase tree: the values are read exactly as written and
+    asked the one question neither key can answer about itself — do the two
+    name the same phase? Recomputing would reproduce this phase's underlying
+    defect (a writer and a verifier sharing a rule and therefore agreeing)
+    inside the check written to catch it.
+
+    STATUS LADDER, every rung a deliberate value:
+      * both keys present, different phases  -> "fail" (exit 7)
+      * both keys present, same phase        -> "ok"
+      * fewer than two keys readable         -> "not-applicable",
+                                                scope "out-of-scope"
+      * no .planning/ at all                 -> "not-applicable",
+                                                scope "out-of-scope"
+
+    WHY ONE KEY IS out-of-scope AND NOT no-input, which is the assignment
+    that had to be argued rather than measured (the docstring's rule at the
+    top of this file: family is a written decision). A file carrying one key
+    HAS NO DIALECT DISAGREEMENT TO HAVE — speaking one dialect is literally
+    the state AUTO-10 is named after. And the absence of `active_phase` is
+    ALREADY named as `no-input` by check 8, claims-stale; naming it here too
+    would count one gap twice and, worse, would drop `.ok` to false in every
+    GSD repository that has never run cairn-bookkeep — a permanent false red,
+    which is phase 23's defect mirrored (D-07: no fix changes the verdict of
+    a path that is legitimately green today).
+
+    This check WRITES NOTHING. Its finding routes to `cairn-bookkeep.sh close
+    <N> --apply`, which owns both keys and writes them together.
+    """
+    if planning_dir is None or not planning_dir.is_dir():
+        return {"id": "state-dialect", "status": NOT_APPLICABLE,
+                "scope": "out-of-scope",
+                "detail": "no .planning/ directory — this repo has no STATE.md "
+                          "to speak two dialects in",
+                "items": []}
+    keys = state_phase_dialect(planning_dir)
+    current, active = keys["current_phase"], keys["active_phase"]
+    if current is None or active is None:
+        present = [k for k in ("current_phase", "active_phase")
+                   if keys[k] is not None]
+        carries = ("carries only " + present[0]) if present else \
+            "carries neither current_phase nor active_phase"
+        return {"id": "state-dialect", "status": NOT_APPLICABLE,
+                "scope": "out-of-scope",
+                "detail": (f"STATE.md {carries}, so there is no second "
+                           f"dialect for it to disagree with"),
+                "items": []}
+    if current != active:
+        return {"id": "state-dialect", "status": "fail",
+                "detail": (f"STATE.md's two phase keys name two different "
+                           f"phases: current_phase {current}, active_phase "
+                           f"{active}. Every cairn surface reads "
+                           f"active_phase and GSD writes current_phase, so "
+                           f"the lease, the board and this report are "
+                           f"reading a different phase than GSD is. Run "
+                           f"cairn-bookkeep.sh close <N> --apply, which "
+                           f"writes both"),
+                "items": [f"current_phase {current} != active_phase {active}"]}
+    return {"id": "state-dialect", "status": "ok",
+            "detail": f"STATE.md's two phase keys agree on phase {current}",
+            "items": []}
+
+
+def check_req_ledger(root, planning_dir):
+    """Check 17, id "req-ledger" (AUTO-07) — the chain nobody was validating:
+    an active requirement has a row in the coverage table, the table's row
+    count is the number the footer claims, each phase's '**Requirements**:'
+    line actually yields its ids, and a plan whose SUMMARY is on disk has its
+    ROADMAP checkbox ticked.
+
+    Measured 2026-08-04 in this repository, and it is why the check exists:
+    35 active requirements, 33 coverage rows (AUTO-05 and AUTO-06 have none),
+    a footer still claiming '29 requisitos, 29 mapeados.', and check 1
+    (req-issue) reporting `ok :: 29 requirement(s) mapped to issues` because
+    ROADMAP.md:400 reads '**Requirements**: AUTO-01 … AUTO-08' and an
+    ellipsis is prose, not a separator. Three numbers for one quantity, two
+    of them wrong from independent causes that happened to meet at 29, both
+    wearing a green check, for days, with nothing to say so.
+
+    WHERE THIS CHECK STOPS AND check_req_issue() STARTS. Check 1 goes
+    requirement -> bd issue, and it can only count the ids it manages to READ
+    off a phase's requirements line — that limit is precisely what produced
+    its 29. This check covers that limit: requirement -> coverage row ->
+    footer claim, plus the legibility of the line check 1 reads and the plan
+    checkboxes of the phase.
+
+    THE LEDGER IS READ ONCE, BY INVOCATION, NEVER REIMPLEMENTED HERE.
+    cairn-bookkeep.py's `reconcile` owns that reading; a second parser in the
+    doctor would be a fifth number for the same quantity, which is the defect
+    with one more surface (T-29-31). Same shell-out-to-a-sibling-script shape
+    check_maps_fresh() uses for cairn-map.py and check_release_versions() for
+    cairn-release.py, through the CAIRN_BOOKKEEP seam.
+
+    STATUS LADDER, and every rung is a deliberate value, never a negation:
+      * a broken link in the requirement ledger    -> "fail" (exit 7)
+      * only findings outside this check's remit
+        (STATE.md's counters and narrative)        -> "warn", surfaced and
+                                                      routed, never exit 7
+      * no REQUIREMENTS.md, or no coverage view
+        in this repo at all                        -> "not-applicable",
+                                                      scope "out-of-scope"
+                                                      (phase 23; it used to
+                                                      be "ok" with the words
+                                                      in the prose)
+      * the ledger could not be READ (script gone,
+        unexpected exit, unparsable JSON)          -> "fail", never "warn"
+
+    This check WRITES NOTHING. Every finding routes by name to
+    `cairn-bookkeep.sh reconcile --apply`, where the writing lives behind a
+    flag that says so.
+    """
+    absent = [name for name in REQ_LEDGER_SOURCES
+              if not (planning_dir / name).is_file()]
+    if absent:
+        # Same family and same reason as the coverage-view branch below: a
+        # repo that keeps no REQUIREMENTS.md keeps no ledger, on purpose.
+        return {"id": "req-ledger", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": f"{planning_dir.name}/ carries no "
+                          f"{', '.join(absent)}, so there is no requirement "
+                          f"ledger to cross-check",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_BOOKKEEP, "reconcile", "--json",
+             "--planning-dir", str(planning_dir)],
+            capture_output=True, text=True, cwd=str(root))
+    except (OSError, subprocess.SubprocessError) as exc:
+        return req_ledger_unavailable(f"could not run cairn-bookkeep.py: "
+                                      f"{exc}")
+    if proc.returncode not in (BOOKKEEP_EXIT_OK, BOOKKEEP_EXIT_DISAGREEMENT):
+        text = proc.stderr.strip() or proc.stdout.strip()
+        first = text.splitlines()[0] if text else "(no output)"
+        return req_ledger_unavailable(
+            f"cairn-bookkeep.py reconcile --json exited {proc.returncode} "
+            f"(expected {BOOKKEEP_EXIT_OK} or "
+            f"{BOOKKEEP_EXIT_DISAGREEMENT}): {first}")
+    try:
+        report = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return req_ledger_unavailable(
+            f"cairn-bookkeep.py reconcile --json returned invalid JSON: "
+            f"{exc}")
+    if not isinstance(report, dict):
+        return req_ledger_unavailable(
+            "cairn-bookkeep.py reconcile --json returned no report")
+
+    findings = report.get("disagreements") or []
+    if any(f.get("kind") == REQ_LEDGER_VOID_KIND for f in findings):
+        return {"id": "req-ledger", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "this roadmap has no coverage "
+                          "view (no '## Cobertura' table in ROADMAP.md and "
+                          "no '## Traceability' table in REQUIREMENTS.md), "
+                          "so there is no requirement ledger to cross-check",
+                "items": []}
+
+    reqs = report.get("requirements") or {}
+    active = reqs.get("active") or []
+    excluded = (reqs.get("deferred") or []) + (reqs.get("out_of_scope") or [])
+    rows = (report.get("coverage") or {}).get("rows")
+    census = (f"{len(active)} active requirement(s) against {rows} coverage "
+              f"row(s), {len(excluded)} excluded by rule (deferred / out of "
+              f"scope)")
+
+    broken = [f for f in findings if f.get("kind") in REQ_LEDGER_CHAIN_KINDS]
+    aside = [f for f in findings if f.get("kind") not in REQ_LEDGER_CHAIN_KINDS]
+    items = [req_ledger_item(root, f) for f in broken]
+    items += [f"{req_ledger_item(root, f)} — outside req-ledger's own links, "
+              f"reported not counted" for f in aside]
+
+    if broken:
+        return {"id": "req-ledger", "status": "fail",
+                "detail": f"{len(broken)} broken link(s) in the requirement "
+                          f"ledger — {census} — run {REQ_LEDGER_FIX}",
+                "items": items}
+    if aside:
+        return {"id": "req-ledger", "status": "warn",
+                "detail": f"every requirement-ledger link agrees — {census} "
+                          f"— but reconcile names {len(aside)} disagreement(s"
+                          f") outside this check's links: run "
+                          f"{REQ_LEDGER_FIX}",
+                "items": items}
+    return {"id": "req-ledger", "status": "ok",
+            "detail": f"every requirement-ledger link agrees — {census}",
             "items": []}
 
 
@@ -1874,8 +3422,12 @@ def main():
     has_planning = planning_dir.is_dir()
     has_beads = (root / ".beads").is_dir()
 
-    summary = {"applicable": False, "ok": True, "milestone": None,
-               "active_phase": None, "checks": [], "note": None}
+    # `counts` and `failed` are seeded here so the early not-applicable exits
+    # below emit the same shape as a full run — a consumer should not have to
+    # branch on which kind of repo it is pointed at.
+    summary = {"applicable": False, "ok": True, "failed": False,
+               "milestone": None, "active_phase": None, "checks": [],
+               "counts": {status: 0 for status in SYMBOL}, "note": None}
 
     if not has_planning and not has_beads:
         summary["note"] = ("neither .planning/ nor .beads/ — doctor not "
@@ -2022,7 +3574,8 @@ def main():
         check_phase_complete_open(issues, completed_set, disk_done,
                                   milestone, closed_n, closed_phases,
                                   disk_reasons, close_failures),
-        check_orphans(issues, roadmap_phases),
+        check_orphans(issues, roadmap_phases,
+                      archived_milestones(planning_dir)),
         check_label_pairs(issues, milestone, fixed, fix_error),
         check_claims_stale(issues, milestone, active_phase),
         check_bd_doctor(root),
@@ -2032,12 +3585,47 @@ def main():
         check_external_ref(root, planning_dir, issues, args.link_refs),
         check_lease_stale(root),
         check_release_versions(root),
+        check_test_parallel(root),
+        check_req_ledger(root, planning_dir),
+        check_response_language(root),
+        check_phase_landed(root, planning_dir, completed_set),
+        check_plan_counters(planning_dir),
+        check_state_dialect(planning_dir),
     ]
     summary["checks"] = checks
-    n_fail = sum(1 for c in checks if c["status"] == "fail")
-    n_warn = sum(1 for c in checks if c["status"] == "warn")
-    n_ok = len(checks) - n_fail - n_warn
-    summary["ok"] = n_fail == 0
+    # ONE BUCKET PER WORD OF THE VOCABULARY, COUNTED, NEVER SUBTRACTED.
+    # This line used to read `n_ok = len(checks) - n_fail - n_warn`, and that
+    # is precisely where a fourth status would have been born already counted
+    # as success: the footer would have announced eighteen successes with
+    # three checks that compared nothing. The buckets come from SYMBOL's own
+    # keys, so the vocabulary has exactly one source.
+    counts = {status: 0 for status in SYMBOL}
+    for c in checks:
+        if c["status"] not in counts:
+            # Loudly, not quietly, and not approximated into a neighbouring
+            # bucket: between approving in silence and refusing out loud,
+            # this phase exists to pick the second. EXIT_USAGE would be a
+            # lie — nobody misused the CLI, the report simply does not close.
+            die(f"check {c['id']!r} returned unknown status "
+                f"{c['status']!r} — the vocabulary is {sorted(counts)}; a "
+                f"new status needs a symbol in SYMBOL before it can be "
+                f"counted", EXIT_FAILED)
+        counts[c["status"]] += 1
+    n_ok = counts["ok"]
+    n_na = counts[NOT_APPLICABLE]
+    n_warn = counts["warn"]
+    n_fail = counts["fail"]
+    # Only the gap family clears the health key: an out-of-scope absence is
+    # normal and permanent in a user's repo, and must not read as incomplete.
+    n_no_input = sum(1 for c in checks
+                     if c["status"] == NOT_APPLICABLE
+                     and c.get("scope") == NA_NO_INPUT)
+    summary["counts"] = counts
+    # Two different questions, two keys. `failed` is the exact mirror of the
+    # exit code, for the consumer that needs it; `ok` also answers "did every
+    # check inside the doctor's remit actually receive its input".
+    summary["failed"] = n_fail > 0
+    summary["ok"] = n_fail == 0 and n_no_input == 0
 
     lines = [f"[cairn-doctor] {root} — milestone: "
              f"{milestone or 'unresolved'}, active phase: "
@@ -2045,9 +3633,16 @@ def main():
     for c in checks:
         lines.append(f" {SYMBOL[c['status']]} {c['id']:<20} {c['detail']}")
         lines += [f"     - {item}" for item in c["items"]]
-    verdict = "ok" if n_fail == 0 else "FAIL"
-    lines.append(f"[cairn-doctor] {verdict} — {n_ok} ok, {n_warn} "
-                 f"warning(s), {n_fail} failure(s)")
+    # INCOMPLETE never stands in for FAIL: a failure outranks it, because
+    # "something is inconsistent" is the louder sentence.
+    if n_fail:
+        verdict = "FAIL"
+    elif n_no_input:
+        verdict = "INCOMPLETE"
+    else:
+        verdict = "ok"
+    lines.append(f"[cairn-doctor] {verdict} — {n_ok} ok, {n_na} "
+                 f"not-applicable, {n_warn} warning(s), {n_fail} failure(s)")
 
     emit(args.json, summary, lines)
     sys.exit(EXIT_OK if n_fail == 0 else EXIT_FAILED)
