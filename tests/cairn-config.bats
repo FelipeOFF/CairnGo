@@ -190,8 +190,17 @@ make_config_fixture() {
   # and written in cairn-config.py's docstring (M-1/M-2/M-3): at the moment
   # /cairn:init asks, `.planning/` does not exist and cairn is forbidden from
   # creating it.
+  #
+  # Documented override (plan 30-01): seven -> eight, for
+  # `git.control_branches`. Same rule, same shape: the readers are named and
+  # all three ship in this cycle — cairn-land.py writes the answer through
+  # `set` and reads it through `get`, cairn-status.py renders from its report
+  # and cairn-doctor.py's phase-landed check cross-checks against it. It is a
+  # comma-separated LIST because gitflow really does keep two control branches
+  # at once, and empty means the question was never answered rather than "no
+  # branch".
   assert_json_eq "$output" '[.keys[].key] | sort | join(",")' \
-    'agents.response_language,autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,jira.link,ship.pr_scope,test.jobs'
+    'agents.response_language,autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,git.control_branches,jira.link,ship.pr_scope,test.jobs'
   assert_json_eq "$output" '[.keys[] | select(.key | test("sync_push"))] | length' '0'
 
   # Every key names the executable that reads it. An empty reader is the

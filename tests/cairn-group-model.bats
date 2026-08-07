@@ -459,15 +459,17 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   render_json
   run jq -r 'keys_unsorted | sort | join(",")' "$BOARD_JSON"
   [ "$status" -eq 0 ]
-  # The 14 pre-existing keys plus `groups` (20-02) and `open_milestones`
-  # (22-03, BOARD-04). tests/cairn-status.bats pins this same set against a
-  # different fixture (make_gsd_fixture + a status fixture); the two literals
-  # must agree, and a key that appears under only one fixture would show up
-  # as exactly that disagreement.
-  [ "$output" = "blocked,counts,doing,groups,lease,milestone,next,next_commands,note,open_milestones,parallelism,phase,phases,ready,stale_complete,sync" ]
+  # The 14 pre-existing keys plus `groups` (20-02), `open_milestones`
+  # (22-03, BOARD-04) and `landing` (30-01, PR-01 — which branch "delivered"
+  # means here, where that answer came from, and whether it could be produced
+  # at all). tests/cairn-status.bats pins this same set against a different
+  # fixture (make_gsd_fixture + a status fixture); the two literals must agree,
+  # and a key that appears under only one fixture would show up as exactly that
+  # disagreement.
+  [ "$output" = "blocked,counts,doing,groups,landing,lease,milestone,next,next_commands,note,open_milestones,parallelism,phase,phases,ready,stale_complete,sync" ]
 }
 
-@test "every phases[] row carries exactly the 23 keys it always did" {
+@test "every phases[] row carries exactly the 24 keys it always did" {
   render_json
 
   # The aggregation is the point, so the premise gets asserted rather than
@@ -494,7 +496,15 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   # catching a key renamed out from under it, and catching that is why this
   # test exists. Intent unchanged: this set is a CONTRACT, and a red here is
   # a contract change asking to be discussed.
-  [ "$output" = "blocked_by,complete,completed_on,conflicts,corroboration,depends_on,dir,disk_state,evidence,issues_done,issues_total,milestone,needs_doctor,next_command,number,plans_done,plans_total,purpose,requirements,research_done,title,tracker,verify_status" ]
+  #
+  # EDITED AGAIN by plan 30-01, deliberately and once: `landed` joins the set
+  # as the 24th key — did this phase's work enter the control branch, answered
+  # by cairn-land.py from the local git and carried here for every phase, with
+  # `status: "unknown"` and a named `reason` when it could not be answered.
+  # Additive for ALL rows exactly like `tracker`, which is what the
+  # `[.phases[] | keys_unsorted] | add | unique` aggregation above proves and a
+  # single-row sample would not.
+  [ "$output" = "blocked_by,complete,completed_on,conflicts,corroboration,depends_on,dir,disk_state,evidence,issues_done,issues_total,landed,milestone,needs_doctor,next_command,number,plans_done,plans_total,purpose,requirements,research_done,title,tracker,verify_status" ]
 }
 
 @test "disk_state still carries only its four values" {

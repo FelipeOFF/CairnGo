@@ -1403,9 +1403,13 @@ LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
   # `milestone` in particular is still the STATE.md-first read it always was:
   # BOARD-04 moved the HUMAN surfaces onto open_milestones and deliberately
   # left the machine key alone, because PIPE-01 freezes --plain's bytes.
+  # `landing` (30-01, PR-01) is the fourth declared additive key: which branch
+  # "delivered" means in this repository, whether that came from a decision or
+  # from detection, and whether the question could be answered at all. Declared
+  # here, in the one line this test says is where it is declared.
   local keys
   keys="$(jq -c 'keys' <<<"$output")"
-  [ "$keys" = '["blocked","counts","doing","groups","lease","milestone","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+  [ "$keys" = '["blocked","counts","doing","groups","landing","lease","milestone","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
 
   # Shape of the pre-existing keys is untouched.
   assert_json_eq "$output" '.counts.ready' '2'

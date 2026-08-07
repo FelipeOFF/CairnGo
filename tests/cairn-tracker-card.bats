@@ -633,7 +633,14 @@ print("curl was reached, layer 1 raised nothing, rc=%d" % p.returncode)'
   # `sys.executable` (cairn-lease.py, cairn-journal.py). The count is
   # asserted so that a site DELETED by a refactor is noticed too; a
   # legitimate fifth site updates this number and stays on the allowlist.
-  assert_output_has "ok: 4 subprocess.run sites"
+  #
+  # EDITED by plan 30-01, and it is the legitimate fifth the sentence above
+  # anticipated: fetch_landing() shells to cairn-land.py through
+  # `sys.executable`, which is how "did this work enter the control branch"
+  # reaches the board WITHOUT a `git` string ever being written into this
+  # file. cairn-land.py owns every git read and carries its own copy of these
+  # three layers in tests/cairn-land.bats.
+  assert_output_has "ok: 5 subprocess.run sites"
 }
 
 @test "layer 3 is alive: a synthetic curl call site is rejected" {
