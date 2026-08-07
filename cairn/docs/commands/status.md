@@ -46,6 +46,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-status.sh" [flags]
      - per phase, from an optional `**Tracker:**` line inside that phase's
        `### Phase N:` block in ROADMAP.md, beside `**Card:**` and `**Goal:**`
        (see [What the board reads from ROADMAP.md](#what-the-board-reads-from-roadmapmd)).
+   - **Did it land** — whether a phase's (and a task's) work has entered the
+     **control branch**, answered from the local git by `cairn-land.py` and
+     never re-derived here. It renders as a `⤒` suffix — `⤒ origin/main` when
+     everything landed, `⤒ not in origin/main` when nothing did, and
+     `⤒ origin/develop · not in origin/main` for the gitflow case where both
+     answers are true at once. Strictly conditional on the datum: with no
+     control branch resolved there is no suffix and no byte. See
+     [Did it land](#did-it-land).
    - **Sync staleness** — when `.cairn/sync.json` exists, checked against the
      last-pull watermark in `.cairn/state.json`.
 2. Renders **one grouped list**, at every width: the four counts
@@ -354,15 +362,78 @@ existed. The key rides beside the title and takes its room from it; when the
 `phase` column is too narrow to leave the title 12 readable cells, the key is
 dropped and the title takes the column back.
 
+## Did it land
+
+Two questions, two confidences, and the board never confuses them.
+
+| Question | Source | Confidence |
+| --- | --- | --- |
+| Did the work enter the control branch? | git ancestry, local | **exact**, no network |
+| Which pull request took it there? | the local history alone | **partial** |
+| What state is that PR in? | `gh` / `glab` | needs the network, behind config |
+
+The first is answered by `cairn-land.py`, which owns every git read behind it —
+`cairn-status.py` contains no `git` string at all, and shells out through
+`sys.executable` exactly as it already does for the lease and the journal.
+
+**The control branch** comes from `git.control_branches` in
+`.cairn/config.json` (comma-separated, because gitflow really does keep two at
+once). Before anyone answers, it is **detected** and the board says so:
+`--json`'s `landing.control.source` reads `config` after a decision and
+`detected` before one. Detection order, and the first entry is why it degrades
+instead of dying:
+
+1. `refs/remotes/origin/HEAD` — MEASURED: **absent in this repository**
+   (`git symbolic-ref refs/remotes/origin/HEAD` exits 128), so the most obvious
+   source is the one that is not there.
+2. Conventional names present as refs: `develop`, `dev`, `main`, `master`,
+   `trunk`, remote-tracking preferred, and **all** of the ones that exist.
+3. The branch HEAD most descends from.
+
+**The branch you are standing on is never detected as a control branch.** It
+contains your work by construction, so it answers `landed` for everything and
+means nothing. MEASURED while writing the suite: `git init` leaves the checkout
+on `main` or `master`, and without this rule every phase of a fresh repository
+read as landed — a green produced by the fixture rather than by the work. Only
+an explicit `cairn-land.sh apply` can name the current branch.
+
+**Verdicts, and they are four words, never three.** `landed` (every attributed
+commit is on the branch) · `partial` (some are) · `unlanded` (none is) ·
+`unknown` **with a named reason** (`no-commits`, `no-branch`, `no-git`,
+`no-phase`). `unknown` is never collapsed into `unlanded`: "I looked and it is
+not there" and "I could not look" are different sentences, and only the first
+licenses anybody to push.
+
+**How a commit is attributed to a phase — two sources, both needed.** `path`
+(the commit touched `<planning>/phases/<NN>-*/`) and `scope` (the
+conventional-commit scope names the phase: `feat(29-05)`, `chore(29)`).
+MEASURED 2026-08-06, each alone loses real commits: `6545a5c chore(29): fecha a
+fase 29 …`, the commit that *closes* phase 29, touches ROADMAP.md / STATE.md /
+REQUIREMENTS.md and **not** the phase directory, so path alone never sees it;
+and 313 of this repository's 530 HEAD commits carry a phase scope, which is a
+convention of this project and not of every project, so scope alone is not
+portable.
+
+**A task's landing is its phase's landing**, projected through its `phase-N`
+labels, and `unknown` / `no-phase` when it names none. It is not a second read
+of git: MEASURED, all 41 commit bodies here that name a bd issue id do it as a
+prose reference (`bd issue CairnGo-gbu`), not as an attribution, and reading six
+times the log bytes to infer a link nobody wrote is how a board invents a fact.
+
 ## The board never touches the network
 
 Every row on the board comes from data that is already on the machine: bd's
 local database and `ROADMAP.md`. Nothing is fetched — not a title, not a
 status, not an avatar.
 
+That is still true now that the board answers "did it land": the answer comes
+from `git`, which is on the allowlist, and from the repository already on disk.
+
 That is not a promise, it is a test. `tests/cairn-tracker-card.bats` renders
-the whole board under two independent tripwires and asserts what each one
-covers:
+the whole board under two independent tripwires, and
+`tests/cairn-land.bats` points the same three layers at `cairn-land.py` — the
+one file that grew git into the answer, and the file where a live PR fetch
+would plausibly be written next. Each layer asserts what it covers:
 
 | Layer | What it catches | Its negative control |
 | --- | --- | --- |
@@ -372,19 +443,30 @@ covers:
 The second layer exists because the first one does not cover the case that
 matters. MEASURED: with the socket tripwire installed, `subprocess.run(['curl',
 …])` in the same process returns **200** — a child process does not inherit
-a patched `socket` module, and `cairn-status.py` shells out in four places. A
-live fetch added later as a subprocess would sail past a socket-only test.
+a patched `socket` module, and `cairn-status.py` shells out in **five** places
+(two `bd`, three `sys.executable`: the lease, the journal and the landing
+report). A live fetch added later as a subprocess would sail past a
+socket-only test.
 
-**ASSUMED, and out of reach of both layers:** what `bd` itself does inside its
-own process. It is a third-party Go binary on the allowlist; what is proved is
-that *this script* opens no socket and invokes no network tool.
+A third layer runs before either: a structural inventory that parses each
+script and asserts every `subprocess.run` invokes an allowlisted binary. It
+goes red the day a network tool is *written* into the file, months before
+anybody renders a board with it, and the counts are asserted too — so a call
+site deleted by a refactor is noticed as loudly as one added.
+
+**ASSUMED, and out of reach of all three layers:** what `bd` and `git`
+themselves do inside their own processes. Both are third-party binaries on the
+allowlist because the board depends on them; what is proved is that *these
+scripts* open no socket and invoke no network tool, in their own process or in
+any child they start.
 
 ## Files touched
 
 - **Reads:** beads state via `bd` (`ready`, `list`, `blocked`),
   `.planning/ROADMAP.md`, `.planning/STATE.md`, `.cairn/sync.json`,
-  `.cairn/state.json` (sync watermark); `templates/status-board.html` when
-  `--html` seeds a new page
+  `.cairn/state.json` (sync watermark), `.cairn/config.json`
+  (`git.control_branches`, through `cairn-land.py`), and the local git history;
+  `templates/status-board.html` when `--html` seeds a new page
 - **Writes:** nothing — read-only, except the `--html` target, and there only
   the region between the board markers
 

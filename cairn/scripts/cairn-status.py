@@ -333,6 +333,15 @@ CAIRN_JOURNAL = os.environ.get(
     "CAIRN_JOURNAL",
     str(Path(__file__).resolve().parent / "cairn-journal.py"))
 
+# Same seam, same convention, for the landing report (Phase 30, PR-01).
+# cairn-land.py owns every git read behind "did this work enter the control
+# branch"; this script re-derives none of it. Two readers of git that could
+# disagree about the same repository is the defect this milestone has already
+# paid for twice, and a `git merge-base` call written HERE would be the third.
+CAIRN_LAND = os.environ.get(
+    "CAIRN_LAND",
+    str(Path(__file__).resolve().parent / "cairn-land.py"))
+
 USAGE = ("usage: cairn-status.py [--json] [--plain] [--brief] [--width N] "
          "[--max-rows N] [--ascii] [--color=always|never] "
          "[--planning-dir <dir>] [--html <path>]")
@@ -602,12 +611,29 @@ def trim_issue(iss):
     already writes it in production, as `gh-<n>`). The board strips the
     backend prefix for display via tracker_key(); this dict never does. A
     consumer that reads the JSON gets the datum, not a rendering of it.
+
+    `landed` (Phase 30, PR-01) is the per-TASK half of "did this enter the
+    control branch", and it is a PROJECTION of the task's phases, not a second
+    reading of git. MEASURED 2026-08-06, and it is why: 41 commit bodies in
+    this repository name a bd issue id and every sampled one is a prose
+    reference (`bd issue CairnGo-gbu`, `(CairnGo-0rk)`), not an attribution.
+    Reading six times the log bytes to infer a link nobody wrote is how a
+    board invents a fact. A task's work is its phase's work, and when the task
+    names no phase the answer is `unknown` with the reason spelled out — never
+    a guess and never a silent `landed`.
+
+    It is READ off the raw issue here, not computed here, because the human
+    render reads it off that same raw dict (issue_body_spans() never sees a
+    trimmed issue — the same reason `_stale` lives there). Computing it in two
+    places would be two things that can disagree about one row. main() writes
+    it exactly once, through issue_landing().
     """
     return {"id": str(iss.get("id") or "?"),
             "title": iss.get("title", ""),
             "priority": issue_priority(iss),
             "assignee": iss.get("assignee") or None,
             "external_ref": iss.get("external_ref") or None,
+            "landed": iss.get("_landed") or unknown_landing(LAND_NO_REPORT),
             "labels": as_str_list(iss.get("labels")),
             "blocked_by": as_str_list(iss.get("blocked_by"))}
 
@@ -654,6 +680,120 @@ def fetch_lease_status(root, active_phase, bd_ok):
         return json.loads(proc.stdout or "null")
     except json.JSONDecodeError:
         return None
+
+
+# ------------------------------------------------------- did the work land?
+
+# The vocabulary, as constants rather than literals at the comparison sites,
+# because every assertion about landing in the suite is on the EXACT value —
+# `!= "landed"` would be satisfied by `partial` AND by `unknown`, which are
+# opposite instructions to whoever reads the board.
+LAND_LANDED = "landed"
+LAND_PARTIAL = "partial"
+LAND_UNLANDED = "unlanded"
+LAND_UNKNOWN = "unknown"
+# Reasons, one per way the question can go unanswered. cairn-land.py owns the
+# first three; the fourth is this script's own, because only this script knows
+# what a bd issue is.
+LAND_NO_REPORT = "no-report"
+LAND_NO_COMMITS = "no-commits"
+LAND_NO_PHASE = "no-phase"
+
+
+def unknown_landing(reason):
+    """The shape every landing answer has, carrying no answer.
+
+    Always the same keys, so a consumer never has to branch on presence — the
+    same rule `tracker` follows, one plan earlier: additive for ALL rows, not
+    only the ones with a value.
+    """
+    return {"status": LAND_UNKNOWN, "branches": {}, "commits": 0,
+            "reason": reason}
+
+
+def fetch_landing(root, planning_dir):
+    """data["landing"]: cairn-land.py's whole report, or None when it could
+    not be read.
+
+    One subprocess call, the same shell-out-and-parse-defensively shape
+    fetch_lease_status() uses for cairn-lease.py: a missing script, a crashed
+    child or unparsable JSON degrades to None, never a crash and never a
+    fabricated verdict. `sys.executable`, so the child stays inside whatever
+    interpreter (and whatever tripwire) this process is running under.
+
+    THIS IS THE ONLY WAY GIT ENTERS THIS SCRIPT. There is no `git` string
+    anywhere else in this file, which is the property
+    tests/cairn-tracker-card.bats' structural inventory can actually check.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_LAND, "report", "--json",
+             "--project-dir", str(root), "--planning-dir", str(planning_dir)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        payload = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def phase_landing(landing, n):
+    """The landing row for phase `n`, always in the same shape.
+
+    A phase ABSENT from the report is not landed and is not unlanded: no
+    commit in the local history could be attributed to it, so the answer is
+    `unknown` naming that reason. Collapsing it into `unlanded` would tell
+    somebody to push work that may not exist.
+    """
+    if not isinstance(landing, dict):
+        return unknown_landing(LAND_NO_REPORT)
+    row = (landing.get("phases") or {}).get(str(n))
+    if not isinstance(row, dict):
+        return unknown_landing(landing.get("reason") or LAND_NO_COMMITS)
+    return {"status": row.get("status") or LAND_UNKNOWN,
+            "branches": row.get("branches") or {},
+            "commits": row.get("commits") or 0,
+            "reason": row.get("reason")}
+
+
+def combine_landing(values):
+    """One word over several phases' verdicts, on exact values only.
+
+    `unknown` is contagious upward on purpose: a task spanning a phase that
+    could be located and one that could not has NOT been shown to have landed,
+    and saying so is the whole point of the fourth word.
+    """
+    values = list(values)
+    if not values:
+        return LAND_UNKNOWN
+    if any(v == LAND_UNKNOWN for v in values):
+        return LAND_UNKNOWN
+    if all(v == LAND_LANDED for v in values):
+        return LAND_LANDED
+    if all(v == LAND_UNLANDED for v in values):
+        return LAND_UNLANDED
+    return LAND_PARTIAL
+
+
+def issue_landing(iss, landing):
+    """A task's landing, projected from the phases its labels name."""
+    ns = sorted(issue_phase_ns(iss))
+    if not ns:
+        return unknown_landing(LAND_NO_PHASE)
+    rows = [phase_landing(landing, n) for n in ns]
+    branches = {}
+    for row in rows:
+        for name, value in row["branches"].items():
+            branches[name] = combine_landing(
+                [branches[name], value] if name in branches else [value])
+    return {"status": combine_landing(r["status"] for r in rows),
+            "branches": branches,
+            "commits": sum(r["commits"] for r in rows),
+            "reason": next((r["reason"] for r in rows if r["reason"]), None)}
 
 
 # --------------------------------------------------------------- GSD reading
@@ -1200,7 +1340,7 @@ def journal_observe_phases(root, phases):
               f"observation: unparsable output ({e})", file=sys.stderr)
 
 
-def phase_model(planning_dir, issues=None, bd_ok=True):
+def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     """Every phase, described once, for all three surfaces to render from.
 
     The board, `--json` and the HTML page previously each re-derived what they
@@ -1215,6 +1355,13 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
     `bd_ok` (default True, unchanged behavior for every existing caller) says
     whether `issues` is a trustworthy read of bd; when False (bd unreachable)
     the bd axis reports "unknown" rather than fabricating agreement.
+
+    `landing` (Phase 30, PR-01) is cairn-land.py's already-fetched report, and
+    it is a PARAMETER rather than a fetch made here, deliberately: main() reads
+    it once and hands the same dict to this function and to trim_issue(), so
+    the phase rows and the task rows can never describe the same branch
+    differently. `None` means nobody fetched, and every row then reads
+    `unknown` / `no-report` — the honest answer, never a silent `unlanded`.
 
     Once every phase's evidence/corroboration below is computed, this
     function ends with exactly ONE batched call to journal_observe_phases()
@@ -1255,6 +1402,7 @@ def phase_model(planning_dir, issues=None, bd_ok=True):
         row = dict(rows[n])
         pdir = dirs.get(n)
         row["dir"] = str(pdir.relative_to(root)) if pdir else None
+        row["landed"] = phase_landing(landing, n)
         row["disk_state"] = phase_disk_state(pdir)
         row["research_done"] = phase_has_research(pdir)
         row["issues_done"], row["issues_total"] = phase_issue_counts(
@@ -2122,6 +2270,11 @@ class Style:
             self.g_stale = "*"
             self.g_conflict, self.g_informs = "x", "!"
             self.g_card = "#"
+            # Landing marker (Phase 30). `^` — the work going up into the
+            # control branch. One character, and free: `x`, `!`, `*`, `#`,
+            # `>`, `@`, `.`, `o`, `O`, `v` and `~` are all already spent
+            # inside this same output.
+            self.g_land = "^"
             # Stage symbols, ASCII fallback: exactly ONE character each, which
             # is what makes "the columns close aligned in both modes" a
             # mechanical claim — every column of the grouped block lands on
@@ -2140,6 +2293,15 @@ class Style:
             # ⧗ already used for dependencies — one cell everywhere, so it
             # can never widen a lane on a CJK terminal.
             self.g_card = "⧉"
+            # Landing marker (Phase 30, PR-01): an arrow arriving at a bar,
+            # which is the whole sentence — the work reaching the branch
+            # everything has to reach. MEASURED 2026-08-06 with
+            # unicodedata.east_asian_width: U+2912 is `N`, one cell
+            # everywhere, so it can never widen a row on a CJK terminal. The
+            # obvious candidates ▲ U+25B2 and △ U+25B3 are both `A` and were
+            # rejected on that measurement, exactly as the stage symbols
+            # below were.
+            self.g_land = "⤒"
             # Stage symbols (Phase 21, BOARD-02). MEASURED 2026-08-05 with
             # unicodedata.east_asian_width: all five are `N`, i.e. one cell
             # everywhere. `○` U+25CB, `◑` U+25D1 and `◆` U+25C6 were the
@@ -2344,7 +2506,52 @@ def issue_body_spans(lane, iss, style):
         if key:
             spans += [("  ", None), (style.g_card, SGR_DIM),
                       (" " + key, SGR_DIM)]
+    spans += landing_spans(iss.get("_landed"), style)
     return spans
+
+
+def landing_text(landed):
+    """The landing suffix as one string, or "" when there is nothing to say.
+
+    STRICTLY CONDITIONAL ON THE DATUM, which is the rule plan 29-05 proved and
+    this one inherits: with no control branch resolved there is no suffix, no
+    space, no byte. That is what keeps the seven committed reference renders
+    identical — their fixture is a git repo with no remote and no commit, so
+    `branches` is empty and this function returns "" for every row.
+
+    An `unknown` verdict renders nothing HERE and says its reason in --json.
+    The distinction is deliberate and it is not the one D-03 forbids: "no PR
+    was found" must never be reported as "there is no PR" (plan 30-02 owns
+    that), but "nobody has told this repo what its control branch is" is not a
+    finding about the work at all, and printing `unknown` on every row of
+    every board of every user would be noise, not honesty. /cairn:doctor is
+    where an absent answer gets named.
+    """
+    if not isinstance(landed, dict):
+        return ""
+    branches = landed.get("branches") or {}
+    if not branches:
+        return ""
+    inn = sorted(b for b, v in branches.items() if v == LAND_LANDED)
+    part = sorted(b for b, v in branches.items() if v == LAND_PARTIAL)
+    out = sorted(b for b, v in branches.items() if v == LAND_UNLANDED)
+    parts = []
+    if inn:
+        parts.append(", ".join(inn))
+    if part:
+        parts.append("partly in " + ", ".join(part))
+    if out:
+        parts.append("not in " + ", ".join(out))
+    return " · ".join(parts)
+
+
+def landing_spans(landed, style):
+    """The landing suffix as spans, with the glyph. Empty list = no suffix."""
+    text = landing_text(landed)
+    if not text:
+        return []
+    return [("  ", None), (style.g_land, SGR_DIM),
+            (" " + style.asciify(text), SGR_DIM)]
 
 
 def render_groups(data, width, max_rows, style):
@@ -2397,6 +2604,9 @@ def render_groups(data, width, max_rows, style):
                       (str(row["number"]).rjust(num_w), None), ("  ", None)]
             body = [(style.asciify(clean(p.get("title") or "(untitled)")),
                      None)]
+            # Same rule as the task row's own suffixes: it wraps, it is never
+            # dropped, and it only exists when the datum does.
+            body += landing_spans(p.get("landed"), style)
         else:
             iss = row["issue"]
             glyph, sgr = stage_symbol(row["lane"], iss, style)
@@ -3888,7 +4098,14 @@ def main():
     # ONE phase model, built once. Every surface below renders from this list
     # rather than re-deriving what it needs, so the terminal board, --json and
     # the HTML page cannot describe the same phase differently.
-    phases = phase_model(planning_dir, ready + doing + blocked + closed, bd_ok=bd_ok)
+    # ONE landing report per render (Phase 30, PR-01), read before the model
+    # and handed to everything that renders from it. Fetched here rather than
+    # inside phase_model() so the phase rows and the task rows below are
+    # answering out of the SAME dict — a second read of git is a second thing
+    # that can describe this repository differently.
+    landing = fetch_landing(root, planning_dir)
+    phases = phase_model(planning_dir, ready + doing + blocked + closed,
+                         bd_ok=bd_ok, landing=landing)
     all_phases, done_phases = roadmap_phases(planning_dir, phases)
     # Cross-check (docstring step 4b): open issues whose phase labels are
     # all roadmap-complete keep their lane but get flagged. _stale drives
@@ -3925,6 +4142,12 @@ def main():
     # footer line D-05 adds — never re-derived by any renderer below, one
     # read shared by the terminal footer, --plain and the HTML foot.
     lease = fetch_lease_status(root, active_phase, bd_ok)
+
+    # The per-task landing, written ONCE onto the raw issue (underscore key,
+    # exactly like `_stale` above) so the human render and trim_issue() below
+    # answer out of the same computed value instead of each doing its own.
+    for iss in ready + doing + blocked:
+        iss["_landed"] = issue_landing(iss, landing)
 
     data = {
         "ready": [trim_issue(i) for i in ready],
@@ -3963,6 +4186,14 @@ def main():
         "sync": {k: sync[k] for k in ("configured", "stale", "detail",
                                       "last_pull")},
         "stale_complete": stale_ids,
+        # Which branch "delivered" means in this repository, where that answer
+        # came from (`config` after somebody confirmed it, `detected` before,
+        # `none` when there is nothing to compare against), and whether the
+        # report could be produced at all. Additive and always present: a
+        # consumer reads `landing.control.source` to know whether it is
+        # looking at a decision or at a guess, without having to ask a second
+        # command. `null` only when cairn-land.py itself could not be run.
+        "landing": landing,
         "note": note,
         "lease": lease,
         # Underscore keys are renderer-private: the --json summary filters

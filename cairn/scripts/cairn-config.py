@@ -135,6 +135,9 @@ Keys, and what reads each one:
     |                          |                     |   --cycle K             |
     | autonomous.max_parallel  | int >=1, 3          | cairn-parallel.py batch |
     | bookkeep.auto_commit     | bool, false         | cairn-bookkeep.py       |
+    | git.control_branches     | str, "" (= ask/     | cairn-land.py,          |
+    |                          |   detect), comma-   |   cairn-status.py,      |
+    |                          |   separated         |   cairn-doctor.py       |
     | jira.link                | unset|yes|no,       | cairn-jira.py detect    |
     |                          |   "unset"           |                         |
     | ship.pr_scope            | phase|milestone|    | cairn-bookkeep.py       |
@@ -276,6 +279,17 @@ SCHEMA = {
         "reader": "cairn-test.py",
         "effect": "the -j the composed test command runs with (null = as "
                   "many as there are CPUs)",
+    },
+    "git.control_branches": {
+        "type": "str",
+        "default": "",
+        "max_len": 200,
+        "reader": "cairn-land.py, cairn-status.py, cairn-doctor.py",
+        "effect": "which branch(es) work has to reach before it counts as "
+                  "delivered — comma-separated, because gitflow really does "
+                  "have two at once (develop AND main). Empty means the "
+                  "question was never answered and cairn-land.py falls back "
+                  "to detecting it, saying so",
     },
     "jira.link": {
         "type": "enum",
