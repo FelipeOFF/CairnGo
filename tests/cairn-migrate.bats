@@ -852,7 +852,7 @@ EOF
   git branch FOO-127-fix
   git branch FOO-128-fix
 
-  run env HOME="$BATS_TEST_TMPDIR/empty-home" \
+  run env HOME="$(make_pinned_home "$BATS_TEST_TMPDIR/empty-home")" \
     bash "$CAIRN_SCRIPTS_DIR/cairn-migrate.sh" detect --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" \
@@ -872,7 +872,7 @@ EOF
   git commit -q --allow-empty -m "DTP-102: and its tests"
   git commit -q --allow-empty -m "DTP-103 hotfix"
 
-  run env HOME="$BATS_TEST_TMPDIR/empty-home" \
+  run env HOME="$(make_pinned_home "$BATS_TEST_TMPDIR/empty-home")" \
     bash "$CAIRN_SCRIPTS_DIR/cairn-migrate.sh" detect --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.external.jira.prefixes | join(",")' "DTP"
@@ -902,7 +902,7 @@ EOF
   git commit -q --allow-empty -m "DTP-103 hotfix"
   git branch DTP-104-refresh-tokens
 
-  run env HOME="$BATS_TEST_TMPDIR/empty-home" \
+  run env HOME="$(make_pinned_home "$BATS_TEST_TMPDIR/empty-home")" \
     bash "$CAIRN_SCRIPTS_DIR/cairn-migrate.sh" detect --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.external.jira.detected' "true"
