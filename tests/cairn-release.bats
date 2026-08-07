@@ -119,8 +119,91 @@ EOF
   [ "$status" -eq 6 ]
   assert_json_eq "$output" '.ok' 'false'
   assert_json_eq "$output" '.version' 'null'
+  # `status` is a fact about this carrier ALONE — it was read and it is valid
+  # semver. Whether it matches anything is a different question with its own
+  # field (see the FIX-03 test below).
   assert_json_eq "$output" \
-    '.carriers[] | select(.name=="marketplace") | .status' 'mismatch'
+    '.carriers[] | select(.name=="marketplace") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="marketplace") | .agrees_with_reference' 'false'
+}
+
+# FIX-03 / CairnGo-tuh. MEASURED live with the CHANGELOG already at 1.5.0 and
+# both manifests still at 1.4.2:
+#
+#     marketplace  1.4.2 (the OLD version)   -> status: ok
+#     changelog    1.5.0 (the only correct)  -> status: mismatch
+#
+# The top verdict, the finding text and exit 6 were all correct — the gate
+# never lied. What lied was the per-carrier field: comparisons run against
+# present[0], so `status` meant "agrees with the first readable carrier" while
+# reading as "is correct". A consumer filtering status=="mismatch" to find what
+# to fix would be sent to the file that was already right.
+#
+# Deriving `status` from the MAJORITY was rejected by this same measurement:
+# with two carriers at 1.4.2 and one at 1.5.0, the majority also accuses the
+# changelog. Nothing offline can know which version was intended, so the field
+# says what it measures instead of pretending to know.
+@test "the reference carrier is named, and agreement is not called correctness" {
+  make_release_fixture 1.5.0
+  # Reproduce the measured shape exactly: the two manifests carry the OLD
+  # version, the CHANGELOG carries the new one.
+  printf '{"name": "cairn", "version": "1.4.2"}\n' \
+    > cairn/.claude-plugin/plugin.json
+  printf '{"name": "cairngo", "metadata": {"version": "1.4.2"}, "plugins": []}\n' \
+    > .claude-plugin/marketplace.json
+
+  run bash "$RELEASE" check --project-dir "$PWD" --json
+  [ "$status" -eq 6 ]
+
+  # The yardstick is NAMED, so nobody has to infer it from ordering.
+  assert_json_eq "$output" '.reference' 'plugin'
+
+  # Nothing in the payload claims the old value is correct.
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="marketplace") | .value' '1.4.2'
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="marketplace") | .agrees_with_reference' 'true'
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="changelog") | .value' '1.5.0'
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="changelog") | .agrees_with_reference' 'false'
+
+  # And `mismatch` is gone from the per-carrier status vocabulary: "does not
+  # match" is a statement about a PAIR, never about one file.
+  assert_json_eq "$output" \
+    '[.carriers[] | select(.status=="mismatch")] | length' '0'
+
+  # The own-axis carrier is never compared, so it answers null rather than a
+  # boolean that would read as a verdict (D-02).
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="capability") | .agrees_with_reference' 'null'
+
+  # The finding still names both sides, both keys and both values — the gate
+  # was never the broken part.
+  assert_json_eq "$output" '.findings | length' '1'
+  grep -qF "1.4.2" <<<"$output"
+  grep -qF "1.5.0" <<<"$output"
+}
+
+@test "an unreadable carrier answers null about agreement, never false" {
+  make_release_fixture 1.5.0
+  rm .claude-plugin/marketplace.json
+
+  run bash "$RELEASE" check --project-dir "$PWD" --json
+  [ "$status" -eq 6 ]
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="marketplace") | .status' 'missing'
+  # The key must EXIST and hold null — an absent key answers `null` to jq too,
+  # which would make this assertion pass against a payload that never learned
+  # the field.
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="marketplace") | has("agrees_with_reference")' \
+    'true'
+  # `false` would say "it disagrees", which is a comparison that never
+  # happened. The three-nothings trap, one field over.
+  assert_json_eq "$output" \
+    '.carriers[] | select(.name=="marketplace") | .agrees_with_reference' 'null'
 }
 
 # Break: stop reading the CHANGELOG heading at all.

@@ -41,6 +41,5 @@ After the phase's PLAN.md files are written:
 Precedence: where a bd issue conflicts with the phase's CONTEXT.md or
 PLAN.md, the GSD doc wins — update the issue (dated reconciliation note
 outside the map's generated markers), never follow the stale issue. If
-`.cairn/sync.json` has an enabled backend and config `cairn.sync_push` is
-not false, push the mirror for each issue you created or updated (see the
-cairn-sync skill).
+`.cairn/sync.json` has an enabled backend, push the mirror for each issue
+you created or updated (see the cairn-sync skill).

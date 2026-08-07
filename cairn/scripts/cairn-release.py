@@ -48,6 +48,45 @@ report agreement — a green light that means the opposite of what it says. A
 missing file, a missing key, a key holding a non-string, and malformed JSON are
 each a finding that names the file AND the key, and each exits 6.
 
+NO FIELD HERE SAYS "CORRECT", BECAUSE NOTHING HERE CAN KNOW (FIX-03)
+---------------------------------------------------------------------
+MEASURED live, with the CHANGELOG already at 1.5.0 and both manifests still at
+1.4.2, against the version of this file that carried the defect:
+
+    marketplace  1.4.2 (the OLD version)    ->  status: ok
+    changelog    1.5.0 (the only correct)   ->  status: mismatch
+
+The top-level verdict, the finding text and exit 6 were all right — the gate
+never lied. The per-carrier field did: comparisons run against present[0], so
+`status` MEANT "agrees with the first readable lockstep carrier" while READING
+as "this file is correct". A consumer filtering `status == "mismatch"` to learn
+what to fix would have been sent to the file that was already right.
+
+Deriving the answer from the MAJORITY was rejected by that same measurement:
+two carriers at 1.4.2 against one at 1.5.0 makes the majority accuse the
+changelog too. Majority is not correctness, it is a second guess with a better
+name. Which version was INTENDED is not a fact this repository holds, so the
+payload answers what it measured and names its yardstick:
+
+    status                  a fact about this carrier ALONE — `ok` (a valid
+                            semver string was read), `missing`, `invalid json`,
+                            `invalid semver`; on the `tag` entry also
+                            `pending` and `skipped`. `mismatch` is NOT one of
+                            them: "does not match" is a statement about a pair.
+    agrees_with_reference   true / false for the lockstep carriers that were
+                            actually compared; null when no comparison
+                            happened — an unreadable carrier, the own-axis
+                            carrier, the tag when it was not consulted. null
+                            rather than false, for the same reason the readers
+                            above return None rather than "": a comparison
+                            that did not happen is not a disagreement.
+    reference (top level)   the carrier the comparison ran against, by name.
+                            A YARDSTICK, never a verdict — it is simply the
+                            first readable lockstep carrier.
+
+`mismatch` remains a FINDING token, which is where it belongs: a finding names
+two paths, two keys and two values, and is a claim about the pair.
+
 The git tag
 -----------
 The fourth lockstep carrier. It is only consulted once the three file carriers
@@ -290,7 +329,13 @@ def git_tag_exists(root, tag):
 # --------------------------------------------------------------------------- #
 def collect_carriers(root):
     """[carrier dict] in CARRIERS order, each already carrying its own read
-    finding (if any). Status is filled in by cmd_check."""
+    finding (if any).
+
+    `status` is a fact about THIS carrier alone and nothing else — see the
+    module docstring's "two questions" note. `agrees_with_reference` starts
+    None and is answered by cmd_check for the lockstep carriers it actually
+    compares; None means no comparison happened, which is not the same
+    sentence as False."""
     out = []
     for name, rel, keypath, rule in CARRIERS:
         if keypath is None:
@@ -303,6 +348,7 @@ def collect_carriers(root):
                     "rule": rule, "status": "ok" if finding is None else
                     ("invalid json" if finding.startswith("invalid json")
                      else "missing"),
+                    "agrees_with_reference": None,
                     "finding": finding})
     return out
 
@@ -328,15 +374,20 @@ def cmd_check(args, root):
     # every finding names two paths, two keys and two values — a finding that
     # only said "the versions differ" would send the reader back to opening all
     # four files by hand, which is the work this command exists to delete.
+    #
+    # That reference is a YARDSTICK, never a verdict (FIX-03). It is named in
+    # the payload so nobody has to infer it from ordering, and the comparison
+    # it produces lives in its own field rather than inside `status`.
     version = None
+    reference = None
     if present:
         ref = present[0]
+        reference = ref["name"]
         version = ref["value"]
+        ref["agrees_with_reference"] = True
         for c in present[1:]:
-            if c["value"] != ref["value"]:
-                c["status"] = "mismatch"
-                if ref["status"] == "ok":
-                    ref["status"] = "mismatch"
+            c["agrees_with_reference"] = c["value"] == ref["value"]
+            if not c["agrees_with_reference"]:
                 findings.append(
                     f"mismatch: {ref['path']} ('{ref['key']}') = "
                     f"'{ref['value']}' but {c['path']} ('{c['key']}') = "
@@ -348,7 +399,8 @@ def cmd_check(args, root):
     # The tag is only consulted once the file carriers agree — with no single
     # version to look up, a tag query answers a question nobody asked.
     tag_entry = {"name": "tag", "path": "git", "key": None, "value": None,
-                 "rule": "lockstep", "status": "skipped", "finding": None}
+                 "rule": "lockstep", "status": "skipped",
+                 "agrees_with_reference": None, "finding": None}
     if agreed and version:
         tag = f"v{version}"
         tag_entry["key"] = tag
@@ -374,8 +426,10 @@ def cmd_check(args, root):
         print(json.dumps({
             "ok": ok,
             "version": version if agreed else None,
+            "reference": reference,
             "carriers": [{k: c[k] for k in
-                          ("name", "path", "key", "value", "rule", "status")}
+                          ("name", "path", "key", "value", "rule", "status",
+                           "agrees_with_reference")}
                          for c in carriers],
             "findings": findings,
         }))

@@ -22,11 +22,15 @@ the mode; with neither `new` nor `complete`, ask which one.
      --metadata '{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}'
    ```
    Capture roadmap-implied ordering with `bd dep add`.
-3. Generate each new phase's map:
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>   # once per new phase
-   ```
-4. Suggest `/cairn:doctor` to confirm the wiring, then `/cairn:plan <N>`.
+3. **Do not generate the phase maps here — they cannot exist yet.** A map is
+   written into the phase's own directory, and the directories are created by
+   `/gsd:plan-phase`, so at this point in the milestone none of them exists.
+   Measured when v1.4 opened: 5 of 5 phases failed, and confirmed live when
+   v1.5 opened — `cairn-map.sh 20` answers `no phase directory matching phase
+   20` and exits `4`. The map is born with the phase's plan, in
+   `/cairn:plan <N>`, which regenerates it every time.
+4. Suggest `/cairn:doctor` to confirm the wiring, then `/cairn:plan <N>` —
+   which is where each phase gets its directory, its plan and its map.
 
 ## `complete` — close out the current milestone
 
