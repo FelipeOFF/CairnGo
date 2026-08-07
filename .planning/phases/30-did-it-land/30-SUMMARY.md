@@ -109,8 +109,15 @@ uma vez no fim.
 |---|---|---|---|
 | A | `cairn-doctor`, `cairn-land`, `cairn-review` | 155 | 0 |
 | B | `cairn-config`, `cairn-board-invariance`, `cairn-tracker-card`, `cairn-group-model`, `cairn-status`, `cairn-phase-card`, `cairn-grouped-board`, `cairn-corroboration` | 177 | 0 |
+| C | `cairn-bookkeep`, `cairn-init`, `cairn-jira`, `cairn-journal`, `cairn-phase-model`, `cairn-reconcile`, `cairn-test`, `hooks` | 203 | 0 |
+| D | `cairn-parallel`, `cairn-parallel-autonomous`, `cairn-migrate` | 77 | 0 |
 
-**332 executados, 332 verdes, 0 vermelhos**, contados sobre o log inteiro.
+Os lotes C e D não foram escolhidos por conforto: são **toda** suíte que cita
+`cairn-status`, `cairn-config` ou `cairn-doctor` e que os lotes A e B não já
+cobriam, enumerada por `grep` em vez de por memória.
+
+**612 executados em 22 suítes, 612 verdes, 0 vermelhos**, contados sobre o log
+inteiro.
 
 `git diff --quiet HEAD -- tests/fixtures/board-render/` limpo: os sete renders de
 referência não se moveram um byte, e isso foi **provado** — o sufixo tornado

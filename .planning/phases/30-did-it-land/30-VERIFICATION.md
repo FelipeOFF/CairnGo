@@ -61,10 +61,17 @@ Só os `.bats` tocados, nunca a suíte inteira.
 |---|---|---|---|
 | A | `cairn-doctor` (110), `cairn-land` (34), `cairn-review` (11) | 155 | 0 |
 | B | `cairn-config`, `cairn-board-invariance`, `cairn-tracker-card`, `cairn-group-model`, `cairn-status`, `cairn-phase-card`, `cairn-grouped-board`, `cairn-corroboration` | 177 | 0 |
+| C | `cairn-bookkeep`, `cairn-init`, `cairn-jira`, `cairn-journal`, `cairn-phase-model`, `cairn-reconcile`, `cairn-test`, `hooks` | 203 | 0 |
+| D | `cairn-parallel`, `cairn-parallel-autonomous`, `cairn-migrate` | 77 | 0 |
 
-**332 executados, 332 verdes**, contados sobre o log inteiro — não sobre saída
-truncada, que é o erro de relato que o canário de contagem do doutor já pegou uma
-vez.
+Os lotes C e D são **toda** suíte que cita `cairn-status`, `cairn-config` ou
+`cairn-doctor` e que A e B não já cobriam — enumerada por `grep` sobre
+`tests/*.bats`, não por memória, porque "acho que nada mais toca nisso" é
+exatamente o raciocínio que deixa um consumidor quebrado passar.
+
+**612 executados em 22 suítes, 612 verdes**, contados sobre o log inteiro — não
+sobre saída truncada, que é o erro de relato que o canário de contagem do doutor
+já pegou uma vez.
 
 **17 quebras foram aplicadas de verdade no fonte**, a suíte rodada, e o fonte
 restaurado de cópia (`cp`, nunca `git checkout --`), com `diff` final vazio em
