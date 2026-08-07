@@ -454,6 +454,19 @@ REQ_SECTION = re.compile(r"^##\s+(.*?)\s*$")
 REQ_ITEM = re.compile(
     r"^\s*-\s*(?:\[([ xX])\]\s*)?\*\*([A-Za-z][A-Za-z0-9]*-\d+)\*\*")
 PHASE_DIR = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
+# A PLAN and the SUMMARY OF THAT PLAN, matched by SHAPE rather than by suffix.
+# MEASURED 2026-08-06, right after the close of phase 22, and still true on
+# 2026-08-07 (CairnGo-6bx): scan_phase_tree() globbed `*-SUMMARY.md`, which
+# matches `22-01-SUMMARY.md` (a plan's) AND `22-SUMMARY.md` (the phase's),
+# while its pair `*-PLAN.md` matches only plans, because a phase has no
+# `NN-PLAN.md`. The two globs LOOK symmetric and the naming is not, so
+# completed_plans (39 + 8) came out larger than total_plans (39).
+#
+# `plans` gets the same discipline even though its glob happens to be right
+# today: a counter whose correctness rests on the absence of a filename is a
+# counter waiting for somebody to create that filename.
+PLAN_FILE = re.compile(r"^\d+-\d+-PLAN\.md$")
+PLAN_SUMMARY_FILE = re.compile(r"^\d+-\d+-SUMMARY\.md$")
 ELLIPSIS = re.compile(r"[A-Za-z0-9]\s*(?:…|\.\.\.)\s*[A-Za-z]")
 NARRATIVE_COUNT = re.compile(r"(\d+)\s+(fases?|requisitos?)")
 
@@ -1001,7 +1014,12 @@ def parse_state_frontmatter(lines):
 
 def scan_phase_tree(planning):
     """{phase number: {dir, plans: [names], summaries: [names]}} — counted by
-    NAME. Nothing in a plan or summary file is ever opened."""
+    NAME. Nothing in a plan or summary file is ever opened.
+
+    `summaries` is the summaries OF PLANS, never the summary of the phase:
+    both end in `-SUMMARY.md` and only one of them is a plan. See
+    PLAN_SUMMARY_FILE for the measurement that this asymmetry produced.
+    """
     tree = {}
     phases = planning / "phases"
     if not phases.is_dir():
@@ -1014,8 +1032,10 @@ def scan_phase_tree(planning):
             continue
         tree[int(m.group(1), 10)] = {
             "dir": d.name,
-            "plans": sorted(p.name for p in d.glob("*-PLAN.md")),
-            "summaries": sorted(p.name for p in d.glob("*-SUMMARY.md"))}
+            "plans": sorted(p.name for p in d.glob("*-PLAN.md")
+                            if PLAN_FILE.match(p.name)),
+            "summaries": sorted(p.name for p in d.glob("*-SUMMARY.md")
+                                if PLAN_SUMMARY_FILE.match(p.name))}
     return tree
 
 

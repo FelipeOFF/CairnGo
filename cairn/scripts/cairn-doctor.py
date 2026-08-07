@@ -57,7 +57,7 @@ and "something never ran" are different questions and get different keys.
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — twenty
+                        version output -> WARN. Runs first — twenty-one
                         checks in total. (This line read `eighteen` while
                         nineteen were registered, from phase 24 until
                         phase 30 measured it: a hand-maintained count in
@@ -472,11 +472,37 @@ and "something never ran" are different questions and get different keys.
                         answered unparsably -> WARN, never FAIL (same
                         degrade shape as check 11). Writes nothing; every
                         finding routes to /cairn:ship.
+    20. plan-counters   (CairnGo-6bx, Phase 25 criterion 6) STATE.md
+                        claiming more plans completed than it has.
+                        MEASURED 2026-08-06, right after the close of
+                        phase 22: `total_plans: 39` against
+                        `completed_plans: 47`, because 47 = 39 plan
+                        summaries + 8 PHASE summaries, and the glob that
+                        produced it matched both while its `*-PLAN.md`
+                        pair matched only plans. This check COMPARES and
+                        never recomputes: writer and verifier derived that
+                        number with the same rule and therefore agreed
+                        while printing both contradictory values in one
+                        JSON object, so a recount with the writer's rule
+                        would reproduce the defect inside the check meant
+                        to catch it. `completed > total` is impossible by
+                        arithmetic, not by convention, and needs to know
+                        nothing about either glob. Both numbers present
+                        and possible -> OK; `completed > total` -> FAIL;
+                        no .planning/, no STATE.md, or a `progress:` block
+                        without both keys -> NOT-APPLICABLE / no-input,
+                        because GSD owns that block and a repo that never
+                        grew one is not inconsistent. Writes nothing; the
+                        finding routes to `cairn-bookkeep.sh reconcile`,
+                        which owns the recount. NO .planning/ AT ALL is
+                        NOT-APPLICABLE / out-of-scope, never no-input —
+                        a defensive branch the CLI never reaches, since
+                        main() registers zero checks in that repo.
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-
                     escalation reconciliation proposal for phase N. Not one
-                    of the 20 checks above — a fixer, the same category as
+                    of the 21 checks above — a fixer, the same category as
                     --close-completed/--fix-labels/--link-refs, but the only
                     one of the four that always exits on its own rather
                     than falling through to the ordinary report, since its
@@ -685,6 +711,32 @@ def state_frontmatter(planning_dir):
             digits = re.search(r"\d+", val)
             if digits:
                 out["active_phase"] = int(digits.group(0))
+    return out
+
+
+def state_plan_counters(planning_dir):
+    """{'total_plans': int|None, 'completed_plans': int|None} — the two numbers
+    exactly AS WRITTEN under `progress:` in STATE.md.
+
+    Nothing here counts a file. That is the whole point: the defect this feeds
+    (CairnGo-6bx) is a writer and a verifier sharing one wrong rule and
+    therefore agreeing, so recomputing either number with the writer's rule
+    would reproduce the defect inside the check meant to catch it.
+    """
+    out = {"total_plans": None, "completed_plans": None}
+    lines = read_lines(planning_dir / "STATE.md")
+    if not lines or lines[0].strip() != "---":
+        return out
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^\s*(total_plans|completed_plans)\s*:\s*(.+?)\s*$",
+                     line)
+        if not m:
+            continue
+        digits = re.search(r"\d+", m.group(2).split("#", 1)[0])
+        if digits:
+            out[m.group(1)] = int(digits.group(0))
     return out
 
 
@@ -2775,6 +2827,87 @@ def check_phase_landed(root, planning_dir, completed):
             "items": items}
 
 
+def check_plan_counters(planning_dir):
+    """Check 20, id "plan-counters" (CairnGo-6bx, roadmap criterion 6) — a
+    STATE.md claiming more plans done than it has.
+
+    MEASURED 2026-08-06, right after the close of phase 22, and still true on
+    2026-08-07 before the fix landed:
+
+        .planning/STATE.md          on disk
+        total_plans:     39         NN-MM-PLAN.md ...... 39
+        completed_plans: 47   <---  NN-MM-SUMMARY.md ... 39
+        percent:         91         NN-SUMMARY.md ....... 8     47 = 39 + 8
+
+    WHY THIS CHECK COMPARES AND DOES NOT RECOMPUTE. The defect was never the
+    arithmetic — it was that the writer (cairn-bookkeep.py's compute_counters)
+    and the verifier (`cairn-bookkeep reconcile`) derive completed_plans with
+    the SAME rule, so they agreed while printing 28 and 33 in one JSON object.
+    A check that recounted the tree with that rule would agree too, in the very
+    act of trying to catch it. So this one reads the two numbers exactly as
+    written and asks a question neither glob can answer for itself: can more
+    plans be finished than exist? `completed > total` is impossible by
+    arithmetic, not by convention, and it needs to know nothing about how
+    either number was produced.
+
+    STATUS LADDER, every rung a deliberate value:
+      * completed_plans > total_plans           -> "fail" (exit 7)
+      * both readable and possible              -> "ok"
+      * no .planning/ at all                    -> "not-applicable",
+                                                   scope "out-of-scope"
+      * .planning/ present but STATE.md missing
+        the pair under `progress:`              -> "not-applicable",
+                                                   scope "no-input"
+
+    A missing key is NOT a failure: STATE.md's progress block is GSD's, and a
+    repository that never grew one has nothing inconsistent about it. Saying
+    `ok` over an absent input is the shape phase 23 removed from this file.
+
+    THE TWO SCOPES ARE NOT INTERCHANGEABLE. A `.planning/` that IS here with
+    the pair missing is a GAP — `no-input`, and `.ok` goes false. No
+    `.planning/` at all means the question does not apply — `out-of-scope`.
+
+    That first branch is DEFENSIVE, not reachable from the CLI, and it is
+    written down here because a test asserting it would be vacuous: MEASURED
+    2026-08-07, `cairn-doctor.sh --json` in a repo without `.planning/`
+    returns `"checks": []` — main() short-circuits before the check list is
+    built, so no check of any status is registered at all. The branch keeps
+    the honest value for any future caller that reaches this function
+    directly; nothing in the suite can prove it, and pretending otherwise
+    would be a test that passes against every implementation.
+
+    This check WRITES NOTHING. Its finding routes to `cairn-bookkeep.sh
+    reconcile`, which owns the recount.
+    """
+    if planning_dir is None or not planning_dir.is_dir():
+        return {"id": "plan-counters", "status": NOT_APPLICABLE,
+                "scope": "out-of-scope",
+                "detail": "no .planning/ directory — this repo has no plan "
+                          "counters to be wrong about",
+                "items": []}
+    counters = state_plan_counters(planning_dir)
+    total, done = counters["total_plans"], counters["completed_plans"]
+    if total is None or done is None:
+        missing = [k for k in ("total_plans", "completed_plans")
+                   if counters[k] is None]
+        return {"id": "plan-counters", "status": NOT_APPLICABLE,
+                "scope": "no-input",
+                "detail": ("STATE.md carries no " + " and no ".join(missing) +
+                           " under progress:, so there is nothing to compare"),
+                "items": []}
+    if done > total:
+        return {"id": "plan-counters", "status": "fail",
+                "detail": (f"STATE.md claims {done} completed plans out of "
+                           f"{total} — more plans finished than exist. Run "
+                           f"cairn-bookkeep.sh reconcile --json to see which "
+                           f"side of the pair the tree disagrees with"),
+                "items": [f"progress.completed_plans {done} > "
+                          f"progress.total_plans {total}"]}
+    return {"id": "plan-counters", "status": "ok",
+            "detail": f"STATE.md reports {done} of {total} plans completed",
+            "items": []}
+
+
 def check_req_ledger(root, planning_dir):
     """Check 17, id "req-ledger" (AUTO-07) — the chain nobody was validating:
     an active requirement has a row in the coverage table, the table's row
@@ -3322,6 +3455,7 @@ def main():
         check_req_ledger(root, planning_dir),
         check_response_language(root),
         check_phase_landed(root, planning_dir, completed_set),
+        check_plan_counters(planning_dir),
     ]
     summary["checks"] = checks
     # ONE BUCKET PER WORD OF THE VOCABULARY, COUNTED, NEVER SUBTRACTED.

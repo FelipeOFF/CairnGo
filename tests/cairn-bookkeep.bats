@@ -350,19 +350,32 @@ FIXTURE_DIR="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
   grep -qF "current_phase: 29" "$FIXTURE_DIR/STATE.md"
   grep -qF "Phase: 18" "$FIXTURE_DIR/STATE.md"
 
-  # phases.tsv is the tree those counters disagree with: 3+7 = 10 plans.
-  grep -qF "20-group-model	3	3	1" "$FIXTURE_DIR/phases.tsv"
-  grep -qF "29-nothing-mechanical-stays-manual	7	0	0" "$FIXTURE_DIR/phases.tsv"
+  # phases.tsv is the tree those counters disagree with: 3+7 = 10 plans. The
+  # fifth column is has_phase_summary — phase 20 carries a 20-SUMMARY.md, and
+  # it is not one of the 10.
+  grep -qF "20-group-model	3	3	1	1" "$FIXTURE_DIR/phases.tsv"
+  grep -qF "29-nothing-mechanical-stays-manual	7	0	0	0" \
+    "$FIXTURE_DIR/phases.tsv"
 }
 
 @test "make_drift_fixture: rebuilds the tree by name and commits a baseline" {
   make_drift_fixture "$PWD"
 
-  local plans summaries
+  # Counted by SHAPE, because that is the whole distinction: `-SUMMARY.md`
+  # alone matches a plan's summary AND the phase's, and conflating the two is
+  # what let completed_plans exceed total_plans (CairnGo-6bx). The fixture now
+  # carries one of each kind so a counter that cannot tell them apart has
+  # somewhere to be caught.
+  local plans plan_summaries phase_summaries
   plans="$(find "$PWD/.planning/phases" -name '*-PLAN.md' | wc -l | tr -d ' ')"
-  summaries="$(find "$PWD/.planning/phases" -name '*-SUMMARY.md' | wc -l | tr -d ' ')"
+  plan_summaries="$(find "$PWD/.planning/phases" -type f \
+    | grep -cE '/[0-9]+-[0-9]+-SUMMARY\.md$' | tr -d ' ')"
+  phase_summaries="$(find "$PWD/.planning/phases" -type f \
+    | grep -cE '/[0-9]+-SUMMARY\.md$' | tr -d ' ')"
   [ "$plans" -eq 10 ]
-  [ "$summaries" -eq 3 ]
+  [ "$plan_summaries" -eq 3 ]
+  [ "$phase_summaries" -eq 1 ]
+  [ -f "$PWD/.planning/phases/20-group-model/20-SUMMARY.md" ]
   [ -f "$PWD/.planning/phases/20-group-model/20-03-SUMMARY.md" ]
   [ -f "$PWD/.planning/phases/20-group-model/20-VERIFICATION.md" ]
   [ -f "$PWD/.planning/phases/29-nothing-mechanical-stays-manual/29-07-PLAN.md" ]
@@ -518,6 +531,43 @@ FIXTURE_DIR="$CAIRN_TESTS_DIR/fixtures/bookkeep-drift"
   local computed
   computed="$(jq -c '.state.computed' <<<"$output")"
   refute_substring "18" "$computed"
+}
+
+@test "reconcile: a phase's own SUMMARY is not one of its plans" {
+  # MEASURED 2026-08-06, right after the close of phase 22, and reconfirmed on
+  # this repository 2026-08-07 (CairnGo-6bx, roadmap criterion 6):
+  #
+  #   .planning/STATE.md          on disk
+  #   total_plans:     39         NN-MM-PLAN.md ...... 39
+  #   completed_plans: 47   <---  NN-MM-SUMMARY.md ... 39
+  #   percent:         91         NN-SUMMARY.md ....... 8      47 = 39 + 8
+  #
+  # scan_phase_tree() globbed `*-SUMMARY.md`, which matches the summary of a
+  # PLAN (22-01-SUMMARY.md) AND the summary of the PHASE (22-SUMMARY.md). Its
+  # pair, `*-PLAN.md`, matches only plans, because a phase has no NN-PLAN.md.
+  # The two globs look symmetric and the naming is not, so completed_plans
+  # counted past its own total.
+  #
+  # The aggravating half, and the reason this is a criterion rather than a
+  # one-line fix: `reconcile` returned `disagreements: []` over that STATE.md
+  # while printing both contradictory numbers in the same JSON object. Writer
+  # and verifier compute it with the SAME wrong rule, so they agree.
+  #
+  # This is the exact shape the issue's acceptance asks for: two plans, two
+  # plan summaries, one phase summary, and completed_plans == 2.
+  make_drift_fixture "$PWD"
+  rm -rf "$PWD/.planning/phases"
+  mkdir -p "$PWD/.planning/phases/21-the-grouped-board"
+  local d="$PWD/.planning/phases/21-the-grouped-board"
+  : > "$d/21-01-PLAN.md"
+  : > "$d/21-02-PLAN.md"
+  : > "$d/21-01-SUMMARY.md"
+  : > "$d/21-02-SUMMARY.md"
+  : > "$d/21-SUMMARY.md"
+
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  assert_json_eq "$output" '.state.computed.total_plans' '2'
+  assert_json_eq "$output" '.state.computed.completed_plans' '2'
 }
 
 @test "reconcile: read mode does not write one byte" {

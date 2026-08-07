@@ -398,8 +398,36 @@ this routine health-check flow — see its own section below.
      would hand every long-lived repo a permanent finding about history nobody
      is going to rewrite. Named without being charged is the honest middle.
 
+   - **plan-counters** (✗; ⊘ `no-input` when `STATE.md` carries no
+     `progress:` block with both keys) — a `STATE.md` claiming more plans
+     completed than it has. MEASURED 2026-08-06 on cairn's own repository,
+     right after the close of phase 22: `total_plans: 39` against
+     `completed_plans: 47`, and `47 = 39` plan summaries `+ 8` **phase**
+     summaries. The glob that produced the second number matched
+     `NN-MM-SUMMARY.md` and `NN-SUMMARY.md` alike, while its `*-PLAN.md` pair
+     matched only plans, because a phase has no `NN-PLAN.md`. The two look
+     symmetric and the naming is not.
+
+     This check **compares and never recomputes**, and that is the whole
+     design. The writer (`cairn-bookkeep close`) and the verifier
+     (`cairn-bookkeep reconcile`) derive `completed_plans` with the *same*
+     rule, so they agreed — `reconcile` returned `disagreements: []` while
+     printing both contradictory numbers inside one JSON object. A check that
+     recounted the tree with that rule would agree too, in the act of trying to
+     catch it. So it reads the two numbers exactly as written and asks the one
+     question neither glob can answer about itself: can more plans be finished
+     than exist? `completed > total` is impossible by arithmetic, not by
+     convention.
+
+     A missing key is `⊘ no-input`, never a failure — the `progress:` block is
+     GSD's, and a repository that never grew one has nothing inconsistent about
+     it. (A repository with no `.planning/` at all never reaches this check —
+     the doctor registers zero checks there.) The finding routes to
+     `cairn-bookkeep.sh reconcile`, which owns the recount; the check writes
+     nothing.
+
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — twenty checks in total.)
+   upgrading bd — twenty-one checks in total.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
@@ -477,7 +505,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 
 `--apply-reconciliation N` is the human-invoked, separate command that
 applies a semantic-escalation reconciliation proposal `/cairn:reconcile N`
-wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 20 checks
+wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 21 checks
 above and does not run alongside them — it always exits on its own instead
 of falling through to the ordinary report.
 
