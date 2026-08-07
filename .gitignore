@@ -51,3 +51,9 @@ status.html
 
 # Research fetch cache (per-machine, written by the research agents)
 .planning/research/.cache/
+
+# Skills instaladas por marketplace vivem no perfil global (~/.claude/plugins),
+# nunca aqui. Entraram uma vez neste repositorio por um `git add` abrangente,
+# junto com o lock que as fixa. A regra impede a segunda vez.
+.agents/
+skills-lock.json
