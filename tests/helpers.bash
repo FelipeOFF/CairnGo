@@ -21,6 +21,8 @@
 #   make_env_asserting_claude_stub
 #                           claude stub that echoes its own observed HOME/env/
 #                           argv into the canned JSON payload it emits
+#   make_pinned_home DIR    an empty HOME to pass as HOME=..., with the
+#                           toolchain still resolvable inside it
 #   extract_frontmatter F   print the YAML frontmatter block of F
 #   assert_frontmatter_key F KEY
 #   assert_json_eq JSON FILTER EXPECTED
@@ -574,6 +576,37 @@ assert_frontmatter_key() {
     echo "frontmatter key '$key' missing in $file" >&2
     return 1
   }
+}
+
+# Create DIR and print it, as a HOME to pin with `env HOME=...`.
+#
+# Why this exists, measured 2026-08-06. Tests pin HOME so that a contributor's
+# own config cannot decide a test — cairn-jira.bats reads `mcp` from
+# ~/.claude.json, cairn-migrate.bats reads the same. That intent is right and
+# stays. What the pin did NOT intend is to move the language runtime, and on a
+# machine where python3 is an asdf shim it does exactly that: asdf resolves the
+# version from $HOME/.tool-versions, so an empty HOME kills python3 with exit
+# 126 before a single line of cairn runs.
+#
+#   $ cd /tmp/repo && env HOME=/tmp/empty python3 --version
+#   No version is set for command python3
+#   STATUS=126
+#
+# That took out 17 tests (14 in cairn-jira.bats, 3 in cairn-migrate.bats) in
+# the full suite of 2026-08-06 — none of them a code regression; the same tests
+# passed on 2026-08-05. So the pinned HOME carries the version manager's
+# manifest and nothing else. A machine without asdf has no ~/.tool-versions and
+# the copy is simply skipped, which is why this is not guarded on `asdf`
+# itself: the file's presence IS the condition.
+#
+# Deliberately NOT copied: ~/.claude.json, ~/.claude/, or anything else from
+# the real HOME. Widening this past the toolchain would give back exactly the
+# contamination the pin exists to prevent.
+make_pinned_home() {
+  local dir="$1"
+  mkdir -p "$dir"
+  [ -f "$HOME/.tool-versions" ] && cp "$HOME/.tool-versions" "$dir/.tool-versions"
+  printf '%s\n' "$dir"
 }
 
 # Assert that JSON piped through a jq FILTER equals EXPECTED (raw output).

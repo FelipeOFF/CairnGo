@@ -28,8 +28,10 @@ JIRA_SH="$CAIRN_SCRIPTS_DIR/cairn-jira.sh"
 CONFIG_SH="$CAIRN_SCRIPTS_DIR/cairn-config.sh"
 
 setup() {
-  FAKE_HOME="$BATS_TEST_TMPDIR/home"
-  mkdir -p "$FAKE_HOME"
+  # make_pinned_home, not a bare mkdir: the pin is about ~/.claude.json, but on
+  # a machine where python3 is an asdf shim an empty HOME also takes python3
+  # down with exit 126. See the helper for the measurement.
+  FAKE_HOME="$(make_pinned_home "$BATS_TEST_TMPDIR/home")"
 }
 
 # cairn-jira.sh with HOME pinned, in the repo made by make_tmp_repo.
