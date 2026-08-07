@@ -1,6 +1,7 @@
 ---
 description: Run any GSD command directly — raw passthrough
 argument-hint: <gsd-command> [args…]
+group: escape
 ---
 
 Raw GSD passthrough — no cairn orchestration. Invoke:

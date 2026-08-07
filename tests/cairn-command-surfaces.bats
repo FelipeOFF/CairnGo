@@ -28,6 +28,7 @@
 load 'helpers'
 
 DOCTOR_PY="$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
+WRAP="$CAIRN_SCRIPTS_DIR/cairn-wrap.sh"
 DOCTOR_PROMPT="$CAIRN_REPO_ROOT/cairn/commands/doctor.md"
 # The single routing table the prompt addresses instead of copying.
 # Overridable so the coverage assertion can be proved against a deliberately
@@ -136,6 +137,131 @@ make_doctor_id_fixture() {
   # ~/.claude/plugins/cache/cairngo/cairn/1.5.0/docs/commands/doctor.md).
   # Copying it here would create the two-hand-lists shape of precedents 1-4.
   grep -qF "docs/commands/doctor.md" "$DOCTOR_PROMPT"
+}
+
+# ---------------------------------------------------------------------------
+# CairnGo-q9l — the /cairn:help map derives BOTH halves
+# ---------------------------------------------------------------------------
+
+# Every installed command name, one per line — wrappers and cairn's own.
+all_command_names() {
+  bash "$WRAP" list --commands-dir "$1" --json \
+    | jq -r '.commands[]'
+}
+
+@test "the help map names no command by hand, beyond the six prose names" {
+  # MEASURED 2026-08-06 (CairnGo-q9l): commit aa48bb3 made the WRAPPER half of
+  # the map derived and left cairn's own half typed — and that half had
+  # already dropped a command:
+  #     grep -c 'cairn:reconcile' cairn/commands/help.md  ->  0
+  # while /cairn:reconcile existed, had a page, and had a row in the
+  # reference. Nothing caught it: `docs --check` only looks at cairn/docs/,
+  # and the suite only knew how to reject the opposite direction (a name in
+  # the help that is not on disk).
+  #
+  # The allowlist below is the whole hand-written surface that survives, and
+  # each name is there for a reason that is not "a listing":
+  #   config, sync-config, context-config — the three-config-files section,
+  #     required by name in tests/cairn-config.bats ("the three config
+  #     commands are told apart in one place")
+  #   new, migrate, status — the next-step routing rule in the opening
+  #     paragraph, which is behaviour, not a map
+  # Anything else means somebody typed the map back in.
+  local help="$CAIRN_REPO_ROOT/cairn/commands/help.md"
+  local allowed=" config sync-config context-config new migrate status "
+
+  local name typed=""
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    case "$allowed" in *" $name "*) continue ;; esac
+    if grep -qF -- "/cairn:$name" "$help"; then
+      typed="$typed $name"
+    fi
+  done < <(all_command_names "$CAIRN_REPO_ROOT/cairn/commands")
+
+  if [ -n "$typed" ]; then
+    echo "the help map transcribes command name(s):$typed" >&2
+    return 1
+  fi
+}
+
+@test "the help map says where BOTH halves come from" {
+  local help="$CAIRN_REPO_ROOT/cairn/commands/help.md"
+
+  # The wrapper half (phase 26, aa48bb3) — kept.
+  grep -qF 'cairn-wrap.sh" list' "$help"
+
+  # The own half: the set difference, and the per-command fields that make a
+  # rendered line possible without a list on this page.
+  grep -qF '.wrappers[].command' "$help"
+  grep -qF 'group:' "$help"
+  grep -qF 'description:' "$help"
+
+  # And the rule that keeps a new command visible even when its author
+  # forgets the group key: wrong heading is allowed, missing is not.
+  grep -qF 'OTHER' "$help"
+}
+
+@test "a command added to the disk appears in the map with no prose edited" {
+  # The same proof by ADDITION that phase 26's verification ran for the
+  # wrappers, now for cairn's own half: drop a file in, and the derivation
+  # the help page reads reports it — with nobody editing help.md.
+  local dir="$BATS_TEST_TMPDIR/probe-commands"
+  mkdir -p "$dir"
+  cp "$CAIRN_REPO_ROOT/cairn/commands/status.md" "$dir/status.md"
+  cp "$CAIRN_REPO_ROOT/cairn/commands/phase.md" "$dir/phase.md"   # a wrapper
+  cat > "$dir/zzz-probe.md" <<'EOF'
+---
+description: A probe command that exists only inside this test
+group: view
+---
+body
+EOF
+
+  run bash "$WRAP" list --commands-dir "$dir" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.commands[] | select(. == "zzz-probe")] | length' '1'
+  assert_json_eq "$output" '[.wrappers[] | select(.command == "zzz-probe")] | length' '0'
+
+  # The two fields the page tells the agent to read are on the file itself.
+  assert_frontmatter_key "$dir/zzz-probe.md" "group"
+  assert_frontmatter_key "$dir/zzz-probe.md" "description"
+
+  # And a file with NO group is still listed — it renders under OTHER, never
+  # nowhere. This is the half that makes "invisible" impossible.
+  cat > "$dir/zzz-groupless.md" <<'EOF'
+---
+description: A probe command whose author forgot the group key
+---
+body
+EOF
+  run bash "$WRAP" list --commands-dir "$dir" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.commands[] | select(. == "zzz-groupless")] | length' '1'
+}
+
+@test "every command cairn owns declares the group it prints under" {
+  # Not required for visibility — a groupless command still renders, under
+  # OTHER. Required so that the shipped map reads as designed rather than
+  # accumulating an OTHER pile nobody notices.
+  local dir="$CAIRN_REPO_ROOT/cairn/commands"
+  local listing; listing="$(bash "$WRAP" list --commands-dir "$dir" --json)"
+
+  local name ungrouped=""
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    # Wrappers group by wrap-family, which cairn-wrap.py already enforces.
+    if [ "$(jq -r --arg n "$name" \
+        '[.wrappers[] | select(.command == $n)] | length' <<<"$listing")" != "0" ]; then
+      continue
+    fi
+    grep -qE '^group: [a-z-]+$' "$dir/$name.md" || ungrouped="$ungrouped $name"
+  done < <(jq -r '.commands[]' <<<"$listing")
+
+  if [ -n "$ungrouped" ]; then
+    echo "cairn command(s) with no group: key:$ungrouped" >&2
+    return 1
+  fi
 }
 
 @test "no cairn command prompt writes a check count by hand" {

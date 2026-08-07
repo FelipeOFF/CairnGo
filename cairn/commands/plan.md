@@ -1,6 +1,7 @@
 ---
 description: Plan a phase — GSD plan-phase plus beads map reconciliation
 argument-hint: <phase-number> [--auto] [--research|--skip-research] [--gaps] [--skip-verify] [--prd <file>] [--reviews] [--text] [--tdd]
+group: loop
 ---
 
 Plan phase **$ARGUMENTS** under the `cairn` conventions.

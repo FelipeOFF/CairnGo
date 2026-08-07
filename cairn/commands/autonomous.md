@@ -1,6 +1,7 @@
 ---
 description: Run every remaining phase hands-off — the full cairn loop per phase (map → plan → claim → execute → close → verify), doctor between phases, ship gate at the end
 argument-hint: "[start-phase] [--sequential] [--max N] [--interactive]"
+group: loop
 ---
 
 Run the milestone to completion under the `cairn` conventions, without

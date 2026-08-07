@@ -1,6 +1,7 @@
 ---
 description: Health-check the GSD↔beads wiring — run cairn-doctor, explain the report, route each finding to its fix
 argument-hint: "[--fix-labels] [--close-completed] [--json] [--apply-reconciliation N]"
+group: health
 ---
 
 Audit the repo's cairn wiring and walk the user through fixing what it finds.

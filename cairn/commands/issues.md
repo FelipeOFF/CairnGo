@@ -1,6 +1,7 @@
 ---
 description: List beads issues, optionally scoped to a phase
 argument-hint: "[phase-number]"
+group: view
 ---
 
 List tracked work from beads.
