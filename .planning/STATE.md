@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: Legible State
-current_phase: 25
-active_phase: 25
-current_phase_name: Measured cleanup
-status: planning
-stopped_at: Completed 29-04-PLAN.md
-last_updated: "2026-08-07T14:36:24.940Z"
+milestone: null
+milestone_name: null
+current_phase: null
+active_phase: null
+current_phase_name: null
+status: between-milestones
+stopped_at: v1.5 archived
+last_updated: "2026-08-07T15:10:00.000Z"
 last_activity: 2026-08-07
-last_activity_desc: Fases 21, 23, 24 e 26 fechadas — milestone v1.5 Legible State (11 fases, 41 requisitos)
+last_activity_desc: "v1.5 Legible State arquivado — 11 fases, 49 planos, 41 requisitos, publicado como cairn 1.6.0"
 progress:
-  total_phases: 11
-  completed_phases: 11
-  total_plans: 49
-  completed_plans: 49
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State

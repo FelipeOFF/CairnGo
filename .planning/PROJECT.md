@@ -43,46 +43,43 @@ Workflow unificado plan→work→ship cujo estado é verificável — nenhuma su
 
 ## Current State
 
+**v1.5 Legible State shipped 2026-08-07 como cairn 1.6.0.** Trinta fases fechadas
+e arquivadas. O estado deixou de só provar o que afirma e passou a dizer **onde
+você está dentro dele**: o board agrupa milestone → fase → tarefa e não trunca
+mais título nenhum, o `--plain` voltou a ser só contrato de máquina, e o board
+responde se o trabalho de uma fase entrou na branch de controle — do git local,
+sem rede.
+
+E toda superfície parou de responder sobre o que não checou. A prova aconteceu no
+próprio fechamento deste ciclo: com o `.planning/phases/` esvaziado pelo
+arquivamento e o `REQUIREMENTS.md` removido, o doctor responde **16 ok, 5
+not-applicable, 1 warning, 0 falhas**, e cada `not-applicable` nomeia o que falta.
+Antes da fase 23, esta mesma situação dava 16 ok e 0 falhas — cinco checagens
+reportando sucesso por não ter o que checar. Era o defeito que o ciclo anterior
+existiu para eliminar, vivendo dentro da ferramenta que o eliminou.
+
+O journal atravessa máquinas, uma partição por checkout, sem que nada precise ser
+mesclado. Fechar uma fase virou um comando. E 37 premissas escritas nos próprios
+contextos e issues foram derrubadas pela medição durante a execução.
+
+Dívida assumida: três verbos novos sem página-contrato, o executor ainda não chama
+a porta cirúrgica por plano, e `machine` grava o hostname em claro — o que num
+repositório público publica o nome da máquina de quem contribui.
+
+<details>
+<summary>Estado anterior (até v1.4)</summary>
+
 **v1.4 Honest State shipped 2026-08-01 como cairn 1.5.0.** Dezenove fases fechadas
 e arquivadas. O estado de uma fase deixou de ser palpite tirado de quatro nomes de
 arquivo: quatro fontes declaram sua alegação, a discordância é nomeada em vez de
 resolvida em silêncio, e quando elas discordam a investigação **propõe** — ela não
-tem ferramenta de escrita nenhuma, por construção. Fases independentes rodam de
-verdade ao mesmo tempo, uma worktree cada, e a reconciliação relata inclusive a
-edição convergente, que o git junta sem avisar.
-
-O ciclo virou o número do plugin de 1.4.2 para **1.5.0**, desamarrando dois eixos
-que vinham se imitando: o nome do ciclo de planejamento e a versão publicada.
-
-Dívida assumida e registrada no arquivo do milestone: `req-issue` passa no vazio
-(`CairnGo-ca3`, P1), o `orphans` do doctor nunca zera (`CairnGo-xhy`), e nenhum
-teste prova dois agentes rodando ao mesmo tempo — o proxy está rotulado como
-proxy.
-
-<details>
-<summary>Estado anterior (até v1.3)</summary>
+tem ferramenta de escrita nenhuma, por construção. O ciclo virou o número do plugin
+de 1.4.2 para 1.5.0, desamarrando o nome do ciclo de planejamento da versão
+publicada.
 
 **v1.3 shipped 2026-07-28; plugin na 1.4.2.** Doze fases fechadas e arquivadas. O benchmark rodou de verdade (`matrix-20260727.jsonl`, charts commitados) e a conclusão publicada é que nenhum arm é mensuravelmente mais barato — inclusive o cairn. O v1.2 descobriu que a fusão GSD↔beads nunca tinha rodado para ninguém: a linhagem antiga não tem capability, `gsd_run` não estava no PATH e um `|| echo "skipped"` convertia toda falha em sucesso. Três releases (1.4.0→1.4.2) atacaram a mesma causa: um sinal verde que não provava o que afirmava.
 
 </details>
-
-## Current Milestone: v1.5 Legible State
-
-**Goal:** onde você está dentro do estado que já prova o que afirma. O board sabe
-listar e não sabe situar — com muitas tarefas vira coluna plana, `READY` significa
-três coisas ao mesmo tempo, o título é cortado em 28 caracteres, e fora do TTY ele
-degrada para o formato de máquina sem ninguém pedir. E o doctor dá 16 ok e 0 falhas
-sobre um roadmap vazio, porque três checagens passam por não ter o que checar.
-
-**Nove fases (20-28), 24 requisitos.** Só duas arestas de dependência no ciclo
-inteiro: a corrente do board (20→21→22) e a tendência que precisa do estado
-não-aplicável (23→27). As outras cinco são independentes — é o primeiro roadmap do
-projeto com paralelismo real disponível, e a fase 18 do ciclo anterior é quem o
-executa.
-
-A ordem numérica põe no fim o que pode ser cortado inteiro: a 26 (wrappers) é a
-maior em volume e não é pré-requisito de nada, e a 28 (journal durável) é a única
-cujo escopo a própria pesquisa pode redefinir.
 
 ## Próximo Milestone: v1.6 — o bd vira dono do estado
 
