@@ -438,6 +438,44 @@ GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
 # block would make the parser and the reader disagree about which one a line
 # is.
 TRACKER_LABEL = re.compile(r"^\*\*Tracker:\*\*\s*(.*)$")
+# The phase's declared dependencies, written as prose in the same detail block.
+# MEASURED 2026-08-05 (CairnGo-64u): `cairn-parallel batch` announced phases 21
+# and 22 as concurrent while the roadmap said `**Depende de:** Phase 21` under
+# 22, because the only two sources read were PLAN.md frontmatter (which exists
+# only after someone plans the phase) and bd edges (which exist only after
+# someone runs `bd dep add`). The roadmap is the authority on which phases
+# exist; it is also the authority on which of them wait on which.
+#
+# Both bold shapes, because both are in use: this repository writes
+# `**Depende de:**` (colon inside) and the gsd-core template writes
+# `**Depends on**:` (colon outside).
+DEPENDS_LABEL = re.compile(
+    r"^\*\*(?:Depends?\s+on|Depende\s+de)(?::\*\*|\*\*:)\s*(.*)$", re.I)
+# `Phase 21`, `Fase 21`, `Phases 20` — the anchor always carries a number, so
+# "Nothing (first phase)" declares nothing.
+DEP_PHASE_REF = re.compile(r"(?:phases?|fases?)\s*[:#]?\s*0*(\d+)", re.I)
+# The numbers that may follow the anchor in a list: `Phase 20, 21 and 22`.
+# Applied with .match() at the position the previous number ended, never with
+# .search(), so a number further down the sentence cannot join the list.
+DEP_PHASE_MORE = re.compile(r"\s*(?:,|;|&|\+|\be\b|\band\b)\s*0*(\d+)", re.I)
+# Where a dependency DECLARATION ends and its justification begins. Both are on
+# the same line in this project's roadmap:
+#
+#   **Depende de:** Phase 21 — é o render agrupado que o caminho não-TTY emite.
+#   **Depende de:** nada. Independente do board; pode correr em paralelo com
+#                   20-22.
+#
+# Reading the whole block would take the second line as a declaration of three
+# dependencies from a sentence that says the opposite. The em dash or the end
+# of the first sentence is the cut. `\.(?=\s|$)` never fires inside `v1.5`.
+DEP_DECLARATION_END = re.compile(r"[—–]|\.(?=\s|$)")
+# bd dependency edge types that record a relationship WITHOUT blocking.
+# MEASURED on this repository's `bd list --all --json` (2026-08-07): exactly two
+# types exist across 50 edges — `blocks` (42) and `discovered-from` (8). Only
+# the second is listed here, and the list stays at what was measured: an
+# unrecognised type keeps counting as a block (see dep_target_ids()), so a type
+# bd grows later fails safe instead of silently unblocking a phase.
+NON_BLOCKING_DEP_TYPES = frozenset(["discovered-from"])
 # Recognizes ANY bold label line, both the colon-inside shape (`**Card:**`)
 # and the colon-outside shape used by `**Requirements**:` elsewhere in the
 # same blocks. Used only to know when to STOP collecting continuation text
@@ -1024,12 +1062,34 @@ def verification_status(pdir):
 def plan_depends_on(pdir, dir_to_number):
     """Phase numbers this phase's plans declare in `depends_on:` frontmatter.
 
-    The roadmap does not carry dependencies, but PLAN.md does, and that is
-    what makes 'these two can run at the same time' computable rather than
-    guessed. Entries may be phase dir names or bare numbers.
+    One of THREE sources, alongside the roadmap's `**Depends on:**` prose and
+    bd's own edges. Entries may be phase dir names or bare numbers.
+
+    A bare number is a phase number ONLY when this phase has no plan of that
+    index. MEASURED 2026-08-07 on this repository: GSD writes `depends_on:` in
+    a PLAN's frontmatter to order the WAVES inside one phase —
+    `22-02-PLAN.md` carries `depends_on: ["01"]`, meaning plan 22-01 — and
+    reading every bare number as a phase made phase 22 depend on phases 1, 2, 3
+    and 4 of an archived milestone. It stayed invisible because those four are
+    complete; with any of them pending, phase 22 would have read blocked by
+    work it has nothing to do with. Same family as FIX-04.
+
+    The discriminator is on disk and exact: the token `01` is a plan reference
+    when `<nn>-01-PLAN.md` exists in this directory. An unpadded `1` does not
+    match `<nn>-01-PLAN.md` and stays a phase, which is what keeps a real
+    dependency on phase 1 expressible.
     """
     if pdir is None or not pdir.is_dir():
         return []
+    # PLAN_FILE already captures the index: `22-01-PLAN.md` -> "01", which is
+    # the token verbatim. Comparison stays on the literal string, so `01` and
+    # `1` are different tokens on purpose.
+    plan_indexes = set()
+    for p in pdir.iterdir():
+        if p.is_file():
+            pm = PLAN_FILE.match(p.name)
+            if pm:
+                plan_indexes.add(pm.group(1))
     deps = set()
     for p in sorted(pdir.iterdir()):
         if not (p.is_file() and PLAN_FILE.match(p.name)):
@@ -1046,6 +1106,9 @@ def plan_depends_on(pdir, dir_to_number):
             for raw in m.group(1).split(","):
                 tok = raw.strip().strip("'\"").strip()
                 if not tok:
+                    continue
+                if tok in plan_indexes:
+                    # A plan of THIS phase, not a phase. See the docstring.
                     continue
                 if tok.isdigit():
                     deps.add(int(tok))
@@ -1107,10 +1170,16 @@ def roadmap_phase_rows(planning_dir):
     rows = {}
 
     def slot(n):
+        # Reaching slot() at all means ROADMAP.md named this phase somewhere —
+        # a checkbox line, a progress-table row or a `### Phase N:` detail
+        # heading. `in_roadmap` records that, so phase_model() can tell a phase
+        # the plan declares from a phase that exists only as a directory
+        # somebody created (CairnGo-4oq).
         return rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
             "requirements": [], "purpose": None, "tracker": None,
+            "in_roadmap": True, "roadmap_depends_on": [],
         })
 
     # State machine for the "## Detalhe das fases" prose blocks, tracked
@@ -1122,13 +1191,13 @@ def roadmap_phase_rows(planning_dir):
     detail_phase = None
     collecting = None
     buffer = []
-    card_text, goal_text, tracker_text = {}, {}, {}
+    card_text, goal_text, tracker_text, depends_text = {}, {}, {}, {}
 
     def flush():
         # Joins the buffered continuation lines into one cleaned string and
-        # files it under the label ("card"/"goal"/"tracker") currently being
-        # collected, keyed by the detail block it belongs to. A no-op when
-        # nothing is being collected.
+        # files it under the label ("card"/"goal"/"tracker"/"depends")
+        # currently being collected, keyed by the detail block it belongs to.
+        # A no-op when nothing is being collected.
         nonlocal collecting, buffer
         if collecting is not None:
             text = " ".join(b for b in buffer if b).strip()
@@ -1141,7 +1210,8 @@ def roadmap_phase_rows(planning_dir):
             text = INLINE_EMPHASIS.sub(
                 lambda m: next(g for g in m.groups() if g is not None), text)
             target = {"card": card_text, "goal": goal_text,
-                      "tracker": tracker_text}[collecting]
+                      "tracker": tracker_text,
+                      "depends": depends_text}[collecting]
             target[detail_phase] = text
         collecting = None
         buffer = []
@@ -1173,6 +1243,15 @@ def roadmap_phase_rows(planning_dir):
                 # a second read of the file.
                 flush()
                 collecting = "tracker"
+                buffer = [m.group(1).strip()]
+                continue
+            m = DEPENDS_LABEL.match(line)
+            if m:
+                # A fourth label on the SAME single pass — the roadmap is read
+                # once here, and the dependency prose is not a second read of
+                # the file (CairnGo-64u).
+                flush()
+                collecting = "depends"
                 buffer = [m.group(1).strip()]
                 continue
             if collecting is not None:
@@ -1253,7 +1332,44 @@ def roadmap_phase_rows(planning_dir):
         tracker = tracker_text.get(n)
         rows[n]["tracker"] = (clean(tracker) or None) if tracker else None
 
+    for n, text in depends_text.items():
+        slot(n)
+        rows[n]["roadmap_depends_on"] = [d for d in roadmap_dep_phases(text)
+                                         if d != n]
+
     return rows
+
+
+def roadmap_dep_phases(text):
+    """Phase numbers a `**Depends on:**` line DECLARES, never the ones its
+    justification happens to mention.
+
+    Two steps, and the first is what makes the second safe. The declaration is
+    cut from the justification at the first em dash or the end of the first
+    sentence (DEP_DECLARATION_END); only then are `Phase N` anchors read out of
+    what survives. Without the cut, phase 23's real roadmap line —
+    `**Depende de:** nada. Independente do board; pode correr em paralelo com
+    20-22.` — would declare a dependency on 20, 21 and 22 out of a sentence
+    stating the opposite.
+    """
+    if not text:
+        return []
+    m = DEP_DECLARATION_END.search(text)
+    head = text[:m.start()] if m else text
+    out = set()
+    for anchor in DEP_PHASE_REF.finditer(head):
+        out.add(int(anchor.group(1)))
+        # `Phase 20, 21 and 22` is one declaration of three, so the list is
+        # walked forward from where the anchor's number ended. Anything that is
+        # not an immediately adjacent separator-plus-number stops the walk.
+        pos = anchor.end()
+        while True:
+            more = DEP_PHASE_MORE.match(head, pos)
+            if not more:
+                break
+            out.add(int(more.group(1)))
+            pos = more.end()
+    return sorted(out)
 
 
 def dep_target_ids(iss):
@@ -1265,10 +1381,26 @@ def dep_target_ids(iss):
     list of ids and no `dependencies` at all. Reading only the first shape
     loses every edge whose target is still open — which is exactly the set the
     parallelism answer is about.
+
+    Only edges that actually BLOCK are collected. MEASURED 2026-08-03: phase 26
+    rendered as "waits on phase 9" over a `discovered-from` edge, which
+    /cairn:quick documents literally as "records provenance WITHOUT blocking" —
+    bd itself reported the issue as [READY] and only cairn disagreed. Every
+    entry of `dependencies` carries a `type` (measured on this repository's own
+    `bd list --all --json`: keys are created_at, created_by, depends_on_id,
+    issue_id, metadata, type; values seen are `blocks` and `discovered-from`),
+    and it had never been read.
+
+    A missing or unrecognised `type` still counts as a block — the flat
+    `blocked_by` shape carries no type at all, and it comes from `bd blocked`,
+    which has already applied this same judgement at the source. Unknown means
+    "treat it as blocking", never "drop it".
     """
     out = []
     for dep in iss.get("dependencies") or []:
         if isinstance(dep, dict):
+            if str(dep.get("type") or "").strip() in NON_BLOCKING_DEP_TYPES:
+                continue
             tid = str(dep.get("depends_on_id") or "").strip()
             if tid:
                 out.append(tid)
@@ -1385,10 +1517,15 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     rows = roadmap_phase_rows(planning_dir)
     dirs = phase_dirs(planning_dir)
     for n in dirs:
+        # A directory is evidence that somebody started THINKING about a phase,
+        # never evidence that the phase exists in the plan (CairnGo-4oq). These
+        # rows carry in_roadmap=False, and parallelism() keeps them out of
+        # `runnable` and names them instead.
         rows.setdefault(n, {
             "number": n, "title": None, "milestone": None, "complete": False,
             "completed_on": None, "plans_done": None, "plans_total": None,
             "requirements": [], "purpose": None, "tracker": None,
+            "in_roadmap": False, "roadmap_depends_on": [],
         })
     dir_to_number = {d.name: n for n, d in dirs.items()}
     bd_edges = issue_phase_deps(issues or [])
@@ -1436,7 +1573,14 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
         if row["plans_total"] is None:
             done, total = phase_plan_counts(pdir)
             row["plans_done"], row["plans_total"] = done, total
-        deps = set(plan_depends_on(pdir, dir_to_number)) | bd_edges.get(n, set())
+        # THREE sources, and the third is the roadmap's own prose. PLAN.md
+        # frontmatter exists only once someone has planned the phase and a bd
+        # edge exists only once someone ran `bd dep add`, so a declared-but-
+        # unplanned dependency was invisible to both — which is exactly how
+        # phases 21 and 22 were announced as concurrent (CairnGo-64u).
+        deps = (set(plan_depends_on(pdir, dir_to_number))
+                | bd_edges.get(n, set())
+                | set(row.get("roadmap_depends_on") or []))
         row["depends_on"] = sorted(d for d in deps if d != n)
         out.append(row)
 
@@ -1446,8 +1590,18 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     # 10" long after 10 was finished.
     done_set = {p["number"] for p in out
                 if p["complete"] or p["disk_state"] == "verified"}
+    # ...and a dependency on a phase THIS roadmap does not list at all is a
+    # dependency on an archived cycle. MEASURED 2026-08-03 (FIX-04): phase 26
+    # read "waits on phase 9", archived with v1.2 two milestones earlier — it
+    # is not in ROADMAP.md, so it never entered done_set and blocked forever.
+    # Completing an archived milestone is not a thing anyone can do; the work
+    # shipped. `known` is every phase this model has a row for, so the rule
+    # fires only for a target outside the model entirely, never for a pending
+    # phase of the current cycle.
+    known = {p["number"] for p in out}
     for p in out:
-        p["blocked_by"] = [d for d in p["depends_on"] if d not in done_set]
+        p["blocked_by"] = [d for d in p["depends_on"]
+                           if d not in done_set and d in known]
         p["next_command"] = phase_next_command(p)
     # Every phase's evidence/corroboration is fully computed above — this is
     # the ONE place in the whole module where the batch gets observed into
@@ -1634,20 +1788,37 @@ def join_numbers(ns):
 def parallelism(model):
     """What can proceed at the same time, right now, and how honest that is.
 
-    Returns {runnable, blocked, note, declared}. `runnable` is every pending
-    phase nothing still open blocks; two or more of those are independent of
-    each other by construction, because a dependency between them would have
-    blocked the later one.
+    Returns {runnable, blocked, inconsistent, note, declared}. `runnable` is
+    every pending phase nothing still open blocks; two or more of those are
+    independent of each other by construction, because a dependency between
+    them would have blocked the later one.
 
     `declared` is the honesty flag. Independence is only as good as what is
     written down: a roadmap where nobody registered a dependency reports every
     phase as free, which is a statement about the records rather than about the
     work. The note says so instead of implying the graph was checked.
+
+    `inconsistent` is the set this function refuses to answer about: a phase
+    that exists on disk and NOT in ROADMAP.md. MEASURED 2026-08-05
+    (CairnGo-4oq): a directory holding one 30-CONTEXT.md and nothing else came
+    back in `runnable`, and the only thing that stopped `cairn-parallel batch`
+    from recommending a phase with no goal, no requirement and no acceptance
+    criterion was the concurrency ceiling. A directory is evidence that someone
+    started thinking; the roadmap is the authority on what exists.
     """
     pending = pending_phases(model)
+    off_roadmap = [p for p in pending if not p.get("in_roadmap", True)]
+    pending = [p for p in pending if p.get("in_roadmap", True)]
     runnable = [p for p in pending if not p["blocked_by"] and p["next_command"]]
     blocked = [p for p in pending if p["blocked_by"]]
     declared = any(p["depends_on"] for p in model)
+    inconsistent = [{
+        "phase": p["number"],
+        "reason": (f"phase {p['number']} has a directory under "
+                   f".planning/phases/ but no entry in ROADMAP.md, so nothing "
+                   f"says what it is for or when it is done"),
+        "command": f"/cairn:phase add {p['number']}",
+    } for p in off_roadmap]
 
     if not pending:
         note = "Nothing pending — the milestone is ready to ship."
@@ -1674,8 +1845,17 @@ def parallelism(model):
     if not declared and pending:
         note += (" No dependencies are declared anywhere in this roadmap, so "
                  "this reflects what is recorded, not a verified ordering.")
+    if inconsistent:
+        # Named in the note as well as in the field: a caller reading only the
+        # prose still hears that something on disk was left out of the answer,
+        # which is the whole point of not silently dropping it.
+        note += (" Phase "
+                 f"{join_numbers([i['phase'] for i in inconsistent])} "
+                 "is on disk but not in ROADMAP.md, so it is left out of this "
+                 "answer entirely — add it to the roadmap first.")
     return {"runnable": [p["number"] for p in runnable],
             "blocked": [p["number"] for p in blocked],
+            "inconsistent": inconsistent,
             "declared": declared, "note": note}
 
 

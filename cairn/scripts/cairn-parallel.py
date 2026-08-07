@@ -508,11 +508,16 @@ Usage:
 Behavior:
     batch      Calls `cairn-status.py --json` ONCE (through the CAIRN_STATUS
                seam) and reports:
-                 {runnable, blocked, declared, note, max, cycle, max_cycles,
-                  cycle_note, selected[], deferred[], announcement}
+                 {runnable, blocked, inconsistent, declared, note, max, cycle,
+                  max_cycles, cycle_note, selected[], deferred[], announcement}
                `selected[]` entries carry {phase, title, slug, branch,
                worktree, next_command, reason, lease_stale}; `deferred[]`
-               entries carry {phase, reason}. `announcement` is the ready-made
+               entries carry {phase, reason}; `inconsistent[]` entries carry
+               {phase, reason, command} and name a phase that has a directory
+               under .planning/phases/ and NO entry in ROADMAP.md — left out of
+               the answer rather than scheduled (CairnGo-4oq). `deferred` means
+               "runnable, not this round"; `inconsistent` means "the roadmap
+               does not say this phase exists". `announcement` is the ready-made
                text for /cairn:autonomous step 0.4: how many phases run, why
                each one, what was left out and why, plus the honesty line when
                `declared` is false.
@@ -1054,6 +1059,12 @@ def build_announcement(result):
                      f"{s['branch']}")
     for d in result["deferred"]:
         lines.append(f"  phase {d['phase']} stays out: {d['reason']}")
+    # Named BEFORE the note and the honesty line, because this one is not about
+    # scheduling at all: it says a phase on disk was left out of the answer
+    # entirely, and prints the command that fixes it (CairnGo-4oq).
+    for i in result.get("inconsistent") or []:
+        lines.append(f"  phase {i['phase']} is not schedulable: {i['reason']}"
+                     f" — {i['command']}")
     if result.get("cycle_note"):
         lines.append(result["cycle_note"])
     if result["note"]:
@@ -1223,6 +1234,11 @@ def cmd_batch(args, top):
         # Passed through verbatim: whoever computed independence owns these.
         "runnable": runnable,
         "blocked": [b for b in (par.get("blocked") or [])],
+        # Passed through verbatim for the same reason as `runnable`: whoever
+        # computed independence owns the judgement that a phase is on disk
+        # without a roadmap entry. `batch` reports it, never recomputes it.
+        "inconsistent": [i for i in (par.get("inconsistent") or [])
+                         if isinstance(i, dict)],
         "declared": bool(par.get("declared")),
         "note": par.get("note"),
         "max": max_selected,

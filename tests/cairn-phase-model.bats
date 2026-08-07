@@ -213,6 +213,236 @@ EOF
   [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[3]" ]
 }
 
+@test "a plan waiting on a PLAN of its own phase is not waiting on a phase" {
+  # MEASURED 2026-08-07 on this repository, while fixing CairnGo-64u — a fourth
+  # defect in the same claim, in none of the eighteen issues:
+  #
+  #   $ grep -n depends_on .planning/phases/22-*/22-*-PLAN.md
+  #   22-02-PLAN.md:depends_on: ["01"]     <- plan 22-01, the wave before it
+  #   22-03-PLAN.md:depends_on: ["02"]
+  #   22-04-PLAN.md:depends_on: ["03"]
+  #   22-05-PLAN.md:depends_on: ["04"]
+  #   $ cairn-status.sh --json | jq '.phases[] | select(.number==22).depends_on'
+  #   [1, 2, 3, 4, 21]
+  #
+  # GSD writes `depends_on:` in a PLAN's frontmatter to order the WAVES inside
+  # one phase; cairn read every bare number as a phase. Phase 22 came out
+  # "depending on" phases 1-4 of an archived milestone. It was invisible only
+  # because those four are complete — with any of them pending, phase 22 would
+  # have read blocked by work it has nothing to do with.
+  #
+  # The discriminator is on disk and exact: `01` resolves to a plan when this
+  # phase HAS a `NN-01-PLAN.md`.
+  mkdir -p .planning/phases/04-board
+  : > .planning/phases/04-board/04-01-PLAN.md
+  cat > .planning/phases/04-board/04-02-PLAN.md <<'EOF'
+---
+phase: 04-board
+depends_on: ["01"]
+---
+EOF
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[]" ]
+  [ "$(printf '%s' "$output" | phase_field 4 blocked_by)" = "[]" ]
+}
+
+@test "a bare number with no plan of that index is still read as a phase" {
+  # The negative half. Phase 4 has no `04-03-PLAN.md`, so `03` is a phase.
+  # Without this, "no bare number is ever a phase" would pass the test above.
+  mkdir -p .planning/phases/04-board
+  cat > .planning/phases/04-board/04-01-PLAN.md <<'EOF'
+---
+phase: 04-board
+depends_on: ["03"]
+---
+EOF
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[3]" ]
+}
+
+# ─── The third dependency source: the roadmap's own prose (CairnGo-64u) ──────
+#
+# MEASURED 2026-08-05, before firing a parallel run in this repository:
+#
+#   $ cairn-parallel.sh batch --json
+#   runnable: [21, 22, 23, 24, 25, 27, 28, 30]
+#   note: 'Phases 21, 22, 23, 24, 25, 27, 28 and 30 are independent'
+#   selected: 21, 22, 23     <- 21 and 22 in the SAME round
+#
+# while ROADMAP.md said, in text, `**Depende de:** Phase 21` under phase 22 and
+# `**Depende de:** Phase 23` under phase 27. Two declared dependencies, both
+# ignored, because the two sources read here were PLAN.md frontmatter (which
+# only exists once someone plans the phase) and bd edges (which only exist once
+# someone runs `bd dep add`). Prose was nobody's input.
+
+@test "the roadmap's **Depends on** prose blocks the phase, with no PLAN.md and no bd edge" {
+  # The exact shape of the measurement: B declares A in prose only. Neither
+  # phase has a directory, so neither has a PLAN.md; no bd edge is created.
+  cat >> .planning/ROADMAP.md <<'EOF'
+
+## Phase Details
+
+### Phase 3: Phase model
+**Depends on**: nothing.
+
+### Phase 4: Board fills the screen
+**Depends on**: Phase 3 — the board renders the model phase 3 builds.
+EOF
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[3]" ]
+  [ "$(printf '%s' "$output" | phase_field 4 blocked_by)" = "[3]" ]
+  # ...and the phase it waits on stays unblocked by its own "nothing".
+  [ "$(printf '%s' "$output" | phase_field 3 depends_on)" = "[]" ]
+  [ "$(printf '%s' "$output" | phase_field 3 blocked_by)" = "[]" ]
+}
+
+@test "the Portuguese label and the colon-inside bold shape are the same declaration" {
+  # This repository's own ROADMAP writes `**Depende de:** Phase 21` — the colon
+  # sits INSIDE the bold span, and the word is Portuguese. Both shapes are one
+  # declaration or the tool reads its own roadmap and finds nothing.
+  cat >> .planning/ROADMAP.md <<'EOF'
+
+## Phase Details
+
+### Phase 4: Board fills the screen
+**Depende de:** Phase 3 — é o render que consome o modelo.
+EOF
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[3]" ]
+}
+
+@test "the justification after the declaration never becomes a dependency" {
+  # The trap that makes a naive `Phase \d+` sweep wrong, and it is a real line
+  # of this repository's roadmap (phase 23):
+  #
+  #   **Depende de:** nada. Independente do board; pode correr em paralelo
+  #                          com 20-22.
+  #
+  # Reading the whole block would declare a dependency on 20, 21 and 22 from a
+  # sentence that says the opposite. The declaration is what precedes the first
+  # em dash or the end of the first sentence; the rest is prose for a human.
+  cat >> .planning/ROADMAP.md <<'EOF'
+
+## Phase Details
+
+### Phase 4: Board fills the screen
+**Depende de:** nada. Independente do board; pode correr em paralelo com
+Phase 1, Phase 2 e Phase 3.
+EOF
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[]" ]
+}
+
+# ─── FIX-04: what an edge means, and what an archived cycle means ────────────
+#
+# MEASURED in the v1.5 pre-flight (2026-08-03): phase 26 rendered as
+# "waits on phase 9" — a cycle archived two milestones earlier. Two defects
+# summed:
+#
+#   1. dep_target_ids() collected EVERY `dependencies` edge without looking at
+#      its type, so a `discovered-from` edge — which /cairn:quick documents
+#      literally as "records provenance WITHOUT blocking" — counted as a block.
+#      bd itself reported the issue as [READY]; only cairn thought otherwise.
+#   2. `blocked_by = [d for d in depends_on if d not in done_set]`, and phase 9
+#      was archived with v1.2, so it is not in ROADMAP.md, never enters
+#      done_set, and blocks forever.
+
+@test "a discovered-from edge records provenance and never blocks" {
+  A="$(bd create "the finding" -t task -l phase-3,m-v1.1 --silent)"
+  B="$(bd create "the work it was found in" -t task -l phase-4,m-v1.1 --silent)"
+  printf '{"from":"%s","to":"%s","type":"discovered-from"}\n' "$B" "$A" \
+    | bd dep add --file - >/dev/null
+  # bd's own verdict first: the edge exists and the issue is still ready.
+  run bd show "$B" --json
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'discovered-from' || \
+    printf '%s' "$output" | grep -qF "$A"
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[]" ]
+  [ "$(printf '%s' "$output" | phase_field 4 blocked_by)" = "[]" ]
+}
+
+@test "a blocks edge alongside a discovered-from edge still blocks" {
+  # The other half of the same guard: filtering by type must not filter the
+  # type that is actually a block. Without this, "nothing ever blocks" would
+  # pass the test above.
+  A="$(bd create "the real blocker" -t task -l phase-3,m-v1.1 --silent)"
+  B="$(bd create "the blocked work" -t task -l phase-4,m-v1.1 --silent)"
+  bd dep add "$B" "$A" >/dev/null
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[3]" ]
+  [ "$(printf '%s' "$output" | phase_field 4 blocked_by)" = "[3]" ]
+}
+
+@test "a dependency on a phase the roadmap no longer lists never blocks" {
+  # Phase 9 of this repository was archived with v1.2 and is not in ROADMAP.md.
+  # It can never be "done" by the roadmap's reckoning, so it blocked forever.
+  # An edge pointing outside the current roadmap points at an archived cycle:
+  # that work shipped, and a shipped cycle does not hold the present hostage.
+  A="$(bd create "archived cycle work" -t task -l phase-9,m-v1.0 --silent)"
+  B="$(bd create "current work" -t task -l phase-4,m-v1.1 --silent)"
+  bd dep add "$B" "$A" >/dev/null
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | phase_field 4 depends_on)" = "[9]" ]
+  [ "$(printf '%s' "$output" | phase_field 4 blocked_by)" = "[]" ]
+}
+
+# ─── CairnGo-4oq: a phase directory is not a roadmap entry ───────────────────
+#
+# MEASURED 2026-08-05, with .planning/phases/30-did-it-land/ holding one
+# 30-CONTEXT.md and nothing else:
+#
+#   $ grep -c 'Phase 30' .planning/ROADMAP.md
+#   0
+#   $ cairn-parallel.sh batch --json
+#   runnable: [..., 30]
+#   deferred: [{phase: 30, reason: 'above the --max 3 ceiling'}]
+#
+# The only thing standing between the tool and recommending a phase with no
+# goal, no requirement and no acceptance criterion was the concurrency ceiling.
+
+@test "a phase that exists only as a directory is not runnable, and is named" {
+  mkdir -p .planning/phases/09-not-in-the-roadmap
+  : > .planning/phases/09-not-in-the-roadmap/09-CONTEXT.md
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+par = doc["parallelism"]
+assert 9 not in par["runnable"], "phase 9 is runnable: %r" % (par["runnable"],)
+names = [i["phase"] for i in par["inconsistent"]]
+assert names == [9], "inconsistent: %r" % (par["inconsistent"],)
+row = par["inconsistent"][0]
+assert "ROADMAP.md" in row["reason"], row
+assert row["command"], row
+'
+}
+
+@test "a phase named in the roadmap keeps its directory and stays runnable" {
+  # The negative half: the guard must reject a directory WITHOUT an entry, not
+  # every directory. Phase 3 is on the roadmap and has a directory.
+  mkdir -p .planning/phases/03-phase-model
+  : > .planning/phases/03-phase-model/03-01-PLAN.md
+  run bash "$STATUS_SH" --json
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+par = doc["parallelism"]
+assert 3 in par["runnable"], par["runnable"]
+assert par["inconsistent"] == [], par["inconsistent"]
+'
+}
+
 # ─── One model, three surfaces ───────────────────────────────────────────────
 
 @test "the terminal board, --json and the HTML page report the same title" {
@@ -480,13 +710,19 @@ PY
 }
 
 @test "--json exposes parallelism with a stable shape" {
+  # The key set is asserted EXACTLY, and it is a canary: `cairn-parallel batch`
+  # passes these fields through verbatim, so a field appearing or disappearing
+  # here changes what the orchestrator reads. 4 -> 5 with `inconsistent`
+  # (phase 25, CairnGo-4oq).
   run bash "$STATUS_SH" --json
   [ "$status" -eq 0 ]
   printf '%s' "$output" | python3 -c '
 import json, sys
 p = json.load(sys.stdin)["parallelism"]
-assert set(p) == {"runnable", "blocked", "declared", "note"}, sorted(p)
+assert set(p) == {"runnable", "blocked", "inconsistent", "declared",
+                  "note"}, sorted(p)
 assert isinstance(p["runnable"], list) and isinstance(p["blocked"], list), p
+assert isinstance(p["inconsistent"], list), p
 assert isinstance(p["declared"], bool) and isinstance(p["note"], str), p
 '
 }
