@@ -429,7 +429,14 @@ def control_branches(root):
     branches, source, detail = detect_control(root)
     if not branches:
         return [], "none", detail
-    return branches, "detected", detail + " (not confirmed — run /cairn:land)"
+    # The routing names a command that EXISTS. `/cairn:land` was written here
+    # first and there is no such slash command — a detail string pointing at a
+    # command nobody can run is the same class of lie as a count that went
+    # stale, and this file's whole subject is not making claims it cannot back.
+    # The script is the thing that exists; a slash wrapper is tracked separately.
+    return branches, "detected", (
+        detail + " (not confirmed — run `cairn-land.sh apply --branches "
+        + ",".join(branches) + "`)")
 
 
 # --------------------------------------------------------------------------- #
