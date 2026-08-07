@@ -875,7 +875,14 @@ p.write_text(p.read_text().replace(
 PY
   run bash "$BOOKKEEP" reconcile --apply --json --planning-dir "$PWD/.planning"
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.unresolved | length' '0'
+  # Every coverage row this command was blocked on is now planned, and the
+  # SET that remains is asserted as a set, not as a count of zero: the free
+  # text of `last_activity_desc` is never rewritten, and before CairnGo-ozy
+  # it was not even reported here — `unresolved` was empty and `nothing to
+  # change` was printed over it.
+  assert_json_eq "$output" \
+    '[.unresolved[] | "\(.kind)/\(.subject)"] | sort | join(" ")' \
+    'state-narrative-stale/last_activity_desc'
 
   # Inserted at the END of Phase 29's group, in planning order, so the file's
   # existing grouping by phase survives. Break: appending both to the bottom
@@ -1378,4 +1385,225 @@ completion_step() {
   local help="$CAIRN_REPO_ROOT/cairn/commands/help.md"
   grep -qF "cairn-bookkeep.sh close" "$help"
   grep -qF "docs/commands/bookkeep.md" "$help"
+}
+
+#-----------------------------------------------------------------------------
+# CairnGo-ozy — the writer that announced there had been nothing to do
+#
+# REPRODUCED three times on 2026-08-05, every time over a line written less
+# than an hour earlier:
+#
+#   $ cairn-bookkeep.sh reconcile --json | jq .disagreements
+#   state-narrative-stale :: last_activity_desc
+#   found:    "Milestone v1.5 Legible State aberto (9 fases, 24 requisitos)"
+#   expected: {"fase": 10, "requisito": 36}
+#
+#   $ cairn-bookkeep.sh reconcile --apply
+#   [cairn-bookkeep] nothing to change        <- EXIT 0
+#
+# Three surfaces, and the disagreement survived all three: named by reconcile,
+# charged by the doctor's req-ledger, ignored in silence by the writer both of
+# them route to. Refusing was never the defect — this command already refuses
+# coverage-row-missing out loud, with a reason. Announcing that there had been
+# no work is.
+#-----------------------------------------------------------------------------
+
+# Break: put `nothing to change` back on `if not edits`. The fixture's
+# last_activity_desc disagrees and has no writer, so the line comes back over
+# a refusal — the measured defect, verbatim.
+@test "reconcile --apply: a refusal is never announced as nothing to change" {
+  make_drift_fixture "$PWD"
+  # Resolve everything that HAS a writer, so the only thing left is the free
+  # text nobody rewrites — the exact shape of the 2026-08-05 reproduction.
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # The second run plans no edit at all, and STILL must not claim there was
+  # nothing to do.
+  refute_in_output "nothing to change"
+  grep -qF "NOT written :: state-narrative-stale :: last_activity_desc" \
+    <<<"$output"
+  # With the reason, on the human path — a refusal legible only in --json is
+  # one most readers never see.
+  grep -qF "because free text a person wrote" <<<"$output"
+
+  # And reconcile still NAMES it, so the two surfaces now agree.
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" \
+    '[.disagreements[] | select(.kind=="state-narrative-stale")] | length' '1'
+}
+
+# The negative half. Without it, "never print nothing to change" would pass,
+# and the message would stop meaning anything at all.
+@test "reconcile --apply: nothing to change still means ZERO disagreements" {
+  make_drift_fixture "$PWD"
+  # Give the free text numbers that match, and write out the ellipsis, so the
+  # tree really does agree with itself once the writers have run.
+  python3 - "$PWD/.planning/ROADMAP.md" "$PWD/.planning/STATE.md" <<'PY'
+import pathlib, re, sys
+r = pathlib.Path(sys.argv[1])
+r.write_text(r.read_text().replace(
+    "**Requirements**: AUTO-01 … AUTO-08",
+    "**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, "
+    "AUTO-06, AUTO-07, AUTO-08"))
+s = pathlib.Path(sys.argv[2])
+s.write_text(re.sub(r"^last_activity_desc:.*$",
+                    "last_activity_desc: sem numero nenhum aqui",
+                    s.read_text(), count=1, flags=re.MULTILINE))
+PY
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  run bash "$BOOKKEEP" reconcile --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.disagreements | length' '0'
+
+  run bash "$BOOKKEEP" reconcile --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  grep -qF "nothing to change" <<<"$output"
+  refute_in_output "NOT written"
+}
+
+# The load-bearing half of the design, and the reason this is not a hand-kept
+# list of "kinds with no writer": a kind invented tomorrow shows up by itself.
+#
+# Break: replace writerless_findings() with a literal tuple of today's four
+# families. This test goes green on the tuple and red on the fifth kind — the
+# fifth hand-maintained fact this repository has watched go stale.
+@test "reconcile --apply: the list of writerless kinds is derived, never hand-kept" {
+  make_drift_fixture "$PWD"
+
+  # A kind nobody has ever written a writer for, injected into the READER
+  # only — inside a COPY of the script, never the repository's own file. A
+  # test that edits the source it is testing leaves the tree broken the first
+  # time it fails halfway.
+  local patched="$BATS_TEST_TMPDIR/cairn-bookkeep-patched.py"
+  python3 - "$CAIRN_SCRIPTS_DIR/cairn-bookkeep.py" "$patched" <<'PY'
+import pathlib
+import sys
+src = pathlib.Path(sys.argv[1]).read_text()
+needle = '    return {\n        "requirements": {'
+assert src.count(needle) == 1
+src = src.replace(needle,
+                  '    found.append(finding(\n'
+                  '        "invented-kind-stale", "a subject nobody writes",\n'
+                  '        "found", "expected", st))\n' + needle)
+pathlib.Path(sys.argv[2]).write_text(src)
+PY
+
+  run python3 "$patched" reconcile --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  # Nothing in the plan answers it, so it comes out named — with no line of
+  # code anywhere having been told that this kind exists.
+  assert_json_eq "$output" \
+    '[.unresolved[] | select(.kind=="invented-kind-stale") | .subject] | join(",")' \
+    'a subject nobody writes'
+  # Unexplained rather than invisible: the generic reason, because the map has
+  # no entry for a family invented five seconds ago.
+  assert_json_eq "$output" \
+    '.unresolved[] | select(.kind=="invented-kind-stale")
+                   | .detail.not_written_because
+                   | test("no edit in this plan addresses")' 'true'
+}
+
+#-----------------------------------------------------------------------------
+# CairnGo-66o — the surgical door that did not exist for a PLAN
+#
+# MEASURED at the close of plan 29-04 (commit 49e2b45), inside the phase that
+# existed to remove this defect: the gsd-executor closed the plan through the
+# gsd-tools and ROADMAP.md took +43/-7 — 29 of the added lines being blank
+# lines injected between numbered list items by _normalizeMd
+# (shell-command-projection.cjs:631). The useful content was five checkboxes
+# and one counter.
+#
+# And the half measured in this checkout: every cairn surface that names this
+# command names `close <N>`, a PHASE door. There was no per-plan command to
+# reach for, so the executor reached for the one that reflows.
+#-----------------------------------------------------------------------------
+
+# Break: let `plan` fall through to the full edit set (drop the only_plan
+# guards). The diff explodes from one line to the fifteen `close` makes, which
+# is the whole difference this command exists to hold.
+@test "plan NN-MM --apply: one checkbox, and the ROADMAP diff is one line" {
+  make_drift_fixture "$PWD"
+  # 20-01 and 20-03 have summaries on disk and unchecked boxes in this
+  # fixture. Close exactly one of them.
+  run bash "$BOOKKEEP" plan 20-01 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  grep -qF -- "- [x] 20-01-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  # The OTHER plan with a summary on disk is untouched: this command closes
+  # the plan it was given, never every plan it could.
+  grep -qF -- "- [ ] 20-03-PLAN.md" "$PWD/.planning/ROADMAP.md"
+  # And no requirement, no coverage row, no footer moved.
+  grep -qF -- "- [ ] **AUTO-01**" "$PWD/.planning/REQUIREMENTS.md"
+  grep -qF "29 requisitos, 29 mapeados." "$PWD/.planning/ROADMAP.md"
+
+  run git -C "$PWD" diff --numstat
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qE '^1	1	\.planning/ROADMAP\.md$'
+  # REQUIREMENTS.md is not in the diff at all.
+  refute_in_output ".planning/REQUIREMENTS.md"
+}
+
+# The counters follow, because they changed the moment the summary landed on
+# disk — not because this command recomputed anything about the phase.
+@test "plan NN-MM --apply: the STATE counters follow the plan it closed" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" plan 20-01 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counters.total_plans' '10'
+  assert_json_eq "$output" '.counters.completed_plans' '3'
+  grep -qF "  completed_plans: 3" "$PWD/.planning/STATE.md"
+  # No phase was marked complete: that is `close`, and only `close`.
+  grep -qF -- "- [ ] Phase 29:" "$PWD/.planning/ROADMAP.md"
+}
+
+# Break: mark the checkbox because it was ASKED for. The checkbox follows the
+# SUMMARY on disk, and the one-way rule is the whole posture of this script.
+@test "plan NN-MM: no summary on disk is refused BY NAME, never written" {
+  make_drift_fixture "$PWD"
+  # 29-01 is listed and unchecked, and has no summary in this fixture.
+  run bash "$BOOKKEEP" plan 29-01 --apply --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '[.unresolved[] | select(.kind=="plan-summary-missing") | .subject] | join(",")' \
+    '29-01-PLAN.md'
+  assert_json_eq "$output" \
+    '.unresolved[] | select(.kind=="plan-summary-missing") | .expected' \
+    '29-01-SUMMARY.md'
+  grep -qF -- "- [ ] 29-01-PLAN.md" "$PWD/.planning/ROADMAP.md"
+}
+
+# Break: fall back to "the first plan that matches loosely", or to creating a
+# line. A door that invents a checkbox is worse than no door.
+@test "plan NN-MM: a plan the roadmap does not list is exit 4, and writes nothing" {
+  make_drift_fixture "$PWD"
+  local before
+  before="$(shasum "$PWD/.planning/ROADMAP.md" | awk '{print $1}')"
+
+  run bash "$BOOKKEEP" plan 88-99 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 4 ]
+  grep -qF "no plan item named '88-99'" <<<"$output"
+  [ "$(shasum "$PWD/.planning/ROADMAP.md" | awk '{print $1}')" = "$before" ]
+}
+
+# The id is a pair of NUMBERS, the same discipline the phase anchor holds.
+@test "plan NN-MM: 20-1 and 20-01-PLAN.md name the same plan" {
+  make_drift_fixture "$PWD"
+  run bash "$BOOKKEEP" plan 20-1 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" \
+    '[.planned[] | select(.kind=="plan-checkbox-written") | .subject] | join(",")' \
+    '20-01-PLAN.md'
+
+  run bash "$BOOKKEEP" plan 20-01-PLAN.md --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" \
+    '[.planned[] | select(.kind=="plan-checkbox-written") | .subject] | join(",")' \
+    '20-01-PLAN.md'
 }
