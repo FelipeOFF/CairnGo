@@ -469,7 +469,7 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   [ "$output" = "blocked,counts,doing,groups,landing,lease,milestone,next,next_commands,note,open_milestones,parallelism,phase,phases,ready,stale_complete,sync" ]
 }
 
-@test "every phases[] row carries exactly the 24 keys it always did" {
+@test "every phases[] row carries exactly the key set the contract fixes" {
   render_json
 
   # The aggregation is the point, so the premise gets asserted rather than
@@ -504,7 +504,26 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   # Additive for ALL rows exactly like `tracker`, which is what the
   # `[.phases[] | keys_unsorted] | add | unique` aggregation above proves and a
   # single-row sample would not.
-  [ "$output" = "blocked_by,complete,completed_on,conflicts,corroboration,depends_on,dir,disk_state,evidence,issues_done,issues_total,landed,milestone,needs_doctor,next_command,number,plans_done,plans_total,purpose,requirements,research_done,title,tracker,verify_status" ]
+  #
+  # EDITED A THIRD TIME by plan 25-01, deliberately and once: `in_roadmap` and
+  # `roadmap_depends_on` join as the 25th and 26th keys. They are the two halves
+  # of the same fix — the roadmap's prose became the third source of phase
+  # dependency, beside plan frontmatter and bd edges, because it was neither and
+  # so an unplanned phase came out `depends_on: []` and passed for independent.
+  # `roadmap_depends_on` carries that third source separately so a reader can
+  # see WHICH source claimed a dependency; `in_roadmap` is false for a phase
+  # that exists only as a directory, and `parallelism()` drops those from
+  # `runnable` instead of announcing a phase with no goal as ready to run.
+  #
+  # Worth recording HOW this red was found, because it is the argument for
+  # keeping the assertion exhaustive: plan 25-01 ran six suites after the change
+  # and this file was not one of them, so the contract change reached the full
+  # suite unannounced and this line is what announced it. Nothing was renamed
+  # and nothing was dropped — verified against the previous literal before
+  # editing — so the change is additive and the intent below stands unchanged.
+  # This set is a CONTRACT, and a red here is a contract change asking to be
+  # discussed.
+  [ "$output" = "blocked_by,complete,completed_on,conflicts,corroboration,depends_on,dir,disk_state,evidence,in_roadmap,issues_done,issues_total,landed,milestone,needs_doctor,next_command,number,plans_done,plans_total,purpose,requirements,research_done,roadmap_depends_on,title,tracker,verify_status" ]
 }
 
 @test "disk_state still carries only its four values" {
