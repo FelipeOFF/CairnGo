@@ -57,8 +57,14 @@ and "something never ran" are different questions and get different keys.
     0. bd-version       the bd binary meets the minimum version cairn
                         relies on (--claim, --all, label add/remove,
                         nested --metadata). Older -> FAIL, unparsable
-                        version output -> WARN. Runs first — eighteen
-                        checks in total.
+                        version output -> WARN. Runs first — twenty
+                        checks in total. (This line read `eighteen` while
+                        nineteen were registered, from phase 24 until
+                        phase 30 measured it: a hand-maintained count in
+                        prose is the fifth one this repository has caught
+                        going stale. tests/cairn-doctor.bats asserts the
+                        real number in two places, and both are edited
+                        together or the canary there says why.)
     1. req-issue        every requirement id in ROADMAP.md's
                         '**Requirements**:' lists has >=1 issue whose
                         metadata.gsd.req matches, scoped to the phase's
@@ -428,11 +434,49 @@ and "something never ran" are different questions and get different keys.
                         would report a single agreeing answer in exactly
                         the situation this check exists to catch. Writes
                         nothing.
+    19. phase-landed    (PR-04, Phase 30) a phase the roadmap calls
+                        complete whose commits are not on the control
+                        branch. The whole question — which branch, which
+                        commits, did they arrive — is read ONCE from
+                        cairn-land.py through the CAIRN_LAND seam, the
+                        same shape checks 3 and 17 use for cairn-map.py
+                        and cairn-bookkeep.py; no git is read here.
+                        MEASURED 2026-08-06, and the reason it exists:
+                        nine roadmap-complete phases of this repository
+                        are not on origin/main (145 commits ahead) and
+                        the doctor said nothing about any of them.
+                        Complete phase of the OPEN cycle not yet on the
+                        branch -> WARN: unpushed work is the normal state
+                        of anybody mid-cycle, it is friction and not
+                        inconsistency, and exit 7 spent on friction stops
+                        meaning anything (same distinction as checks 8
+                        and 14). Complete phase of an ARCHIVED milestone
+                        that never arrived -> FAIL: a cycle was CLOSED
+                        over work the control branch does not have, which
+                        is a claim the repository cannot support. A phase
+                        the local history cannot place -> named in items
+                        with the word `unknown` and its reason, raising
+                        NOTHING: measured, phases 7-12 here predate the
+                        conventional-commit scope convention and are
+                        attributable by neither source, and charging that
+                        would hand every long-lived repo a permanent
+                        finding about history nobody will rewrite. The
+                        universe of "complete" is roadmap_completed_
+                        phases() UNION the phase dirs under .planning/
+                        milestones/<key>-phases/ — the current ROADMAP.md
+                        lists only the open cycle, so reading it alone
+                        would make the FAIL rung unreachable by
+                        construction. No control branch, or nothing
+                        complete anywhere -> NOT-APPLICABLE / out-of-
+                        scope. A cairn-land.py that could not run or
+                        answered unparsably -> WARN, never FAIL (same
+                        degrade shape as check 11). Writes nothing; every
+                        finding routes to /cairn:ship.
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-
                     escalation reconciliation proposal for phase N. Not one
-                    of the 19 checks above — a fixer, the same category as
+                    of the 20 checks above — a fixer, the same category as
                     --close-completed/--fix-labels/--link-refs, but the only
                     one of the four that always exits on its own rather
                     than falling through to the ordinary report, since its
@@ -572,6 +616,15 @@ CAIRN_TEST = os.environ.get(
 # quantity (T-29-31).
 CAIRN_BOOKKEEP = os.environ.get(
     "CAIRN_BOOKKEEP", str(SCRIPTS_DIR / "cairn-bookkeep.py"))
+
+# Test/override seam for check_phase_landed() (Phase 30, PR-04) — same CAIRN_*
+# convention as the seams above. The doctor reads NO git of its own: cairn-
+# land.py owns "did this work enter the control branch", cairn-status.py's
+# board renders from the same report, and a `git merge-base` written here would
+# be the second reader of one fact — which is the defect this milestone has
+# already paid for twice.
+CAIRN_LAND = os.environ.get(
+    "CAIRN_LAND", str(SCRIPTS_DIR / "cairn-land.py"))
 
 PHASE_LABEL = re.compile(r"^phase-(\d+)$")
 PHASE_HEAD = re.compile(r"^#{1,6}\s+Phase\s+0*(\d+)\b")
@@ -2538,6 +2591,190 @@ def check_response_language(root):
             "items": []}
 
 
+def archived_phase_numbers(planning_dir):
+    """Phase numbers whose directory sits under .planning/milestones/<key>-
+    phases/ — the on-disk evidence that the cycle that owned them closed.
+
+    Same discipline as archived_milestones() one level up: nothing is inferred
+    from position in a list, from recency, or from STATE.md. /gsd:complete-
+    milestone moves the phase tree there when it closes a cycle, so the
+    directory's location IS the fact.
+    """
+    out = set()
+    try:
+        entries = list((planning_dir / "milestones").iterdir())
+    except OSError:
+        return out
+    for entry in entries:
+        if not entry.is_dir() or not entry.name.endswith("-phases"):
+            continue
+        try:
+            children = list(entry.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            m = DIR_PREFIX.match(child.name)
+            if child.is_dir() and m:
+                out.add(int(m.group(1)))
+    return out
+
+
+def check_phase_landed(root, planning_dir, completed):
+    """Check 19, id "phase-landed" (PR-04) — a phase the roadmap calls complete
+    whose work never entered the control branch.
+
+    Showing the information and not asking for it trains everybody not to look.
+    MEASURED 2026-08-06, and it is why this check exists: this repository has
+    ten roadmap-complete phases whose commits are not on `origin/main`
+    (`git rev-list --count origin/main..HEAD` = 145), and the doctor exited 7
+    without saying one word about any of them.
+
+    THE LEDGER OF LANDING IS READ ONCE, BY INVOCATION, NEVER REIMPLEMENTED
+    HERE. cairn-land.py owns every git read behind the question, through the
+    CAIRN_LAND seam — the same shell-out-to-a-sibling shape check_maps_fresh()
+    uses for cairn-map.py and check_req_ledger() for cairn-bookkeep.py. A
+    second `git merge-base` in this file would be a second answer to one
+    question, which is the family of defect that produced check 17.
+
+    STATUS LADDER, and every rung is a deliberate value, never a negation:
+      * a complete phase of an ARCHIVED milestone whose
+        work never entered the control branch      -> "fail" (exit 7)
+      * a complete phase of the OPEN cycle whose
+        work has not entered it yet                -> "warn"
+      * every complete phase has landed            -> "ok"
+      * no control branch to compare against, or
+        no complete phase at all                   -> "not-applicable",
+                                                      scope "out-of-scope"
+      * cairn-land.py could not be run or answered
+        unparsably                                 -> "warn", never "fail"
+
+    WHY THE OPEN CYCLE IS ONLY A WARN. Unpushed work is the normal state of
+    anybody in the middle of a cycle — it is friction, not inconsistency — and
+    spending exit 7 on friction is how 7 stops meaning anything. Same
+    distinction plans 29-06 and 29-07 drew. The archived case is genuinely
+    different: a cycle was CLOSED over work that is not on the control branch,
+    and that is a claim the repository cannot support.
+
+    WHY `unknown` RAISES NOTHING. A complete phase the local history cannot
+    place (no commit touched its directory and no commit named it in a
+    conventional-commit scope) is reported by name in `items`, prefixed with
+    the word `unknown` and carrying its reason — and it does NOT move the
+    status. MEASURED in this repository: phases 7 through 12 are archived from
+    cycles that predate the scope convention and are attributable by neither
+    source. Turning that into a warning would hand every long-lived repo a
+    permanent finding about history nobody is going to rewrite, which is the
+    false-red this doctor already refused once (phase 23). Silence about it
+    would be the opposite defect, so it is named without being charged.
+
+    WHERE THE COMPLETE PHASES COME FROM, AND WHY IT IS A UNION. `completed` is
+    roadmap_completed_phases(), which reads the CURRENT .planning/ROADMAP.md —
+    and MEASURED 2026-08-06, that file lists only the open cycle: nine phases
+    here, none of the nineteen already archived. Reading it alone would make
+    the `fail` rung unreachable by construction, because the phases it exists
+    to catch are exactly the ones an archive removed from that file. So the
+    universe is that set UNION the phase directories sitting under
+    .planning/milestones/<key>-phases/, which are complete by construction —
+    a cycle only archives when it closes.
+
+    This check WRITES NOTHING. Every finding routes by name to /cairn:ship.
+    """
+    archived = archived_phase_numbers(planning_dir)
+    delivered = set(completed) | archived
+    if not delivered:
+        return {"id": "phase-landed", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "no phase is marked complete in ROADMAP.md and none "
+                          "is archived under .planning/milestones/, so there "
+                          "is no delivered work to look for on a control "
+                          "branch",
+                "items": []}
+    try:
+        proc = subprocess.run(
+            [sys.executable, CAIRN_LAND, "report", "--json",
+             "--project-dir", str(root), "--planning-dir", str(planning_dir)],
+            capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"id": "phase-landed", "status": "warn",
+                "detail": f"could not run {Path(CAIRN_LAND).name}: {e} — "
+                          "whether complete work reached the control branch "
+                          "is unknown for this run",
+                "items": []}
+    if proc.returncode != 0:
+        return {"id": "phase-landed", "status": "warn",
+                "detail": f"{Path(CAIRN_LAND).name} report exited "
+                          f"{proc.returncode}: "
+                          f"{(proc.stderr or '').strip()[:200]}",
+                "items": []}
+    try:
+        report = json.loads(proc.stdout or "null")
+    except json.JSONDecodeError as e:
+        report = None
+        detail = str(e)
+    if not isinstance(report, dict):
+        return {"id": "phase-landed", "status": "warn",
+                "detail": f"{Path(CAIRN_LAND).name} report --json did not "
+                          "answer with an object — refusing to guess whether "
+                          "complete work reached the control branch",
+                "items": []}
+
+    control = report.get("control") or {}
+    branches = control.get("branches") or []
+    if not branches:
+        why = control.get("detail") or "no branch to compare against"
+        return {"id": "phase-landed", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": f"no control branch could be resolved here ({why}),"
+                          " so whether the work landed is a question this "
+                          "repository cannot be asked",
+                "items": []}
+
+    rows = report.get("phases") or {}
+    failures, warnings, unknowns = [], [], []
+    for n in sorted(delivered):
+        row = rows.get(str(n))
+        if not isinstance(row, dict) or row.get("status") == "unknown":
+            reason = ((row or {}).get("reason")
+                      or report.get("reason") or "no-commits")
+            unknowns.append(f"unknown :: phase {n} — {reason}: the local "
+                            "history places no commit in this phase, so "
+                            "whether its work landed cannot be answered here")
+            continue
+        if row.get("status") == "landed":
+            continue
+        missing = sorted(b for b, v in (row.get("branches") or {}).items()
+                         if v != "landed")
+        where = ", ".join(missing) or "the control branch"
+        item = (f"phase {n} is complete and its {row.get('commits')} "
+                f"commit(s) are not on {where}")
+        if n in archived:
+            failures.append(f"{item} — and its milestone is ARCHIVED: the "
+                            "cycle closed over work the control branch does "
+                            "not have")
+        else:
+            warnings.append(item)
+
+    items = failures + warnings + unknowns
+    census = (f"{len(delivered)} complete phase(s) ({len(archived)} archived),"
+              f" control branch {', '.join(branches)} "
+              f"({control.get('source')})")
+    if failures:
+        return {"id": "phase-landed", "status": "fail",
+                "detail": f"{len(failures)} archived-milestone phase(s) never "
+                          f"reached the control branch — {census}: run "
+                          "/cairn:ship",
+                "items": items}
+    if warnings:
+        return {"id": "phase-landed", "status": "warn",
+                "detail": f"{len(warnings)} complete phase(s) have not "
+                          f"reached the control branch yet — {census}: run "
+                          "/cairn:ship",
+                "items": items}
+    return {"id": "phase-landed", "status": "ok",
+            "detail": f"every complete phase the history can place is on the "
+                      f"control branch — {census}",
+            "items": items}
+
+
 def check_req_ledger(root, planning_dir):
     """Check 17, id "req-ledger" (AUTO-07) — the chain nobody was validating:
     an active requirement has a row in the coverage table, the table's row
@@ -3084,6 +3321,7 @@ def main():
         check_test_parallel(root),
         check_req_ledger(root, planning_dir),
         check_response_language(root),
+        check_phase_landed(root, planning_dir, completed_set),
     ]
     summary["checks"] = checks
     # ONE BUCKET PER WORD OF THE VOCABULARY, COUNTED, NEVER SUBTRACTED.

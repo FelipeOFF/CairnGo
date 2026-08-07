@@ -367,8 +367,39 @@ this routine health-check flow — see its own section below.
      why it belongs in a health report rather than in an exit code. The
      doctor reports it and writes neither file.
 
+   - **phase-landed** (⚠; ✗ for an archived cycle; ⊘ `out-of-scope` with no
+     control branch) — a phase the roadmap calls **complete** whose commits
+     are not on the branch everything has to reach. Showing the information
+     and never asking for it trains everybody not to look, so this is the
+     asking half. MEASURED 2026-08-06 on cairn's own repository: nine
+     roadmap-complete phases were not on `origin/main` (145 commits ahead) and
+     the doctor said nothing about any of them.
+
+     The whole question is read **once** from `cairn-land.sh report --json`
+     through the `CAIRN_LAND` seam — the doctor reads no git of its own, the
+     same way check 3 defers to `cairn-map.py` and check 17 to
+     `cairn-bookkeep.py`. Two readers of one fact is the defect this milestone
+     has already paid for twice.
+
+     The severity split is the point. A complete phase of the **open** cycle
+     that has not been pushed yet is `⚠`: unpushed work is the ordinary state
+     of anybody mid-cycle, it is friction and not inconsistency, and exit `7`
+     spent on friction stops meaning anything. A complete phase of an
+     **archived** milestone that never arrived is `✗`: a cycle was closed over
+     work the control branch does not have, and that is a claim the repository
+     cannot support. Both route to [/cairn:ship](ship.md); the check writes
+     nothing.
+
+     A complete phase the local history cannot place — no commit touched its
+     directory and none named it in a conventional-commit scope — is listed by
+     name, prefixed `unknown ::` and carrying its reason, and it raises
+     **nothing**. Measured: phases 7-12 of this repository predate the scope
+     convention and are attributable by neither source, and charging that
+     would hand every long-lived repo a permanent finding about history nobody
+     is going to rewrite. Named without being charged is the honest middle.
+
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — nineteen checks in total.)
+   upgrading bd — twenty checks in total.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments
@@ -446,7 +477,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh" --fix-labels
 
 `--apply-reconciliation N` is the human-invoked, separate command that
 applies a semantic-escalation reconciliation proposal `/cairn:reconcile N`
-wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 19 checks
+wrote to `.cairn/conflicts.json` (Phase 17). It is not one of the 20 checks
 above and does not run alongside them — it always exits on its own instead
 of falling through to the ordinary report.
 
