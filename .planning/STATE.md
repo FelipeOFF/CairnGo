@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: null
-milestone_name: null
+milestone: v1.6
+milestone_name: O bd vira dono do estado
 current_phase: null
 active_phase: null
 current_phase_name: null
-status: between-milestones
-stopped_at: v1.5 archived
+status: planning
+stopped_at: v1.6 aberto, nenhuma fase planejada
 last_updated: "2026-08-07T15:10:00.000Z"
 last_activity: 2026-08-07
-last_activity_desc: "v1.5 Legible State arquivado — 11 fases, 49 planos, 41 requisitos, publicado como cairn 1.6.0"
+last_activity_desc: "v1.6 aberto — 7 fases (31-37), 35 requisitos, sobre premissas reverificadas"
 progress:
-  total_phases: 0
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
