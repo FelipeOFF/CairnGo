@@ -1,0 +1,16 @@
+# cairn transition journal — one PARTITION per checkout (phase 28, DJOUR-02).
+#
+# Two checkouts never write the same segment file, so a merge only ever has to
+# concatenate. `union` is the built-in driver that does exactly that, and it is
+# built-in on purpose: a CUSTOM driver needs a `merge.<name>.driver` entry in
+# .git/config, and git NEVER clones config. A machine without that out-of-band
+# setup step falls back to the default merge and conflicts with markers, in
+# silence — measured in 28-RESEARCH.md, experiment E17. `union` also holds for
+# rebase, cherry-pick and pull, measured in E15.
+#
+# What still needs this line even though partitions are disjoint: the SAME
+# partition on two branches of the same checkout. Without `union` that is an
+# add/add conflict (E8b). The reader folds each partition by
+# (compacted_through_ts, then ts, nonce), so the concatenated blocks come back
+# in the right order.
+.cairn/journal/*.jsonl merge=union

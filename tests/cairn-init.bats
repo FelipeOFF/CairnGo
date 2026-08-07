@@ -12,6 +12,8 @@ CAIRN_GITIGNORE_ENTRIES=(
   '.cairn/state.json'
   '.cairn/conflicts.json'
   '.cairn/journal.jsonl*'
+  '.cairn/journal/*'
+  '!.cairn/journal/*.jsonl'
   '.cairn/reconcile-evidence.json'
   '.cairn/hook.log'
   '.cairn/migrate-plan.json'
@@ -254,4 +256,45 @@ init_anchor_line() {
   for entry in "${CAIRN_GITIGNORE_ENTRIES[@]}"; do
     [ "$(grep -cxF "$entry" .gitignore)" -eq 1 ]
   done
+}
+
+#-----------------------------------------------------------------------------
+# Phase 28 (DJOUR-02): .cairn/journal/ is the ONE versioned thing under
+# .cairn/, and it only merges correctly with `merge=union` in a TRACKED
+# .gitattributes. A custom driver would not do: it needs merge.<name>.driver
+# in .git/config, which git never clones, so a machine that skipped the setup
+# falls back to the default merge and conflicts with markers, in silence
+# (28-RESEARCH.md, E17).
+#-----------------------------------------------------------------------------
+
+@test "cairn-init sets merge=union on the journal partitions, and a re-run does not duplicate it" {
+  require_bd
+  make_tmp_repo
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh"
+  [ "$status" -eq 0 ]
+  [ -f .gitattributes ]
+  [ "$(grep -cxF '.cairn/journal/*.jsonl merge=union' .gitattributes)" -eq 1 ]
+
+  # The attribute actually resolves for a real segment path -- the line
+  # existing is not the same as git applying it.
+  run git check-attr merge -- .cairn/journal/host-0123456789ab-0001.jsonl
+  [ "$status" -eq 0 ]
+  grep -qF 'merge: union' <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh"
+  [ "$status" -eq 0 ]
+  grep -qF 'journal partitions already set to merge=union' <<<"$output"
+  [ "$(grep -cxF '.cairn/journal/*.jsonl merge=union' .gitattributes)" -eq 1 ]
+}
+
+@test "cairn-init leaves a pre-existing .gitattributes intact while adding the union line" {
+  require_bd
+  make_tmp_repo
+  printf '*.png binary\n' > .gitattributes
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh"
+  [ "$status" -eq 0 ]
+  [ "$(grep -cxF '*.png binary' .gitattributes)" -eq 1 ]
+  [ "$(grep -cxF '.cairn/journal/*.jsonl merge=union' .gitattributes)" -eq 1 ]
 }

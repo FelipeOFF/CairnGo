@@ -1588,16 +1588,34 @@ def _last_moved_clause(last_moved, sources):
     a blank, never a fabricated timestamp. Returns "" (append nothing)
     when LAST_MOVED itself is None — the journal call failed or was never
     attempted, and the item's EXISTING (pre-Plan-16-05) text is left
-    completely untouched in that case."""
+    completely untouched in that case.
+
+    Phase 28 (DJOUR-02) adds one branch: the journal is now partitioned
+    one file per checkout, so an axis can have been observed by SEVERAL
+    checkouts. In that case cairn-journal.py reports no single `ts` — a
+    single timestamp across machines would be an ordering claim, and E14
+    measured that the clock agreement available (−16.7 ms NTP offset) is
+    coarser than the resolution needed (10.8 ms minimum record gap). The
+    clause then NAMES each machine and says outright that no order is
+    claimed between them. Still purely additive: severity, status and
+    exit code were all decided before this function was ever called."""
     if last_moved is None:
         return ""
     clauses = []
     for source in sources:
         entry = last_moved.get(source)
-        if entry:
-            clauses.append(f"{source} last moved {entry.get('ts')}")
-        else:
+        if not entry:
             clauses.append(f"{source} last moved never observed")
+            continue
+        candidates = entry.get("candidates")
+        if candidates:
+            seen = ", ".join(
+                f"{c.get('ts')} on {c.get('machine') or 'unknown machine'}"
+                for c in candidates)
+            clauses.append(f"{source} last moved {seen} (order between "
+                           "machines not claimed)")
+        else:
+            clauses.append(f"{source} last moved {entry.get('ts')}")
     return ", ".join(clauses)
 
 

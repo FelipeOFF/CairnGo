@@ -22,6 +22,14 @@ refute_in_output() {
   fi
 }
 
+# Phase 28: the journal is PARTITIONED, one file per checkout, under
+# .cairn/journal/. Tests that used to hardcode .cairn/journal.jsonl ask the
+# script itself where its own active segment is -- a test that recomputed the
+# slug would just be a second implementation of the naming scheme.
+own_segment() {
+  bash "$JOURNAL" provenance --project-dir "$PWD" --json | jq -r '.segment'
+}
+
 #-----------------------------------------------------------------------------
 # Task 1: the append/read primitives end to end
 #-----------------------------------------------------------------------------
@@ -50,8 +58,8 @@ refute_in_output() {
   assert_json_eq "$output" '.records | length' '5'
   assert_json_eq "$output" '[.records[] | select(.source == "disk") | .to][0]' 'planned'
 
-  [ -f .cairn/journal.jsonl ]
-  run bash -c "jq -c . < .cairn/journal.jsonl"
+  [ -f "$(own_segment)" ]
+  run bash -c "jq -c . < \"$(own_segment)\""
   [ "$status" -eq 0 ]
 
   # NOTE: the journal is not yet listed in .gitignore (Plan 16-05 adds that
@@ -72,13 +80,13 @@ refute_in_output() {
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.written | length' '5'
   local lines_after_first
-  lines_after_first="$(wc -l < .cairn/journal.jsonl | tr -d ' ')"
+  lines_after_first="$(wc -l < "$(own_segment)" | tr -d ' ')"
 
   run bash -c "echo '$payload' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.written | length' '0'
   local lines_after_second
-  lines_after_second="$(wc -l < .cairn/journal.jsonl | tr -d ' ')"
+  lines_after_second="$(wc -l < "$(own_segment)" | tr -d ' ')"
   [ "$lines_after_first" -eq "$lines_after_second" ]
 }
 
@@ -176,7 +184,7 @@ refute_in_output() {
   assert_json_eq "$output" '.state_md' 'null'
   assert_json_eq "$output" '.verdict' 'null'
   assert_json_eq "$output" '.lease' 'null'
-  [ ! -f .cairn/journal.jsonl ]
+  [ ! -f "$(own_segment)" ]
 
   run bash "$JOURNAL" lease 9 acquired --holder /path/A --actor felipe --project-dir "$PWD"
   [ "$status" -eq 0 ]
@@ -217,13 +225,14 @@ refute_in_output() {
   run bash -c "echo '[{\"phase\": 42, \"evidence\": {\"disk\": \"verified\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
   [ "$status" -eq 0 ]
 
-  [ -f .cairn/journal.jsonl ]
+  [ -f "$(own_segment)" ]
 
   cat > truncate_fixture.py <<'PYEOF'
+import glob
 import json
 import sys
 
-path = ".cairn/journal.jsonl"
+path = sorted(glob.glob(".cairn/journal/*.jsonl"))[-1]
 data = open(path, "rb").read()
 lines = [l for l in data.split(b"\n") if l.strip()]
 n_complete_before = len(lines) - 1
@@ -272,10 +281,11 @@ PYEOF
   [ "$status" -eq 0 ]
 
   cat > truncate_fixture2.py <<'PYEOF'
+import glob
 import json
 import sys
 
-path = ".cairn/journal.jsonl"
+path = sorted(glob.glob(".cairn/journal/*.jsonl"))[-1]
 data = open(path, "rb").read()
 lines = [l for l in data.split(b"\n") if l.strip()]
 last = lines[-1].decode("utf-8")
@@ -317,10 +327,11 @@ PYEOF
   [ "$status" -eq 0 ]
 
   cat > truncate_fixture3.py <<'PYEOF'
+import glob
 import json
 import sys
 
-path = ".cairn/journal.jsonl"
+path = sorted(glob.glob(".cairn/journal/*.jsonl"))[-1]
 data = open(path, "rb").read()
 lines = [l for l in data.split(b"\n") if l.strip()]
 last = lines[-1].decode("utf-8")
@@ -347,7 +358,7 @@ PYEOF
   [ "$status" -eq 0 ]
 
   local size_before
-  size_before="$(wc -c < .cairn/journal.jsonl | tr -d ' ')"
+  size_before="$(wc -c < "$(own_segment)" | tr -d ' ')"
 
   # Simulate the next real invocation after a crash: a fresh observe call
   # against the SAME truncated journal must succeed and simply append
@@ -357,13 +368,13 @@ PYEOF
   [ "$status" -eq 0 ]
 
   local size_after
-  size_after="$(wc -c < .cairn/journal.jsonl | tr -d ' ')"
+  size_after="$(wc -c < "$(own_segment)" | tr -d ' ')"
   [ "$size_after" -gt "$size_before" ]
 
   # The corrupted fragment's own bytes are still there, byte-for-byte, as
   # an untouched prefix of the file (never rewritten in place).
   run python3 -c "
-before = open('.cairn/journal.jsonl', 'rb').read()[:$size_before]
+before = open('$(own_segment)', 'rb').read()[:$size_before]
 print(len(before))
 "
   [ "$status" -eq 0 ]
@@ -403,7 +414,7 @@ print(len(before))
   [ "$status" -eq 2 ]
   refute_in_output "Traceback"
 
-  [ ! -f .cairn/journal.jsonl ]
+  [ ! -f "$(own_segment)" ]
 }
 
 #-----------------------------------------------------------------------------
@@ -419,7 +430,7 @@ print(len(before))
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.compacted' 'false'
   assert_json_eq "$output" '.reason' 'no_journal'
-  [ ! -f .cairn/journal.jsonl ]
+  [ ! -f "$(own_segment)" ]
   [ ! -d .cairn ]
 }
 
@@ -441,17 +452,17 @@ print(len(before))
   assert_json_eq "$output" '.phases' '2'
   assert_json_eq "$output" '.reason' 'ok'
 
-  run bash -c "wc -l < .cairn/journal.jsonl | tr -d ' '"
+  run bash -c "wc -l < \"$(own_segment)\" | tr -d ' '"
   [ "$status" -eq 0 ]
   [ "$output" -eq 2 ]
 
   # Count by parsing every line's own "event" field -- never trust the
   # command's own stdout summary alone.
-  run bash -c "jq -c 'select(.event != \"snapshot\")' .cairn/journal.jsonl"
+  run bash -c "jq -c 'select(.event != \"snapshot\")' \"$(own_segment)\""
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 
-  run bash -c "jq -r '.phase' .cairn/journal.jsonl | sort -n | tr '\n' ','"
+  run bash -c "jq -r '.phase' \"$(own_segment)\" | sort -n | tr '\n' ','"
   [ "$status" -eq 0 ]
   [ "$output" = "61,62," ]
 
@@ -472,7 +483,7 @@ print(len(before))
   [ "$status" -eq 0 ]
 
   local before_hash
-  before_hash="$(shasum -a 256 .cairn/journal.jsonl | awk '{print $1}')"
+  before_hash="$(shasum -a 256 "$(own_segment)" | awk '{print $1}')"
 
   # This is the exact recipe compact() itself uses up through the sibling
   # write -- and then, deliberately, no rename. That gap IS "a crash
@@ -480,7 +491,7 @@ print(len(before))
   # be mocked or killed to prove the original is untouched by it.
   run python3 -c "
 import tempfile, os
-tmp_fd, tmp_path = tempfile.mkstemp(dir='.cairn', prefix='journal.jsonl.tmp-')
+tmp_fd, tmp_path = tempfile.mkstemp(dir='.cairn/journal', prefix='journal.jsonl.tmp-')
 os.write(tmp_fd, b'{\"event\": \"snapshot\", \"phase\": 63}\n')
 os.close(tmp_fd)
 print(tmp_path)
@@ -490,7 +501,7 @@ print(tmp_path)
   [ -f "$tmp_path" ]
 
   local after_hash
-  after_hash="$(shasum -a 256 .cairn/journal.jsonl | awk '{print $1}')"
+  after_hash="$(shasum -a 256 "$(own_segment)" | awk '{print $1}')"
   [ "$before_hash" = "$after_hash" ]
 
   rm -f "$tmp_path"
@@ -505,7 +516,7 @@ print(tmp_path)
   local marker="$PWD/.cairn/lock-held"
   python3 -c "
 import fcntl, os, time
-fd = os.open('.cairn/journal.jsonl.compact.lock', os.O_CREAT | os.O_RDWR, 0o644)
+fd = os.open('$(own_segment | sed 's/-[0-9][0-9][0-9][0-9]\.jsonl$//').compact.lock', os.O_CREAT | os.O_RDWR, 0o644)
 fcntl.flock(fd, fcntl.LOCK_EX)
 open('$marker', 'w').close()
 time.sleep(2)
@@ -522,7 +533,7 @@ time.sleep(2)
   [ -f "$marker" ]
 
   local before_hash
-  before_hash="$(shasum -a 256 .cairn/journal.jsonl | awk '{print $1}')"
+  before_hash="$(shasum -a 256 "$(own_segment)" | awk '{print $1}')"
 
   local start_ts end_ts
   start_ts="$(date +%s)"
@@ -534,7 +545,7 @@ time.sleep(2)
   [ "$((end_ts - start_ts))" -lt 2 ]
 
   local after_hash
-  after_hash="$(shasum -a 256 .cairn/journal.jsonl | awk '{print $1}')"
+  after_hash="$(shasum -a 256 "$(own_segment)" | awk '{print $1}')"
   [ "$before_hash" = "$after_hash" ]
 
   # observe takes no lock at all, by design -- it must still succeed
@@ -785,7 +796,7 @@ write_legacy_journal() {
   assert_json_eq "$output" ".written | map(select(.checkout == \"$checkout\")) | length" '2'
 
   # And on disk, not only in the reported payload.
-  run bash -c "jq -s '[.[] | select(.machine == \"$machine\" and .checkout == \"$checkout\")] | length' < .cairn/journal.jsonl"
+  run bash -c "jq -s '[.[] | select(.machine == \"$machine\" and .checkout == \"$checkout\")] | length' < \"$(own_segment)\""
   [ "$status" -eq 0 ]
   [ "$output" = "2" ]
 }
@@ -867,4 +878,275 @@ write_legacy_journal() {
   run env CAIRN_JOURNAL_MACHINE=hostB bash "$JOURNAL" provenance --project-dir "$PWD" --json
   [ "$status" -eq 0 ]
   [ "$as_host_a" != "$(jq -r '.checkout' <<<"$output")" ]
+}
+
+#-----------------------------------------------------------------------------
+# Phase 28, plan 28-02 (DJOUR-02): one partition per checkout, merge=union on
+# each, and a read that unites them without asserting order.
+#
+# Both pieces are required and neither is sufficient. Different files merge
+# with no driver at all (E11 case 1); the SAME partition on two branches is an
+# add/add conflict without `union` (E8b). Between partitions no order is ever
+# claimed: this machine's own NTP offset was measured at -16.7 ms against a
+# 10.8 ms minimum gap between consecutive records.
+#-----------------------------------------------------------------------------
+
+# Copies the project's real .gitattributes into the fixture. Never a
+# hand-written copy of the line: a test that retyped it would keep passing on
+# the day someone deleted the real one.
+use_project_gitattributes() {
+  cp "$CAIRN_REPO_ROOT/.gitattributes" .gitattributes
+  git add .gitattributes
+}
+
+# The active segment of a SIMULATED machine's partition. own_segment() answers
+# for the real hostname; these tests drive two machines out of one directory,
+# so they have to ask for the one they mean.
+segment_as() {
+  CAIRN_JOURNAL_MACHINE="$1" bash "$JOURNAL" provenance --project-dir "$PWD" \
+    --json | jq -r '.segment'
+}
+
+observe_as() {
+  local machine="$1" phase="$2" axis="$3" value="$4"
+  echo "[{\"phase\": $phase, \"evidence\": {\"$axis\": \"$value\"}}]" \
+    | CAIRN_JOURNAL_MACHINE="$machine" bash "$JOURNAL" observe \
+        --project-dir "$PWD" --json > /dev/null
+}
+
+@test "partition: observe writes into .cairn/journal/, never the inherited single file" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 71, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  [ -d .cairn/journal ]
+  [ ! -f .cairn/journal.jsonl ]
+  local segment
+  segment="$(own_segment)"
+  [ -f "$segment" ]
+  # The segment name ends in the four-digit segment number, and its stem
+  # carries the 12-hex checkout id -- the property that makes `legacy` a
+  # key no real partition can ever collide with.
+  [[ "$(basename "$segment")" =~ ^.+-[0-9a-f]{12}-0001\.jsonl$ ]]
+}
+
+@test "partition: two machines in one directory write two different files" {
+  make_tmp_repo
+
+  observe_as hostA 72 disk planned
+  observe_as hostB 72 disk executed
+
+  local count
+  count="$(ls .cairn/journal/*.jsonl | wc -l | tr -d ' ')"
+  [ "$count" -eq 2 ]
+
+  # Each file carries only its own machine's records -- that is what makes a
+  # merge a concatenation instead of a reconciliation.
+  run bash -c "jq -r -s 'map(.machine) | unique | join(\",\")' .cairn/journal/*.jsonl"
+  [ "$status" -eq 0 ]
+
+  local a_file b_file
+  a_file="$(grep -l '"machine": "hostA"' .cairn/journal/*.jsonl)"
+  b_file="$(grep -l '"machine": "hostB"' .cairn/journal/*.jsonl)"
+  [ "$a_file" != "$b_file" ]
+  run bash -c "jq -r -s 'map(.machine) | unique | length' \"$a_file\""
+  [ "$output" = "1" ]
+  run bash -c "jq -r -s 'map(.machine) | unique | length' \"$b_file\""
+  [ "$output" = "1" ]
+}
+
+@test "partition: two machines' journals merge with git, no conflict, nothing lost" {
+  make_tmp_repo
+  use_project_gitattributes
+  git commit -q -m "base"
+
+  git checkout -q -b maqA
+  observe_as hostA 73 disk planned
+  observe_as hostA 73 bd open
+  git add -A .cairn/journal && git commit -q -m "maqA"
+
+  git checkout -q main 2>/dev/null || git checkout -q master
+  git checkout -q -b maqB
+  observe_as hostB 73 disk executed
+  observe_as hostB 73 roadmap incomplete
+  git add -A .cairn/journal && git commit -q -m "maqB"
+
+  git checkout -q maqA
+  run git merge --no-edit maqB
+  [ "$status" -eq 0 ]
+  # Never merely "exit 0": a conflict marker in a committed file would still
+  # let a badly-configured merge exit 0 on some paths.
+  run bash -c "grep -rl '<<<<<<<' .cairn/journal/ || true"
+  [ -z "$output" ]
+
+  # Every record from both sides survived: 4 written, 4 readable.
+  run bash "$JOURNAL" history --phase 73 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '4'
+  assert_json_eq "$output" '.partitions | length' '2'
+  assert_json_eq "$output" '[.partitions[].machine] | sort | join(",")' 'hostA,hostB'
+  assert_json_eq "$output" '[.records[] | select(.machine == "hostA")] | length' '2'
+  assert_json_eq "$output" '[.records[] | select(.machine == "hostB")] | length' '2'
+}
+
+@test "partition: the same partition on two branches needs union, and the fold beats file order" {
+  make_tmp_repo
+  use_project_gitattributes
+  # A common ancestor for the segment file, so the merge is a content merge
+  # rather than an add/add.
+  observe_as hostA 74 disk base
+  git add -A .cairn/journal && git commit -q -m "base"
+  local base_branch
+  base_branch="$(git rev-parse --abbrev-ref HEAD)"
+
+  # maqB writes FIRST and finishes first; maqA writes after. Both are the
+  # same machine and the same checkout, so both land in the SAME file.
+  git checkout -q -b later
+  observe_as hostA 74 disk b_first
+  observe_as hostA 74 disk b_second
+  git add -A .cairn/journal && git commit -q -m "later branch"
+
+  git checkout -q "$base_branch"
+  git checkout -q -b newest
+  observe_as hostA 74 disk a_newest
+  git add -A .cairn/journal && git commit -q -m "newest branch"
+
+  run git merge --no-edit later
+  [ "$status" -eq 0 ]
+  run bash -c "grep -c '<<<<<<<' \"$(segment_as hostA)\" || true"
+  [ "$output" = "0" ]
+
+  # Nothing lost: base + two + one.
+  run bash "$JOURNAL" history --phase 74 --json --project-dir "$PWD"
+  assert_json_eq "$output" '.records | length' '4'
+
+  # THE LOAD-BEARING ASSERTION. union concatenates ours-then-theirs, so the
+  # LAST PHYSICAL LINE is b_second while the chronologically last record is
+  # a_newest. A fold that trusted file order -- the fold this file shipped
+  # before phase 28 -- would answer b_second.
+  run bash -c "tail -n 1 \"$(segment_as hostA)\" | jq -r '.to'"
+  [ "$output" = "b_second" ]
+
+  run bash "$JOURNAL" last-moved --phase 74 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.disk.value' 'a_newest'
+}
+
+@test "partition: without the .gitattributes line the same merge conflicts" {
+  make_tmp_repo
+  # Deliberately NO use_project_gitattributes here. Everything else is the
+  # previous test, verbatim -- which is what makes this an isolation of the
+  # single line, not a different scenario.
+  observe_as hostA 75 disk base
+  git add -A .cairn/journal && git commit -q -m "base"
+  local base_branch
+  base_branch="$(git rev-parse --abbrev-ref HEAD)"
+
+  git checkout -q -b later
+  observe_as hostA 75 disk b_first
+  git add -A .cairn/journal && git commit -q -m "later branch"
+
+  git checkout -q "$base_branch"
+  git checkout -q -b newest
+  observe_as hostA 75 disk a_newest
+  git add -A .cairn/journal && git commit -q -m "newest branch"
+
+  run git merge --no-edit later
+  [ "$status" -ne 0 ]
+  run bash -c "grep -c '<<<<<<<' \"$(segment_as hostA)\" || true"
+  [ "$output" -ge 1 ]
+  git merge --abort
+}
+
+@test "partition: the inherited journal is read as a partition and never rewritten" {
+  make_tmp_repo
+  write_legacy_journal 76 disk complete "SomeoneElse" "2026-01-01T00:00:00.000001+00:00"
+  local before_hash
+  before_hash="$(shasum -a 256 .cairn/journal.jsonl | awk '{print $1}')"
+
+  run bash -c "echo '[{\"phase\": 76, \"evidence\": {\"bd\": \"closed\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  # Byte-for-byte, by hash. A size check would miss a same-length rewrite.
+  local after_hash
+  after_hash="$(shasum -a 256 .cairn/journal.jsonl | awk '{print $1}')"
+  [ "$before_hash" = "$after_hash" ]
+
+  run bash "$JOURNAL" history --phase 76 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '2'
+  assert_json_eq "$output" '.partitions | length' '2'
+  assert_json_eq "$output" '[.partitions[] | select(.slug == "legacy")] | length' '1'
+  assert_json_eq "$output" '[.partitions[] | select(.slug == "legacy") | .machine][0]' 'null'
+}
+
+@test "partition: last-moved names every source and claims no order between them" {
+  make_tmp_repo
+
+  # Two checkouts that DISAGREE about the same axis.
+  observe_as hostA 77 disk planned
+  observe_as hostB 77 disk executed
+
+  run bash "$JOURNAL" last-moved --phase 77 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.disk.sources' '2'
+  # No timestamp, ever, once there is more than one source: a single ts
+  # across machines is an ordering claim with no source for it.
+  assert_json_eq "$output" '.disk.ts' 'null'
+  assert_json_eq "$output" '.disk.value' 'null'
+  assert_json_eq "$output" '[.disk.candidates[].machine] | sort | join(",")' 'hostA,hostB'
+  assert_json_eq "$output" '[.disk.candidates[] | select(.ts == null)] | length' '0'
+
+  # Two checkouts that AGREE: the value survives, because "the last known
+  # value is X everywhere" orders nothing. The ts still does not.
+  observe_as hostA 78 bd closed
+  observe_as hostB 78 bd closed
+  run bash "$JOURNAL" last-moved --phase 78 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.bd.sources' '2'
+  assert_json_eq "$output" '.bd.value' 'closed'
+  assert_json_eq "$output" '.bd.ts' 'null'
+
+  # Human mode says it out loud rather than printing a bare pair of lines.
+  run bash "$JOURNAL" last-moved --phase 77 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF 'order between machines not claimed' <<<"$output"
+}
+
+@test "partition: dedup is scoped to this checkout's own partition" {
+  make_tmp_repo
+
+  observe_as hostA 79 disk planned
+  # hostB has never seen this axis in ITS OWN partition, so it records its
+  # own first sighting. Deduplicating against hostA would make hostB claim
+  # knowledge it never had, and would make what it writes depend on whether
+  # a merge had landed yet.
+  observe_as hostB 79 disk planned
+
+  run bash "$JOURNAL" history --phase 79 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '2'
+  assert_json_eq "$output" '[.records[] | select(.machine == "hostB")] | length' '1'
+
+  # And within one partition the dedup still holds, unchanged.
+  observe_as hostB 79 disk planned
+  run bash "$JOURNAL" history --phase 79 --json --project-dir "$PWD"
+  assert_json_eq "$output" '.records | length' '2'
+}
+
+@test "partition: git tracks the .jsonl segments and ignores the per-machine scratch beside them" {
+  make_tmp_repo
+  cp "$CAIRN_REPO_ROOT/.gitignore" .gitignore
+  mkdir -p .cairn/journal
+  touch .cairn/journal/host-0123456789ab-0001.jsonl \
+        .cairn/journal/host-0123456789ab.compact.lock \
+        .cairn/journal.jsonl
+
+  run git check-ignore -q .cairn/journal/host-0123456789ab-0001.jsonl
+  [ "$status" -eq 1 ]
+  run git check-ignore -q .cairn/journal/host-0123456789ab.compact.lock
+  [ "$status" -eq 0 ]
+  run git check-ignore -q .cairn/journal.jsonl
+  [ "$status" -eq 0 ]
 }
