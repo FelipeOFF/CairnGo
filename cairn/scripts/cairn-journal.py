@@ -303,6 +303,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -443,10 +444,112 @@ def record_provenance(rec):
 
 
 # --------------------------------------------------------------------------- #
-# paths
+# paths — one PARTITION per checkout, under .cairn/journal/ (phase 28,
+# DJOUR-02). See the module docstring's "Partitions" section for the two
+# pieces that are both required and neither sufficient.
 # --------------------------------------------------------------------------- #
-def _journal_path(root):
+LEGACY_PARTITION = "legacy"
+
+# Segment filenames are "<slug>-NNNN.jsonl". The slug always ends in the
+# 12-hex checkout id, so it can never collide with LEGACY_PARTITION above —
+# that is a property of the naming scheme, not a hope.
+_SEGMENT_NAME = re.compile(r"^(?P<slug>.+)-(?P<segment>\d{4})\.jsonl$")
+
+_SLUG_UNSAFE = re.compile(r"[^a-z0-9]+")
+
+# How much of the (sanitized) machine name goes into a filename. A cap is
+# needed because a hostname has no length bound and a path does; the
+# checkout id that follows it is what actually distinguishes partitions,
+# so truncating the human-readable half costs nothing but readability.
+_SLUG_MACHINE_MAX = 24
+
+
+def _legacy_journal_path(root):
+    """The pre-phase-28 single journal, .cairn/journal.jsonl. Still read —
+    as a partition of UNKNOWN provenance — and NEVER written, never
+    rewritten, never deleted (D-04/D-06). Its records carry no machine and
+    no checkout, and that is exactly how they are reported."""
     return root / ".cairn" / "journal.jsonl"
+
+
+def _partition_dir(root):
+    return root / ".cairn" / "journal"
+
+
+def _partition_slug(machine, checkout):
+    """The filename half of a partition identity: a sanitized, truncated
+    machine name followed by the full 12-hex checkout id.
+
+    The sanitized machine name is a FILENAME, never data. The record
+    carries the machine as measured; this carries a version of it that
+    survives a filesystem. Two hostnames can sanitize to the same string,
+    which is exactly why the checkout id — which folds the RAW machine
+    name into its hash (see resolve_checkout) — is appended in full and
+    is what actually separates two partitions."""
+    safe = _SLUG_UNSAFE.sub("-", (machine or "").lower()).strip("-")
+    safe = safe[:_SLUG_MACHINE_MAX].strip("-")
+    if not safe:
+        safe = "host"
+    return f"{safe}-{checkout}"
+
+
+def _own_slug(root):
+    machine = resolve_machine()
+    return _partition_slug(machine, resolve_checkout(root, machine))
+
+
+def _segment_paths(root, slug):
+    """Every existing segment of SLUG's partition, in ascending segment
+    order. Ordering is by the numeric segment, never by mtime: a git
+    checkout rewrites mtimes wholesale and would reorder a partition's
+    own history for no reason at all."""
+    directory = _partition_dir(root)
+    found = []
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return []
+    for path in entries:
+        match = _SEGMENT_NAME.match(path.name)
+        if match and match.group("slug") == slug:
+            found.append((int(match.group("segment")), path))
+    found.sort(key=lambda pair: pair[0])
+    return [path for _number, path in found]
+
+
+def _active_segment_path(root, slug):
+    """The segment this checkout appends to: the highest-numbered one that
+    exists, or segment 0001 when the partition is brand new. Compaction
+    (28-03) is the only thing that ever moves this forward, by SEALING the
+    current segment and opening the next — a sealed segment is never
+    rewritten and never deleted (E5: rewriting makes `union` resurrect
+    what was folded; E10: deleting gives modify/delete)."""
+    existing = _segment_paths(root, slug)
+    if existing:
+        return existing[-1]
+    return _partition_dir(root) / f"{slug}-0001.jsonl"
+
+
+def _journal_path(root):
+    """This checkout's own active segment — the ONE file observe/lease
+    append to. Two checkouts never resolve this to the same path, which is
+    what makes a merge a concatenation instead of a reconciliation (E11
+    case 1: different files merge with no driver at all)."""
+    return _active_segment_path(root, _own_slug(root))
+
+
+def _own_partition_records(root):
+    """(records, warnings) for THIS checkout's partition only — every one
+    of its segments, in ascending segment order. This is the input to
+    observe's dedup and to compaction: both are scoped to the partition
+    that owns them, and neither may read another checkout's history."""
+    records = []
+    warnings = []
+    for path in _segment_paths(root, _own_slug(root)):
+        part_records, part_warnings = _read_records(path)
+        records.extend(part_records)
+        warnings.extend(part_warnings)
+    return records, warnings
 
 
 # --------------------------------------------------------------------------- #
@@ -546,6 +649,85 @@ def _read_records(journal_path):
     return _parse_records(data)
 
 
+def _read_partitions(root):
+    """(partitions, warnings) — every partition this project can see.
+
+    A partition is a dict:
+        slug      str, the partition key (LEGACY_PARTITION for the
+                  inherited .cairn/journal.jsonl)
+        machine   str or None — read from the partition's own records,
+                  never resolved from this process. None for `legacy`,
+                  whose records predate the field.
+        checkout  str or None — same rule.
+        paths     [Path] the segments read, in ascending segment order
+        records   [dict] their records, concatenated in that order
+
+    The inherited single journal is read as its own partition of UNKNOWN
+    provenance (D-04): it is never merged into this checkout's partition,
+    because nobody knows where it came from — the file may have been
+    copied from another machine. It is never written and never rewritten.
+
+    Partitions come back sorted by slug. That is a DISPLAY order and
+    nothing more: no ordering claim is ever made between partitions (E14 —
+    a well-synced machine's own NTP offset, −16.7 ms, is larger than the
+    10.8 ms minimum gap measured between consecutive journal records, so
+    the resolution a cross-machine timeline would need is finer than the
+    clock agreement available)."""
+    partitions = []
+    warnings = []
+
+    legacy_path = _legacy_journal_path(root)
+    if legacy_path.exists():
+        records, legacy_warnings = _read_records(legacy_path)
+        warnings.extend(legacy_warnings)
+        partitions.append({
+            "slug": LEGACY_PARTITION,
+            "machine": None,
+            "checkout": None,
+            "paths": [legacy_path],
+            "records": records,
+        })
+
+    by_slug = {}
+    directory = _partition_dir(root)
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError:
+        entries = []
+    for path in entries:
+        match = _SEGMENT_NAME.match(path.name)
+        if not match:
+            continue
+        by_slug.setdefault(match.group("slug"), []).append(
+            (int(match.group("segment")), path))
+
+    for slug in sorted(by_slug):
+        segments = sorted(by_slug[slug], key=lambda pair: pair[0])
+        records = []
+        paths = []
+        for _number, path in segments:
+            part_records, part_warnings = _read_records(path)
+            records.extend(part_records)
+            warnings.extend(part_warnings)
+            paths.append(path)
+        machine = None
+        checkout = None
+        for rec in records:
+            if rec.get("machine") is not None or rec.get("checkout") is not None:
+                machine = rec.get("machine")
+                checkout = rec.get("checkout")
+                break
+        partitions.append({
+            "slug": slug,
+            "machine": machine,
+            "checkout": checkout,
+            "paths": paths,
+            "records": records,
+        })
+
+    return partitions, warnings
+
+
 # --------------------------------------------------------------------------- #
 # last-known folding — dedup lookup for observe, and last-moved's own read
 # surface
@@ -581,13 +763,52 @@ def _last_known(records, phase):
     entry["ts"] and must not be able to tell that anything changed. The
     snapshot branch copies state/verdict/lease entries through unchanged,
     so a compacted history still reports the ORIGINAL observer, never the
-    checkout that ran the compaction."""
+    checkout that ran the compaction.
+
+    ORDERING, and why it is NOT a plain sort (phase 28, DJOUR-02). File
+    order stopped being chronological order the moment a partition file
+    became git-mergeable: `merge=union` concatenates one branch's block
+    then the other's, so two runs of the SAME checkout on two branches
+    interleave in time but not in the file (E2). The fix is NOT
+    records.sort(key=(ts, nonce)) — that repairs E2 and BREAKS E9,
+    because a snapshot's own `ts` is later than everything it folded, so
+    a bare sort folds the snapshot LAST and lets it overwrite a real
+    later event. What this does instead (E12, measured to work):
+      1. Fold every `snapshot` first, in `compacted_through_ts` order,
+         tracking the furthest point already folded.
+      2. Then fold only the real events whose `ts` is AFTER that point,
+         those sorted by (ts, nonce).
+    Within one partition every record was written by one checkout on one
+    machine, so its own `ts` values are comparable to each other. Between
+    partitions they are not, which is why this function is per-partition
+    and _merge_last_known() is what unites them."""
     known = {axis: None for axis in EVIDENCE_AXES}
     known["verdict"] = None
     known["lease"] = None
-    for rec in records:
-        if rec.get("phase") != phase:
-            continue
+
+    phase_records = [r for r in records if r.get("phase") == phase]
+    snapshots = [r for r in phase_records if r.get("event") == "snapshot"]
+    events = [r for r in phase_records if r.get("event") != "snapshot"]
+
+    snapshots.sort(key=lambda r: (r.get("compacted_through_ts") or "",
+                                   r.get("ts") or "", r.get("nonce") or ""))
+    folded_through = ""
+    for rec in snapshots:
+        state = rec.get("state") or {}
+        for axis in EVIDENCE_AXES:
+            if axis in state:
+                known[axis] = state[axis]
+        if "verdict" in rec:
+            known["verdict"] = rec["verdict"]
+        if "lease" in rec:
+            known["lease"] = rec["lease"]
+        through = rec.get("compacted_through_ts") or ""
+        if through > folded_through:
+            folded_through = through
+
+    events = [r for r in events if (r.get("ts") or "") > folded_through]
+    events.sort(key=lambda r: (r.get("ts") or "", r.get("nonce") or ""))
+    for rec in events:
         event = rec.get("event")
         ts = rec.get("ts")
         prov = record_provenance(rec)
@@ -606,16 +827,72 @@ def _last_known(records, phase):
                      "holder": rec.get("holder"), "ts": ts}
             entry.update(prov)
             known["lease"] = entry
-        elif event == "snapshot":
-            state = rec.get("state") or {}
-            for axis in EVIDENCE_AXES:
-                if axis in state:
-                    known[axis] = state[axis]
-            if "verdict" in rec:
-                known["verdict"] = rec["verdict"]
-            if "lease" in rec:
-                known["lease"] = rec["lease"]
     return known
+
+
+AXES = EVIDENCE_AXES + ("verdict", "lease")
+
+
+def _merge_last_known(partitions, phase):
+    """Unite every partition's own _last_known() fold for PHASE, WITHOUT
+    asserting any order between partitions (phase 28, DJOUR-02, D-08).
+
+    Per axis:
+      no partition observed it  -> None, exactly as before partitioning
+      exactly one did          -> that partition's entry, unchanged
+      two or more did          -> {"value": the agreed value, or null when
+                                   they disagree,
+                                   "ts": null, "machine": null,
+                                   "checkout": null, "actor": null,
+                                   "sources": N, "candidates": [...]}
+
+    `ts` is null the moment there is more than one source, and that is the
+    whole point: a single timestamp would be an ORDERING CLAIM, and there
+    is no source for one. Measured (E14): this machine's own NTP offset is
+    −16.7 ms ± 7.9, while the minimum gap between two consecutive journal
+    records is 10.8 ms and the median 17.7 ms. Two machines can disagree
+    by ~33 ms — two or three positions in a sort. A cross-machine timeline
+    ordered by `ts` looks authoritative and is not.
+
+    `value` DOES survive when every source agrees, because "the last known
+    value is `complete` everywhere" orders nothing. `candidates` is sorted
+    by (machine, checkout, slug) — a DISPLAY order, stated here so nobody
+    later reads it as chronology."""
+    per_partition = []
+    for part in partitions:
+        per_partition.append(
+            (part, _last_known(part["records"], phase)))
+
+    merged = {}
+    for axis in AXES:
+        found = []
+        for part, known in per_partition:
+            entry = known.get(axis)
+            if entry is not None:
+                candidate = dict(entry)
+                candidate["partition"] = part["slug"]
+                found.append(candidate)
+        if not found:
+            merged[axis] = None
+            continue
+        if len(found) == 1:
+            merged[axis] = found[0]
+            continue
+        found.sort(key=lambda c: (c.get("machine") or "",
+                                   c.get("checkout") or "",
+                                   c.get("partition") or ""))
+        values = [c.get("value") for c in found]
+        agreed = values[0] if all(v == values[0] for v in values) else None
+        merged[axis] = {
+            "value": agreed,
+            "ts": None,
+            "machine": None,
+            "checkout": None,
+            "actor": None,
+            "sources": len(found),
+            "candidates": found,
+        }
+    return merged
 
 
 def _resolve_last_value(known_entry):
@@ -713,7 +990,16 @@ JOURNAL_COMPACT_THRESHOLD_BYTES = 200 * 1024  # 200 KiB
 
 
 def _compact_lock_path(journal_path):
-    return journal_path.parent / "journal.jsonl.compact.lock"
+    """One lock PER PARTITION, next to that partition's segments. Two
+    checkouts compacting at the same time must not serialize against each
+    other: they touch disjoint files by construction, and a shared lock
+    would make one of them skip for no reason (phase 28, DJOUR-02). The
+    lock file is per-machine scratch and is never versioned — the
+    .gitignore rule for .cairn/journal/ whitelists *.jsonl and nothing
+    else."""
+    match = _SEGMENT_NAME.match(journal_path.name)
+    slug = match.group("slug") if match else journal_path.stem
+    return journal_path.parent / f"{slug}.compact.lock"
 
 
 def compact(root):
@@ -895,9 +1181,20 @@ def cmd_observe(args, root):
     batch for the same phase also dedup against each other, not just
     against what was already on disk before this call."""
     payload = _load_observe_payload()
+    _maybe_auto_compact(root, _journal_path(root))
+    # Re-resolved AFTER the auto-compaction check: compaction seals the
+    # current segment and opens the next one (28-03), so the path this
+    # append belongs in can differ from the path that was measured.
     journal_path = _journal_path(root)
-    _maybe_auto_compact(root, journal_path)
-    existing_records, _warnings = _read_records(journal_path)
+    # Dedup is against THIS CHECKOUT'S OWN partition, never the union of
+    # all of them (phase 28, DJOUR-02). Deduplicating against another
+    # checkout's records would make this one silently skip a transition it
+    # genuinely observed, and would make what it writes depend on whether
+    # a merge had landed yet. The accepted cost, stated plainly: each
+    # checkout records its own first sighting of each axis, so the total
+    # record count grows with the number of checkouts. That is the price
+    # of every partition being a complete history on its own.
+    existing_records, _warnings = _own_partition_records(root)
     written = []
 
     for item in payload:
@@ -965,9 +1262,8 @@ def cmd_lease(args, root):
 
 
 def cmd_last_moved(args, root):
-    journal_path = _journal_path(root)
-    records, warnings = _read_records(journal_path)
-    known = _last_known(records, args.phase)
+    partitions, warnings = _read_partitions(root)
+    known = _merge_last_known(partitions, args.phase)
     if args.json:
         out = dict(known)
         out["warnings"] = warnings
@@ -979,6 +1275,14 @@ def cmd_last_moved(args, root):
             if val is None:
                 print(f"[cairn-journal] phase {args.phase}: {axis} never "
                       "observed")
+            elif val.get("candidates"):
+                # More than one partition observed this axis. Each is named
+                # by its own machine, and no order is claimed between them.
+                for cand in val["candidates"]:
+                    print(f"[cairn-journal] phase {args.phase}: {axis} = "
+                          f"{cand.get('value')} (last moved {cand.get('ts')} "
+                          f"on {cand.get('machine')}) — order between "
+                          "machines not claimed")
             else:
                 print(f"[cairn-journal] phase {args.phase}: {axis} = "
                       f"{val.get('value')} (last moved {val['ts']})")
@@ -986,14 +1290,34 @@ def cmd_last_moved(args, root):
 
 
 def cmd_history(args, root):
-    journal_path = _journal_path(root)
-    records, warnings = _read_records(journal_path)
-    if args.phase is not None:
-        records = [r for r in records if r.get("phase") == args.phase]
-    records.sort(key=lambda r: (r.get("ts", ""), r.get("nonce", "")))
+    """Records partition by partition, each block sorted by (ts, nonce)
+    inside itself — never one global sort across partitions, which is
+    exactly the cross-machine timeline E14 measured to be unbuildable
+    (−16.7 ms clock offset against a 10.8 ms minimum record gap). The
+    partition order is a display order, and the records carry their own
+    machine/checkout so a reader never has to infer where a line came
+    from."""
+    partitions, warnings = _read_partitions(root)
+    records = []
+    summary = []
+    for part in partitions:
+        block = part["records"]
+        if args.phase is not None:
+            block = [r for r in block if r.get("phase") == args.phase]
+        block = sorted(block, key=lambda r: (r.get("ts", ""),
+                                              r.get("nonce", "")))
+        records.extend(block)
+        summary.append({
+            "slug": part["slug"],
+            "machine": part["machine"],
+            "checkout": part["checkout"],
+            "records": len(block),
+            "segments": [p.name for p in part["paths"]],
+        })
 
     if args.json:
-        print(json.dumps({"records": records, "warnings": warnings}))
+        print(json.dumps({"records": records, "warnings": warnings,
+                          "partitions": summary}))
     else:
         for w in warnings:
             print(f"[cairn-journal] warning: {w}", file=sys.stderr)
@@ -1009,10 +1333,14 @@ def cmd_provenance(args, root):
     test cannot prove it is stable across runs and distinct across
     checkouts on one machine (phase 28, DJOUR-04)."""
     machine = resolve_machine()
+    checkout = resolve_checkout(root, machine)
+    slug = _partition_slug(machine, checkout)
     out = {
         "machine": machine,
-        "checkout": resolve_checkout(root, machine),
+        "checkout": checkout,
         "actor": resolve_actor(root),
+        "partition": slug,
+        "segment": str(_active_segment_path(root, slug)),
     }
     if args.json:
         print(json.dumps(out, sort_keys=True))
@@ -1020,6 +1348,8 @@ def cmd_provenance(args, root):
         print(f"[cairn-journal] machine: {out['machine']}")
         print(f"[cairn-journal] checkout: {out['checkout']}")
         print(f"[cairn-journal] actor: {out['actor']}")
+        print(f"[cairn-journal] partition: {out['partition']}")
+        print(f"[cairn-journal] segment: {out['segment']}")
     sys.exit(EXIT_OK)
 
 

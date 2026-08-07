@@ -1381,6 +1381,62 @@ PYEOF
   grep -qF "bd last moved never observed" <<<"$item"
 }
 
+@test "last-moved: an axis observed by two checkouts names each machine and claims no order between them" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  # Phase 28: the journal is partitioned one file per checkout, so an axis
+  # CAN have been observed by more than one. Seeded as two simulated
+  # machines against one directory, which is exactly the four-worktree
+  # situation this repository was measured in.
+  local ts_a ts_b
+  ts_a="$(printf '[{"phase":1,"evidence":{"disk":"verified"}}]' \
+    | CAIRN_JOURNAL_MACHINE=hostA python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+        observe --project-dir "$PWD" --json | jq -r '.written[0].ts')"
+  ts_b="$(printf '[{"phase":1,"evidence":{"disk":"planned"}}]' \
+    | CAIRN_JOURNAL_MACHINE=hostB python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+        observe --project-dir "$PWD" --json | jq -r '.written[0].ts')"
+  [ -n "$ts_a" ]
+  [ -n "$ts_b" ]
+  [ "$ts_a" != "$ts_b" ]
+
+  local stub="$BATS_TEST_TMPDIR/observe-blocking-journal.py"
+  cat > "$stub" <<'PYEOF'
+#!/usr/bin/env python3
+import os, sys
+if sys.argv[1] == "observe":
+    sys.exit(1)
+os.execv(sys.executable,
+         [sys.executable, os.environ["CAIRN_JOURNAL_REAL"]] + sys.argv[1:])
+PYEOF
+  chmod +x "$stub"
+
+  run env CAIRN_JOURNAL="$stub" \
+      CAIRN_JOURNAL_REAL="$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # The severity is decided before the clause is ever built, and stays put.
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
+
+  local item
+  item="$(jq -r '[.checks[] | select(.id=="phase-corroboration") | .items[] | select(startswith("1:"))][0]' <<<"$output")"
+  [ "$item" != "null" ]
+  # Both machines named, both timestamps shown, and the sentence that says
+  # outright that no order is claimed between them (E14: a -16.7 ms clock
+  # offset against a 10.8 ms minimum record gap).
+  grep -qF "on hostA" <<<"$item"
+  grep -qF "on hostB" <<<"$item"
+  grep -qF "$ts_a" <<<"$item"
+  grep -qF "$ts_b" <<<"$item"
+  grep -qF "order between machines not claimed" <<<"$item"
+}
+
 @test "last-moved: a broken CAIRN_JOURNAL leaves status/detail identical to a working journal, only the clause is missing" {
   require_bd
   make_tmp_repo
@@ -1455,7 +1511,7 @@ PYEOF
 # .gitignore — the journal entry and its compaction siblings (Plan 16-05)
 # --------------------------------------------------------------------------- #
 
-@test "gitignore: journal.jsonl and its compaction temp siblings are never staged by git add -A" {
+@test "gitignore: the journal's per-machine scratch is never staged by git add -A, but its partition segment is" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -1472,22 +1528,32 @@ PYEOF
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 7 ]
-  [ -f .cairn/journal.jsonl ]
+  # Phase 28: the write lands in this checkout's own PARTITION, and that
+  # segment is the one thing under .cairn/ that IS meant to be versioned.
+  local segment
+  segment="$(python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" provenance \
+    --project-dir "$PWD" --json | jq -r '.segment')"
+  [ -f "$segment" ]
+  [ ! -f .cairn/journal.jsonl ]
 
-  # A leftover compaction temp sibling and its lock file — the exact
-  # shape compact()'s sibling-write-then-rename recipe (Plan 16-02) can
-  # leave behind after a crash, and the flock file it holds during a live
-  # compaction.
+  # The per-machine scratch that lives next to the segments: the partition's
+  # own compaction lock, and the shape a pre-phase-28 crash could leave in
+  # .cairn/ itself.
+  : > "$(dirname "$segment")/leftover.compact.lock"
   : > .cairn/journal.jsonl.tmp-abc123
   : > .cairn/journal.jsonl.compact.lock
 
   git add -A
 
-  run git status --porcelain
-  refute_in_output "journal.jsonl"
-
+  # Nothing per-machine is staged...
   run git diff --cached --name-only
   refute_in_output "journal.jsonl"
+  refute_in_output ".compact.lock"
+
+  # ...and the partition segment IS, because a journal that never crosses
+  # machines was the design phase 28 replaced.
+  run git diff --cached --name-only
+  grep -qF "$(basename "$segment")" <<<"$output"
 }
 
 # --------------------------------------------------------------------------- #

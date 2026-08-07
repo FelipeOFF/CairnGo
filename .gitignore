@@ -6,6 +6,12 @@ __pycache__/
 .cairn/reconcile-evidence.json
 .cairn/hook.log
 .cairn/journal.jsonl*
+# .cairn/journal/ is the ONE versioned thing under .cairn/ (phase 28): one
+# partition per checkout, merged by union. Only its .jsonl segments are
+# versioned — locks and scratch siblings in there are per-machine. A
+# whitelist, not a list of suffixes, so nothing new leaks in by default.
+.cairn/journal/*
+!.cairn/journal/*.jsonl
 .cairn/migrate-plan.json
 .cairn/migrate-state.json
 .cairn/plugin-root

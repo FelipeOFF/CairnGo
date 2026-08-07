@@ -66,6 +66,12 @@ CAIRN_IGNORES=(
   # cairn-journal.py writes journal.jsonl.tmp-* siblings and a
   # journal.jsonl.compact.lock next to it, and an exact name misses both.
   '.cairn/journal.jsonl*'
+  # Phase 28: .cairn/journal/ is the one VERSIONED thing under .cairn/ — one
+  # partition per checkout. Only its .jsonl segments are versioned; the
+  # compaction lock and any scratch sibling in there are per-machine. A
+  # whitelist, so nothing new leaks in by default.
+  '.cairn/journal/*'
+  '!.cairn/journal/*.jsonl'
   '.cairn/reconcile-evidence.json'
   '.cairn/hook.log'
   # cairn-migrate's resumable plan + state: same class, same reason.
@@ -92,6 +98,22 @@ if [ "$ADDED" -gt 0 ]; then
   echo "  ✓ gitignored $ADDED generated .cairn state file(s)"
 else
   echo "  ✓ .cairn state files already gitignored"
+fi
+
+# 4b. merge=union on the journal partitions (phase 28, DJOUR-02). Without this
+#     line a project adopted by /cairn:init would version its partitions with
+#     the DEFAULT merge, and the same partition on two branches would conflict
+#     with markers — silently, on whichever machine skipped the setup. It has
+#     to be `union` and not a custom driver: a custom `merge.<name>.driver`
+#     lives in .git/config, which git never clones (28-RESEARCH.md, E17).
+#     Idempotent: the line is appended at most once.
+GA=".gitattributes"
+GA_LINE='.cairn/journal/*.jsonl merge=union'
+if grep -qxF "$GA_LINE" "$GA" 2>/dev/null; then
+  echo "  ✓ journal partitions already set to merge=union"
+else
+  printf '\n# cairn: journal partitions merge by concatenation (one file per\n# checkout, never reordered). union is built-in — a custom driver would\n# need .git/config, which git never clones.\n%s\n' "$GA_LINE" >> "$GA"
+  echo "  ✓ journal partitions set to merge=union"
 fi
 
 # 5. git pre-push ship gate — a tiny shim that runs cairn-gate.sh and blocks
