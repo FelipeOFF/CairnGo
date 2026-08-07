@@ -47,11 +47,16 @@
 # Optional JSONL auto-export for viewers, interchange, and issue-level migration.
 # Disabled by default; enable only when an integration needs fresh .beads/issues.jsonl.
 # Use relative paths under .beads/ for JSONL import/export filenames.
-# export:
-#   auto: false
-#   path: issues.jsonl
-#   interval: 60s
-#   git-add: false
+# LIGADO em 2026-08-07. Medido antes: .beads/issues.jsonl nao existia, o banco
+# (27 MB em embeddeddolt/) esta no .gitignore, e o remoto tem 0 refs/dolt entre
+# as 42 refs — ou seja, um clone limpo do repositorio recebia ZERO das 176
+# issues. O CLAUDE.md ja descrevia este export como o caminho de recuperacao;
+# so nunca esteve ligado.
+export:
+  auto: true
+  path: issues.jsonl
+  interval: 60s
+  git-add: true
 # import:
 #   path: issues.jsonl
 
