@@ -12,6 +12,7 @@ tests/fixtures/bookkeep-drift/, which is this script's test input.
 Usage:
     cairn-bookkeep.py close <phase-number> [--apply] [--no-tracker] [--json]
                             [--planning-dir <dir>]
+    cairn-bookkeep.py plan <NN-MM> [--apply] [--json] [--planning-dir <dir>]
     cairn-bookkeep.py reconcile [--apply] [--json] [--planning-dir <dir>]
 
     --apply           write the planned edits (default: read only)
@@ -63,6 +64,31 @@ Behavior:
                 by sha256 AND mtime, because a byte-identical rewrite is
                 still a write.
 
+    plan <NN-MM>
+                ONE plan's checkbox (edit 5, for the named plan only) plus
+                the STATE counters that follow from it (edit 6). Nothing
+                else: no requirement checkbox, no coverage row, no footer,
+                no phase — every one of those follows from a PHASE being
+                complete, and phases belong to `close` and `reconcile`.
+
+                THE DOOR THAT DID NOT EXIST (CairnGo-66o). Measured at the
+                close of plan 29-04, commit 49e2b45: the gsd-executor closes
+                each plan through the gsd-tools, and that run put +43/-7 on
+                ROADMAP.md — 29 of the added lines blank lines injected
+                between numbered list items by _normalizeMd — to flip five
+                checkboxes and one counter. Measured in the same checkout:
+                every cairn surface naming this script names `close <N>`, a
+                PHASE door. So an executor that had just written
+                NN-MM-SUMMARY.md had nothing per-plan to reach for, and
+                reached for the writer that reflows. A better command nobody
+                can call replaces nothing.
+
+                The checkbox still follows the SUMMARY on disk and never the
+                request: a named plan whose summary is absent comes back as
+                `plan-summary-missing` in `unresolved`, unwritten. A plan id
+                the roadmap does not list is EXIT_NO_PHASE (4) — this command
+                closes a checkbox that exists and creates none.
+
     reconcile   Read the three planning files and the phase tree and NAME
                 every disagreement between them; exits EXIT_DISAGREEMENT
                 (3) when it found any, 0 when it did not, and writes
@@ -71,6 +97,25 @@ Behavior:
                 With --apply, makes edits 2 to 5 above and the counters,
                 WITHOUT marking any phase complete: the way to resolve drift
                 that already exists without pretending a phase just closed.
+
+EVERY DISAGREEMENT THE READER NAMES REACHES THE REPORT, WRITER OR NO WRITER
+    MEASURED three times on 2026-08-05 (CairnGo-ozy), each time over a line
+    written less than an hour earlier: `reconcile --json` named
+    `state-narrative-stale`, and `reconcile --apply` answered `nothing to
+    change` and exited 0. The doctor's req-ledger charged the same
+    disagreement and routed back to the command that ignored it.
+
+    Refusing was never the defect — this command already refuses
+    coverage-row-missing out loud, with the reason. Announcing that there had
+    been no work is. So `nothing to change` now means ZERO DISAGREEMENTS, and
+    every finding the reader names that no planned edit answers comes out as
+    `NOT written` with its reason, on both the human and the --json path.
+
+    And the list of writerless kinds is DERIVED, never written down: each
+    planned edit carries the `kind` it answers, finding_family() drops the
+    last hyphenated word on BOTH sides, and what the reader found minus what
+    the plan addressed is what gets reported. A hand-kept list would be the
+    fifth precedent of a hand-maintained fact going stale in this repository.
 
 IT ONLY EVER MOVES A VIEW TO "DONE" — THE OTHER DIRECTION IS REPORTED
     Marking something complete is corroborated by an artifact that exists: a
@@ -530,7 +575,8 @@ def phase_checkbox_hits(lines, n):
     return hits
 
 
-def make_edit(path, index, before, after, reason, op="replace"):
+def make_edit(path, index, before, after, reason, op="replace", kind=None,
+              subject=None):
     """An edit is one line position plus the reason it is being touched.
 
     A bookkeeping tool that writes without saying why is the automated
@@ -540,9 +586,15 @@ def make_edit(path, index, before, after, reason, op="replace"):
     the position the new line takes, and `before` is None because there was
     no line there). Those are the only two operations: nothing in this script
     deletes a line, and nothing rewrites a file it did not plan an edit for.
+
+    `kind` and `subject` say WHICH disagreement this edit answers, in the same
+    vocabulary `reconcile` names them in. They are what lets the plan be
+    compared against the reader's own findings without either side keeping a
+    hand-written list of the other (see writerless_findings).
     """
     return {"file": str(path), "line": index + 1, "index": index, "op": op,
-            "before": before, "after": after, "reason": reason}
+            "before": before, "after": after, "reason": reason,
+            "kind": kind, "subject": subject}
 
 
 def now_stamp():
@@ -590,7 +642,8 @@ def plan_close(path, lines, n, date):
     if after == content:
         return []
     return [make_edit(path, index, content, after,
-                      f"phase {n} is complete; " + " and ".join(why))]
+                      f"phase {n} is complete; " + " and ".join(why),
+                      kind="phase-checkbox-written", subject=f"Phase {n}")]
 
 
 def apply_edits(sources, edits):
@@ -717,8 +770,8 @@ def run_tracker(planning, root, phase, wanted, applied):
     re-implemented."""
     out = {"ran": False, "skipped": None, "map": None, "lease": None}
     if phase is None:
-        out["skipped"] = ("reconcile owns no phase: there is no map to "
-                          "regenerate and no lease to release")
+        out["skipped"] = ("this run owns no phase (reconcile, plan): there "
+                          "is no map to regenerate and no lease to release")
         return out
     if not wanted:
         out["skipped"] = ("--no-tracker: the phase map was NOT regenerated "
@@ -743,7 +796,8 @@ def run_bookkeeping(args, phase):
     planning = resolve_planning_dir(args.planning_dir)
     root = planning.parent
     date, stamp = now_stamp()
-    plan = build_plan(planning, phase, date, stamp)
+    plan = build_plan(planning, phase, date, stamp,
+                      getattr(args, "plan_id", None))
     edits = plan["edits"]
 
     # The bd gate fires BEFORE the first byte is written. Bookkeeping that
@@ -791,7 +845,8 @@ def run_bookkeeping(args, phase):
         "phase": phase, "applied": bool(args.apply), "changed": changed,
         "files_written": written,
         "planned": [{k: e[k] for k in ("file", "line", "op", "before",
-                                       "after", "reason")} for e in edits],
+                                       "after", "reason", "kind", "subject")}
+                    for e in edits],
         "unresolved": plan["unresolved"], "skipped": plan["skipped"],
         "counters": plan["counters"], "tracker": tracker, "commit": commit,
         "pr_scope": pr_scope,
@@ -805,11 +860,21 @@ def run_bookkeeping(args, phase):
         if e["before"] is not None:
             human.append(f"  - {e['before']}")
         human.append(f"  + {e['after']}")
-    if not edits:
+    # `nothing to change` means ZERO DISAGREEMENTS, and nothing else. It used
+    # to mean "zero edits", which is how this command printed it over a
+    # disagreement it had just refused to write — three times on 2026-08-05,
+    # each over a line written an hour earlier (CairnGo-ozy).
+    if not edits and not plan["unresolved"]:
         human.append("nothing to change")
     for f in plan["unresolved"]:
-        human.append(f"NOT written :: {f['kind']} :: {f['subject']} :: "
-                     f"found {f['found']!r} ({f['source']})")
+        line = (f"NOT written :: {f['kind']} :: {f['subject']} :: "
+                f"found {f['found']!r} ({f['source']})")
+        why = (f.get("detail") or {}).get("not_written_because")
+        human.append(line)
+        # The reason travels with the refusal on the HUMAN path too. A
+        # refusal legible only in --json is a refusal most readers never see.
+        if why:
+            human.append(f"  because {why}")
     for s in plan["skipped"]:
         human.append(f"skipped :: {s['what']} :: {s['why']}")
     if tracker["skipped"]:
@@ -1065,6 +1130,110 @@ def finding(kind, subject, found, expected, source, detail=None):
     return item
 
 
+def plan_id_matches(wanted, plan_name):
+    """Does `wanted` name `plan_name`? `25-03`, `25-3` and `25-03-PLAN.md` all
+    name `25-03-PLAN.md`.
+
+    The pair of integers is what identifies a plan — the same discipline the
+    phase anchor holds, where the NUMBER is load-bearing and the surrounding
+    text is not. A string compare would make `25-3` a different plan from
+    `25-03` for no reason a person would recognize.
+    """
+    def pair(text):
+        m = re.match(r"^\s*0*(\d+)-0*(\d+)", str(text).strip())
+        return (int(m.group(1), 10), int(m.group(2), 10)) if m else None
+    a, b = pair(wanted), pair(plan_name)
+    return a is not None and a == b
+
+
+def finding_family(kind):
+    """The disagreement FAMILY a kind belongs to — its name with the last
+    hyphenated word dropped.
+
+    ONE function, applied to BOTH sides, which is the entire point.
+    `requirement-checkbox-stale` (what the reader names),
+    `requirement-checkbox-ahead` (what the writer refuses) and
+    `requirement-checkbox-written` (what the writer plans) are three words for
+    one subject, and the family is what makes them comparable without either
+    side holding a list of the other's vocabulary.
+    """
+    return kind.rsplit("-", 1)[0] if kind else None
+
+
+# Why a family has no writer, for the families that have none today. A family
+# absent from this map still gets reported — with the generic reason below —
+# which is the whole difference between a lookup and a gate: a kind invented
+# tomorrow appears the day it is invented, unexplained rather than invisible.
+NO_WRITER_REASON = {
+    "state-narrative":
+        "free text a person wrote. Rewriting somebody's sentence is exactly "
+        "what `state record-session` gets wrong, so it is named with the "
+        "computed numbers beside it and left for whoever wrote it",
+    "requirements-line":
+        "the ids the line should name are unknown. Turning an ellipsis into a "
+        "range assumes contiguity and assumes nothing was removed in between",
+    "coverage-view":
+        "there is no coverage table anywhere to write a row into. Create the "
+        "'## Cobertura' or '## Traceability' section and the rows plan "
+        "themselves",
+    "coverage-row":
+        "the row's phase cell has no readable source: no phase in ROADMAP.md "
+        "declares this requirement, and inferring the phase from the id's "
+        "prefix is a pattern, not a source",
+}
+
+
+def writerless_findings(planning, edits, unresolved):
+    """Every disagreement `reconcile` names that NOTHING in this plan answers.
+
+    THE MEASUREMENT (CairnGo-ozy, reproduced three times on 2026-08-05, each
+    time over a line written less than an hour earlier):
+
+        $ cairn-bookkeep.sh reconcile --json | jq .disagreements
+        state-narrative-stale :: last_activity_desc  ...
+        $ cairn-bookkeep.sh reconcile --apply
+        [cairn-bookkeep] nothing to change            <- EXIT 0
+
+    Three surfaces and the disagreement survived all three: named by
+    reconcile, charged by the doctor's req-ledger, and ignored in silence by
+    the writer both of them point at. Refusing is legitimate — this command
+    already refuses coverage-row-missing out loud, with the reason. The defect
+    was refusing while announcing there had been nothing to do.
+
+    WHY THE LIST IS DERIVED AND NOT WRITTEN DOWN. A hand-kept list of "kinds
+    with no writer" is the fifth precedent of a hand-maintained fact in this
+    repository: correct the day it is written, stale the day a kind is added,
+    and silent about it. So this compares two things that already exist — what
+    the READER found, and what the PLAN addressed — keyed by (family, subject)
+    with finding_family() applied to both sides. A kind that gains a writer
+    disappears from here on its own; a kind invented with no writer shows up
+    here on its own.
+
+    Returns [] when any of the three files is missing: reconcile() requires
+    all three and die()s otherwise, and a partial tree is already reported
+    through `skipped`.
+    """
+    if not all((planning / n).is_file()
+               for n in ("ROADMAP.md", "REQUIREMENTS.md", "STATE.md")):
+        return []
+    addressed = set()
+    for item in list(edits) + list(unresolved):
+        if item.get("kind"):
+            addressed.add((finding_family(item["kind"]), item.get("subject")))
+    out = []
+    for found in reconcile(planning)["disagreements"]:
+        if (finding_family(found["kind"]), found["subject"]) in addressed:
+            continue
+        detail = dict(found.get("detail") or {})
+        detail["not_written_because"] = NO_WRITER_REASON.get(
+            finding_family(found["kind"]),
+            "no edit in this plan addresses this kind of disagreement — it "
+            "is named here rather than left out of the report")
+        out.append(finding(found["kind"], found["subject"], found["found"],
+                           found["expected"], found["source"], detail))
+    return out
+
+
 def as_int(value):
     try:
         return int(str(value).strip(), 10)
@@ -1160,7 +1329,7 @@ def insertion_index(coverage, lines, phase):
     return (at + 1) if at is not None else coverage["heading_line"]
 
 
-def build_plan(planning, phase, date, stamp):
+def build_plan(planning, phase, date, stamp, only_plan=None):
     """The whole edit plan over the three files — the six edits, the things
     it refuses to write, and the things it could not reach.
 
@@ -1215,7 +1384,13 @@ def build_plan(planning, phase, date, stamp):
     by_id = {r["requirement"]: r for r in reqs["active"]}
 
     # --- edit 2: each requirement's checkbox ------------------------------
-    for rid in active:
+    # SKIPPED WHOLE in `plan` mode, together with edits 3 and 4. Closing one
+    # plan says nothing about whether a requirement is done — that follows
+    # from the PHASE being complete, and only `close` and `reconcile` speak
+    # about phases. A one-plan command that also re-derived the requirement
+    # checkboxes and the coverage table would be the 35-line diff this
+    # command exists to be an alternative to.
+    for rid in ([] if only_plan is not None else active):
         item = by_id[rid]
         if rid not in derived or not item["has_checkbox"]:
             continue
@@ -1235,11 +1410,19 @@ def build_plan(planning, phase, date, stamp):
             reqs_path, item["index"], raw, raw[:start] + "x" + raw[end:],
             "every phase carrying {0} is complete ({1})".format(
                 rid, ", ".join("phase %d" % n
-                               for n in sorted(carriers[rid])))))
+                               for n in sorted(carriers[rid]))),
+            kind="requirement-checkbox-written", subject=rid))
 
     # --- edits 3 and 4: the coverage table and its footer ------------------
-    rows_after = 0
-    if coverage is None:
+    rows_after = len(coverage["rows"]) if coverage else 0
+    if only_plan is not None:
+        skipped.append({
+            "what": "the requirement checkboxes, the coverage table and its "
+                    "footer",
+            "why": "`plan` closes ONE plan's checkbox and the counters that "
+                   "follow from it; a requirement's state follows from its "
+                   "phases, which is `close` and `reconcile`"})
+    elif coverage is None:
         if active:
             skipped.append({
                 "what": "the coverage table and its footer",
@@ -1271,7 +1454,8 @@ def build_plan(planning, phase, date, stamp):
             edits.append(make_edit(
                 cov_path, row["index"], raw,
                 raw[:start] + "Complete" + raw[end:],
-                f"every phase carrying {rid} is complete"))
+                f"every phase carrying {rid} is complete",
+                kind="coverage-row-written", subject=rid))
 
         inserted = 0
         blind = ellipsis_phases(road)
@@ -1300,7 +1484,7 @@ def build_plan(planning, phase, date, stamp):
                 cov_path, insertion_index(coverage, cov_lines, n), None,
                 f"| {rid} | Phase {n} | {status} |",
                 f"{rid} is active and has no row; phase {n} declares it",
-                op="insert"))
+                op="insert", kind="coverage-row-written", subject=rid))
             inserted += 1
 
         rows_after = len(coverage["rows"]) + inserted
@@ -1315,14 +1499,30 @@ def build_plan(planning, phase, date, stamp):
                     f"{want[0]}{m.group(2)}{want[1]}{m.group(4)}",
                     f"{len(active)} active requirement(s) and {rows_after} "
                     f"table row(s); the footer claims "
-                    f"{footer['claim']}/{footer['mapped']}"))
+                    f"{footer['claim']}/{footer['mapped']}",
+                    kind="footer-count-written", subject="coverage footer"))
 
     # --- edit 5: each plan's checkbox against its SUMMARY on disk ----------
+    matched = None
     for n in sorted(road["phase_plans"]):
         summaries = set(tree.get(n, {}).get("summaries", []))
         for item in road["phase_plans"][n]:
             summary = item["plan"].replace("-PLAN.md", "-SUMMARY.md")
             on_disk = summary in summaries
+            if only_plan is not None:
+                if not plan_id_matches(only_plan, item["plan"]):
+                    continue
+                matched = item["plan"]
+                if not on_disk and not item["checked"]:
+                    # The named plan exists and its summary does not. Silence
+                    # here would be the command answering `nothing to change`
+                    # about a plan somebody just asked it to close.
+                    unresolved.append(finding(
+                        "plan-summary-missing", item["plan"], None, summary,
+                        f"{roadmap_path}:{item['line']}",
+                        {"note": "the checkbox follows the SUMMARY on disk, "
+                                 "never the request. Write " + summary +
+                                 " and run this again"}))
             if item["checked"] == on_disk:
                 continue
             if not on_disk:
@@ -1336,7 +1536,13 @@ def build_plan(planning, phase, date, stamp):
             edits.append(make_edit(
                 roadmap_path, item["index"], raw,
                 raw[:start] + "x" + raw[end:],
-                f"{summary} is on disk"))
+                f"{summary} is on disk",
+                kind="plan-checkbox-written", subject=item["plan"]))
+
+    if only_plan is not None and matched is None:
+        die(f"no plan item named {only_plan!r} in {roadmap_path} — `plan` "
+            f"closes a checkbox the roadmap already lists, and never creates "
+            f"one", EXIT_NO_PHASE)
 
     # --- edit 6: the STATE frontmatter, and ONLY the keys it already has ---
     counters = compute_counters(road, tree, complete_phase, len(active),
@@ -1365,7 +1571,8 @@ def build_plan(planning, phase, date, stamp):
                 continue
             state_edits.append(make_edit(
                 state_path, item["index"], raw, after,
-                f"{key} disagrees with the roadmap and the phase tree"))
+                f"{key} disagrees with the roadmap and the phase tree",
+                kind="state-counter-written", subject=key))
         # THE ONE KEY THIS COMMAND CREATES (AUTO-10, decided 2026-08-06).
         #
         # Everywhere else the rule is absolute: write the key the file has,
@@ -1399,7 +1606,8 @@ def build_plan(planning, phase, date, stamp):
                 "AUTO-10: cairn reads active_phase, GSD writes current_phase, "
                 "and this file carries only the one nothing reads — the key "
                 "cairn reads is added beside it, not instead of it",
-                op="insert"))
+                op="insert", kind="state-dialect-written",
+                subject="active_phase"))
         # The two timestamps ride along with a real change and never alone:
         # a run that changed nothing did not produce activity, and writing
         # them unconditionally would make the second --apply of an
@@ -1418,7 +1626,8 @@ def build_plan(planning, phase, date, stamp):
                 if after != raw:
                     state_edits.append(make_edit(
                         state_path, item["index"], raw, after,
-                        f"{key} follows the edits this run made"))
+                        f"{key} follows the edits this run made",
+                        kind="state-stamp-written", subject=key))
         edits.extend(state_edits)
         absent = [k for k in STATE_KEYS_WRITTEN
                   if k not in items and k != created]
@@ -1428,6 +1637,12 @@ def build_plan(planning, phase, date, stamp):
                 "why": "the file does not have them: " + ", ".join(absent)
                        + " — it writes the key a file already has and "
                          "invents none (see AUTO-08 / CairnGo-rq0)"})
+
+    # The independent read, LAST, so it sees the whole plan: every
+    # disagreement the reader names and no edit above answers. Without it, a
+    # kind with no writer is not refused — it simply does not exist for the
+    # writer, and `nothing to change` gets printed over it (CairnGo-ozy).
+    unresolved.extend(writerless_findings(planning, edits, unresolved))
 
     return {"sources": sources, "edits": edits, "unresolved": unresolved,
             "skipped": skipped, "counters": counters,
@@ -1632,6 +1847,32 @@ def reconcile(planning):
         "disagreements": found}
 
 
+def cmd_plan(args):
+    """`plan <NN-MM>` — the surgical door for closing ONE plan.
+
+    MEASURED (CairnGo-66o, at the close of plan 29-04, commit 49e2b45): the
+    gsd-executor closes each plan through the gsd-tools, and that run produced
+    +43/-7 on ROADMAP.md, 29 of the added lines being blank lines injected
+    between numbered list items by _normalizeMd
+    (shell-command-projection.cjs:631). The useful content was five checkboxes
+    and one counter.
+
+    And the second half of the finding, measured in this checkout: every cairn
+    surface that names this command names `close <N>` — a PHASE door. An
+    executor that just wrote NN-MM-SUMMARY.md had no per-plan command to
+    reach for, so it reached for the one that reflows. A better command nobody
+    can call replaces nothing.
+
+    So: one checkbox, plus the STATE counters that already changed the moment
+    the summary landed on disk, and nothing else. No requirement checkbox, no
+    coverage row, no footer, no phase — those follow from a PHASE being
+    complete, which is what `close` and `reconcile` are for.
+    """
+    payload, human, edits = run_bookkeeping(args, None)
+    emit(payload, args.json, human)
+    sys.exit(EXIT_DISAGREEMENT if edits and not args.apply else EXIT_OK)
+
+
 def cmd_reconcile(args):
     if args.apply:
         # The same five edits `close` makes, WITHOUT marking any phase
@@ -1675,6 +1916,19 @@ def build_parser():
                        help="planning dir (default: $CLAUDE_PROJECT_DIR or "
                             "cwd, plus /.planning)")
     close.set_defaults(func=cmd_close)
+
+    pl = sub.add_parser("plan", help="mark ONE plan's checkbox complete, and "
+                                     "nothing else")
+    pl.add_argument("plan_id", metavar="NN-MM",
+                    help="plan id, e.g. 25-03 (or 25-03-PLAN.md)")
+    pl.add_argument("--apply", action="store_true",
+                    help="write the planned edit (default: read only)")
+    pl.add_argument("--json", action="store_true",
+                    help="machine-readable output")
+    pl.add_argument("--planning-dir", metavar="DIR",
+                    help="planning dir (default: $CLAUDE_PROJECT_DIR or cwd, "
+                         "plus /.planning)")
+    pl.set_defaults(func=cmd_plan)
 
     rec = sub.add_parser("reconcile", help="name every disagreement between "
                                            "the planning files and the disk")
