@@ -460,8 +460,35 @@ this routine health-check flow — see its own section below.
      false red. The finding routes to `cairn-bookkeep.sh close <N> --apply`,
      which writes both keys; the check writes nothing.
 
+   - **issues-recoverable** (✗; ⚠ when the tracked export is behind the
+     store; ⊘ `no-input` when bd is unavailable or the store is empty; ⊘
+     `out-of-scope` when there is no `.beads/`) — whether the issue store
+     survives this machine. Measured on this repository on 2026-08-07:
+     `.beads/embeddeddolt` 27 MB inside `.gitignore`, `.beads/issues.jsonl`
+     absent, `.beads/backup/` 13 MB and also ignored, and zero `refs/dolt`
+     among the 42 refs on the remote. **A clean clone recovered none of the
+     176 issues** — while `CLAUDE.md:25` had been stating in writing, for
+     weeks, that the sync used `refs/dolt/data` and that the JSONL was a
+     passive export. Neither existed. Nobody lied: bd ships `export.auto`
+     disabled and commented out, so the file that sentence promises is never
+     born until somebody enables it.
+
+     It reads **what git tracks**, never the configuration: `export.auto:
+     true` proves an intent, and a tracked path proves a file, so the check
+     compares the exported ids against the live store instead of believing
+     either. Absence is `✗` and lag is `⚠`, because a stale export still
+     recovers most of the history while a missing one recovers nothing, and
+     spending exit 7 on lag is how exit 7 stops meaning anything.
+
+     The finding routes to enabling `export.auto` plus `git-add` in
+     `.beads/config.yaml`, then `bd export --all -o .beads/issues.jsonl` and
+     committing the file. **Green here means the issue records have a way
+     back, never the database**: the JSONL carries no Dolt branch, no commit
+     history and no working set, so full recovery still needs a Dolt remote.
+
    (Check 0, `bd-version`, runs first but needs no routing beyond
-   upgrading bd — twenty-two checks in total.)
+   upgrading bd. This page deliberately states no total: the count changes
+   almost every cycle, and a hand-kept total here has already aged twice.)
 7. Re-runs the doctor after fixes to confirm a clean `ok` footer.
 
 ## Flags & arguments

@@ -62,6 +62,15 @@ make_doctor_fixture() {
   add_plan_beads .planning/phases/02-api/02-01-PLAN.md "$DOC_P2"
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+  # A HEALTHY repo has a way back, so the healthy fixture has one. Added with
+  # check 22 (issues-recoverable, 2026-08-07): without this the reference
+  # fixture would carry a permanent warning, and the file's own baseline
+  # assertion — "nothing warns" — would have had to be weakened to accept the
+  # very defect the check was written to surface.
+  bd export --all -o .beads/issues.jsonl >/dev/null 2>&1
+  git add -f .beads/issues.jsonl >/dev/null 2>&1
+  git -c user.email=t@t -c user.name=t commit -q -m "beads: export" \
+    -- .beads/issues.jsonl >/dev/null 2>&1 || true
   wire_capability_ok
 }
 
@@ -152,7 +161,7 @@ EOF
   # once. The four sites were edited in one change, from the branch that owns
   # cairn-doctor.py; the other branch never touches it, so there is one
   # writer and no merge to be silent about.
-  assert_json_eq "$output" '.checks | length' '22'
+  assert_json_eq "$output" '.checks | length' '23'
   # The exact ordered set, not "unique == ok": after 23-02 this fixture has
   # two ⊘ checks (cairn's own manifests are absent by construction), and an
   # assertion that merely tolerated extra values would stop proving anything.
@@ -370,18 +379,21 @@ PY
     --metadata '{"gsd":{"req":"API-02","phase":2,"milestone":"v1.0"}}' \
     --silent >/dev/null   # map 2 NOT regenerated
 
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]   # warnings alone never change the exit code
   assert_json_eq "$output" '.ok' 'true'
   assert_json_eq "$output" '.checks[] | select(.id=="maps-fresh") | .status' 'warn'
   grep -qF "stale map 02-BEADS-MAP.md" <<<"$output"
 
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
   grep -qF "⚠ maps-fresh" <<<"$output"
 
   # Regenerate -> clean again.
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
   refute_in_output "⚠"
@@ -422,6 +434,7 @@ EOF
     --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null   # keep check 3 ok
 
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   # phase-complete-open itself only WARNs here, but phase-corroboration
   # (check 11) independently reads the same fact — phase 1 verified on
@@ -436,6 +449,7 @@ EOF
   # Phase 1's disk artifacts agree (PLAN has its SUMMARY) — no divergence note.
   refute_in_output "artifacts disagree"
 
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
   [ "$status" -eq 0 ]
   grep -qF "closed $straggler" <<<"$output"
@@ -446,12 +460,14 @@ EOF
   assert_json_eq "$output" '.[0].status' 'closed'
 
   # Idempotent: a second run has nothing left to close.
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
   [ "$status" -eq 0 ]
   refute_in_output "closed $straggler"
 
   # Refresh the phase-1 map (the close changed a row) -> fully clean re-run.
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
   refute_in_output "⚠"
@@ -655,6 +671,7 @@ PY
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
 
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
   [ "$status" -eq 0 ]
   local id
@@ -674,6 +691,7 @@ PY
   # Re-run is clean and idempotent.
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --close-completed
   [ "$status" -eq 0 ]
   refute_in_output "[cairn-doctor] closed"
@@ -687,6 +705,7 @@ PY
   # breaks this test — which is the property the blanket refute was
   # carrying, and the reason not to simply drop it.
   grep -qF "✓ phase-complete-open" <<<"$output"
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   assert_json_eq "$output" '[.checks[] | select(.status=="warn")] | length' '1'
   assert_json_eq "$output" '.checks[] | select(.status=="warn") | .id' 'phase-corroboration'
@@ -743,6 +762,7 @@ PY
   loose="$(bd create "Loose end" -t task --silent)"
   todo="$(bd create "Parked todo" -t task -l migrated-todo --silent)"
 
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
@@ -771,6 +791,7 @@ PY
   bd close "$old" >/dev/null
 
   # Run 1: no archive on disk. The issue is an orphan, exactly as before.
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'warn'
   grep -qF "$old" <<<"$output"
@@ -780,6 +801,7 @@ PY
   echo "# Roadmap: v0.9 (archived)" > .planning/milestones/v0.9-ROADMAP.md
 
   # Run 2: same repo, same issues, same labels.
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'ok'
@@ -1071,12 +1093,14 @@ PY
   local stray
   stray="$(bd create "Stray unpaired task" -t task -l phase-2 --silent)"
 
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.milestone' 'v1.0'
   assert_json_eq "$output" '.checks[] | select(.id=="label-pairs") | .status' 'warn'
   grep -qF "$stray" <<<"$output"
 
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --fix-labels
   [ "$status" -eq 0 ]
   grep -qF "fixed 1 via cairn-relabel pair" <<<"$output"
@@ -1089,6 +1113,7 @@ PY
 
   # Refresh the phase-2 map (the stray is a new row) -> fully clean re-run.
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
+  beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
   refute_in_output "⚠"
@@ -3182,11 +3207,12 @@ PY
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
-  # 22 since check 21, state-dialect (phase 25) — see the long note on the same
+  # 23 since check 22, issues-recoverable (2026-08-07) — see the long note on
+  # the same
   # assertion near the top of this file for why the merge, and not either
   # branch, is what made this literal wrong once, and why BOTH sites are
   # edited in one change.
-  assert_json_eq "$output" '.checks | length' '22'
+  assert_json_eq "$output" '.checks | length' '23'
   assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
     'true'
 }
@@ -3814,4 +3840,172 @@ PY
     '.checks[] | select(.id=="claims-stale") | has("scope")' 'false'
   assert_json_eq "$output" \
     '.checks[] | select(.id=="state-dialect") | .status' 'ok'
+}
+
+# ─── check 22, issues-recoverable (2026-08-07) ──────────────────────────────
+#
+# The check was born from a measurement on this repository, not from a
+# hypothetical: `.beads/embeddeddolt` was 27 MB inside .gitignore,
+# `.beads/issues.jsonl` did not exist, `.beads/backup/` was 13 MB and also
+# ignored, and the remote carried 0 refs/dolt out of 42 refs. A clean clone
+# recovered NONE of the 176 issues — while CLAUDE.md:25 had been stating in
+# writing, for weeks, that the sync used refs/dolt/data and that the JSONL was
+# a passive export.
+#
+# The rung that matters is FAIL, and these tests build the exact shape that
+# produced it rather than a simplified stand-in.
+
+@test "issues-recoverable: no export and no promise is friction, never a failure" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_fixture "$PWD"
+  # make_bd_fixture now models a wired repo and commits an export, so a test
+  # about the ABSENCE of one has to undo that in the open. Explicit beats a
+  # fixture that quietly stopped producing the shape under test.
+  git rm -q --cached .beads/issues.jsonl >/dev/null 2>&1
+  git -c user.email=t@t -c user.name=t commit -q -m "untrack export" >/dev/null 2>&1
+  # A repository that just ran `bd init` has issues and no export, and that is
+  # NOT broken — it is young. The first version of this check called it `fail`
+  # and turned 62 of this file's 123 tests red in one commit, because every
+  # fixture is exactly this shape. Phase 23 wrote the rule it broke (D-07): no
+  # fix may change the verdict of a path that is legitimately green today.
+  run git ls-files -- .beads
+  ! grep -qF "issues.jsonl" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="issues-recoverable")] | .[0].status' 'warn'
+  # The detail must say the consequence, not the symptom.
+  run bash -c "bash '$CAIRN_SCRIPTS_DIR/cairn-doctor.sh' --json | jq -r '[.checks[] | select(.id==\"issues-recoverable\")] | .[0].detail'"
+  grep -qF "recovers NONE" <<<"$output"
+}
+
+@test "issues-recoverable: a promise the artifact does not keep is a failure" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_fixture "$PWD"
+  # make_bd_fixture now models a wired repo and commits an export, so a test
+  # about the ABSENCE of one has to undo that in the open. Explicit beats a
+  # fixture that quietly stopped producing the shape under test.
+  git rm -q --cached .beads/issues.jsonl >/dev/null 2>&1
+  git -c user.email=t@t -c user.name=t commit -q -m "untrack export" >/dev/null 2>&1
+  # THE SHAPE MEASURED ON 2026-08-07, and the only one that earns exit 7: the
+  # configuration states an export is produced and git carries none. That is
+  # not a young repository, it is two sources disagreeing about whether the
+  # issues can be recovered — which is the thing this whole tool exists to
+  # name. On the real repository the promise lived in CLAUDE.md instead of the
+  # config; a check cannot read prose, so it reads the claim bd itself makes.
+  bd config set export.auto true >/dev/null 2>&1
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="issues-recoverable")] | .[0].status' 'fail'
+  run bash -c "bash '$CAIRN_SCRIPTS_DIR/cairn-doctor.sh' --json | jq -r '[.checks[] | select(.id==\"issues-recoverable\")] | .[0].detail'"
+  grep -qF "CONFIG SAYS OTHERWISE" <<<"$output"
+}
+
+@test "issues-recoverable: a tracked export covering the store is ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_fixture "$PWD"
+
+  # The export comes from make_bd_fixture, which models a wired repo. Doing it
+  # again here would fail on "nothing to commit" — the fixture already did it.
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="issues-recoverable")] | .[0].status' 'ok'
+}
+
+@test "issues-recoverable: an export behind the store warns, and never fails" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_fixture "$PWD"
+
+  # The export comes from make_bd_fixture, which models a wired repo. Doing it
+  # again here would fail on "nothing to commit" — the fixture already did it.
+  # An issue created after the export is exactly the ordinary staleness this
+  # rung exists for. It is WARN and not FAIL because a stale export still
+  # recovers most of the history, and spending exit 7 on lag is how exit 7
+  # stops meaning anything.
+  bd create "born after the export" -t task -p 4 --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="issues-recoverable")] | .[0].status' 'warn'
+  # A warning never counts as a failure — the vocabulary rule phase 23 settled.
+  # Asserted on the BUCKET and not on the process exit, because other checks in
+  # this fixture fail on their own and would make the exit code say nothing
+  # about this one.
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="issues-recoverable" and .status=="fail")] | length' '0'
+}
+
+@test "issues-recoverable: it reads what git TRACKS, never what is on disk" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_fixture "$PWD"
+  # make_bd_fixture now models a wired repo and commits an export, so a test
+  # about the ABSENCE of one has to undo that in the open. Explicit beats a
+  # fixture that quietly stopped producing the shape under test.
+  git rm -q --cached .beads/issues.jsonl >/dev/null 2>&1
+  git -c user.email=t@t -c user.name=t commit -q -m "untrack export" >/dev/null 2>&1
+
+  # The whole defect in one assertion: the file is present, complete, and
+  # correct on disk, and git does not carry it. Reading the directory would
+  # call this recoverable; reading git does not.
+  bd export --all -o .beads/issues.jsonl >/dev/null 2>&1
+  [ -s .beads/issues.jsonl ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="issues-recoverable")] | .[0].status' 'warn'
+}
+
+@test "issues-recoverable: the audit trail is not mistaken for an export" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_fixture "$PWD"
+  # make_bd_fixture now models a wired repo and commits an export, so a test
+  # about the ABSENCE of one has to undo that in the open. Explicit beats a
+  # fixture that quietly stopped producing the shape under test.
+  git rm -q --cached .beads/issues.jsonl >/dev/null 2>&1
+  git -c user.email=t@t -c user.name=t commit -q -m "untrack export" >/dev/null 2>&1
+
+  # .beads/interactions.jsonl IS tracked in a real beads repo and is JSONL,
+  # and it reconstructs no issue. Counting it would turn the failing repo of
+  # 2026-08-07 read as covered while nothing was recoverable.
+  printf '{"kind":"x","issue_id":"nope"}\n' > .beads/interactions.jsonl
+  git add -f .beads/interactions.jsonl
+  git commit -q -m "audit trail"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id=="issues-recoverable")] | .[0].status' 'warn'
+}
+
+@test "issues-recoverable: with no .beads the doctor never reaches this check" {
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  rm -rf .beads
+
+  # MEASURED 2026-08-07, and it is why this file carries no test asserting the
+  # check's own `out-of-scope` rung: with .beads/ absent the doctor
+  # short-circuits before running ANY check — `applicable:false`, `checks:[]`,
+  # exit 0 — so that rung is unreachable through the CLI. It stays in the
+  # source as a defensive branch for a direct call, and it is documented as
+  # unreachable rather than guarded by an assertion that would pass over an
+  # empty list and prove nothing. Phase 25 shipped exactly that empty
+  # assertion once (G14) and had to delete it.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.applicable' 'false'
+  assert_json_eq "$output" '.checks | length' '0'
 }

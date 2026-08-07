@@ -498,6 +498,36 @@ and "something never ran" are different questions and get different keys.
                         NOT-APPLICABLE / out-of-scope, never no-input —
                         a defensive branch the CLI never reaches, since
                         main() registers zero checks in that repo.
+    22. issues-recoverable  whether the issue store survives this
+                        machine. MEASURED 2026-08-07 on this repository:
+                        `.beads/embeddeddolt` 27 MB in .gitignore,
+                        `.beads/issues.jsonl` ABSENT, `.beads/backup/`
+                        13 MB and also ignored, and 0 refs/dolt among the
+                        42 refs on the remote — a clean clone recovered
+                        NONE of the 176 issues. CLAUDE.md:25 had been
+                        stating the opposite in writing for weeks; bd
+                        ships `export.auto` disabled and commented, so
+                        the file that sentence promises is never born
+                        until somebody enables it. Twenty-two checks
+                        cross-examined the sources against each other and
+                        not one asked whether any of them survives the
+                        laptop: corroboration between sources says
+                        nothing about the durability of a source. It
+                        reads what GIT TRACKS and compares the record
+                        count against the live store, never the config —
+                        `export.auto: true` proves an intent, not a file.
+                        Tracked export covering the store -> OK; behind
+                        the store -> WARN (a stale export still recovers
+                        most of it, and spending exit 7 on lag is how
+                        exit 7 stops meaning anything); NO tracked export
+                        -> FAIL, because absence is not a degraded
+                        recovery, it is none. Empty store ->
+                        NOT-APPLICABLE / no-input; no `.beads/` ->
+                        out-of-scope. Green here means the ISSUE RECORDS
+                        have a way back, never the database: the JSONL
+                        carries no Dolt branch, no commit history and no
+                        working set. Writes nothing.
+
     21. state-dialect   (CairnGo-ctr, AUTO-10, Phase 25 criterion 5)
                         STATE.md's two phase keys naming two different
                         phases. MEASURED 2026-08-05: cairn-bookkeep wrote
@@ -526,8 +556,8 @@ and "something never ran" are different questions and get different keys.
 
 --apply-reconciliation N  (ESC-03, Phase 17 Plan 3) the human-invoked,
                     separate command that APPLIES a verified semantic-
-                    escalation reconciliation proposal for phase N. Not one
-                    of the 22 checks above — a fixer, the same category as
+                    escalation reconciliation proposal for phase N. Not a
+                    check at all — a fixer, the same category as
                     --close-completed/--fix-labels/--link-refs, but the only
                     one of the four that always exits on its own rather
                     than falling through to the ordinary report, since its
@@ -2032,6 +2062,99 @@ def git_is_shallow(root):
     return proc.returncode == 0 and proc.stdout.strip() == "true"
 
 
+def git_tracked_beads_exports(root):
+    """Paths under .beads/ that git actually TRACKS and that look like an
+    issue export, as repo-relative Path objects.
+
+    `git ls-files` and not a directory listing, deliberately: the failure
+    this feeds (check 22) was a 27 MB database sitting in .gitignore beside a
+    13 MB backup directory that was ALSO ignored. Both exist on disk; neither
+    survives a clone. Only what git carries can answer the question, so only
+    git is asked.
+
+    The suffix filter is JSONL because that is bd's export format
+    (`bd export -o <path>`, default `.beads/issues.jsonl`), and the two
+    names bd writes for other purposes are excluded by name rather than by
+    pattern: `interactions.jsonl` is an audit trail of command invocations
+    and `events.jsonl` is the event stream, and neither reconstructs an
+    issue. Excluding them by name keeps a future export file included by
+    default — the safer direction for a durability check.
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--", ".beads"],
+        capture_output=True, text=True)
+    if proc.returncode != 0:
+        return []
+    skip = {"interactions.jsonl", "events.jsonl"}
+    out = []
+    for line in proc.stdout.splitlines():
+        p = line.strip()
+        if not p or not p.endswith(".jsonl"):
+            continue
+        if Path(p).name in skip:
+            continue
+        out.append(Path(p))
+    return out
+
+
+def beads_export_promised(root):
+    """True when bd's own config says an export is produced, None when it
+    could not be asked.
+
+    Read for ONE purpose: to catch a promise the artifact does not keep. It
+    is never evidence of durability — `export.auto: true` proves an intent,
+    and the file is what a clone actually gets. The check that uses it treats
+    promise-without-artifact as a DISAGREEMENT BETWEEN TWO SOURCES, which is
+    the thing this whole tool exists to name, and treats absence-without-
+    promise as ordinary friction in a young repository.
+    """
+    proc = subprocess.run(["bd", "config", "get", "export.auto"],
+                          cwd=str(root), capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    val = proc.stdout.strip().lower()
+    if val in ("true", "1", "yes", "on"):
+        return True
+    if val in ("false", "0", "no", "off"):
+        return False
+    return None
+
+
+def beads_export_ids(root, paths):
+    """(set of issue ids found across PATHS, list of paths with unreadable
+    lines).
+
+    A line that will not parse is REPORTED, never skipped in silence: a
+    truncated export is exactly the shape of a recovery file that looks
+    present and restores less than it claims, and this check exists because
+    a file that was absent looked fine for weeks.
+    """
+    ids = set()
+    unreadable = []
+    for rel in paths:
+        f = root / rel
+        bad = False
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            unreadable.append(str(rel))
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                bad = True
+                continue
+            if isinstance(rec, dict) and rec.get("id"):
+                ids.add(rec["id"])
+        if bad:
+            unreadable.append(str(rel))
+    return ids, unreadable
+
+
 def closed_window(closed_at, pad_days=2):
     """(since, until) ISO8601 strings +/-pad_days around a bd closed_at
     timestamp, or (None, None) when it is missing/unparsable."""
@@ -2962,6 +3085,137 @@ def check_plan_counters(planning_dir):
             "items": []}
 
 
+def check_issues_recoverable(root, issues):
+    """Check 22, id "issues-recoverable" — whether the issue store has a way
+    back that does not depend on this one machine.
+
+    THE MEASUREMENT THAT OPENED THIS CHECK, 2026-08-07, on this repository:
+
+        .beads/embeddeddolt   27 MB, in .gitignore, untracked
+        .beads/issues.jsonl   DID NOT EXIST
+        .beads/backup/        179 .darc files, 13 MB, ALSO in .gitignore
+        refs/dolt on origin   0, out of 42 refs on the remote
+
+    A clean clone received ZERO of the 176 issues. Every verdict, every
+    `--reason` written on a close, the whole dependency graph and the
+    milestone's requirements lived in one untracked directory on one laptop.
+
+    AND THE REPOSITORY SAID OTHERWISE IN WRITING. CLAUDE.md:25 had been
+    stating for weeks: "sync uses `refs/dolt/data` on your git remote;
+    `.beads/issues.jsonl` is a passive export". Both mechanisms it names were
+    absent. Nobody lied: bd ships `export.auto` disabled and commented out,
+    so the file the sentence promises is never born until somebody enables
+    it. That is the exact defect this project exists to remove — a surface
+    answering with confidence about something it never checked — and it was
+    living inside the surface that documents the project.
+
+    WHY THE DOCTOR DID NOT CATCH IT, WHICH IS THE POINT. Twenty-two checks
+    cross-examined the sources against each other: the roadmap against the
+    issues, the coverage table against its footer, the two phase keys against
+    one another. Not one asked whether the source itself survives the machine
+    it sits on. Corroboration between sources says nothing about the
+    durability of any of them.
+
+    IT MEASURES THE ARTIFACT, NEVER THE CONFIGURATION. `export.auto` being
+    true proves an intent, not a file; a tracked path proves a file, not its
+    freshness. So the check reads what git actually carries and compares its
+    record count against the live store. A config that claims to export and a
+    file that is empty must not read as healthy, and reading the config would
+    let it.
+
+    STATUS LADDER, every rung a deliberate value:
+      * store has issues, no tracked export         -> "fail" (exit 7)
+      * tracked export missing ids the store has    -> "warn"
+      * tracked export present and covering         -> "ok"
+      * bd unavailable or store empty               -> "not-applicable",
+                                                       scope "no-input"
+      * no .beads/ at all                           -> "not-applicable",
+                                                       scope "out-of-scope"
+
+    WHY MISSING IDS ARE `warn` AND NOT `fail`. A stale export still recovers
+    most of the history, and staleness is the ordinary state of a file
+    written on an interval. Absence is different in kind: it is not a
+    degraded recovery, it is none. Spending exit 7 on lag is how exit 7 stops
+    meaning anything (phase 23's rule), and the failure this check was born
+    from was absence.
+
+    WHY `no-input` FOR AN EMPTY STORE AND `out-of-scope` FOR NO `.beads/`. A
+    repository with beads wired and zero issues WILL have issues, and the
+    export is a gap someone can close; a repository with no `.beads/` at all
+    is a class of repo this question does not apply to.
+
+    WHAT IT DOES NOT CLAIM, written here so no reader infers it: a green here
+    means the ISSUE RECORDS have a way back, not the database. The JSONL is
+    an issue export, not a Dolt backup — it carries no branches, no commit
+    history, no working set. Full recovery still needs a Dolt remote, and on
+    this repository that remote is configured and has produced zero refs.
+
+    This check WRITES NOTHING.
+    """
+    beads = root / ".beads"
+    if not beads.is_dir():
+        return {"id": "issues-recoverable", "status": NOT_APPLICABLE,
+                "scope": "out-of-scope",
+                "detail": "no .beads/ directory — this repo has no issue "
+                          "store to make recoverable",
+                "items": []}
+    if issues is None:
+        return {"id": "issues-recoverable", "status": NOT_APPLICABLE,
+                "scope": "no-input",
+                "detail": "bd is unavailable, so the live store could not be "
+                          "read and there is nothing to compare a tracked "
+                          "export against",
+                "items": []}
+    live = {i.get("id") for i in issues if i.get("id")}
+    if not live:
+        return {"id": "issues-recoverable", "status": NOT_APPLICABLE,
+                "scope": "no-input",
+                "detail": "the issue store carries no issues yet, so there is "
+                          "nothing whose recovery could be checked",
+                "items": []}
+    tracked = git_tracked_beads_exports(root)
+    if not tracked:
+        promised = beads_export_promised(root)
+        common = (f"{len(live)} issue(s) live only on this machine — git "
+                  f"tracks no export under .beads/, and the database itself "
+                  f"is ignored, so a clean clone recovers NONE of them")
+        if promised:
+            return {"id": "issues-recoverable", "status": "fail",
+                    "detail": (f"{common}. AND THE CONFIG SAYS OTHERWISE: "
+                               f"export.auto is true, so bd is configured to "
+                               f"produce the file a clone would restore from, "
+                               f"and git carries none. Run `bd export --all "
+                               f"-o .beads/issues.jsonl` and commit it; set "
+                               f"git-add so it stays committed"),
+                    "items": ["export.auto is true and no export is tracked"]}
+        return {"id": "issues-recoverable", "status": "warn",
+                "detail": (f"{common}. Enable bd's export (export.auto plus "
+                           f"git-add in .beads/config.yaml), run `bd export "
+                           f"--all -o .beads/issues.jsonl`, and commit the "
+                           f"file"),
+                "items": [f"{len(live)} issue(s) with no tracked export"]}
+    exported, unreadable = beads_export_ids(root, tracked)
+    missing = sorted(live - exported)
+    if missing:
+        shown = missing[:8]
+        more = f" (+{len(missing) - len(shown)} more)" if len(missing) > len(shown) else ""
+        return {"id": "issues-recoverable", "status": "warn",
+                "detail": (f"the tracked export is behind the store by "
+                           f"{len(missing)} issue(s) — a clone recovers "
+                           f"{len(exported & live)} of {len(live)}. Re-run "
+                           f"`bd export --all -o .beads/issues.jsonl` and "
+                           f"commit it{more}"),
+                "items": [f"absent from the export: {i}" for i in shown] +
+                         ([f"unreadable line(s) in {p}" for p in unreadable]
+                          if unreadable else [])}
+    paths = ", ".join(sorted(str(p) for p in tracked))
+    return {"id": "issues-recoverable", "status": "ok",
+            "detail": (f"all {len(live)} issue(s) are recoverable from a "
+                       f"clean clone via {paths} — issue records only, not a "
+                       f"database backup"),
+            "items": []}
+
+
 def check_state_dialect(planning_dir):
     """Check 21, id "state-dialect" (CairnGo-ctr, AUTO-10, roadmap criterion
     5) — the two phase keys of STATE.md naming two different phases.
@@ -3591,6 +3845,7 @@ def main():
         check_phase_landed(root, planning_dir, completed_set),
         check_plan_counters(planning_dir),
         check_state_dialect(planning_dir),
+        check_issues_recoverable(root, issues),
     ]
     summary["checks"] = checks
     # ONE BUCKET PER WORD OF THE VOCABULARY, COUNTED, NEVER SUBTRACTED.

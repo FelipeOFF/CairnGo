@@ -356,6 +356,20 @@ make_bd_fixture() {
   BD_CHILD_CLOSED="$(bd create "Scaffold auth module" -t task --parent "$BD_EPIC" --silent)"
   bd close "$BD_CHILD_CLOSED" >/dev/null
   BD_STANDALONE="$(bd create "API rate limiting" -t feature -l cairn-sync --deps "blocks:$BD_CHILD_OPEN" --silent)"
+  # A wired repo has a way back. Added 2026-08-07 with check 22,
+  # issues-recoverable, and the reason is a measurement on THIS repository:
+  # the database was 27 MB inside .gitignore, no export was tracked, and the
+  # remote carried 0 refs/dolt out of 42 — a clean clone recovered none of the
+  # 176 issues, while CLAUDE.md had been stating the opposite for weeks.
+  #
+  # The fixture models a CORRECTLY wired repo, so it exports and commits like
+  # one. Leaving it without a recovery path would have made every fixture
+  # carry a permanent warning and pushed seven tests to assert an unhealthy
+  # baseline as healthy — teaching the suite that the defect is normal.
+  bd export --all -o .beads/issues.jsonl >/dev/null 2>&1
+  git add -f .beads/issues.jsonl >/dev/null 2>&1
+  git -c user.email=t@t -c user.name=t commit -q -m "beads: export" \
+    -- .beads/issues.jsonl >/dev/null 2>&1 || true
   popd >/dev/null || return 1
 }
 
@@ -584,6 +598,21 @@ assert_frontmatter_key() {
     echo "frontmatter key '$key' missing in $file" >&2
     return 1
   }
+}
+
+# Refresh the tracked beads export after a test mutates bd state.
+#
+# A wired repo keeps its export current — bd does it on an interval, and this
+# repository sets export.auto plus git-add for exactly that. An interval is
+# not deterministic inside a test, so the tests that mutate bd and then assert
+# a clean doctor run call this instead of waiting on a timer.
+#
+# Added 2026-08-07 with check 22, issues-recoverable. Without it those tests
+# assert "nothing warns" over a store whose export is genuinely behind, which
+# would mean weakening the check until it stopped noticing the lag it exists
+# to notice.
+beads_export_refresh() {
+  bd export --all -o .beads/issues.jsonl >/dev/null 2>&1
 }
 
 # Nanosecond mtime of FILE, through python3.
