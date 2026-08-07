@@ -1437,6 +1437,76 @@ PYEOF
   grep -qF "order between machines not claimed" <<<"$item"
 }
 
+@test "DJOUR-03: deleting the whole journal surface moves no status, no severity, no exit code" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  local straggler
+  straggler="$(bd create "AUTH-04: Forgotten follow-up" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-04","phase":1,"milestone":"v1.0"}}' --silent)"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
+
+  # A first run, which journals as a side effect and so leaves real history
+  # behind for the delete to have something to destroy.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  local before_status="$status"
+  local before="$output"
+  [ "$before_status" -eq 7 ]
+  # Confirm the journal genuinely has content -- otherwise the delete below
+  # proves nothing.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  [ "$(jq '.records | length' <<<"$output")" -gt 0 ]
+  grep -qF "last moved" <<<"$before"
+
+  # Phase 28 made the surface bigger than one path: the partition directory
+  # AND the inherited single file.
+  rm -rf .cairn/journal
+  rm -f .cairn/journal.jsonl*
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  assert_json_eq "$output" '.records | length' '0'
+  assert_json_eq "$output" '.partitions | length' '0'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  local after_status="$status"
+  local after="$output"
+
+  # Exact values, on both sides. Never "still fails" -- a check that went
+  # from fail to fail for a different reason would satisfy that.
+  [ "$after_status" -eq "$before_status" ]
+  assert_json_eq "$after" '.checks[] | select(.id=="phase-corroboration") | .status' \
+    "$(jq -r '.checks[] | select(.id=="phase-corroboration") | .status' <<<"$before")"
+  # Every check's status, not just the one this clause hangs off.
+  [ "$(jq -Sc '[.checks[] | {id, status}]' <<<"$before")" \
+    = "$(jq -Sc '[.checks[] | {id, status}]' <<<"$after")" ]
+  # Same number of items, in the same order, for the corroboration check.
+  [ "$(jq '[.checks[] | select(.id=="phase-corroboration") | .items[]] | length' <<<"$before")" \
+    = "$(jq '[.checks[] | select(.id=="phase-corroboration") | .items[]] | length' <<<"$after")" ]
+
+  # THE SHARP ONE. The doctor run itself journals as a side effect (its own
+  # cairn-status.py --json call observes), so the deleted journal is
+  # repopulated by the very run being measured and the `last moved` clause
+  # comes BACK -- with fresh timestamps. That is the journal rebuilding
+  # itself, not the verdict moving. So the assertion is byte equality of
+  # every corroboration item with the timestamps normalised away: if
+  # anything but a timestamp changed, this fails.
+  local norm_before norm_after
+  norm_before="$(jq -r '[.checks[] | select(.id=="phase-corroboration") | .items[]] | .[]' <<<"$before" \
+    | sed -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+/<TS>/g')"
+  norm_after="$(jq -r '[.checks[] | select(.id=="phase-corroboration") | .items[]] | .[]' <<<"$after" \
+    | sed -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+/<TS>/g')"
+  [ "$norm_before" = "$norm_after" ]
+
+  # And the case where the journal cannot come back at all: with the
+  # journal script itself unreachable, the clause is simply gone and the
+  # verdict is still the same one.
+  run env CAIRN_JOURNAL=/nonexistent/path bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq "$before_status" ]
+  refute_in_output "last moved"
+  [ "$(jq -Sc '[.checks[] | {id, status}]' <<<"$before")" \
+    = "$(jq -Sc '[.checks[] | {id, status}]' <<<"$output")" ]
+}
+
 @test "last-moved: a broken CAIRN_JOURNAL leaves status/detail identical to a working journal, only the clause is missing" {
   require_bd
   make_tmp_repo
