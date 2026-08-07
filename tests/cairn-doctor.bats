@@ -134,7 +134,14 @@ EOF
   # read through `tail -15`, so the failure line scrolled out and the run was
   # called green. The full-suite run through cairn-test.sh is what surfaced
   # it. A number read off the end of a truncated log is not a measurement.
-  assert_json_eq "$output" '.checks | length' '19'
+  #
+  # 19 -> 20 with check 19, phase-landed (phase 30, PR-04). Edited HERE and at
+  # the second site further down in this same file, in one change, having read
+  # this note first — which is the whole point of the note. Phase 30 also found
+  # cairn-doctor.py's own docstring still saying "eighteen checks in total"
+  # while nineteen were registered: prose kept by hand goes stale, this literal
+  # does not, and that asymmetry is why the literal is the contract.
+  assert_json_eq "$output" '.checks | length' '20'
   # The exact ordered set, not "unique == ok": after 23-02 this fixture has
   # two ⊘ checks (cairn's own manifests are absent by construction), and an
   # assertion that merely tolerated extra values would stop proving anything.
@@ -2131,12 +2138,22 @@ EOF
   assert_json_eq "$output" \
     '[.checks[] | select(.id != "lease-stale")
                 | select(.status == "warn" or .status == "fail")] | length' '0'
+  #
+  # THREE since phase 30: `phase-landed` joins them, and it is the same class
+  # of legitimate ⊘ the note above describes. This fixture is a git repo with
+  # no remote and no commit (make_tmp_repo), so no control branch exists to
+  # compare against — permanently, for a repo shaped like this — which is
+  # `out-of-scope` and not `no-input`. Charging it as a gap would hand every
+  # single-branch user repo a permanent INCOMPLETE footer, the exact false-red
+  # phase 23 refused. The literal is EDITED, never loosened to a subset: a
+  # subset assertion is the one that stops catching a real regression into the
+  # fourth state, and catching that is why this line exists.
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .id] | sort | join(",")' \
-    'release-versions,test-parallel'
+    'phase-landed,release-versions,test-parallel'
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .scope] | sort | join(",")' \
-    'out-of-scope,out-of-scope'
+    'out-of-scope,out-of-scope,out-of-scope'
 }
 
 # --------------------------------------------------------------------------- #
@@ -3114,10 +3131,11 @@ PY
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
-  # 19 since check 18, response-language (phase 24) — see the long note on
-  # the same assertion near the top of this file for why the merge, and not
-  # either branch, is what made this literal wrong.
-  assert_json_eq "$output" '.checks | length' '19'
+  # 20 since check 19, phase-landed (phase 30) — see the long note on the same
+  # assertion near the top of this file for why the merge, and not either
+  # branch, is what made this literal wrong once, and why BOTH sites are
+  # edited in one change.
+  assert_json_eq "$output" '.checks | length' '20'
   assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
     'true'
 }
@@ -3276,4 +3294,202 @@ write_language_pair() {
   [ "$status" -eq 0 ]
   run diff "$BATS_TEST_TMPDIR/planning-before.json" .planning/config.json
   [ "$status" -eq 0 ]
+}
+
+# --------------------------------------------------------------------------- #
+# Check 19, phase-landed (PR-04, phase 30) — a phase the roadmap calls complete
+# whose work never entered the control branch.
+#
+# The doctor reads NO git for this. cairn-land.py owns every git read behind
+# the question and the doctor invokes it through the CAIRN_LAND seam, the same
+# shape checks 3 and 17 use for cairn-map.py and cairn-bookkeep.py. The last
+# test in this block pins that: a stubbed CAIRN_LAND changes the verdict, which
+# it could not do if the answer were re-derived here.
+#
+# Every assertion is on the exact status value. `!= "ok"` is satisfied by
+# `warn`, by `fail` AND by `not-applicable`, which are four different
+# instructions to whoever reads the report.
+# --------------------------------------------------------------------------- #
+
+# Commit the fixture and point a remote-tracking ref at it. `update-ref` writes
+# exactly the ref a fetch would, so no remote and no network are involved.
+land_commit_and_publish() {
+  git add -A >/dev/null 2>&1 || true
+  git commit -qm "feat(01-01): the auth phase" >/dev/null 2>&1
+  git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
+}
+
+@test "phase-landed: a complete phase on the control branch reads ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'ok'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items | length' '0'
+}
+
+@test "phase-landed: a complete phase ahead of the control branch warns" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+  # Phase 1's closing commit lands AFTER the control branch was published —
+  # the shape of this whole repository today, and of anybody mid-cycle.
+  git commit -q --allow-empty -m "chore(01): close phase 1" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # WARN and not FAIL, and the exit code proves the distinction: unpushed work
+  # is friction, and exit 7 spent on friction stops meaning anything.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'warn'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .detail | test("/cairn:ship")' \
+    'true'
+  # The finding NAMES the phase and the branch — a warning that says only
+  # "something did not land" is the silence this check exists to remove.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0]
+     | test("phase 1") and test("origin/main")' 'true'
+}
+
+@test "phase-landed: an ARCHIVED milestone's phase that never landed fails" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+  # A closed cycle, on disk, exactly the way /gsd:complete-milestone leaves it.
+  mkdir -p .planning/milestones/v0.9-phases/03-legacy
+  echo "# archived" > .planning/milestones/v0.9-ROADMAP.md
+  git add -A >/dev/null
+  git commit -qm "chore: archive v0.9" >/dev/null
+  # ...and work attributed to phase 3 that the control branch does not have.
+  # Attributed by SCOPE, because the archive moved the directory out of
+  # .planning/phases/ — which is precisely the case the second attribution
+  # source exists for.
+  git commit -q --allow-empty -m "feat(03-01): the legacy phase" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # FAIL, and exit 7: this is not "I have not pushed yet", it is a cycle
+  # CLOSED over work the control branch does not have.
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'fail'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0] | test("ARCHIVED")' \
+    'true'
+  assert_json_eq "$output" '.failed' 'true'
+}
+
+@test "phase-landed: a complete phase the history cannot place raises nothing" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # A history that names no phase in a scope AND never touched the phase
+  # directory — so neither attribution source can place phase 1. This is the
+  # shape of phases 7-12 of this repository, MEASURED 2026-08-06: archived from
+  # cycles that predate the conventional-commit scope convention.
+  echo readme > README.md
+  git add README.md >/dev/null
+  git commit -qm "initial import" >/dev/null
+  git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # `ok`, on the exact value: an unplaceable phase is NAMED and not charged.
+  # Charging it would hand every long-lived repo a permanent finding about
+  # history nobody is going to rewrite — the false-red phase 23 refused.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'ok'
+  # Named, though. Silence about it would be the opposite defect.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0] | test("unknown ::")' \
+    'true'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0] | test("no-commits")' \
+    'true'
+}
+
+@test "phase-landed: no control branch is out-of-scope, never a gap" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  git add -A >/dev/null 2>&1 || true
+  git commit -qm "feat(01-01): the auth phase" >/dev/null 2>&1
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'not-applicable'
+  # out-of-scope, NOT no-input: a single-branch repo has nothing to compare
+  # against permanently, and `no-input` would clear `.ok` and hand every one
+  # of them an INCOMPLETE footer forever.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
+}
+
+@test "phase-landed: a broken CAIRN_LAND degrades to warn, never to fail" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+
+  local stub="$BATS_TEST_TMPDIR/broken-land.py"
+  printf '%s\n' 'import sys' 'sys.exit(9)' > "$stub"
+  run env CAIRN_LAND="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  refute_in_output "Traceback"
+  # WARN and not FAIL: the doctor could not ask the question, which is not the
+  # same as the answer being bad. Same degrade shape as check 11.
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'warn'
+  assert_json_eq "$output" '.failed' 'false'
+}
+
+@test "phase-landed: the verdict comes from cairn-land.py, not from git here" {
+  # THE SEAM, pinned. A stub that answers a DIFFERENT verdict than the real
+  # repository would changes the report — which it could not do if this check
+  # re-read git itself. Breaks by: writing a `git merge-base` into
+  # cairn-doctor.py, which is how one fact acquires a second answer.
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  land_commit_and_publish
+
+  local stub="$BATS_TEST_TMPDIR/stub-land.py"
+  cat > "$stub" <<'PY'
+import json
+print(json.dumps({
+    "control": {"branches": ["origin/invented"], "source": "config",
+                "detail": "stubbed"},
+    "phases": {"1": {"status": "unlanded", "commits": 4, "sources": ["scope"],
+                     "branches": {"origin/invented": "unlanded"},
+                     "reason": None, "pr": {"status": "unknown"}}},
+    "answered": True, "reason": None, "detail": "stubbed"}))
+PY
+  run env CAIRN_LAND="$stub" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'warn'
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .items[0]
+     | test("origin/invented")' 'true'
+  # And the real run of the same fixture reads `ok` — without this line the
+  # assertion above would pass against a check that always warns.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="phase-landed") | .status' 'ok'
 }
