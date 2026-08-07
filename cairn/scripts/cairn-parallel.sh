@@ -2,8 +2,10 @@
 # Thin wrapper around the cairn parallel-phase driver. See cairn-parallel.py
 # for the contract.
 # Usage: cairn-parallel.sh {batch [--max N]|prepare N|reconcile [--phases
-#                          7,9]|cleanup [--apply]} [--project-dir DIR]
-#                          [--json]
+#                          7,9]|cleanup [--apply] [--phase N]}
+#                          [--project-dir DIR] [--json]
+#        cleanup --phase N narrows the sweep to phase N's CANONICAL worktree
+#        (<root>-phase-N) and its lease — never to every branch matching N.
 # Exit:  0 ok — including EVERY cleanup, with orphans or without, applied or
 #        not: an orphan is a condition cleanup itself repairs, not a
 #        judgement somebody has to make, 2 usage, 3 phase lease held by
