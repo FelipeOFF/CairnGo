@@ -134,6 +134,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 EXIT_OK = 0
@@ -636,6 +637,64 @@ def pr_for_commits(commits):
             "detail": None}
 
 
+# The review cache cairn-review.py writes, and this file only ever READS. It is
+# a plain file read — no subprocess, so the structural inventory in
+# tests/cairn-land.bats keeps counting exactly two sites and the proof that the
+# board's path makes no network call survives the arrival of a feature whose
+# whole subject is the network.
+REVIEW_CACHE_RELPATH = ".cairn/pr-cache.json"
+# Past this, the board says `stale` beside the state. The same 24h
+# cairn-status.py already uses for the sync watermark — one number for "how
+# long before a cached answer stops being worth trusting", not two.
+REVIEW_STALE_SECONDS = 24 * 3600
+
+
+def read_review_cache(root):
+    """(entries, fetched_at, tool, age_seconds) or (None, None, None, None).
+
+    A cache with no `fetched_at` is treated as ABSENT, deliberately: a
+    pull-request state with no age is worse than no state at all, because it
+    looks current. There is no branch here that renders a state without one.
+    """
+    path = Path(root) / REVIEW_CACHE_RELPATH
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, None, None, None
+    if not isinstance(data, dict):
+        return None, None, None, None
+    stamp = data.get("fetched_at")
+    entries = data.get("prs")
+    if not stamp or not isinstance(entries, dict):
+        return None, None, None, None
+    try:
+        when = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None, None, None, None
+    age = int((datetime.now(timezone.utc) - when).total_seconds())
+    return entries, stamp, data.get("tool"), max(0, age)
+
+
+def review_for(cache, number):
+    """The cached review block for one pull request, or None.
+
+    `stale` is a computed boolean carried BESIDE the age, not instead of it:
+    a consumer that disagrees with this file's threshold still has the seconds
+    to decide for itself.
+    """
+    entries, stamp, tool, age = cache
+    if not entries or number is None:
+        return None
+    entry = entries.get(str(number))
+    if not isinstance(entry, dict):
+        return None
+    return {"state": entry.get("state"), "title": entry.get("title"),
+            "url": entry.get("url"), "merged_at": entry.get("merged_at"),
+            "fetched_at": stamp, "age_seconds": age,
+            "stale": age > REVIEW_STALE_SECONDS, "tool": tool}
+
+
 def verdict(shas, unlanded):
     """`landed` / `partial` / `unlanded` for a commit set against ONE branch.
 
@@ -688,6 +747,10 @@ def build_report(root, planning_dir):
                 "detail": f"{root} is not a readable git work tree"}
     by_phase, all_commits = read_history(root, planning_dir)
     unlanded = unlanded_sets(root, branches)
+    # Read once for the whole report — a file, never a fetch. cairn-review.py
+    # is the only thing that writes it, and nothing in this call graph invokes
+    # cairn-review.py.
+    cache = read_review_cache(root)
     phases = {}
     for n in sorted(by_phase):
         commits = by_phase[n]
@@ -700,6 +763,7 @@ def build_report(root, planning_dir):
             "reason": None,
             "pr": pr_for_commits(commits),
         }
+        row["pr"]["review"] = review_for(cache, row["pr"]["number"])
         if not unlanded:
             row["status"] = STATUS_UNKNOWN
             row["reason"] = REASON_NO_BRANCH
@@ -732,6 +796,21 @@ def build_report(root, planning_dir):
 # --------------------------------------------------------------------------- #
 # the verbs
 # --------------------------------------------------------------------------- #
+def human_age(seconds):
+    """`42s` / `17m` / `3h` / `5d`. One unit, no rounding upward past it.
+
+    Coarse on purpose: the reader has to know whether a cached answer is from
+    minutes ago or from last week, and no decision anybody makes off this board
+    turns on the difference between 3h and 3h12m.
+    """
+    seconds = max(0, int(seconds))
+    for limit, unit, size in ((60, "s", 1), (3600, "m", 60),
+                              (86400, "h", 3600)):
+        if seconds < limit:
+            return f"{seconds // size}{unit}"
+    return f"{seconds // 86400}d"
+
+
 def emit(as_json, payload, lines):
     if as_json:
         print(json.dumps({k: v for k, v in payload.items()
@@ -813,6 +892,14 @@ def cmd_report(args, root):
         pr_text = (f"pr #{pr['number']} ({pr['source']})"
                    if pr["status"] == PR_FOUND
                    else f"pr {PR_UNKNOWN} :: {pr['reason']}")
+        review = pr.get("review")
+        if review:
+            # The state NEVER prints without its age. That pairing is the
+            # whole requirement: a pull-request state with no age looks
+            # current, and looking current is exactly what a cache is not.
+            pr_text += (f" [{review['state']} — cached "
+                        f"{human_age(review['age_seconds'])} ago"
+                        f"{', stale' if review['stale'] else ''}]")
         lines.append(f" phase {n:>3}  {row['status']:<9} {row['commits']:>3} "
                      f"commit(s)  {where}  {pr_text}")
     if not report["answered"]:

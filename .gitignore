@@ -2,6 +2,10 @@ __pycache__/
 *.pyc
 .cairn/id-map.json
 .cairn/state.json
+# Per-machine pull-request review cache (cairn-review.py fetch). Every entry
+# is stamped with when it was fetched; committing it would ship a stale answer
+# that looks current on somebody else's machine.
+.cairn/pr-cache.json
 .cairn/conflicts.json
 .cairn/reconcile-evidence.json
 .cairn/hook.log

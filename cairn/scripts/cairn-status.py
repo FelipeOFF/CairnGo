@@ -2559,8 +2559,35 @@ def landing_text(landed):
     # an absence out loud is /cairn:doctor's job, not a card's.
     pr = landed.get("pr")
     if isinstance(pr, dict) and pr.get("number") is not None:
-        parts.append(f"#{pr['number']}")
+        text = f"#{pr['number']}"
+        review = pr.get("review")
+        if isinstance(review, dict) and review.get("state"):
+            # THE STATE NEVER RENDERS WITHOUT ITS AGE, on any surface. A
+            # pull-request state with no age is worse than none, because it
+            # looks current — and this one came out of a cache file that
+            # nothing on this code path ever refreshes.
+            text += (f" {clean(review['state']).lower()}"
+                     f" ({review_age_text(review)})")
+        parts.append(text)
     return " · ".join(parts)
+
+
+def review_age_text(review):
+    """`3h ago` / `5d ago, stale` — the age, and the word when it is old.
+
+    Never returns an empty string for a cache that has a state: read_review_
+    cache() in cairn-land.py already treats a stamp-less cache as absent, so a
+    `review` that reached here always has an age to print.
+    """
+    seconds = max(0, int(review.get("age_seconds") or 0))
+    for limit, unit, size in ((60, "s", 1), (3600, "m", 60),
+                              (86400, "h", 3600)):
+        if seconds < limit:
+            age = f"{seconds // size}{unit}"
+            break
+    else:
+        age = f"{seconds // 86400}d"
+    return f"{age} ago, stale" if review.get("stale") else f"{age} ago"
 
 
 def landing_spans(landed, style):

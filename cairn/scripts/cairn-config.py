@@ -138,6 +138,7 @@ Keys, and what reads each one:
     | git.control_branches     | str, "" (= ask/     | cairn-land.py,          |
     |                          |   detect), comma-   |   cairn-status.py,      |
     |                          |   separated         |   cairn-doctor.py       |
+    | git.review_state         | off|gh|glab, "off"  | cairn-review.py fetch   |
     | jira.link                | unset|yes|no,       | cairn-jira.py detect    |
     |                          |   "unset"           |                         |
     | ship.pr_scope            | phase|milestone|    | cairn-bookkeep.py       |
@@ -290,6 +291,16 @@ SCHEMA = {
                   "have two at once (develop AND main). Empty means the "
                   "question was never answered and cairn-land.py falls back "
                   "to detecting it, saying so",
+    },
+    "git.review_state": {
+        "type": "enum",
+        "choices": ["off", "gh", "glab"],
+        "default": "off",
+        "reader": "cairn-review.py fetch",
+        "effect": "which forge CLI may be called to fetch pull-request state "
+                  "— and `off`, the default, means cairn makes no network "
+                  "call at all. The board never fetches on any setting: it "
+                  "reads .cairn/pr-cache.json and prints how old it is",
     },
     "jira.link": {
         "type": "enum",

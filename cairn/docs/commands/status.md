@@ -447,6 +447,31 @@ The board shows `· #18` in the `⤒` suffix when a number was found, and nothin
 when it was not — a card that prints nothing claims nothing. Naming an absence
 out loud is `/cairn:doctor`'s job.
 
+### The review state, and why it always carries its age
+
+The third question — *what state is that pull request in?* — needs the network,
+so it sits behind `git.review_state` (`off` by default · `gh` · `glab`) and it
+is fetched by a **different script**: `cairn-review.sh fetch`. The board never
+invokes it, and that boundary is structural rather than a promise:
+
+```
+cairn-status.py  ->  cairn-land.py  ->  git, and the cache FILE
+cairn-review.py  ->  gh / glab                      (never the reverse)
+```
+
+The structural inventories keep asserting **five** `subprocess.run` sites in
+`cairn-status.py` and **two** in `cairn-land.py`, none of them a network tool,
+and `tests/cairn-review.bats` states the same boundary from the other side.
+Moving the fetch into either file would require deleting those assertions to
+ship — which is exactly the conversation that should happen out loud.
+
+The fetch writes `.cairn/pr-cache.json` (gitignored, per-machine) with a
+top-level `fetched_at`. The board reads that file and renders
+`⤒ origin/main · #18 merged (3h ago)` — **the state never prints without its
+age**. A pull-request state with no age is worse than no state at all, because
+it looks current. A cache carrying no `fetched_at` is treated as absent, not as
+fresh; past 24 hours the render adds `, stale`.
+
 **A task's landing is its phase's landing**, projected through its `phase-N`
 labels, and `unknown` / `no-phase` when it names none. It is not a second read
 of git: MEASURED, all 41 commit bodies here that name a bd issue id do it as a
