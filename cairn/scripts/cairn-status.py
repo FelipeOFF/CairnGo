@@ -708,7 +708,7 @@ def unknown_landing(reason):
     only the ones with a value.
     """
     return {"status": LAND_UNKNOWN, "branches": {}, "commits": 0,
-            "reason": reason}
+            "reason": reason, "pr": None}
 
 
 def fetch_landing(root, planning_dir):
@@ -757,7 +757,11 @@ def phase_landing(landing, n):
     return {"status": row.get("status") or LAND_UNKNOWN,
             "branches": row.get("branches") or {},
             "commits": row.get("commits") or 0,
-            "reason": row.get("reason")}
+            "reason": row.get("reason"),
+            # Carried whole, never re-derived and never flattened to a number:
+            # the `unknown` half of it is the load-bearing half, and it only
+            # means anything with its `reason` and its `detail` attached.
+            "pr": row.get("pr")}
 
 
 def combine_landing(values):
@@ -793,7 +797,13 @@ def issue_landing(iss, landing):
     return {"status": combine_landing(r["status"] for r in rows),
             "branches": branches,
             "commits": sum(r["commits"] for r in rows),
-            "reason": next((r["reason"] for r in rows if r["reason"]), None)}
+            "reason": next((r["reason"] for r in rows if r["reason"]), None),
+            # The PR of a task spanning two phases is not one number, and this
+            # never invents one: it carries the block only when exactly one
+            # phase answered, and `None` otherwise. `None` here means "this
+            # projection has nothing to say", which is a different silence
+            # from cairn-land.py's `unknown` and wears a different value.
+            "pr": rows[0]["pr"] if len(rows) == 1 else None}
 
 
 # --------------------------------------------------------------- GSD reading
@@ -2542,6 +2552,14 @@ def landing_text(landed):
         parts.append("partly in " + ", ".join(part))
     if out:
         parts.append("not in " + ", ".join(out))
+    # The pull request joins ONLY when the history actually names one. An
+    # `unknown` prints nothing here — and that is not the silence D-03 forbids:
+    # what is forbidden is claiming there is NO pull request, and a card that
+    # prints nothing claims nothing. The reason travels in --json, and naming
+    # an absence out loud is /cairn:doctor's job, not a card's.
+    pr = landed.get("pr")
+    if isinstance(pr, dict) and pr.get("number") is not None:
+        parts.append(f"#{pr['number']}")
     return " · ".join(parts)
 
 

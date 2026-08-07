@@ -68,6 +68,32 @@ script's own noun. It is NEVER collapsed into `unlanded`: "I looked and it is
 not there" and "I could not look" are different sentences, and only the first
 one licenses anybody to act.
 
+WHICH PULL REQUEST — TWO WORDS, AND NEITHER OF THEM IS "NONE"
+--------------------------------------------------------------
+    found     a commit attributed to the phase names a pull request, either
+              in GitHub's own merge subject (`Merge pull request #6 from …`)
+              or in the squash-merge title suffix (`… (#18)`)
+    unknown   it does not, and `reason` says which kind of silence it is:
+              `no-commits`    nothing is attributed to this phase at all
+              `no-reference`  commits are attributed and none names a PR
+
+THERE IS DELIBERATELY NO THIRD VERDICT. "There is no pull request" is a claim
+about the forge, and nothing offline can make it. MEASURED 2026-08-06 over this
+repository, and it is the case that decides whether this file is honest:
+
+    commits carrying `(#N)` in the subject ......... 14
+    merge commits naming `pull request #N` ......... 6
+    pull request #21, which merged the whole v1.4
+      milestone, became `7fa133c v1.4 Honest State:
+      phase state that proves what it claims` —
+      a real merge commit with two parents whose
+      subject and body name no number at all ....... no trace
+
+The most important merge in the project is invisible offline. Any surface here
+that reported "no PR" for it would be lying about it while passing a green
+suite, which is why `PR_LIMIT_DETAIL` is carried alongside every `unknown` and
+why cmd_report() prints the word `unknown` and never the word `none`.
+
 WHICH BRANCH IS THE CONTROL BRANCH
 -----------------------------------
 `git.control_branches` in `.cairn/config.json` — a comma-separated list,
@@ -135,6 +161,35 @@ SCOPE_PHASE = re.compile(r"^0*(\d+)(?:-\d+)?$")
 # The same directory grammar cairn-map and cairn-status resolve: an optional
 # project-code prefix, then the zero-padded phase number.
 PHASE_DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
+
+# Pull-request references a LOCAL history can actually carry, and nothing else
+# is inferred from anywhere.
+#
+#   `Merge pull request #6 from FelipeOFF/…`   — GitHub's own merge subject
+#   `feat(doctor): … (#18)`                    — the squash-merge title suffix
+#
+# MEASURED 2026-08-06 over this repository: 14 commits carry `(#N)`, 6 merge
+# commits name a pull request, and the single most important merge in the
+# project carries NEITHER. `7fa133c` is a real merge commit (two parents) whose
+# subject reads `v1.4 Honest State: phase state that proves what it claims
+# (ships cairn 1.5.0)` — it is pull request #21, and the local history does not
+# say so anywhere.
+#
+# That measurement is the whole reason this file has no third verdict. "I found
+# no reference" is a fact about the history; "there is no pull request" is a
+# claim about GitHub, and nothing offline can make it.
+MERGE_PR = re.compile(r"^Merge pull request #(\d+)\b")
+SQUASH_PR = re.compile(r"\(#(\d+)\)\s*$")
+
+PR_FOUND = "found"
+PR_UNKNOWN = "unknown"
+PR_SOURCE_MERGE = "merge-subject"
+PR_SOURCE_SQUASH = "squash-subject"
+REASON_NO_REFERENCE = "no-reference"
+PR_LIMIT_DETAIL = (
+    "the local git history is the only source consulted — a merge or squash "
+    "whose subject was rewritten leaves no reference behind, so an absent "
+    "number is never evidence that no pull request existed")
 
 STATUS_LANDED = "landed"
 STATUS_PARTIAL = "partial"
@@ -526,6 +581,61 @@ def unlanded_sets(root, branches):
     return out
 
 
+def pr_of_subject(subject):
+    """(number, source) for one commit subject, or (None, None).
+
+    Merge subject before squash suffix: `Merge pull request #6 from …` is
+    unambiguous, while a trailing `(#N)` is a convention a project can also use
+    for an issue. Both are read only from the SUBJECT — the body is never
+    fetched (see read_history() for the 476216-versus-80605 measurement).
+    """
+    m = MERGE_PR.match(subject or "")
+    if m:
+        return int(m.group(1)), PR_SOURCE_MERGE
+    m = SQUASH_PR.search(subject or "")
+    if m:
+        return int(m.group(1)), PR_SOURCE_SQUASH
+    return None, None
+
+
+def pr_for_commits(commits):
+    """The pull request a phase's commits name, or `unknown` WITH ITS REASON.
+
+    THERE IS NO THIRD VERDICT, AND THAT IS THE POINT. This function can answer
+    `found` or `unknown`; it can never answer "there is no pull request",
+    because that sentence is a claim about the forge and this function only
+    ever read a git repository. Reporting "no PR" for `7fa133c` — pull request
+    #21, the merge that brought an entire milestone — would be the loudest
+    possible version of the defect, and it would pass a green suite.
+
+    `commits` arrives newest-first (git log order), so `number` is the newest
+    reference and `numbers` carries every distinct one, which is what a phase
+    delivered across two pull requests actually looks like.
+    """
+    if not commits:
+        return {"status": PR_UNKNOWN, "number": None, "numbers": [],
+                "source": None, "commit": None, "reason": REASON_NO_COMMITS,
+                "detail": PR_LIMIT_DETAIL}
+    numbers, first = [], None
+    for c in commits:
+        n, source = pr_of_subject(c["subject"])
+        if n is None:
+            continue
+        if n not in numbers:
+            numbers.append(n)
+        if first is None:
+            first = (n, source, c["sha"])
+    if first is None:
+        return {"status": PR_UNKNOWN, "number": None, "numbers": [],
+                "source": None, "commit": None, "reason": REASON_NO_REFERENCE,
+                "detail": f"{len(commits)} commit(s) attributed to this phase "
+                          f"and none of them names a pull request — "
+                          f"{PR_LIMIT_DETAIL}"}
+    return {"status": PR_FOUND, "number": first[0], "numbers": sorted(numbers),
+            "source": first[1], "commit": first[2], "reason": None,
+            "detail": None}
+
+
 def verdict(shas, unlanded):
     """`landed` / `partial` / `unlanded` for a commit set against ONE branch.
 
@@ -588,6 +698,7 @@ def build_report(root, planning_dir):
             "sources": sorted({s for c in commits for s in c["sources"]}),
             "branches": {},
             "reason": None,
+            "pr": pr_for_commits(commits),
         }
         if not unlanded:
             row["status"] = STATUS_UNKNOWN
@@ -696,8 +807,14 @@ def cmd_report(args, root):
         row = report["phases"][n]
         where = ", ".join(f"{b}: {v}" for b, v in sorted(
             row["branches"].items())) or (row["reason"] or "")
+        pr = row["pr"]
+        # `pr unknown :: <reason>`, never "no PR". The word this line is not
+        # allowed to print is the one an offline reader cannot justify.
+        pr_text = (f"pr #{pr['number']} ({pr['source']})"
+                   if pr["status"] == PR_FOUND
+                   else f"pr {PR_UNKNOWN} :: {pr['reason']}")
         lines.append(f" phase {n:>3}  {row['status']:<9} {row['commits']:>3} "
-                     f"commit(s)  {where}")
+                     f"commit(s)  {where}  {pr_text}")
     if not report["answered"]:
         lines.append(f" {STATUS_UNKNOWN} :: {report['reason']} — "
                      f"{report['detail']}")

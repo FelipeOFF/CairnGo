@@ -397,6 +397,149 @@ assert_output_lacks() {
     '.ready[] | select(.id=="brd-900") | .landed.reason' 'no-phase'
 }
 
+# ─── Which pull request took it there — two words, neither is "none" ────────
+
+@test "a squash-merge title suffix is found, with its exact source" {
+  make_land_repo
+  git commit -q --allow-empty -m "feat(03-02): alpha follow-up (#18)"
+  set_remote_branch main "$(git rev-parse HEAD)"
+  land_json report
+  assert_json_eq "$output" '.phases["3"].pr.status' 'found'
+  assert_json_eq "$output" '.phases["3"].pr.number' '18'
+  assert_json_eq "$output" '.phases["3"].pr.source' 'squash-subject'
+}
+
+@test "a GitHub merge subject is found, and outranks a trailing paren" {
+  # The commit touches phase 3's directory, so PATH attribution places it —
+  # a merge subject carries no conventional-commit scope, which is exactly why
+  # the two attribution sources exist.
+  make_land_repo
+  echo more > .planning/phases/03-alpha/03-02-PLAN.md
+  git add -A >/dev/null
+  git commit -qm "Merge pull request #6 from FelipeOFF/feat/alpha (#99)"
+  set_remote_branch main "$(git rev-parse HEAD)"
+  land_json report
+  # Precedence on the exact value: `merge-subject`, not `squash-subject`, even
+  # though `(#99)` sits in the very same string. Breaks by: testing the squash
+  # pattern first, which would answer 99 for a merge that says 6.
+  assert_json_eq "$output" '.phases["3"].pr.source' 'merge-subject'
+  assert_json_eq "$output" '.phases["3"].pr.number' '6'
+  # ONE subject names ONE pull request, and 99 is deliberately not reported.
+  # MEASURED while writing this test, and the reason the assertion changed
+  # from `6,99`: a trailing paren inside a merge subject belongs to the branch
+  # name GitHub pasted into it, not to a second pull request. Reporting both
+  # would be the board inventing a delivery that never happened.
+  assert_json_eq "$output" '.phases["3"].pr.numbers | join(",")' '6'
+}
+
+@test "a phase delivered across two pull requests reports both numbers" {
+  make_land_repo
+  git commit -q --allow-empty -m "feat(03-02): first half (#7)"
+  git commit -q --allow-empty -m "feat(03-03): second half (#8)"
+  set_remote_branch main "$(git rev-parse HEAD)"
+  land_json report
+  # `number` is the NEWEST reference (git log order), `numbers` is every
+  # distinct one — dropping the older would hide half the delivery.
+  assert_json_eq "$output" '.phases["3"].pr.number' '8'
+  assert_json_eq "$output" '.phases["3"].pr.numbers | join(",")' '7,8'
+}
+
+@test "a merge that names no number is unknown with no-reference, never no PR" {
+  # THE PROPERTY THE WHOLE PLAN EXISTS FOR. Phase 4's commits are real, they
+  # are attributed, and not one of them carries a pull-request reference —
+  # exactly the shape of #21. The verdict is `unknown` with a named reason,
+  # and no surface is allowed to say the work had no pull request.
+  make_land_repo
+  set_remote_branch main "$C2"
+  land_json report
+  assert_json_eq "$output" '.phases["4"].pr.status' 'unknown'
+  assert_json_eq "$output" '.phases["4"].pr.reason' 'no-reference'
+  assert_json_eq "$output" '.phases["4"].pr.number' 'null'
+  # The detail names the limit rather than making a claim about the forge.
+  assert_json_eq "$output" \
+    '.phases["4"].pr.detail | test("never evidence that no pull request")' \
+    'true'
+}
+
+@test "no surface prints the words that would claim there is no pull request" {
+  # Breaks by: rendering `unknown` as "no PR" / "none" / "sem PR". Asserted
+  # over the HUMAN output, which is the surface a person actually reads, and
+  # over the whole report rather than one row.
+  make_land_repo
+  set_remote_branch main "$C2"
+  run bash "$LAND_SH" report --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_output_has "pr unknown :: no-reference"
+  local phrase
+  for phrase in "no PR" "no pull request found" "sem PR" "pr none" "pr: none"; do
+    if printf '%s\n' "$output" | grep -qiF -- "$phrase"; then
+      echo "the report claims '$phrase' about a history that only proves" \
+        "it found no reference:" >&2
+      printf '%s\n' "$output" >&2
+      return 1
+    fi
+  done
+}
+
+@test "the real #21 of this repository is unknown, not 'no PR'" {
+  # THE ACCEPTANCE CASE, run against the ACTUAL history rather than a fixture.
+  # Guarded by its own precondition so a future rewrite makes it skip loudly
+  # instead of failing for the wrong reason.
+  cd "$CAIRN_REPO_ROOT" || return 1
+  run git cat-file -e 7fa133c^{commit}
+  [ "$status" -eq 0 ] || skip "7fa133c is not in this checkout"
+
+  # The premise, asserted rather than assumed: it IS a merge commit, and its
+  # subject names no pull request.
+  run python3 -c '
+import re, subprocess, sys
+out = subprocess.run(["git", "show", "-s", "--format=%P\x1f%s\x1f%b",
+                      "7fa133c"], capture_output=True, text=True).stdout
+parents, subject, body = out.split("\x1f", 2)
+assert len(parents.split()) == 2, "not a merge commit: %r" % parents
+assert not re.match(r"^Merge pull request #(\d+)\b", subject), subject
+assert not re.search(r"\(#(\d+)\)\s*$", subject.strip()), subject
+assert "#21" not in subject and "#21" not in body, (subject, body)
+print("premise holds: a two-parent merge naming no pull request")'
+  if [ "$status" -ne 0 ]; then
+    printf '%s\n' "$output" >&2
+  fi
+  [ "$status" -eq 0 ]
+
+  # And a phase that #21 carried into main reports `unknown`, never a claim
+  # that no pull request existed. Phase 13 is inside the v1.4 milestone #21
+  # merged.
+  run bash "$LAND_SH" report --project-dir "$CAIRN_REPO_ROOT" --json
+  [ "$status" -eq 0 ]
+  local st
+  st="$(printf '%s' "$output" | jq -r '.phases["13"].pr.status')"
+  if [ "$st" != "unknown" ] && [ "$st" != "found" ]; then
+    echo "phase 13's pr status is '$st' — the vocabulary is exactly two" \
+      "words, and neither of them says a pull request does not exist" >&2
+    return 1
+  fi
+  # Whatever it answers, it never answers with the forbidden claim.
+  assert_json_eq "$output" \
+    '[.phases[].pr.status] | unique - ["found","unknown"] | length' '0'
+}
+
+@test "the board carries the pull request number only when one was found" {
+  require_bd
+  make_tmp_repo
+  make_board_fixture "$PWD"
+  git add -A >/dev/null 2>&1 || true
+  git commit -qm "feat(03-01): board fixture (#42)" >/dev/null 2>&1
+  set_remote_branch main "$(git rev-parse HEAD)"
+
+  run bash "$STATUS_SH" --width 140 --color=never
+  [ "$status" -eq 0 ]
+  assert_output_has "⤒ origin/main · #42"
+  # And the unknown case prints no marker of any kind — a card that prints
+  # nothing claims nothing.
+  assert_output_lacks "#null"
+  assert_output_lacks "no PR"
+}
+
 # ─── The absence of network, proved at all three boundaries ──────────────────
 
 arm_tripwires() {
