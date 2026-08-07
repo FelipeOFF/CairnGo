@@ -476,35 +476,127 @@ print(len(before))
   assert_json_eq "$output" '.lease.holder' '/path/A'
 }
 
-@test "compact: a crash between the sibling write and the rename leaves the original journal byte-for-byte unchanged" {
+@test "compact: sealing leaves the sealed segment byte-for-byte unchanged and opens the next one" {
   make_tmp_repo
 
   run bash -c "echo '[{\"phase\": 63, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
   [ "$status" -eq 0 ]
 
-  local before_hash
-  before_hash="$(shasum -a 256 "$(own_segment)" | awk '{print $1}')"
+  local sealed before_hash
+  sealed="$(own_segment)"
+  before_hash="$(shasum -a 256 "$sealed" | awk '{print $1}')"
 
-  # This is the exact recipe compact() itself uses up through the sibling
-  # write -- and then, deliberately, no rename. That gap IS "a crash
-  # between the sibling write and the rename": nothing further needs to
-  # be mocked or killed to prove the original is untouched by it.
-  run python3 -c "
-import tempfile, os
-tmp_fd, tmp_path = tempfile.mkstemp(dir='.cairn/journal', prefix='journal.jsonl.tmp-')
-os.write(tmp_fd, b'{\"event\": \"snapshot\", \"phase\": 63}\n')
-os.close(tmp_fd)
-print(tmp_path)
-"
+  run bash "$JOURNAL" compact --project-dir "$PWD" --json
   [ "$status" -eq 0 ]
-  local tmp_path="$output"
-  [ -f "$tmp_path" ]
+  assert_json_eq "$output" '.compacted' 'true'
 
+  # By hash, not by size: a rewrite of the same length would slip past a
+  # size check. E5 is why this matters -- a rewritten segment makes union
+  # RESURRECT what was folded, because the other branch still carries the
+  # original lines.
   local after_hash
-  after_hash="$(shasum -a 256 "$(own_segment)" | awk '{print $1}')"
+  after_hash="$(shasum -a 256 "$sealed" | awk '{print $1}')"
   [ "$before_hash" = "$after_hash" ]
 
-  rm -f "$tmp_path"
+  # The next segment exists, is the new active one, and starts with the
+  # snapshot carrying compacted_through_ts.
+  local active
+  active="$(own_segment)"
+  [ "$active" != "$sealed" ]
+  [[ "$(basename "$active")" =~ -0002\.jsonl$ ]]
+  run bash -c "head -n 1 \"$active\" | jq -r '.event'"
+  [ "$output" = "snapshot" ]
+  run bash -c "head -n 1 \"$active\" | jq -r '.compacted_through_ts == null'"
+  [ "$output" = "false" ]
+}
+
+@test "compact: a sealed segment is never deleted, however many compactions run" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 68, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  local seg1 hash1
+  seg1="$(own_segment)"
+  hash1="$(shasum -a 256 "$seg1" | awk '{print $1}')"
+
+  run bash "$JOURNAL" compact --project-dir "$PWD" --json
+  assert_json_eq "$output" '.compacted' 'true'
+  # A real event after the seal, so the second compaction has something
+  # to seal rather than hitting the already_compacted guard.
+  run bash -c "echo '[{\"phase\": 68, \"evidence\": {\"disk\": \"executed\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+  local seg2 hash2
+  seg2="$(own_segment)"
+  hash2="$(shasum -a 256 "$seg2" | awk '{print $1}')"
+
+  run bash "$JOURNAL" compact --project-dir "$PWD" --json
+  assert_json_eq "$output" '.compacted' 'true'
+
+  # Three segments, and the two sealed ones untouched. Deleting one would
+  # turn the next merge into modify/delete (E10), which is worse to
+  # resolve than a content conflict.
+  local count
+  count="$(ls .cairn/journal/*.jsonl | wc -l | tr -d ' ')"
+  [ "$count" -eq 3 ]
+  [ -f "$seg1" ]
+  [ -f "$seg2" ]
+  [ "$hash1" = "$(shasum -a 256 "$seg1" | awk '{print $1}')" ]
+  [ "$hash2" = "$(shasum -a 256 "$seg2" | awk '{print $1}')" ]
+
+  # And the answer is still right after two seals.
+  run bash "$JOURNAL" last-moved --phase 68 --json --project-dir "$PWD"
+  assert_json_eq "$output" '.disk.value' 'executed'
+}
+
+@test "compact: running twice with nothing new does not chain empty segments" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 69, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" compact --project-dir "$PWD" --json
+  assert_json_eq "$output" '.compacted' 'true'
+  local count_after_first
+  count_after_first="$(ls .cairn/journal/*.jsonl | wc -l | tr -d ' ')"
+
+  run bash "$JOURNAL" compact --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.compacted' 'false'
+  assert_json_eq "$output" '.reason' 'already_compacted'
+  [ "$(ls .cairn/journal/*.jsonl | wc -l | tr -d ' ')" -eq "$count_after_first" ]
+}
+
+@test "compact: a next segment that arrived through git is never overwritten" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 70, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  # The narrow race O_EXCL closes, and the ONLY way it is reachable: the
+  # next segment lands on disk AFTER this compaction chose its target and
+  # BEFORE it writes -- a git merge bringing in a clone's sealed head
+  # mid-flight. The flock cannot see it; it only serializes compactions on
+  # THIS machine. Built with the same TEST_DELAY seam, from the other side.
+  local sealed next
+  sealed="$(own_segment)"
+  next="${sealed%-0001.jsonl}-0002.jsonl"
+
+  CAIRN_JOURNAL_COMPACT_TEST_DELAY=1 bash "$JOURNAL" compact \
+    --project-dir "$PWD" --json > compact-out.json &
+  local compact_pid=$!
+  sleep 0.2
+  printf '{"event":"snapshot","phase":999}\n' > "$next"
+  local next_hash
+  next_hash="$(shasum -a 256 "$next" | awk '{print $1}')"
+
+  wait "$compact_pid"
+  [ "$?" -eq 0 ]
+
+  run cat compact-out.json
+  assert_json_eq "$output" '.compacted' 'false'
+  assert_json_eq "$output" '.reason' 'segment_exists'
+  # Overwriting it would have deleted somebody else's sealed head.
+  [ "$next_hash" = "$(shasum -a 256 "$next" | awk '{print $1}')" ]
 }
 
 @test "compact: a contended compaction lock is skipped without hanging; a concurrent observe still succeeds uncompacted" {
@@ -675,16 +767,28 @@ time.sleep(2)
   [ "$(jq -S . <<<"$before_102")" = "$(jq -S . <<<"$after_102")" ]
   [ "$(jq -S . <<<"$before_103")" = "$(jq -S . <<<"$after_103")" ]
 
-  # Secondary check: the file was actually rewritten to the smaller form,
-  # not merely that the answers happen to still be correct against an
-  # untouched file.
+  # Secondary check: compaction really happened, and it happened the way
+  # phase 28 redefined it -- the ACTIVE segment is now nothing but one
+  # snapshot per touched phase, and the sealed segment still holds every
+  # original record. Before phase 28 this asserted the file had SHRUNK;
+  # under a versioned journal shrinking is the wrong goal (E5: rewriting
+  # makes union resurrect what was folded, and git history keeps every
+  # version anyway). The read-time win comes from the short active
+  # segment, not from anything being thrown away.
+  run bash -c "wc -l < \"$(own_segment)\" | tr -d ' '"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 3 ]
+  run bash -c "jq -c 'select(.event != \"snapshot\")' \"$(own_segment)\""
+  [ -z "$output" ]
+
   run bash "$JOURNAL" history --json --project-dir "$PWD"
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.records | length' '3'
   assert_json_eq "$output" '[.records[] | select(.event == "snapshot")] | length' '3'
+  # Nothing was discarded: every original record is still readable, plus
+  # the three snapshots.
   local records_after
   records_after="$(jq '.records | length' <<<"$output")"
-  [ "$records_after" -lt "$records_before" ]
+  [ "$records_after" -eq "$((records_before + 3))" ]
 }
 
 #-----------------------------------------------------------------------------
@@ -1149,4 +1253,105 @@ observe_as() {
   [ "$status" -eq 0 ]
   run git check-ignore -q .cairn/journal.jsonl
   [ "$status" -eq 0 ]
+}
+
+#-----------------------------------------------------------------------------
+# Phase 28, plan 28-03 (DJOUR-02, critério 4): THE E13 TEST.
+#
+# The measured defect that kills the naive design, quoted from the research:
+# two machines compacting the shared journal left a VALID two-line JSONL with
+# one machine's ENTIRE history gone -- no conflict, no error, no signal. A
+# snapshot is a totalizing claim ("this is phase X's state through T"), and
+# two concurrent totalizing claims about the same object do not compose.
+#
+# One partition per checkout makes that impossible by construction. This test
+# exists to prove the construction, not to promise it: it BUILDS the two
+# concurrent compactions and merges them for real.
+#-----------------------------------------------------------------------------
+
+@test "compact: THE E13 TEST -- two checkouts compacting concurrently lose neither history" {
+  make_tmp_repo
+  use_project_gitattributes
+  git commit -q -m "base"
+  local base_branch
+  base_branch="$(git rev-parse --abbrev-ref HEAD)"
+
+  # hostA: three observations of the same phase, then its own compaction.
+  git checkout -q -b maqA
+  observe_as hostA 80 disk planned
+  observe_as hostA 80 disk executed
+  observe_as hostA 80 bd open
+  CAIRN_JOURNAL_MACHINE=hostA bash "$JOURNAL" compact --project-dir "$PWD" --json > /dev/null
+  git add -A .cairn/journal && git commit -q -m "maqA compacted"
+
+  # hostB: a DIFFERENT history for the same phase and the same axis, and its
+  # own compaction. This is exactly E13's setup.
+  git checkout -q "$base_branch"
+  git checkout -q -b maqB
+  observe_as hostB 80 disk blocked
+  observe_as hostB 80 roadmap incomplete
+  CAIRN_JOURNAL_MACHINE=hostB bash "$JOURNAL" compact --project-dir "$PWD" --json > /dev/null
+  git add -A .cairn/journal && git commit -q -m "maqB compacted"
+
+  git checkout -q maqA
+  run git merge --no-edit maqB
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL" history --phase 80 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  # THE ASSERTION THAT CARRIES THE TEST: counted PER MACHINE, never as a
+  # total. E13's failure produced a valid file with a plausible total and one
+  # machine's whole history missing, so a total would not have caught it.
+  # hostA: 3 real events + 1 snapshot. hostB: 2 real events + 1 snapshot.
+  assert_json_eq "$output" '[.records[] | select(.machine == "hostA")] | length' '4'
+  assert_json_eq "$output" '[.records[] | select(.machine == "hostB")] | length' '3'
+  assert_json_eq "$output" '[.records[] | select(.machine == "hostA" and .event == "snapshot")] | length' '1'
+  assert_json_eq "$output" '[.records[] | select(.machine == "hostB" and .event == "snapshot")] | length' '1'
+
+  # Neither original observation was folded out of existence.
+  assert_json_eq "$output" '[.records[] | select(.to == "executed")] | length' '1'
+  assert_json_eq "$output" '[.records[] | select(.to == "blocked")] | length' '1'
+
+  # And the read names both machines instead of picking one.
+  run bash "$JOURNAL" last-moved --phase 80 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.disk.sources' '2'
+  assert_json_eq "$output" '[.disk.candidates[] | select(.machine == "hostA") | .value][0]' 'executed'
+  assert_json_eq "$output" '[.disk.candidates[] | select(.machine == "hostB") | .value][0]' 'blocked'
+  # Each machine's OWN axis survived untouched by the other's snapshot.
+  assert_json_eq "$output" '.bd.value' 'open'
+  assert_json_eq "$output" '.roadmap.value' 'incomplete'
+}
+
+@test "compact: the concurrent-append window loses nothing, now by construction" {
+  make_tmp_repo
+
+  run bash -c "echo '[{\"phase\": 81, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  CAIRN_JOURNAL_COMPACT_TEST_DELAY=1 bash "$JOURNAL" compact --project-dir "$PWD" --json > /dev/null &
+  local compact_pid=$!
+  sleep 0.2
+
+  # A genuinely separate process appending while the compaction sleeps
+  # between its own read and its own write. Before phase 28 this window was
+  # Pitfall 14: the rename swapped in a sibling built before this record
+  # existed, and the record was gone. There is no rename now, so the record
+  # simply stays in the sealed segment.
+  run bash -c "echo '[{\"phase\": 82, \"evidence\": {\"disk\": \"planned\"}}]' | bash \"$JOURNAL\" observe --project-dir \"$PWD\" --json"
+  [ "$status" -eq 0 ]
+
+  wait "$compact_pid"
+  [ "$?" -eq 0 ]
+
+  run bash "$JOURNAL" history --phase 82 --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '1'
+  assert_json_eq "$output" '.records[0].to' 'planned'
+
+  # And its own axis reads back correctly, which is the part that would be
+  # silently wrong if the fold ignored an event written after the seal.
+  run bash "$JOURNAL" last-moved --phase 82 --json --project-dir "$PWD"
+  assert_json_eq "$output" '.disk.value' 'planned'
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""cairn-journal — the single append-only, local, gitignored writer for
-cairn's own observed state history (D-02).
+"""cairn-journal — the single append-only writer for cairn's own observed
+state history (D-02), partitioned one file per checkout and versioned
+(phase 28, DJOUR-02).
 
 What gets journaled, and why (D-01): exactly three categories — phase-state
 axis transitions (the four evidence axes cairn-status.py's corroborate()
@@ -21,13 +22,16 @@ exactly one physical line, carrying a common envelope:
     ts      str, datetime.now(timezone.utc).isoformat() — microsecond
             precision, matching cairn-lease.py's own acquired_at/
             heartbeat_at format (NOT cairn-migrate.py's second-resolution
-            now_utc()) — sub-second ordering resolution is needed even
-            though this file is never git-merged (see below).
+            now_utc()) — sub-second ordering resolution is what the
+            per-partition fold sorts on once git CAN merge a partition
+            file (see "Location and git status" below).
     nonce   str, uuid.uuid4().hex — a uniqueness tiebreaker for records
             written in the same instant, and future-proofing per
-            STACK.md's merge=union collision finding (byte-identical lines
-            silently deduplicate under that driver) even though this file
-            is never git-tracked.
+            STACK.md's merge=union collision finding: byte-identical
+            lines silently deduplicate under that driver, and this nonce
+            is what makes two real records never byte-identical. Written
+            since phase 16 as future-proofing; load-bearing since phase
+            28, which is when the file became git-tracked.
     actor   str, resolve_actor()'s BEADS_ACTOR / `git config user.name` /
             $USER chain (reimplemented here verbatim per house convention
             — no shared lib, die()-style helpers are duplicated per
@@ -68,17 +72,20 @@ Event-specific fields:
     verdict_changed from ("ok"|"conflict"|"unknown"|null), to (same)
     lease_changed   action ("acquired"|"released"), holder (str),
                     prev_holder (str or null)
-    snapshot        written only by compact() (Plan 16-02, D-03) — folds a
-                    phase's ENTIRE prior history into one record: state
+    snapshot        written only by compact() (Plan 16-02, D-03; phase 28
+                    D-06 moved it to the head of the NEXT segment instead
+                    of over the old one) — folds a phase's ENTIRE prior
+                    history within THIS PARTITION into one record: state
                     (dict of the four evidence axes, each {"value":...,
                     "ts":...} or null), verdict ({"value":...,"ts":...}
                     or null), lease ({"value":...,"holder":...,"ts":...}
                     or null), and compacted_through_ts (the ts of the
                     latest real event folded into this phase's snapshot —
-                    provenance only; _last_known() never reads it, it
-                    re-derives everything from state/verdict/lease
-                    directly, which is what makes a snapshot's answer
-                    provably identical to a full replay).
+                    phase 28 made this field LOAD-BEARING: _last_known()
+                    folds snapshots by it and then applies only the events
+                    that came after it, which is what keeps a
+                    union-merged, interleaved partition readable. It used
+                    to be provenance only).
 
 Append atomicity — the whole reason this is a single writer (D-02): every
 write funnels through _append_record(), which builds the complete line in
@@ -111,99 +118,102 @@ here — it governs pipe/FIFO writes, not regular-file writes, and measures
 actually relies on is POSIX O_APPEND atomicity on a regular file, which
 carries no PIPE_BUF-sized cap.
 
-Location and git status — the journal lives at
-<project-dir>/.cairn/journal.jsonl — INSIDE the worktree's own .cairn/,
-deliberately UNLIKE the phase lease (rooted at --git-common-dir, shared
-across worktrees, per cairn-lease.py). This file is per-machine, per-
-worktree forensics, never a cross-worktree coordination primitive (see
-.planning/research/SUMMARY.md's "Collision 4"). It is gitignored and never
-git-tracked — not because a `merge=union` flat-file strategy was tried
-here and then fixed, but because this file was never meant to be shared
-across machines or merged at all: a `*.jsonl merge=union` driver reorders
-disjoint appends non-chronologically and silently deduplicates
-byte-identical lines (STACK.md), which would be a real, live bug for a
-git-tracked version of this file. Keeping the journal local and gitignored
-sidesteps that question instead of solving it (Plan 16-05 adds the actual
-.gitignore entry; this plan only writes the file).
+Location and git status (REDESIGNED in phase 28, DJOUR-02) — the journal
+lives at <project-dir>/.cairn/journal/<slug>-NNNN.jsonl: ONE PARTITION PER
+CHECKOUT, each partition a numbered run of segments, all of it VERSIONED.
+This is deliberately UNLIKE the phase lease (rooted at --git-common-dir,
+shared across worktrees, per cairn-lease.py): partitions are never shared,
+they are merged.
 
-Compaction (D-03, Plan 16-02) — the journal is scoped to a project's
-entire lifetime with no natural discard point (unlike cairn-migrate.py's
-per-run resumable journal), so left unbounded every history/last-moved
-read gets slower every month (PITFALLS.md Pitfall 8). compact() folds
-each phase's full history into exactly one `snapshot` record and swaps it
-into place via a sibling-write-then-os.rename recipe:
-    - Why rename, never a rewrite in place: the journal exists to survive
-      a crash. Rewriting in place puts a REWRITE on the exact path a
-      crash does the most damage — a crash mid-rewrite doesn't leave a
-      torn LINE (which _read_records() already quarantines), it leaves
-      the WHOLE FILE in an indeterminate state. With sibling-write-then-
-      rename, a crash between the two leaves the ORIGINAL journal fully
-      intact and only an orphaned `journal.jsonl.tmp-*` file behind —
-      harmless, ignored by every reader, overwritten by the next
-      compaction attempt.
+What changed and why. Until phase 28 this was one local, gitignored file,
+on the stated ground that it "was never meant to be shared across machines
+or merged at all". That ground was removed by a decision, not by a
+preference: cairn runs on more than one machine and in more than one
+session, so the single-writer invariant the old design rested on is false
+today, not hypothetically — this repository was measured carrying four
+simultaneous checkouts with 176/64/1/1 records under one identical `actor`.
+A single shared file would have to be merged, and `merge=union` on a shared
+file reorders disjoint appends non-chronologically. Partitioning removes
+the question instead of answering it: two checkouts never write the same
+file, so a merge only ever concatenates.
+
+Both pieces are required and neither is sufficient, both measured:
+different files merge with no driver at all (E11 case 1), but the SAME
+partition on two branches of one checkout is an add/add conflict without
+`merge=union` (E8b). The driver is the BUILT-IN union and never a custom
+one: a custom `merge.<name>.driver` lives in .git/config, which git never
+clones, so a machine that skipped the out-of-band setup falls back to the
+default merge and conflicts with markers, in silence (E17).
+
+The inherited .cairn/journal.jsonl is still read, as a partition of UNKNOWN
+provenance, and is never written, rewritten or deleted (D-04). It is still
+covered by .gitignore's `.cairn/journal.jsonl*`; the partition directory is
+covered by a whitelist (`.cairn/journal/*` then `!.cairn/journal/*.jsonl`)
+so its segments are versioned and the per-machine scratch beside them —
+the compaction locks — is not.
+
+Compaction (D-03, Plan 16-02; REDESIGNED in phase 28, D-06) — the journal
+is scoped to a project's entire lifetime with no natural discard point
+(unlike cairn-migrate.py's per-run resumable journal), so left unbounded
+every history/last-moved read gets slower every month (PITFALLS.md Pitfall
+8). Compacting now means SEAL THE ACTIVE SEGMENT AND OPEN THE NEXT ONE,
+whose first lines are one `snapshot` record per phase. It never rewrites a
+segment, never deletes one, and never touches a partition other than this
+checkout's own. Three measurements forced each of those three rules
+(28-RESEARCH.md):
+    - Rewriting is out. The pre-phase-28 recipe built a sibling and
+      os.rename'd it over the live journal. On a git-versioned, union-
+      merged file that RESURRECTS what was folded — the other branch still
+      carries the original lines and union concatenates them back in (E5:
+      6 lines where a human expected 2).
+    - Deleting is out. Removing a sealed segment turns the next merge into
+      modify/delete (E10), which is worse to resolve than a content
+      conflict.
+    - Crossing partitions is out, and this is the one that matters most.
+      E13: two machines compacting the same shared journal left a VALID
+      two-line JSONL with one machine's entire history gone — no conflict,
+      no error, no signal. Scoping compaction to the partition that owns it
+      makes that impossible by construction instead of by care.
+The honest trade, accepted with eyes open: compacting a VERSIONED file
+saves nothing durable, because every version stays in git history forever.
+The win is read time, and a sealed segment delivers exactly that win
+without rewriting a byte.
     - JOURNAL_COMPACT_THRESHOLD_BYTES (below) is the auto-trigger
-      threshold: observe/lease each check the journal's current byte
-      size, in-process, before opening the journal for their own append,
-      and call compact() first when over threshold — never as a
-      background process (every /cairn:* invocation is already a single
-      short-lived process; a background compactor would just be a second
-      process racing this one for no benefit).
-    - Two DIFFERENT concurrency hazards are in play here, and compact()
-      defends against both, by two DIFFERENT mechanisms:
-        1. Two COMPACTIONS racing each other — guarded by a non-blocking
-           `fcntl.flock(LOCK_EX | LOCK_NB)` on a dedicated
-           `journal.jsonl.compact.lock` file next to the journal, held
-           only for the read-fold-write-rename critical section. A
-           contended compaction is SKIPPED for that invocation (exit 0,
-           no error) — the caller's own append (if this was an
-           auto-trigger check) still proceeds against the still-live,
-           uncompacted journal, which is always correct, just not yet
-           compacted.
-        2. A record appended by observe/lease — which take NO lock at
-           all, correctly, by design (that's what makes O_APPEND cheap
-           and safe for concurrent writers) — landing on the live
-           journal AFTER compact()'s own read but BEFORE its rename. The
-           flock above does nothing for this case; it only serializes
-           compactions against each OTHER, never against an append. This
-           is Pitfall 14 in the research: without a further guard, the
-           append's os.write() lands successfully, compact()'s rename
-           then swaps in a sibling built from the now-stale read, and
-           the appended record is gone — no error on either side, and a
-           perfectly valid resulting JSONL file, which is exactly why no
-           ordinary test would catch it. compact() closes this with a
-           SIZE RE-VALIDATION taken immediately before the os.rename()
-           call — `journal_path.stat().st_size` compared against the
-           byte count captured at the START of this same compaction's
-           own read (`size_at_read`, derived from the EXACT bytes that
-           were parsed and folded, never a second independent stat()
-           call, which would just reopen the identical TOCTOU gap one
-           level up) — both comparisons still inside the same flock
-           hold. A mismatch ABORTS: the sibling temp file is deleted,
-           the rename never happens, and the function returns exactly
-           like the lock-contention case above (exit 0, no error — an
-           aborted compaction is deferred to the next invocation, never
-           a failure). The live journal — the concurrently-appended
-           record intact — is left exactly as the appending process left
-           it.
+      threshold, measured against the ACTIVE SEGMENT: observe/lease each
+      check that size, in-process, before opening it for their own append,
+      and call compact() first when over threshold — never as a background
+      process (every /cairn:* invocation is already a single short-lived
+      process; a background compactor would just be a second process
+      racing this one for no benefit).
+    - Concurrency, and what is left of it. Two compactions of the SAME
+      partition are still serialized by a non-blocking
+      `fcntl.flock(LOCK_EX | LOCK_NB)` on that partition's own
+      `<slug>.compact.lock`; a contended compaction is SKIPPED for that
+      invocation (exit 0, no error). The next segment is created with
+      O_CREAT | O_EXCL, which covers what the flock cannot: a segment of
+      that number already on disk because a clone compacted first and the
+      file arrived through git. Overwriting it would delete somebody
+      else's sealed head.
+    - Pitfall 14 is GONE, structurally. It was: a record appended by
+      observe/lease — which take NO lock at all, correctly, by design —
+      landing on the live journal after compact()'s read but before its
+      rename, and being silently discarded by that rename. With no rename
+      there is no discard. The concurrent record stays in the sealed
+      segment, and because its `ts` is later than the snapshot's
+      `compacted_through_ts`, _last_known() applies it right on top.
+      [SUPOSTO] this assumes the clock does not step backwards within one
+      machine between the read and that append — the same assumption the
+      per-partition fold already makes, and one no ordering scheme
+      available here could remove.
     - CAIRN_JOURNAL_COMPACT_TEST_DELAY (float, seconds): a test-only seam
       (mirrors this codebase's existing CAIRN_GBSYNC/CAIRN_MAP/CAIRN_GATE
       env-seam convention). When set, compact() sleeps for that long
-      immediately after its own read/fold, before writing the sibling
-      file — giving a test a deterministic window in which to run a
-      real, separate observe/lease process against the same journal,
-      reproducing Pitfall 14's race on demand instead of hoping to catch
-      it under real timing.
-    - The os.rename() call itself relies on the EXACT primitive
-      .planning/research/STACK.md measured `os.rename` SILENTLY
-      OVERWRITING an existing destination with no exception — the same
-      finding phase 15 rejected `os.rename` for at lease acquisition
-      (it needs to DETECT collision; silent overwrite there would let
-      two holders believe they both have the lease). Here the silent
-      overwrite is exactly the wanted property: a fully- and correctly-
-      written compacted sibling should unconditionally REPLACE the live
-      journal. Same measured finding, opposite conclusion depending on
-      what the call site needs — noted here, and again at the call site
-      itself, so neither gets "fixed" by copying the other's primitive.
+      immediately after its own read/fold, before writing the next
+      segment — giving a test a deterministic window in which to run a
+      real, separate observe/lease process against the same partition.
+      Before phase 28 that window was a data-loss race; it is now the
+      window in which nothing can be lost, and the test asserts exactly
+      that.
 
 Usage:
     cairn-journal.py observe    [--project-dir DIR] [--json]
@@ -268,24 +278,21 @@ Behavior:
                   partitions the journal is verifiable from outside, and
                   so a test can prove it is stable across runs and
                   distinct across checkouts on one machine.
-    compact       Folds each phase's full history into exactly one
-                  `snapshot` record, written to a brand-new sibling file
-                  and swapped into place via os.rename (D-03) — never a
-                  rewrite of the live journal.jsonl in place. A no-op
-                  (exit 0, creates nothing) when the journal doesn't
-                  exist yet. A contended compaction is skipped, not
-                  raced (exit 0). A record appended by a separate
-                  observe/lease process during this compaction's own
-                  read-to-rename window aborts the rename entirely (exit
-                  0, deferred to the next invocation) rather than
-                  silently discarding it — see the module docstring's
-                  "Compaction" section above. --json prints
-                  {"compacted": bool, "phases": int, "reason": "ok"|
-                  "no_journal"|"lock_contended"|"aborted_stale_read"}.
-                  observe and lease both auto-trigger this, in-process,
-                  before their own append, whenever the journal's
-                  current byte size is at or past
-                  JOURNAL_COMPACT_THRESHOLD_BYTES.
+    compact       SEALS this checkout's active segment and opens the next
+                  one, whose first lines are one `snapshot` record per
+                  phase (phase 28, D-06). Never rewrites a segment, never
+                  deletes one, and never reads or writes any partition
+                  but its own. A no-op (exit 0) when this partition has
+                  no segment yet, when its active segment is already
+                  nothing but snapshots, when the next segment number is
+                  already on disk (it arrived through git), or when
+                  another compaction of the same partition holds the
+                  lock. --json prints {"compacted": bool, "phases": int,
+                  "reason": "ok"|"no_journal"|"lock_contended"|
+                  "already_compacted"|"segment_exists"}. observe and
+                  lease both auto-trigger this, in-process, before their
+                  own append, whenever the ACTIVE SEGMENT's byte size is
+                  at or past JOURNAL_COMPACT_THRESHOLD_BYTES.
 
 Exit codes:
     0  ok — includes every compact() outcome (no journal, compacted,
@@ -307,7 +314,6 @@ import re
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -971,12 +977,12 @@ def _build_snapshot_record(root, records, phase):
 
 
 # --------------------------------------------------------------------------- #
-# compaction (D-03, Plan 16-02) — folds each phase's full history into one
-# `snapshot` record, written to a brand-new sibling file and swapped into
-# place via os.rename. See the module docstring's "Compaction" section for
-# the full rationale (why rename not rewrite-in-place, the two DIFFERENT
-# concurrency hazards this defends against, and the CAIRN_JOURNAL_COMPACT_
-# TEST_DELAY test seam).
+# compaction (D-03, Plan 16-02; REDESIGNED in phase 28, D-06) — seals this
+# checkout's active segment and opens the next one, whose first lines are one
+# `snapshot` record per phase. Never rewrites, never deletes, never leaves
+# this partition. See the module docstring's "Compaction" section for the
+# three measurements that force each of those three rules, and for the
+# CAIRN_JOURNAL_COMPACT_TEST_DELAY test seam.
 # --------------------------------------------------------------------------- #
 
 # Size threshold (bytes) at which observe/lease auto-trigger a compaction
@@ -1002,67 +1008,113 @@ def _compact_lock_path(journal_path):
     return journal_path.parent / f"{slug}.compact.lock"
 
 
+def _next_segment_path(root, slug, current):
+    """The path of the segment that follows CURRENT in SLUG's partition."""
+    match = _SEGMENT_NAME.match(current.name)
+    number = int(match.group("segment")) if match else 0
+    return _partition_dir(root) / f"{slug}-{number + 1:04d}.jsonl"
+
+
 def compact(root):
-    """Fold every phase's full history into one `snapshot` record per
-    phase, written to a brand-new sibling file and swapped into place via
-    os.rename (D-03) — never a rewrite of the live journal.jsonl in
-    place. Returns {"compacted": bool, "phases": int, "reason":
-    "ok"|"no_journal"|"lock_contended"|"aborted_stale_read"}. Never
-    raises for any of its own no-op/abort paths — every one of those is a
-    normal, exit-0 outcome per the module docstring's "Compaction"
-    section, not an error."""
-    journal_path = _journal_path(root)
-    if not journal_path.exists():
+    """SEAL this checkout's active segment and open the next one, whose
+    first lines are one `snapshot` record per phase (phase 28, D-06).
+    Returns {"compacted": bool, "phases": int, "reason": "ok"|"no_journal"|
+    "lock_contended"|"already_compacted"|"segment_exists"}. Never raises
+    for any of its own no-op paths — every one of those is a normal,
+    exit-0 outcome, not an error.
+
+    What changed from the pre-phase-28 recipe, and why every piece of it
+    had to (all three measured in 28-RESEARCH.md):
+
+      - NOTHING IS REWRITTEN. Compaction used to build a sibling and
+        os.rename it over the live journal. On a git-versioned, union-
+        merged file that RESURRECTS what was folded: the other branch
+        still carries the original lines, and union concatenates them back
+        in (E5 produced 6 lines where a human expected 2). Sealing the
+        current segment and opening the next one gives the same read-time
+        win with no rewrite at all.
+      - NOTHING IS DELETED. Removing a sealed segment turns the next merge
+        into modify/delete (E10), which is worse to resolve than a content
+        conflict.
+      - ONLY THIS CHECKOUT'S OWN PARTITION IS READ OR WRITTEN. This is the
+        one that matters most. E13: two machines compacting the shared
+        single journal left a VALID two-line JSONL with one machine's
+        entire history gone — no conflict, no error, no signal at all.
+        Scoping compaction to the partition that owns it makes that
+        impossible by construction rather than by care.
+
+    The honest trade this accepts: compacting a VERSIONED file saves
+    nothing durable, because every version stays in git history forever.
+    The win is read time, and a sealed segment delivers exactly that win
+    without rewriting a byte.
+
+    `aborted_stale_read` is gone, and structurally so. It existed for
+    Pitfall 14 — a separate process's append landing between this
+    function's read and its rename, and being discarded by the rename.
+    With no rename there is no discard: the concurrent record stays in the
+    sealed segment, and because its `ts` is later than the snapshot's
+    `compacted_through_ts`, _last_known() applies it right on top.
+    [SUPOSTO] that assumes the clock does not step backwards within one
+    machine between the read and that append — the same assumption the
+    per-partition fold already makes, and one no ordering scheme available
+    here could remove."""
+    slug = _own_slug(root)
+    segments = _segment_paths(root, slug)
+    if not segments:
         return {"compacted": False, "phases": 0, "reason": "no_journal"}
 
-    lock_path = _compact_lock_path(journal_path)
+    active = segments[-1]
+    lock_path = _compact_lock_path(active)
     lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
     try:
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            # Another compaction already holds this. This flock guards
-            # ONLY two compactions against each other — the caller's own
-            # append (if this was an auto-trigger check from observe/
-            # lease) still proceeds against the still-live, uncompacted
-            # journal immediately afterward, which is always correct,
-            # just not yet compacted.
+            # Another compaction of THIS partition already holds this. The
+            # caller's own append (if this was an auto-trigger check from
+            # observe/lease) still proceeds against the still-live,
+            # unsealed segment immediately afterward, which is always
+            # correct, just not yet compacted.
             return {"compacted": False, "phases": 0,
                     "reason": "lock_contended"}
 
-        return _compact_locked(root, journal_path)
+        return _compact_locked(root, slug, segments)
     finally:
         # Closing the fd releases any flock held through it (POSIX) —
         # no separate explicit LOCK_UN needed.
         os.close(lock_fd)
 
 
-def _compact_locked(root, journal_path):
-    """The compaction critical section itself — read, fold, write
-    sibling, re-validate, rename. Only ever called while the caller
-    already holds the non-blocking compaction flock; split out of
-    compact() purely for readability, not a separate lock boundary."""
-    try:
-        raw = journal_path.read_bytes()
-    except OSError:
-        return {"compacted": False, "phases": 0, "reason": "no_journal"}
+def _compact_locked(root, slug, segments):
+    """The compaction critical section: read this partition's own
+    segments, fold, and write the NEXT segment. Only ever called while the
+    caller already holds this partition's non-blocking compaction flock;
+    split out of compact() purely for readability, not a separate lock
+    boundary."""
+    records = []
+    for path in segments:
+        part_records, _warnings = _read_records(path)
+        records.extend(part_records)
 
-    # size_at_read is derived from the EXACT bytes _parse_records() below
-    # parses and folds — never a separate stat() call taken after the
-    # fact, which would reopen the identical TOCTOU gap this whole
-    # re-validation exists to close (see the pre-rename check below, and
-    # the module docstring's "Compaction" section).
-    size_at_read = len(raw)
-    records, _warnings = _parse_records(raw)
+    active = segments[-1]
+    active_records, _active_warnings = _read_records(active)
+    if active_records and all(r.get("event") == "snapshot"
+                              for r in active_records):
+        # The active segment is already nothing but a freshly-opened
+        # compaction head. Without this guard, running compact twice in a
+        # row would chain segments of pure snapshots forever.
+        return {"compacted": False, "phases": 0,
+                "reason": "already_compacted"}
 
     test_delay = os.environ.get("CAIRN_JOURNAL_COMPACT_TEST_DELAY")
     if test_delay:
         # Test-only seam (mirrors this codebase's existing CAIRN_GBSYNC/
-        # CAIRN_MAP/CAIRN_GATE env-seam convention): gives a test a
-        # deterministic window, right here between the read/fold and the
-        # sibling write, in which to run a real, separate observe/lease
-        # process against this same journal — the exact race the
-        # pre-rename re-validation below exists to close (Pitfall 14).
+        # CAIRN_MAP/CAIRN_GATE env-seam convention): a deterministic
+        # window, right here between the read/fold and the write, in which
+        # a test can run a real, separate observe/lease process against
+        # this same partition. Before phase 28 this window was a data-loss
+        # race (Pitfall 14); it is now the window in which nothing can be
+        # lost, and the test asserts exactly that.
         time.sleep(float(test_delay))
 
     phases = sorted({r.get("phase") for r in records
@@ -1070,49 +1122,27 @@ def _compact_locked(root, journal_path):
     snapshots = [_build_snapshot_record(root, records, phase)
                  for phase in phases]
 
-    tmp_fd, tmp_path_str = tempfile.mkstemp(
-        dir=str(journal_path.parent), prefix="journal.jsonl.tmp-")
-    tmp_path = Path(tmp_path_str)
-    with os.fdopen(tmp_fd, "wb") as f:
-        for snap in snapshots:
-            f.write(json.dumps(snap, sort_keys=True).encode("utf-8") + b"\n")
+    target = _next_segment_path(root, slug, active)
+    payload = b"".join(
+        json.dumps(snap, sort_keys=True).encode("utf-8") + b"\n"
+        for snap in snapshots)
+    try:
+        # O_EXCL, not a plain create: the flock only serializes compactions
+        # on THIS machine, and the next segment number can already be on
+        # disk because a clone compacted first and the file arrived through
+        # git. Overwriting it would delete somebody's sealed head.
+        fd = os.open(str(target),
+                     os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        return {"compacted": False, "phases": 0, "reason": "segment_exists"}
+    try:
+        written = os.write(fd, payload)
+    finally:
+        os.close(fd)
+    if written != len(payload):
+        die(f"short write to {target}: wrote {written} of {len(payload)} "
+            "bytes", EXIT_WRITE_FAILED)
 
-    # The flock held by our caller only serializes two COMPACTIONS
-    # against each other; observe/lease take NO lock at all, by design
-    # (that is what makes O_APPEND cheap and safe for concurrent
-    # writers — see the module docstring's append-atomicity section).
-    # So a record appended by a SEPARATE process landing on the live
-    # journal after this compaction's own read above, but before the
-    # rename below, would otherwise be silently discarded the instant
-    # the rename swaps this sibling (built from the now-stale read) into
-    # place — Pitfall 14. This re-check, still inside the same flock
-    # hold, is the ONLY thing standing between that append and a silent
-    # data loss.
-    size_now = journal_path.stat().st_size
-    if size_now != size_at_read:
-        try:
-            os.remove(str(tmp_path))
-        except OSError:
-            pass
-        # Deferred, not failed: exit 0, exactly like the lock-contention
-        # branch in compact() above. The live journal — the
-        # concurrently-appended record intact — is left exactly as the
-        # appending process left it; the next observe/lease invocation
-        # will simply re-trigger auto-compaction against the now-fuller
-        # file.
-        return {"compacted": False, "phases": 0,
-                "reason": "aborted_stale_read"}
-
-    # STACK.md's "Acquire primitive" section measured os.rename SILENTLY
-    # OVERWRITING an existing destination with no exception — phase 15
-    # rejected that exact behavior for lease acquisition (it needs to
-    # DETECT collision). This call relies on the identical behavior for
-    # the opposite reason: it needs to unconditionally REPLACE the live
-    # journal with the fully- and correctly-written compacted sibling.
-    # Same measured finding, opposite conclusion depending on what the
-    # call site needs — do not "fix" one of these two call sites by
-    # copying the other's primitive.
-    os.rename(str(tmp_path), str(journal_path))
     return {"compacted": True, "phases": len(snapshots), "reason": "ok"}
 
 
@@ -1123,7 +1153,12 @@ def _maybe_auto_compact(root, journal_path):
     codebase's existing model; a background compactor would just be a
     second process racing this one for no benefit). A no-op when the
     journal doesn't exist yet or is still under
-    JOURNAL_COMPACT_THRESHOLD_BYTES."""
+    JOURNAL_COMPACT_THRESHOLD_BYTES.
+
+    The size measured is the ACTIVE SEGMENT's, not the whole partition's:
+    sealing only shortens the active segment, so the threshold has to
+    speak about the thing the seal shortens. The sealed ones stay on disk
+    forever by design and would make the trigger fire every single time."""
     try:
         size = journal_path.stat().st_size
     except OSError:
@@ -1364,9 +1399,12 @@ def cmd_compact(args, root):
         print("[cairn-journal] no journal to compact")
     elif result["reason"] == "lock_contended":
         print("[cairn-journal] compaction already in progress, skipped")
-    elif result["reason"] == "aborted_stale_read":
-        print("[cairn-journal] compaction aborted: journal changed "
-              "during compaction, will retry next time")
+    elif result["reason"] == "already_compacted":
+        print("[cairn-journal] active segment is already a compaction "
+              "head, nothing to seal")
+    elif result["reason"] == "segment_exists":
+        print("[cairn-journal] the next segment already exists (it "
+              "arrived through git), skipped")
     else:
         print(f"[cairn-journal] compacted {result['phases']} phase(s)")
     sys.exit(EXIT_OK)
