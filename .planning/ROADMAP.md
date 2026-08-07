@@ -369,6 +369,28 @@ carregando a versão velha e o `changelog`, o único certo, levou `mismatch`.
    silêncio. O comportamento depois é byte a byte o de hoje, e some um botão que
    grava valor que o hook ignora.
 
+8. **O fechamento de fase desmonta o que o `prepare` montou.** Pedido do Felipe em
+   2026-08-06, e as duas metades vieram medidas:
+
+   - **Cinco leases abertas para fases que o roadmap já marca `[x]`** — 20, 21, 24,
+     26 e 29 — enquanto as das fases 18 e 19 estão fechadas. Não é "nunca libera": é
+     **deixou de liberar a partir da fase 20**, que é a forma mais difícil de notar.
+     E o `cairn-bookkeep close` imprime `tracker :: lease :: ok` enquanto elas
+     continuam abertas, então o veredito do próprio comando é a coisa que não pode
+     ser usada como prova. O teste lê o status da issue **depois** do close, nunca a
+     saída do comando.
+   - **Três worktrees de fase completa sobrevivendo na máquina** —
+     `CairnGo-phase-21`, `-24` e `-26`, todas com trabalho já em `main`. O custo não
+     é disco: um agente de leitura apontado para um deles produz laudo sobre uma
+     árvore congelada num commit antigo, que é exatamente o modo de falha que a regra
+     de trabalho paralelo desta casa descreve. Ou o fechamento remove o worktree, ou
+     o doctor nomeia worktree de fase completa como achado; o que não sobrevive é o
+     estado de hoje, em que ninguém menciona os três.
+
+   Nenhuma das duas bloqueia o portão — a lease carrega só o label `lease`, sem o par
+   `m-<milestone>`/`phase-<N>` que o `cairn-gate` inspeciona. São ruído no `bd ready`
+   e uma armadilha de leitura, não inconsistência de estado.
+
 **Research durante o planejamento:** não precisa. Os três carregam a medição na
 própria issue do bd. Os critérios 5 e 7 são decisões do Felipe já tomadas (2026-08-06)
 e vêm com a razão escrita; o 6 chegou pela verificação da fase 29 e já vem com a
