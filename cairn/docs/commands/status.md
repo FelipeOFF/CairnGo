@@ -414,6 +414,39 @@ and 313 of this repository's 530 HEAD commits carry a phase scope, which is a
 convention of this project and not of every project, so scope alone is not
 portable.
 
+### Which pull request took it there
+
+Two words, `found` and `unknown`, and **there is deliberately no third**.
+"There is no pull request" is a claim about the forge, and nothing offline can
+make it — so `cairn-land.py` never makes it, and no surface prints it.
+
+`found` comes from one of the two references a local history can actually
+carry: GitHub's own merge subject (`Merge pull request #6 from …`) or the
+squash-merge title suffix (`… (#18)`). The merge subject wins when both are in
+one string, because the trailing paren there belongs to the branch name GitHub
+pasted in, not to a second pull request. `unknown` carries `no-commits`
+(nothing attributed to this phase) or `no-reference` (commits attributed, none
+naming a PR), and a `detail` that names the limit instead of making a claim.
+
+**MEASURED 2026-08-06 over this repository, and it is why:**
+
+| | |
+| --- | --- |
+| commits carrying `(#N)` in the subject | 14 |
+| merge commits naming `pull request #N` | 6 |
+| pull request **#21**, which merged the entire v1.4 milestone | **no trace** |
+
+#21 became `7fa133c v1.4 Honest State: phase state that proves what it claims
+(ships cairn 1.5.0)` — a real merge commit with two parents whose subject and
+body name no number anywhere. The most important merge in the project is
+invisible offline, and every one of this repository's 24 located phases reports
+`unknown :: no-reference` today. An implementation that answered "no PR" would
+be lying about all of them while passing a green suite.
+
+The board shows `· #18` in the `⤒` suffix when a number was found, and nothing
+when it was not — a card that prints nothing claims nothing. Naming an absence
+out loud is `/cairn:doctor`'s job.
+
 **A task's landing is its phase's landing**, projected through its `phase-N`
 labels, and `unknown` / `no-phase` when it names none. It is not a second read
 of git: MEASURED, all 41 commit bodies here that name a bd issue id do it as a
