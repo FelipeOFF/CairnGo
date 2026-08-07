@@ -37,7 +37,7 @@ não conta como pronta.
 - [x] Phase 22: Non-TTY split and the machine contract (BOARD-04, PIPE-01, PIPE-02, PIPE-03) — completed 2026-08-06
 - [x] Phase 23: Not-applicable as a check state (VOID-01, VOID-02, VOID-03) — completed 2026-08-05
 - [x] Phase 24: Language chosen at install (LANG-01, LANG-02) — completed 2026-08-05
-- [ ] Phase 25: Measured cleanup (FIX-01 … FIX-05)
+- [x] Phase 25: Measured cleanup (FIX-01 … FIX-05) — completed 2026-08-07
 - [x] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03) — completed 2026-08-05
 - [x] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02) — completed 2026-08-06
 - [x] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03, DJOUR-04) — completed 2026-08-07
@@ -798,12 +798,12 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | VOID-03 | Phase 23 | Complete |
 | LANG-01 | Phase 24 | Complete |
 | LANG-02 | Phase 24 | Complete |
-| FIX-01 | Phase 25 | Pending |
-| FIX-02 | Phase 25 | Pending |
-| FIX-03 | Phase 25 | Pending |
-| FIX-04 | Phase 25 | Pending |
-| FIX-05 | Phase 25 | Pending |
-| AUTO-10 | Phase 25 | Pending |
+| FIX-01 | Phase 25 | Complete |
+| FIX-02 | Phase 25 | Complete |
+| FIX-03 | Phase 25 | Complete |
+| FIX-04 | Phase 25 | Complete |
+| FIX-05 | Phase 25 | Complete |
+| AUTO-10 | Phase 25 | Complete |
 | WRAP-01 | Phase 26 | Complete |
 | WRAP-02 | Phase 26 | Complete |
 | WRAP-03 | Phase 26 | Complete |

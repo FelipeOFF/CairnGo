@@ -55,11 +55,11 @@ o que está respondendo não conta como pronta.
 
 ### Limpeza medida (FIX)
 
-- [ ] **FIX-01**: `/cairn:milestone new` para de mandar gerar mapa antes de existir diretório de fase
-- [ ] **FIX-02**: O nome da branch de uma fase não deriva quando o diretório da fase passa a existir depois do `prepare`
-- [ ] **FIX-03**: O campo `status` por portador do `cairn-release --json` significa "está correto", ou é renomeado para dizer o que de fato significa
-- [ ] **FIX-05**: Uma fase com um plano de três executados para de ler como `executed`, e a corroboração para de fabricar conflito bloqueante a partir disso
-- [ ] **FIX-04**: Uma dependência para fase de milestone arquivado deixa de bloquear para sempre, e uma aresta `discovered-from` deixa de contar como bloqueio
+- [x] **FIX-01**: `/cairn:milestone new` para de mandar gerar mapa antes de existir diretório de fase
+- [x] **FIX-02**: O nome da branch de uma fase não deriva quando o diretório da fase passa a existir depois do `prepare`
+- [x] **FIX-03**: O campo `status` por portador do `cairn-release --json` significa "está correto", ou é renomeado para dizer o que de fato significa
+- [x] **FIX-05**: Uma fase com um plano de três executados para de ler como `executed`, e a corroboração para de fabricar conflito bloqueante a partir disso
+- [x] **FIX-04**: Uma dependência para fase de milestone arquivado deixa de bloquear para sempre, e uma aresta `discovered-from` deixa de contar como bloqueio
 
 ### Nada mecânico continua manual (AUTO)
 
@@ -71,7 +71,7 @@ o que está respondendo não conta como pronta.
 - [x] **AUTO-07**: Uma checagem valida a cadeia inteira do registro de requisitos — requisito ativo → linha na tabela de Cobertura → número afirmado no rodapé — que hoje **ninguém** valida
 - [x] **AUTO-08**: Nenhuma checagem do doctor volta a dizer `ok` por não ter conseguido checar — uma checagem sem insumo diz que está sem insumo, nomeia o que falta e roteia para quem decide, sem bloquear
 - [x] **AUTO-06**: A config cobre o que hoje não tem onde morar: commit automático, PR por fase ou por milestone, teto de ciclos e de laços do run autônomo, e o que já está espalhado em `.cairn/` passa a ser listado num lugar só
-- [ ] **AUTO-10**: O cairn escreve a chave que ele lê. **Decidido pelo Felipe em 2026-08-06:** o `cairn-bookkeep` passa a escrever `active_phase` **junto** com `current_phase`, e segue lendo `active_phase` — aditivo, sem migração, e o GSD continua achando a chave dele. A divergência entre as duas vira checagem do doctor, porque duas chaves que devem concordar e ninguém compara é o defeito que este ciclo mediu quatro vezes
+- [x] **AUTO-10**: O cairn escreve a chave que ele lê. **Decidido pelo Felipe em 2026-08-06:** o `cairn-bookkeep` passa a escrever `active_phase` **junto** com `current_phase`, e segue lendo `active_phase` — aditivo, sem migração, e o GSD continua achando a chave dele. A divergência entre as duas vira checagem do doctor, porque duas chaves que devem concordar e ninguém compara é o defeito que este ciclo mediu quatro vezes
 
 ### O que entrou na branch (PR)
 

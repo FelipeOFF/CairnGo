@@ -2,19 +2,20 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Legible State
-current_phase: 30
-current_phase_name: Did it land
+current_phase: 25
+active_phase: 25
+current_phase_name: Measured cleanup
 status: planning
 stopped_at: Completed 29-04-PLAN.md
-last_updated: "2026-08-07T12:42:56.235Z"
+last_updated: "2026-08-07T14:36:24.940Z"
 last_activity: 2026-08-07
 last_activity_desc: Fases 21, 23, 24 e 26 fechadas — milestone v1.5 Legible State (11 fases, 41 requisitos)
 progress:
   total_phases: 11
-  completed_phases: 10
-  total_plans: 41
-  completed_plans: 41
-  percent: 91
+  completed_phases: 11
+  total_plans: 49
+  completed_plans: 49
+  percent: 100
 ---
 
 # Project State
