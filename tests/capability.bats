@@ -94,16 +94,56 @@ find_gsd_validator() {
   jq -e '.gates | type == "array"' "$CAP_JSON"
 }
 
-@test "config slice declares cairn.enabled and cairn.sync_push (boolean, default true)" {
+@test "config slice declares cairn.enabled, and NOT a key nothing reads" {
   jq -e '.config["cairn.enabled"].type == "boolean"' "$CAP_JSON"
   jq -e '.config["cairn.enabled"].default == true' "$CAP_JSON"
-  jq -e '.config["cairn.sync_push"].type == "boolean"' "$CAP_JSON"
-  jq -e '.config["cairn.sync_push"].default == true' "$CAP_JSON"
+
+  # CairnGo-gbu / criterion 7. `cairn.sync_push` was declared here, documented
+  # in three prompt fragments, and asserted by this very test — and read by NO
+  # executable code: the push after a bd lifecycle write is decided solely by
+  # the existence of .cairn/sync.json with an enabled backend
+  # (cairn/hooks/post-bd-write.sh:126-152).
+  #
+  # DECIDED by Felipe on 2026-08-06 (D-04): delete the declaration, do not
+  # implement the read. Implementing it would change behaviour for everyone
+  # who already has a sync.json, and no default rescues that — `true` makes
+  # the key mean nothing, `false` breaks pushes in silence. After the removal
+  # the behaviour is byte for byte today's, and one button that wrote a value
+  # the hook ignores is gone.
+  #
+  # This assertion is the inverse of the one it replaces, on purpose: a
+  # declaration is a promise, and the way this one came back would be somebody
+  # re-adding it here.
+  jq -e '.config | has("cairn.sync_push") | not' "$CAP_JSON"
+
+  # And the general rule behind it: every declared config key must be one a
+  # reader can be named for. The set is small enough to assert whole.
+  [ "$(jq -r '.config | keys | join(",")' "$CAP_JSON")" = "cairn.enabled" ]
+
   # activationKey, when present, must be a declared config key
   if [ "$(jq -r 'has("activationKey")' "$CAP_JSON")" = "true" ]; then
     key="$(jq -r '.activationKey' "$CAP_JSON")"
     jq -e --arg k "$key" '.config | has($k)' "$CAP_JSON"
   fi
+}
+
+@test "no prompt fragment gates the mirror push on a key nothing reads" {
+  # The other half of CairnGo-gbu: three fragments told the agent to push
+  # "if .cairn/sync.json has an enabled backend and config cairn.sync_push is
+  # not false". The second clause was never readable by anything, so the
+  # instruction described a condition that could not be evaluated.
+  local f
+  for f in "$CAP_DIR"/fragments/*.md; do
+    if grep -qF "sync_push" "$f"; then
+      echo "fragment still names the removed key: $f" >&2
+      grep -nF "sync_push" "$f" >&2
+      return 1
+    fi
+  done
+
+  # The condition that DOES decide the push is still stated, so removing the
+  # dead clause did not remove the rule.
+  grep -qF ".cairn/sync.json" "$CAP_DIR/fragments/execute-wave-post.md"
 }
 
 @test "every hook point is in the closed 12-point vocabulary and every when-key is declared" {
