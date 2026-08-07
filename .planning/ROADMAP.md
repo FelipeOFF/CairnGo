@@ -40,7 +40,7 @@ não conta como pronta.
 - [ ] Phase 25: Measured cleanup (FIX-01 … FIX-05)
 - [x] Phase 26: The cairn wrappers (WRAP-01, WRAP-02, WRAP-03) — completed 2026-08-05
 - [x] Phase 27: Disagreement trend across cycles (TREND-01, TREND-02) — completed 2026-08-06
-- [ ] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03, DJOUR-04)
+- [x] Phase 28: Durable journal (DJOUR-01, DJOUR-02, DJOUR-03, DJOUR-04) — completed 2026-08-07
 - [ ] Phase 30: Did it land (PR-01, PR-02, PR-03, PR-04)
 
 ## Detalhe das fases
@@ -787,10 +787,10 @@ O 29-04 saiu da onda 2 porque ele e o 29-02 escrevem em `cairn/commands/help.md`
 | WRAP-03 | Phase 26 | Complete |
 | TREND-01 | Phase 27 | Complete |
 | TREND-02 | Phase 27 | Complete |
-| DJOUR-01 | Phase 28 | Pending |
-| DJOUR-02 | Phase 28 | Pending |
-| DJOUR-03 | Phase 28 | Pending |
-| DJOUR-04 | Phase 28 | Pending |
+| DJOUR-01 | Phase 28 | Complete |
+| DJOUR-02 | Phase 28 | Complete |
+| DJOUR-03 | Phase 28 | Complete |
+| DJOUR-04 | Phase 28 | Complete |
 | AUTO-01 | Phase 29 | Complete |
 | AUTO-02 | Phase 29 | Complete |
 | AUTO-03 | Phase 29 | Complete |
