@@ -264,6 +264,90 @@ EOF
   fi
 }
 
+# ---------------------------------------------------------------------------
+# CairnGo-3w9 — a script with no door is invisible to the derived page
+# ---------------------------------------------------------------------------
+
+@test "the two phase-30 scripts have both doors" {
+  # MEASURED 2026-08-07: phase 30 shipped cairn-land.py and cairn-review.py
+  # with a .sh pair and a bats suite each, and neither had a /cairn:* command
+  # or a page. Found while writing a routing string for /cairn:land — which
+  # did not exist, so the string had to name the script instead.
+  local name
+  for name in land review; do
+    [ -f "$CAIRN_REPO_ROOT/cairn/scripts/cairn-$name.py" ]
+    [ -f "$CAIRN_REPO_ROOT/cairn/commands/$name.md" ]
+    [ -f "$CAIRN_REPO_ROOT/cairn/docs/commands/$name.md" ]
+    # And the command reaches the script it is a door onto.
+    grep -qF "scripts/cairn-$name.sh" "$CAIRN_REPO_ROOT/cairn/commands/$name.md"
+  done
+
+  # Both are now in the derived listing, which is the half of WRAP-03 that
+  # could not fire before: a script with no command is not listed BY
+  # DEFINITION, so the derived page had no way to notice the absence.
+  local listing
+  listing="$(bash "$WRAP" list --commands-dir "$CAIRN_REPO_ROOT/cairn/commands" --json)"
+  assert_json_eq "$listing" '[.commands[] | select(. == "land")] | length' '1'
+  assert_json_eq "$listing" '[.commands[] | select(. == "review")] | length' '1'
+}
+
+@test "every cairn script is reachable by command, or its absence is written down" {
+  # The guard that makes the NEXT phase-30 loud. A script with no /cairn:*
+  # command is not a defect by itself — most of these are invoked BY the
+  # commands — but an unexamined one is exactly how land and review shipped
+  # with no door. So every script is either a command or carries a reason
+  # here, and a new script forces that decision instead of inheriting silence.
+  # bash 3.2 (the macOS default) has no associative arrays — a case, then.
+  # The reason is the payload: an entry with no sentence is not an entry.
+  script_has_written_reason() {
+    case "$1" in
+      bookkeep) echo "the end-of-phase bookkeeping the loop commands invoke; contract at docs/commands/bookkeep.md, and named in the help page" ;;
+      capability) echo "install-time plumbing for the GSD capability; invoked by /cairn:init and /cairn:migrate" ;;
+      gate) echo "the deterministic milestone gate; invoked by /cairn:ship and /cairn:milestone complete" ;;
+      jira) echo "Jira detection; invoked by /cairn:sync-config" ;;
+      journal) echo "the append-only resume journal; invoked by /cairn:migrate and the parallel runner" ;;
+      lease) echo "the phase lease; invoked by the loop commands and released by bookkeep" ;;
+      map) echo "the generated phase-beads map; invoked by /cairn:plan, /cairn:work and bookkeep" ;;
+      parallel) echo "the parallel phase runner; invoked by /cairn:autonomous" ;;
+      relabel) echo "label maintenance; invoked by /cairn:phase and by the doctor's --fix-labels" ;;
+      release) echo "release engineering for cairn's OWN repo; routed by the doctor's release-versions check" ;;
+      test) echo "the bats suite runner for cairn's OWN repo; routed by the doctor's test-parallel check" ;;
+      trend) echo "first-pass verdict history across cycles; a maintainer report, not a project verb" ;;
+      wrap) echo "the derivation tool itself; invoked by /cairn:help and by the docs regeneration" ;;
+      *) return 1 ;;
+    esac
+  }
+
+  local path name undoored=""
+  for path in "$CAIRN_REPO_ROOT"/cairn/scripts/cairn-*.py; do
+    name="$(basename "$path" .py)"
+    name="${name#cairn-}"
+    [ -f "$CAIRN_REPO_ROOT/cairn/commands/$name.md" ] && continue
+    script_has_written_reason "$name" >/dev/null && continue
+    undoored="$undoored $name"
+  done
+
+  if [ -n "$undoored" ]; then
+    echo "cairn script(s) with no /cairn: command and no written reason:$undoored" >&2
+    echo "give it a command + a page, or add it to the table in this test with why" >&2
+    return 1
+  fi
+}
+
+@test "the command reference lists every command, and its block is current" {
+  # The two new commands must have reached BOTH derived surfaces, not just the
+  # help: a row in the reference and a page behind the link. This is the same
+  # pair tests/cairn-wrap.bats guards for the whole page — asserted here too
+  # because it is the acceptance of this issue, not a side effect.
+  run bash "$WRAP" docs --check --json \
+    --commands-dir "$CAIRN_REPO_ROOT/cairn/commands" \
+    --doc "$CAIRN_REPO_ROOT/cairn/docs/commands.md" \
+    --doc-pages-dir "$CAIRN_REPO_ROOT/cairn/docs/commands"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.undocumented | length' '0'
+  assert_json_eq "$output" '.missing_pages | length' '0'
+}
+
 @test "no cairn command prompt writes a check count by hand" {
   # The guard against the five measured precedents. The doctor grows checks
   # every other phase — it goes from 21 to 22 in this very phase — so any
