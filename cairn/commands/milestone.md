@@ -27,13 +27,13 @@ the mode; with neither `new` nor `complete`, ask which one.
      --metadata '{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}'
    ```
    Capture roadmap-implied ordering with `bd dep add`.
-3. **Do not generate the phase maps here — they cannot exist yet.** A map is
-   written into the phase's own directory, and the directories are created by
-   `/cairn:plan <N>`, so at this point in the milestone none of them exists.
-   Measured when v1.4 opened: 5 of 5 phases failed, and confirmed live when
-   v1.5 opened — `cairn-map.sh 20` answers `no phase directory matching phase
-   20` and exits `4`. The map is born with the phase's plan, in
-   `/cairn:plan <N>`, which regenerates it every time.
+3. **Nothing to generate here, and nothing that can fail.** Until v1.7 this
+   step was a prohibition: the map was written into the phase's own directory,
+   the directories were born in `/cairn:plan <N>`, and asking for a map at
+   milestone-open time failed for every phase (measured when v1.4 opened: 5 of
+   5; confirmed when v1.5 opened, `cairn-map.sh 20` → exit `4`). The map is a
+   printed view of bd now — a phase is a label, not a folder — so
+   `cairn-map.sh <N>` answers at any moment, including this one.
 4. Suggest `/cairn:doctor` to confirm the wiring, then `/cairn:plan <N>` —
    which is where each phase gets its directory, its plan and its map.
 
@@ -62,9 +62,7 @@ the mode; with neither `new` nor `complete`, ask which one.
    plus moving ROADMAP/REQUIREMENTS and the phase dirs to
    `.planning/milestones/v<X.Y>-phases/`. With a GSD plugin installed
    alongside cairn, `/cairn:gsd complete-milestone` runs the upstream workflow
-   instead. Either way the generated `NN-BEADS-MAP.md` files are archived
-   **with** their phase dirs — that is correct history; do not orphan-clean or
-   regenerate them.
+   instead. Phase dirs are archived whole — that is correct history.
 4. Offer semantic compaction of aged closed issues:
    `bd admin compact --analyze --json` lists candidates (~30 days closed) with
    full content. Present the findings; only on explicit user confirmation

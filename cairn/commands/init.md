@@ -203,8 +203,9 @@ names this exact command; it is not left to memory.
 
 After the roadmap exists, follow the `cairn` skill: create one bd issue per
 requirement, stamped with the `gsd` metadata and the `m-<milestone>` +
-`phase-<N>` label pair; generate each `NN-BEADS-MAP.md` with
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>`. Then the
+`phase-<N>` label pair. Inspect a phase any time with
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>`, which prints its
+requirement↔issue table straight from bd. Then the
 normal loop — `/cairn:plan 1`, `/cairn:work 1`, `/cairn:verify 1`, … — runs
 under the cairn conventions, which activate automatically once both
 `.planning/` and `.beads/` exist.

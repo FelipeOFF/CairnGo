@@ -586,9 +586,26 @@ free_of_timestamp_keys() {
   # O ramo de um-lado-so ja existia, mas simetrico: as duas direcoes davam a
   # mesma frase, e uma frase que nao distingue os dois casos nao orienta
   # nenhum dos dois.
+  # ATUALIZADO 2026-08-12 pela fase 39, e a razao e' a MUDANCA DE FONTE: o
+  # doctor parou de ler o roteiro do markdown e passou a deriva-lo do bd
+  # (cairn_source.py). Milestone, fase ativa, fases, requisitos e completude
+  # vem do tracker; o `.planning/ROADMAP.md`, quando existe, entra so como
+  # ENTRADA de importacao — e' o que sustenta req-issue, phase-complete-open
+  # e orphans num repo por migrar, e a leitura morre sozinha quando o
+  # diretorio nao existe.
+  #
+  # Duas checagens mudaram de veredito por decisao, nao por acidente:
+  #   - maps-fresh saiu INTEIRA (out-of-scope): media o frescor de uma copia
+  #     do bd em disco, e a copia deixou de existir — o mapa e' impresso.
+  #   - claims-stale sem trabalho aberto passou a ler `ok` em vez de
+  #     `no-input`: com a fase ativa derivada, "nao ha fase ativa" quer dizer
+  #     "nao ha claim", o que RESPONDE a pergunta em vez de impedi-la.
+  #     Como no-input, deixava todo repo de trabalho concluido
+  #     permanentemente INCOMPLETE (medido: dois casos de phase-artifacts
+  #     falharam por isso, sem ter relacao com claims).
   local doctor="$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
-  local pinned_blob="0d27d38af78690b0f23504cbce93b547cf067202"
-  local pinned_lines=4228
+  local pinned_blob="0075ed18c751fd7f51de282e205a5c7b22133123"
+  local pinned_lines=4402
   [ -f "$doctor" ]
   local blob lines
   blob="$(git hash-object "$doctor")"

@@ -320,36 +320,32 @@ PY
   grep -qF "lacks label phase-2" <<<"$output"
 }
 
-@test "maps-fresh: close without regenerating the map warns, exit 0" {
+@test "maps-fresh: APOSENTADA — nao ha copia cujo frescor medir" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
   make_doctor_fixture
-  # A new open issue (not a close) keeps disk/bd corroboration agreeing —
-  # phase 2 stays "not done" on both sides — while still making the map
-  # stale, which is all this test needs.
+  # Este caso media o warn "stale map 02-BEADS-MAP.md": uma issue nova na
+  # fase 2 sem regenerar o mapa deixava a COPIA em disco atras do bd.
+  #
+  # v1.7: a copia nao existe. `cairn-map.sh <N>` imprime a vista a cada
+  # chamada, entao a distancia entre copia e original nao tem como crescer —
+  # e a checagem sai INTEIRA, em vez de virar uma que nunca reprova. O que
+  # se prova aqui e' que ela nao voltou disfarcada de verde: `out-of-scope`,
+  # nunca `ok`, e sem item nenhum.
   bd create "API-02: Second endpoint" -t task -l phase-2,m-v1.0 \
     --metadata '{"gsd":{"req":"API-02","phase":2,"milestone":"v1.0"}}' \
-    --silent >/dev/null   # map 2 NOT regenerated
+    --silent >/dev/null
 
   beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  [ "$status" -eq 0 ]   # warnings alone never change the exit code
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="maps-fresh") | .status' 'not-applicable'
+  assert_json_eq "$output" '.checks[] | select(.id=="maps-fresh") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.checks[] | select(.id=="maps-fresh") | .items | length' '0'
+  # out-of-scope nao torna o relatorio incompleto: o insumo nao FALTA, ele
+  # deixou de existir por decisao.
   assert_json_eq "$output" '.ok' 'true'
-  assert_json_eq "$output" '.checks[] | select(.id=="maps-fresh") | .status' 'warn'
-  grep -qF "stale map 02-BEADS-MAP.md" <<<"$output"
-
-  beads_export_refresh
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
-  [ "$status" -eq 0 ]
-  grep -qF "⚠ maps-fresh" <<<"$output"
-
-  # Regenerate -> clean again.
-  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2 >/dev/null
-  beads_export_refresh
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
-  [ "$status" -eq 0 ]
-  refute_in_output "⚠"
 }
 
 @test "superseded-released: superseded plan holding a live bead warns" {
@@ -865,53 +861,63 @@ PY
 # asserted by id, on the exact value — `!= "ok"` would be satisfied by `warn`,
 # and that is how a false green nearly walked past a test written against
 # false greens in phase 29.
-@test "empty roadmap: the checks that compared nothing say so, and the footer says the report is incomplete" {
+@test "roteiro sem fase NAO cega mais o doctor: a resposta cai para o bd" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
   make_doctor_fixture
   make_roadmap_without_phases
 
+  # O QUE ESTE CASO AFIRMAVA ATE A v1.6, e por que inverteu. Com um ROADMAP
+  # sem fases, req-issue e orphans ficavam sem insumo: eram `no-input`, e o
+  # rodape lia INCOMPLETE. Era o certo enquanto o roteiro ERA a fonte — sem
+  # ele, nao havia com o que comparar.
+  #
+  # v1.7: a fonte e' o bd, e o roteiro em disco so entra quando existe (a
+  # leitura de importacao). Um roteiro vazio deixa de ser cegueira e vira
+  # simplesmente "nao ha GSD por importar" — as duas checagens caem para o
+  # tracker e RODAM. O relatorio fica completo por ter mais fonte, nao por
+  # ter baixado a exigencia: os itens continuam sendo conferidos, um a um.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  # The verdict moved where it is READ, not where it decides to block.
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.failed' 'false'
-  assert_json_eq "$output" '.ok' 'false'
+  assert_json_eq "$output" '.ok' 'true'
 
+  # nenhuma das duas fica ⊘ por falta de roteiro
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="req-issue") | .status' 'not-applicable'
+    '.checks[] | select(.id=="req-issue") | .status' 'ok'
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="req-issue") | .scope' 'no-input'
-  assert_json_eq "$output" \
-    '.checks[] | select(.id=="orphans") | .status' 'not-applicable'
-  assert_json_eq "$output" \
-    '.checks[] | select(.id=="orphans") | .scope' 'no-input'
-
-  # MEASURED CORRECTION to the plan: maps-fresh walks the phase DIRECTORIES on
-  # disk and never reads ROADMAP.md, so an empty roadmap leaves it with its
-  # input intact — it runs for real and reports what it FOUND (the two
-  # generated maps went stale the moment the roadmap changed under them).
-  # Asserting the exact `warn` is what proves the correction: a check that
-  # still has something to compare must keep comparing, not get swept into
-  # the promotion because a neighbouring check lost its input.
-  assert_json_eq "$output" \
-    '.checks[] | select(.id=="maps-fresh") | .status' 'warn'
-
-  # Each one says WHAT was missing, not just that it gave up.
-  grep -qF "ROADMAP.md lists no phase" <<<"$output"
+    '.checks[] | select(.id=="orphans") | .status' 'ok'
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
-  grep -qF "[cairn-doctor] INCOMPLETE" <<<"$output"
-  refute_in_output "✓ req-issue"
-  refute_in_output "✓ orphans"
+  grep -qF "[cairn-doctor] ok" <<<"$output"
+}
+
+@test "controle negativo: com REQUISITO no roteiro e sem issue, req-issue REPROVA" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  # A guarda que o caso acima poderia ter afrouxado sem querer: se "cair para
+  # o bd" virasse "aceitar qualquer coisa", um roteiro POR IMPORTAR com
+  # requisito sem bead passaria calado. Ele nao passa — e' a cobertura da
+  # importacao, e ela reprova.
+  printf '\n### Phase 9: Unimported\n**Requirements**: [GHOST-01]\n' \
+    >> .planning/ROADMAP.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="req-issue") | .status' 'fail'
+  grep -qF "GHOST-01" <<<"$output"
 }
 
 # Break, and it is the expensive one: refusing check_orphans AS A WHOLE when
 # the roadmap is empty. That is the tempting, naive version of the promotion,
 # and it would hide every finding of the second axis — a phase that exists to
 # remove false green would have created new silence instead.
-@test "orphans with an empty roadmap: the axis that still works keeps reporting" {
+@test "orphans: a issue que ninguem colocou em fase nenhuma segue sendo reportada" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -920,39 +926,53 @@ PY
   local loose
   loose="$(bd create "Loose end nobody placed" -t task --silent)"
 
+  # O eixo que importa aqui nunca dependeu do roteiro: uma issue aberta sem
+  # `phase-*` e' orfa qualquer que seja a fonte das fases. O caso existia
+  # para provar que a promocao a `no-input` do OUTRO eixo nao emudecia este,
+  # e continua provando — agora sem a frase sobre o ROADMAP, que sumiu com a
+  # cegueira.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
-  # The exact value: warn, because there IS a finding — not not-applicable.
   assert_json_eq "$output" \
     '.checks[] | select(.id=="orphans") | .status' 'warn'
   assert_json_eq "$output" \
     '.checks[] | select(.id=="orphans") | .items | length' '1'
   grep -qF "$loose" <<<"$output"
-  # And the information that the other axis never ran is NOT lost just
-  # because there was something to warn about.
-  grep -qF "ROADMAP.md lists no phase" <<<"$output"
 }
 
 # Break: promote the plan-inventory checks off the wrong axis. Before 23-03
 # both of these read `ok` over an empty inventory — "0 plan bead id(s)
 # verified" and "0 superseded plan(s), no live beads" are counts of nothing
 # announced as a clean bill of health.
-@test "plan-inventory checks: no PLAN.md at all is not-applicable/no-input on both axes" {
+@test "sem PLAN.md os dois eixos de plano sao out-of-scope, nao no-input" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
   make_doctor_fixture
   rm -f .planning/phases/*/*-PLAN.md
 
+  # A FAMILIA MUDOU, E A MUDANCA E' O CONTEUDO DESTE CASO. Ate a v1.6 a
+  # ausencia de PLAN.md era `no-input`: a garantia (todo plano estampa os ids
+  # que entrega) era desejada e simplesmente nunca verificada aqui, e escrever
+  # um plano era a acao que fechava a lacuna.
+  #
+  # v1.7 aposentou o objeto. Um plano e' um REGISTRO no bd — nao ha arquivo do
+  # lado de fora para carregar um `beads:` que o amarre, e "supersedir" um
+  # plano e' fechar seu bead. Nao falta insumo: o insumo deixou de existir por
+  # decisao, e e' isso que `out-of-scope` diz. A distincao importa porque so
+  # `no-input` torna o relatorio INCOMPLETE — declarar aposentadoria como
+  # lacuna deixaria todo repo cairn permanentemente incompleto.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   assert_json_eq "$output" \
     '.checks[] | select(.id=="frontmatter-ids") | .status' 'not-applicable'
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="frontmatter-ids") | .scope' 'no-input'
+    '.checks[] | select(.id=="frontmatter-ids") | .scope' 'out-of-scope'
   assert_json_eq "$output" \
     '.checks[] | select(.id=="superseded-released") | .status' 'not-applicable'
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="superseded-released") | .scope' 'no-input'
+    '.checks[] | select(.id=="superseded-released") | .scope' 'out-of-scope'
+  # e por serem out-of-scope, o rodape NAO fica incompleto por causa delas
+  assert_json_eq "$output" '.ok' 'true'
 }
 
 # Break: read the `beads:` gap as vacuous truth. A plan with no stamp is
@@ -1017,7 +1037,7 @@ PY
 #
 # This is also the shape of a project on day one: a roadmap not yet written
 # and no phase directories. It must not read as a clean bill of health.
-@test "maps-fresh: no phase directory at all is not-applicable/no-input, not '0 maps current'" {
+@test "maps-fresh: sem diretorio de fase a resposta e a MESMA, e nao um segundo motivo" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -1025,15 +1045,16 @@ PY
   make_roadmap_without_phases
   rm -rf .planning/phases/*
 
+  # Antes havia dois caminhos ate o ⊘: "ha pasta mas nenhum mapa" e "nao ha
+  # pasta". Com a checagem aposentada ha um so, e ele nao depende do disco —
+  # e' isso que este caso fixa, para que ninguem reintroduza o ramo de
+  # no-input achando que a ausencia de pasta ainda diz alguma coisa.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" \
     '.checks[] | select(.id=="maps-fresh") | .status' 'not-applicable'
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="maps-fresh") | .scope' 'no-input'
-  grep -qF "no phase directory" <<<"$output"
-  # The report as a whole says it is incomplete, and still does not block.
-  assert_json_eq "$output" '.ok' 'false'
+    '.checks[] | select(.id=="maps-fresh") | .scope' 'out-of-scope'
   assert_json_eq "$output" '.failed' 'false'
 }
 
@@ -1073,11 +1094,16 @@ PY
   refute_in_output "✗"
 }
 
-@test "--fix-labels refuses when the milestone is unresolvable, exit 2" {
+@test "--fix-labels recusa quando NENHUM ciclo e resolvivel, exit 2" {
   require_bd
   make_tmp_repo
-  make_gsd_fixture "$PWD"   # no milestone in STATE.md or ROADMAP.md
-  make_doctor_fixture
+  make_gsd_fixture "$PWD"
+  # v1.7: o milestone vem do bd (o `m-*` com trabalho aberto), nao de um
+  # campo do STATE.md nem da linha 🚧 do roteiro. O fixture completo TEM
+  # issues `m-v1.0`, entao ali o milestone resolve e o conserto acontece —
+  # que e' a melhoria. A recusa continua existindo para o caso em que nao ha
+  # ciclo nenhum a que parear, e e' esse caso que este teste fixa.
+  bd init -q --prefix doc --non-interactive >/dev/null 2>&1
   bd create "Stray unpaired task" -t task -l phase-2 --silent >/dev/null
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --fix-labels
@@ -1085,28 +1111,32 @@ PY
   grep -qF "milestone unresolvable" <<<"$output"
 }
 
-@test "claims-stale: assigned in_progress issue outside the active phase warns" {
+@test "claims-stale: com duas fases vivas, a claim fora da corrente e reportada" {
   require_bd
   make_tmp_repo
-  make_gsd_fixture "$PWD"   # STATE.md active_phase: 2
+  make_gsd_fixture "$PWD"
   make_doctor_fixture
-  local claimed
-  claimed="$(bd create "AUTH-03: Password reset" -t task -l phase-1,m-v1.0 \
+
+  # A FASE ATIVA E' DERIVADA (v1.7): a menor fase com trabalho in_progress.
+  # O caso original punha UMA claim na fase 1 enquanto o STATE.md dizia fase
+  # 2, e a divergencia vinha do campo digitado. Sem campo, uma claim sozinha
+  # nao pode estar "fora" de coisa nenhuma — ela DEFINE onde se esta.
+  #
+  # A divergencia que sobra e' real e e' a que interessa: alguem reivindicou
+  # em duas fases e esqueceu uma. A corrente e' a menor; a outra e' a velha.
+  local here there
+  here="$(bd create "AUTH-03: Password reset" -t task -l phase-1,m-v1.0 \
     --metadata '{"gsd":{"req":"AUTH-03","phase":1,"milestone":"v1.0"}}' --silent)"
-  bd update "$claimed" --claim >/dev/null
-  bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null   # keep check 3 ok
+  there="$(bd create "API-09: Forgotten claim" -t task -l phase-2,m-v1.0 \
+    --metadata '{"gsd":{"req":"API-09","phase":2,"milestone":"v1.0"}}' --silent)"
+  bd update "$here" --claim >/dev/null
+  bd update "$there" --claim >/dev/null
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  # claims-stale itself only WARNs, but phase-corroboration (check 11)
-  # independently reads the same fact — phase 1 verified on disk, one of
-  # its issues in_progress — as its R1 "blocks" conflict (disk vs bd), so
-  # the OVERALL run fails until the claim is resolved.
-  [ "$status" -eq 7 ]
-  assert_json_eq "$output" '.active_phase' '2'
+  assert_json_eq "$output" '.active_phase' '1'
   assert_json_eq "$output" '.checks[] | select(.id=="claims-stale") | .status' 'warn'
   assert_json_eq "$output" '.checks[] | select(.id=="claims-stale") | .items | length' '1'
-  assert_json_eq "$output" '.checks[] | select(.id=="phase-corroboration") | .status' 'fail'
-  grep -qF "$claimed" <<<"$output"
+  grep -qF "$there" <<<"$output"
   grep -qF "stale claim" <<<"$output"
 }
 
@@ -2146,10 +2176,10 @@ EOF
   # claims-stale.
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .id] | sort | join(",")' \
-    'phase-landed,release-versions,state-dialect,test-parallel'
+    'maps-fresh,phase-landed,release-versions,state-dialect,test-parallel'
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .scope] | sort | join(",")' \
-    'out-of-scope,out-of-scope,out-of-scope,out-of-scope'
+    'out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope'
 }
 
 # --------------------------------------------------------------------------- #
@@ -3051,44 +3081,40 @@ PY
 # promote a missing input to a blocking failure. This branch is the tracer
 # slice: STATE.md IS here, so the key it lacks is a GAP, not a repo the check
 # has no business running in — hence no-input, and hence `.ok` false.
-@test "claims-stale: no active_phase is not-applicable/no-input, routes, and never blocks" {
+@test "claims-stale: sem trabalho aberto a checagem RESPONDE, e nao se abstem" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
-  make_doctor_fixture
+  bd init -q --prefix doc --non-interactive >/dev/null 2>&1
+  # Um repo cujo trabalho ACABOU: uma issue, fechada, e nada mais. O fixture
+  # completo nao serve aqui — fechar suas issues a forca deixaria o disco
+  # (fases nao verificadas) discordando do bd, e quem reprovaria seria a
+  # corroboracao, nao esta checagem.
+  local done_id
+  done_id="$(bd create "AUTH-01: Signup" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' --silent)"
+  bd close "$done_id" --reason "pronto" >/dev/null
 
-  drop_state_active_phase
-
+  # A INVERSAO, E ELA E' O CONTEUDO DESTE CASO. Ate a v1.6 a fase ativa vinha
+  # do `active_phase:` do STATE.md, entao a ausencia da chave era ausencia de
+  # INSUMO: `no-input`, relatorio INCOMPLETE, e uma decisao aberta
+  # (CairnGo-rq0) sobre qual grafia o arquivo devia carregar.
+  #
+  # v1.7 deriva a fase do bd — a menor com trabalho in_progress, senao a menor
+  # com trabalho aberto — e "nao ha fase ativa" passou a significar "nao ha
+  # trabalho aberto". Isso RESPONDE a pergunta desta checagem (nenhuma claim
+  # pode estar velha quando nao ha claim) em vez de impedi-la, e por isso e'
+  # `ok`.
+  #
+  # Classificar como no-input aqui deixaria todo repositorio de trabalho
+  # concluido permanentemente INCOMPLETE — foi o que a suite pegou quando a
+  # primeira versao desta mudanca tentou.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  # A check with no input is friction, not a state inconsistency: exit 7
-  # spent on friction stops meaning anything. The verdict moved where it is
-  # READ, not where it decides to block.
-  [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.failed' 'false'
-  # The health key can no longer be true while a check inside the doctor's
-  # remit never received its input.
-  assert_json_eq "$output" '.ok' 'false'
-  # The exact value, never "is not ok": the old verdict WAS ok, then warn,
-  # and a negation would also accept a fail that has no business being one.
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
+    '.checks[] | select(.id=="claims-stale") | .status' 'ok'
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
-  grep -qF "cannot check" <<<"$output"
-  grep -qF "active_phase" <<<"$output"
-  grep -qF "CairnGo-rq0" <<<"$output"
-  # The finding routes: it names the surfaces that read the key.
-  grep -qF "cairn-lease.py" <<<"$output"
-  grep -qF "hooks/session-start.sh" <<<"$output"
-
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
-  [ "$status" -eq 0 ]
-  grep -qF "⊘ claims-stale" <<<"$output"
-  refute_in_output "✓ claims-stale"
-  refute_in_output "⚠ claims-stale"
-  # The footer says the report is incomplete without saying anything failed.
-  grep -qF "[cairn-doctor] INCOMPLETE" <<<"$output"
-  refute_in_output "[cairn-doctor] FAIL"
+    '.checks[] | select(.id=="claims-stale") | has("scope")' 'false'
+  grep -qF "no claim can be stale" <<<"$output"
 }
 
 # Break: a branch that never returns ok makes the check lie in the other
@@ -3238,7 +3264,7 @@ PY
 # state-dialect, now READS current_phase — to compare it, never to stand in
 # for it. The abstention this test protects is claims-stale's, and it is
 # unchanged: no synonym, no fallback, no second reader of one fact.
-@test "claims-stale: the doctor never writes active_phase, and never takes current_phase as its synonym" {
+@test "claims-stale: a grafia do STATE.md ficou IRRELEVANTE, e o doctor segue read-only" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -3249,21 +3275,33 @@ PY
 from pathlib import Path
 p = Path(".planning/STATE.md")
 lines = p.read_text().splitlines(keepends=True)
-lines.insert(1, 'current_phase: "2"\n')   # the dialect GSD actually writes
+lines.insert(1, 'current_phase: "2"\n')
 p.write_text("".join(lines))
 PY
   cp .planning/STATE.md "$BATS_TEST_TMPDIR/state-before.md"
 
+  # O caso protegia uma ABSTENCAO: `current_phase` nao podia ser adotado como
+  # sinonimo de `active_phase`, porque escolher a grafia era uma decisao de
+  # negocio (CairnGo-rq0) que nao cabia ao doctor tomar calado.
+  #
+  # v1.7 dissolveu a pergunta em vez de responde-la: a fase ativa vem do bd, e
+  # NENHUMA das duas grafias a define. O que este caso guarda agora e' que o
+  # doctor nao voltou a ler o arquivo — nem por uma grafia, nem pela outra —
+  # e que segue sem escrever nele.
+  local claimed
+  claimed="$(bd create "API-09: Claim viva" -t task -l phase-2,m-v1.0 \
+    --metadata '{"gsd":{"req":"API-09","phase":2,"milestone":"v1.0"}}' --silent)"
+  bd update "$claimed" --claim >/dev/null
+
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
-  # current_phase is NOT adopted as a synonym: the check still has no input.
-  # The value moved with 23-01 (warn -> not-applicable); the abstention this
-  # test protects did not, and the assertion is still on the exact value.
+  # A fase ativa e' 2 porque o TRABALHO esta na 2 — e seria 2 com qualquer
+  # coisa escrita no STATE.md, inclusive nada.
+  assert_json_eq "$output" '.active_phase' '2'
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
-  assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
-  # And STATE.md is byte-identical — the doctor is read-only about this.
+    '.checks[] | select(.id=="claims-stale") | .status' 'ok'
+
+  # E o STATE.md continua byte a byte igual: o doctor le do bd e nao escreve.
   run diff "$BATS_TEST_TMPDIR/state-before.md" .planning/STATE.md
   [ "$status" -eq 0 ]
 }
@@ -3711,22 +3749,27 @@ PY
     '.checks[] | select(.id=="state-dialect") | .status' 'not-applicable'
   assert_json_eq "$output" \
     '.checks[] | select(.id=="state-dialect") | .scope' 'out-of-scope'
-  # `.ok` is false here — but because of check 8's no-input on the missing
-  # active_phase, not because of this one. Asserted at the check, so the two
-  # verdicts cannot be confused for each other.
+  # v1.7: aqui havia um vinculo com a checagem 8 — `.ok` era false por causa
+  # do no-input dela sobre o `active_phase` ausente. Esse vinculo morreu: a
+  # fase ativa vem do bd, entao a grafia (ou a ausencia) do STATE.md nao
+  # produz mais lacuna nenhuma. O que sobrevive e' o que este caso sempre
+  # mediu de proprio: um dialeto so nao e' desacordo.
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
+    '.checks[] | select(.id=="claims-stale") | .status' 'ok'
+  assert_json_eq "$output" '.ok' 'true'
 }
 
-# THE CRITERION, END TO END, and the only test here that drives both halves of
-# AUTO-10 in one run: a STATE.md in the GSD dialect, the check that has never
-# once run in this project's life reporting no input over it, cairn-bookkeep
-# writing the key cairn reads, and the same check running afterwards.
+# AUTO-10 MEDIA UM VINCULO QUE A v1.7 CORTOU, e o caso vira a prova do corte.
 #
-# Break: revert STATE_KEYS_WRITTEN or the anchor condition in build_plan and
-# the second half of this test goes back to no-input — which is exactly the
-# measurement of 2026-08-05.
-@test "AUTO-10: close --apply lands active_phase, and claims-stale stops reporting no input" {
+# O criterio original: um STATE.md no dialeto do GSD deixava claims-stale sem
+# insumo; `cairn-bookkeep close --apply` escrevia `active_phase`, a chave que
+# cairn lia; e a checagem passava a rodar. Tres pecas, uma corrente.
+#
+# A fase ativa agora e' derivada do bd, entao a corrente nao existe: nenhuma
+# escrita em STATE.md liga ou desliga a checagem. O que o caso guarda hoje e'
+# que ela roda SEM que ninguem escreva o campo — e que o bookkeep, que ainda
+# escreve o arquivo para quem o mantem, nao virou pre-requisito de nada.
+@test "AUTO-10: a checagem roda sem que ninguem escreva active_phase" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -3736,30 +3779,25 @@ PY
   grep -qF "current_phase: 2" "$PWD/.planning/STATE.md"
   ! grep -qF "active_phase" "$PWD/.planning/STATE.md"
 
-  # Before: the measured false green's successor — a check with no input.
+  # Sem `active_phase` em lugar nenhum, e a checagem JA roda: o insumo dela e'
+  # o trabalho, e o trabalho esta no bd.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
-  assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .status' 'not-applicable'
-  assert_json_eq "$output" \
-    '.checks[] | select(.id=="claims-stale") | .scope' 'no-input'
-
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-bookkeep.sh" close 2 --apply \
-    --no-tracker --planning-dir "$PWD/.planning"
-  [ "$status" -eq 0 ]
-
-  # The key cairn reads is in the file, beside the key GSD writes, naming the
-  # same phase — so check 21 has something to compare and agrees.
-  grep -qF "current_phase: 2" "$PWD/.planning/STATE.md"
-  grep -qF "active_phase: 2" "$PWD/.planning/STATE.md"
-
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   assert_json_eq "$output" \
     '.checks[] | select(.id=="claims-stale") | .status' 'ok'
   assert_json_eq "$output" \
     '.checks[] | select(.id=="claims-stale") | has("scope")' 'false'
+  assert_json_eq "$output" '.active_phase' '2'
+
+  # E depois do bookkeep — que segue mantendo o arquivo para quem o le — nada
+  # muda do lado da checagem: ela nao dependia dele.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-bookkeep.sh" close 2 --apply \
+    --no-tracker --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   assert_json_eq "$output" \
-    '.checks[] | select(.id=="state-dialect") | .status' 'ok'
+    '.checks[] | select(.id=="claims-stale") | .status' 'ok'
 }
 
 # ─── check 22, issues-recoverable (2026-08-07) ──────────────────────────────

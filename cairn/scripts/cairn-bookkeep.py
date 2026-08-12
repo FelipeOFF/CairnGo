@@ -53,7 +53,7 @@ Behavior:
                      is on disk;
                   6. the STATE.md frontmatter counters, and only the keys
                      listed under THE STATE KEYS below;
-                  7. the phase's generated map (cairn-map.py <N>), its lease
+                  7. the phase's lease
                      (cairn-lease.py RETIRE <N> — vacated AND closed in bd,
                      because the phase is over) and the worktree `prepare`
                      built for it (cairn-parallel.py cleanup --phase <N>
@@ -797,18 +797,23 @@ def run_tracker(planning, root, phase, wanted, applied):
            "worktree": None}
     if phase is None:
         out["skipped"] = ("this run owns no phase (reconcile, plan): there "
-                          "is no map to regenerate and no lease to release")
+                          "is no lease to release and no worktree to clean")
         return out
     if not wanted:
-        out["skipped"] = ("--no-tracker: the phase map was NOT regenerated "
-                          "and the phase lease was NOT released")
+        out["skipped"] = ("--no-tracker: the phase lease was NOT released "
+                          "and its worktree was NOT cleaned")
         return out
     if not applied:
         out["skipped"] = "read mode: the tracker is only touched by --apply"
         return out
     out["ran"] = True
-    out["map"] = run_sibling_json([sibling("cairn-map.py"), str(phase),
-                                   "--json", "--planning-dir", str(planning)])
+    # v1.7: `map` sai do tracker. Ele regenerava `NN-BEADS-MAP.md` — uma
+    # COPIA do bd em disco — e a copia deixou de existir: `cairn-map.sh <N>`
+    # imprime a vista a cada chamada, entao nao ha nada para "atualizar" no
+    # fim de uma fase. A chave permanece no relatorio com valor nulo em vez de
+    # sumir: um consumidor que a lia continua lendo, e le a verdade nova
+    # (nada foi regenerado) em vez de estourar numa chave ausente.
+    out["map"] = None
     # `retire`, not `release`: the phase is over, so its lease issue is
     # CLOSED rather than left open for the next acquire. Measured 2026-08-07 —
     # `release` passes `--status open` by design, so five leases of complete
@@ -841,10 +846,10 @@ def run_bookkeeping(args, phase):
     tracker_wanted = phase is not None and not getattr(args, "no_tracker",
                                                        False)
     if args.apply and tracker_wanted and shutil.which("bd") is None:
-        die("bd is not on PATH, so the phase map and the lease cannot be "
-            "touched — refusing to write the planning files and leave the "
-            "bookkeeping half done. Install beads, or pass --no-tracker to "
-            "do the file half deliberately.", EXIT_NO_BD)
+        die("bd is not on PATH, so the phase lease cannot be released — "
+            "refusing to write the planning files and leave the bookkeeping "
+            "half done. Install beads, or pass --no-tracker to do the file "
+            "half deliberately.", EXIT_NO_BD)
 
     changed = False
     written = []

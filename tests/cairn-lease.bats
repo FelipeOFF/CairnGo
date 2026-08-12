@@ -258,7 +258,7 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   [ "$output" = "$before" ]
 }
 
-@test "renew with no phase argument resolves active_phase from STATE.md, and is a silent no-op with no STATE.md" {
+@test "renew sem fase resolve a fase ATIVA do bd, e e no-op silencioso sem trabalho aberto" {
   require_bd
   make_tmp_repo
   bd init -q --prefix lse --non-interactive >/dev/null 2>&1
@@ -270,13 +270,13 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   local before_heartbeat
   before_heartbeat="$(jq -r '.heartbeat_at' <<<"$output")"
 
-  mkdir -p .planning
-  cat > .planning/STATE.md <<'EOF'
----
-active_phase: "3"
----
-# State
-EOF
+  # v1.7: a fase ativa deixou de vir do `active_phase:` do STATE.md e passa a
+  # ser DERIVADA — a menor fase com trabalho in_progress, senao a menor com
+  # trabalho aberto. Renovar a partir de um campo digitado renova a fase que
+  # alguem lembrou de escrever, nao aquela onde o trabalho esta.
+  local work
+  work="$(bd create "Trabalho da fase 3" -t task -l phase-3,m-v1.0 --silent)"
+  bd update "$work" --claim >/dev/null 2>&1
 
   run bash "$LEASE" renew --project-dir "$PWD"
   [ "$status" -eq 0 ]
@@ -287,8 +287,8 @@ EOF
   after_heartbeat="$(jq -r '.heartbeat_at' <<<"$output")"
   [ "$after_heartbeat" != "$before_heartbeat" ]
 
-  # No STATE.md at all: silent no-op, exit 0, no traceback.
-  rm -f .planning/STATE.md
+  # Sem fase com trabalho aberto: no-op silencioso, exit 0, sem traceback.
+  bd close "$work" >/dev/null 2>&1
   run bash "$LEASE" renew --project-dir "$PWD"
   [ "$status" -eq 0 ]
   refute_in_output "Traceback"
