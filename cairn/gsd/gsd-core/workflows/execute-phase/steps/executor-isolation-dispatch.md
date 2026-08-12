@@ -122,7 +122,7 @@ First build the executor prompt. It is the **same prompt text the harness path's
 # also stop the shell expanding anything in the prompt body.
 EXECUTOR_PROMPT='<objective>
 Execute plan {plan_number} of phase {phase_number}-{phase_name}.
-Commit each task atomically. Create SUMMARY.md.
+Commit each task atomically. Close the plan's record with its summary.
 Do NOT record the wave's tracking facts and do NOT update ROADMAP.md — the orchestrator is the single registrar, once, after all worktree agents in the wave complete.
 </objective>
 
@@ -131,7 +131,7 @@ You are running as an executor in a git worktree GSD created for you. Your
 working directory IS that worktree. Do not cd elsewhere, and do not run any
 git command that targets the main checkout. Use normal git commits WITH hooks.
 Do NOT use --no-verify.
-REQUIRED ORDER: Write SUMMARY.md, commit, then any narration.
+REQUIRED ORDER: close the plan's record (`cairn-record.sh summary`), commit, then any narration.
 </execution_context>
 
 <success_criteria>

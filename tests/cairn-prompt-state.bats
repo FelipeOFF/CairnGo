@@ -217,7 +217,7 @@ gsd-core/workflows/execute-phase/steps/partial-wave.md|7|editado
 gsd-core/workflows/execute-phase/steps/per-plan-worktree-gate.md|7|editado
 gsd-core/workflows/execute-phase/steps/post-merge-gate.md|7|editado
 gsd-core/workflows/execute-phase/steps/regression-gate-run.md|7|editado
-gsd-core/workflows/execute-phase/steps/regression-gate.md|7|intocado
+gsd-core/workflows/execute-phase/steps/regression-gate.md|7|editado
 gsd-core/workflows/execute-phase/steps/worktree-recovery-policy.md|7|intocado
 gsd-core/workflows/fast.md|3|editado
 gsd-core/workflows/plan-phase.md|5|editado

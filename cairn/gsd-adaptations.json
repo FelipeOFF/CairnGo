@@ -22,9 +22,10 @@
       "phase": "36",
       "waves": [
         1,
+        3,
         7
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7 (ADAPT-04/ADAPT-02): os SETE sítios de estado do agente — só um deles mordido pelo oráculo (:850, família C passiva, pendência declarada na onda 6) e os outros seis invisíveis às quatro famílias por grafia (verbo minúsculo, nome entre crases, predicado de ausência, lista de commit). Junto, as três menções ao runtime antigo (`node` para invocar a CLI, `gsd-tools query` duas vezes) num arquivo cujo preâmbulo já resolve o binário python."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7 (ADAPT-04/ADAPT-02): os SETE sítios de estado do agente — só um deles mordido pelo oráculo (:850, família C passiva, pendência declarada na onda 6) e os outros seis invisíveis às quatro famílias por grafia (verbo minúsculo, nome entre crases, predicado de ausência, lista de commit). Junto, as três menções ao runtime antigo (`node` para invocar a CLI, `gsd-tools query` duas vezes) num arquivo cujo preâmbulo já resolve o binário python. Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
     },
     {
       "path": "agents/gsd-pattern-mapper.md",
@@ -96,12 +97,36 @@
       "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
+      "path": "gsd-core/references/checkpoints.md",
+      "phase": "38",
+      "waves": [
+        3
+      ],
+      "reason": "Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
+    },
+    {
+      "path": "gsd-core/references/execute-phase-context-guard.md",
+      "phase": "38",
+      "waves": [
+        3
+      ],
+      "reason": "Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
+    },
+    {
       "path": "gsd-core/references/execute-phase-quota-recovery.md",
       "phase": "36",
       "waves": [
         6
       ],
       "reason": "D-04, EXCEÇÃO NOMEADA a D-02: os 40 arquivos de references ficam fora desta fase por ESCOPO DE MASSA, e este entra sozinho porque o sítio não tolera falha — era o único do corpus que consumia um verbo fora do universo de 87 em cinco jq encadeados, sem || true e sem 2>/dev/null. O passo 7.1a de escalada automática de provider vira prosa de recuperação manual, apoiada no 7.1b que o próprio arquivo já trazia; zero código novo. Registrar a exceção com o motivo é o que a separa de uma abertura de escopo."
+    },
+    {
+      "path": "gsd-core/references/execute-phase-requirement-revert.md",
+      "phase": "38",
+      "waves": [
+        3
+      ],
+      "reason": "Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
     },
     {
       "path": "gsd-core/references/planner-antipatterns.md",
@@ -144,6 +169,14 @@
         2
       ],
       "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
+      "path": "gsd-core/templates/summary.md",
+      "phase": "38",
+      "waves": [
+        3
+      ],
+      "reason": "Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
     },
     {
       "path": "gsd-core/workflows/autonomous.md",
@@ -226,17 +259,19 @@
       "phase": "36",
       "waves": [
         1,
+        3,
         7
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7 (NODE-SOBREVIVE): os DOIS sítios de node que o mapa da fase omitia (:96 harnessFlag, :176 fail-closed do exec) trocam para jq — equivalência medida em 15 casos; e a instrução ao agente de worktree passa a proibir REGISTRAR, alinhada ao bloco do escritor único."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7 (NODE-SOBREVIVE): os DOIS sítios de node que o mapa da fase omitia (:96 harnessFlag, :176 fail-closed do exec) trocam para jq — equivalência medida em 15 casos; e a instrução ao agente de worktree passa a proibir REGISTRAR, alinhada ao bloco do escritor único. Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
     },
     {
       "path": "gsd-core/workflows/execute-phase/steps/gap-closure-artifacts.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        3
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
     },
     {
       "path": "gsd-core/workflows/execute-phase/steps/partial-wave.md",
@@ -258,9 +293,10 @@
       "path": "gsd-core/workflows/execute-phase/steps/post-merge-gate.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        3
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
     },
     {
       "path": "gsd-core/workflows/execute-phase/steps/regression-gate-run.md",
@@ -269,6 +305,14 @@
         1
       ],
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase/steps/regression-gate.md",
+      "phase": "38",
+      "waves": [
+        3
+      ],
+      "reason": "Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
     },
     {
       "path": "gsd-core/workflows/fast.md",
