@@ -1093,7 +1093,7 @@ PY
 # The tracker half, the bd gate, and the two config keys (plan 29-02, task 2)
 # ---------------------------------------------------------------------------
 
-@test "close --apply: the map is regenerated and the lease released" {
+@test "close --apply: a lease presa e liberada, e nao ha mapa a regenerar" {
   require_bd
   make_drift_fixture "$PWD"
   bd init -q --prefix bkp --non-interactive >/dev/null 2>&1
@@ -1107,16 +1107,22 @@ PY
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.tracker.ran' 'true'
   assert_json_eq "$output" '.tracker.skipped' 'null'
-  assert_json_eq "$output" '.tracker.map.ok' 'true'
   assert_json_eq "$output" '.tracker.lease.ok' 'true'
+  # v1.7: `map` fica NULO, e a chave permanece de proposito. Ela regenerava
+  # `NN-BEADS-MAP.md`, uma copia do bd em disco; a copia nao existe mais
+  # (`cairn-map.sh <N>` imprime a vista), entao nao ha o que atualizar no fim
+  # da fase. Manter a chave nula em vez de removê-la deixa um consumidor
+  # antigo ler a verdade nova em vez de estourar numa chave ausente.
+  assert_json_eq "$output" '.tracker.map' 'null'
 
-  # The lease is vacant and the generated map exists. Break: skipping the
-  # shell-out leaves the lease held — the concrete damage a hand-closed
-  # phase does, and the reason "one command" has to mean all of it.
+  # A lease esta vaga. Break: pular o shell-out deixa a lease presa — o dano
+  # concreto de uma fase fechada a mao, e a razao de "um comando" ter de
+  # significar tudo.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" status 29 --json --project-dir "$PWD"
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.held' 'false'
-  [ -f "$PWD/.planning/phases/29-nothing-mechanical-stays-manual/29-BEADS-MAP.md" ]
+  # e nenhum arquivo de mapa nasceu no diretorio da fase
+  [ -z "$(find "$PWD/.planning/phases" -name '*BEADS-MAP.md' 2>/dev/null)" ]
 }
 
 @test "close --apply without bd: exit 5 BEFORE a single byte is written" {
@@ -1164,8 +1170,10 @@ PY
   # Break: a silent skip. Half the bookkeeping done quietly is the state
   # this phase exists to remove; done ON PURPOSE and SAID is a choice.
   assert_json_eq "$output" '.tracker.skipped | contains("--no-tracker")' 'true'
+  # v1.7: a frase nomeia o que ficou de fora, e o mapa saiu da lista porque
+  # saiu do tracker — nao ha copia a regenerar.
   assert_json_eq "$output" \
-    '.tracker.skipped | contains("lease") and contains("map")' 'true'
+    '.tracker.skipped | contains("lease") and contains("worktree")' 'true'
   grep -qF -- "- [x] Phase 29" "$PWD/.planning/ROADMAP.md"
 }
 

@@ -33,8 +33,8 @@ planning time.
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N"
    ```
-   Exit `5` (bd unavailable) degrades: read the existing `*-BEADS-MAP.md`
-   as-is and say so.
+   Exit `5` (bd unavailable) degrades: say so and continue without the map —
+   it is printed from bd, so there is no stored copy to read instead.
 
 4. **Claim what you are about to move.** For every id on the phase's map:
    `bd update <id> --claim` — atomic, assigns and sets `in_progress` in one

@@ -360,69 +360,47 @@ EOF
 # CairnGo-13t (FIX-01) — a step ordered at a moment it cannot run
 # ---------------------------------------------------------------------------
 
-@test "generating a phase map before the phase directory exists fails, exit 4" {
-  # The measurement the issue was opened with, reproduced. Verified when v1.4
-  # opened: 5 of 5 phases failed this way; confirmed live when v1.5 opened
-  # (2026-08-03) with `cairn-map.sh 20` -> "no phase directory matching phase
-  # 20", exit 4.
+@test "o mapa nao depende de diretorio de fase, e nenhuma superficie manda GERAR arquivo" {
+  # ATE A v1.6 este par de casos media outra coisa: `cairn-map.sh <N>` saia 4
+  # ("no phase directory matching phase N") quando a pasta da fase ainda nao
+  # existia, e o defeito era a PROSA que ordenava a geracao no momento em que
+  # nenhuma pasta existe — as pastas nasciam no plan-phase.
   #
-  # The script does not lie — it fails loudly, with a code of its own. The
-  # defect is in the prose that ordered it at a moment when no phase directory
-  # exists yet, because the directories are born in /gsd:plan-phase.
+  # A v1.7 dissolveu o defeito em vez de corrigi-lo de novo: o mapa deixou de
+  # ser arquivo escrito numa pasta e virou vista impressa do bd. Uma fase e'
+  # um label; nao precisa de pasta, e por isso nao ha momento errado para
+  # perguntar. O que sobra para vigiar e' o verbo: nenhuma superficie pode
+  # voltar a mandar ESCREVER o mapa.
   require_bd
   make_tmp_repo
-  make_gsd_fixture "$PWD"
   bd init -q --prefix fix01 --non-interactive >/dev/null 2>&1
 
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 20 --planning-dir "$PWD/.planning"
-  [ "$status" -eq 4 ]
-  grep -qF "no phase directory matching phase 20" <<<"$output"
+  # sem .planning/, sem pasta de fase: a vista sai, exit 0
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 20
+  [ "$status" -eq 0 ]
+  grep -qF "Phase 20" <<<"$output"
+
+  # e nenhuma superficie ordena escrever/gerar/regenerar um arquivo de mapa
+  local hits
+  hits="$(grep -rniE '(write|generate|regenerate|refresh)[^.]{0,40}(BEADS-MAP|phase map)' \
+            "$CAIRN_REPO_ROOT/cairn/commands" "$CAIRN_REPO_ROOT/cairn/skills" \
+            2>/dev/null || true)"
+  if [ -n "$hits" ]; then
+    echo "a surface still orders the map to be written:" >&2
+    echo "$hits" >&2
+    return 1
+  fi
 }
 
-@test "no surface orders a map generation at milestone-new time" {
-  # Both surfaces carried it: cairn/commands/milestone.md step 3, and
-  # cairn/skills/cairn/SKILL.md in the /gsd:new-milestone block. Fixing one
-  # would have left the other giving the impossible order.
-  local file
-  for file in "$CAIRN_REPO_ROOT/cairn/commands/milestone.md" \
-              "$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"; do
-    # The same files legitimately name cairn-map for /cairn:plan, where the
-    # directory DOES exist — so this is scoped to the region that opens a
-    # milestone, and that region ends at the next section heading or the next
-    # top-level bullet.
-    local hits
-    hits="$(python3 - "$file" <<'PY'
-import re, sys
-lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-opener = re.compile(r"new[ -]milestone|milestone new|^##\s.*\bnew\b", re.I)
-closer = re.compile(r"^##\s|^-\s\*\*")
-call = re.compile(r"cairn-map(\.sh|\.py)?[^\w<]{0,3}<?N")
-flagged = {}
-for i, line in enumerate(lines):
-    if not opener.search(line):
-        continue
-    for j in range(i + 1, len(lines)):
-        if closer.match(lines[j]):
-            break
-        if call.search(lines[j]):
-            flagged[j + 1] = lines[j].strip()
-for n in sorted(flagged):
-    print(f"{n}: {flagged[n]}")
-PY
-)"
-    if [ -n "$hits" ]; then
-      echo "$file still orders a map generation next to milestone-new:" >&2
-      echo "$hits" >&2
-      return 1
-    fi
-  done
-
-  # And both say where the map is actually born, so the step was moved rather
-  # than merely deleted.
-  grep -qF "/cairn:plan" "$CAIRN_REPO_ROOT/cairn/commands/milestone.md"
-  grep -qF "plan-phase" "$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"
+@test "controle negativo: uma superficie forjada que manda gerar o mapa E mordida" {
+  local forged="$BATS_TEST_TMPDIR/forged-surface"
+  mkdir -p "$forged"
+  printf 'Then regenerate the phase map with cairn-map.sh <N>.\n' \
+    > "$forged/x.md"
+  run grep -rniE '(write|generate|regenerate|refresh)[^.]{0,40}(BEADS-MAP|phase map)' "$forged"
+  [ "$status" -eq 0 ]
+  grep -qF "regenerate the phase map" <<<"$output"
 }
-
 @test "no cairn command prompt writes a check count by hand" {
   # The guard against the five measured precedents. The doctor grows checks
   # every other phase — it goes from 21 to 22 in this very phase — so any

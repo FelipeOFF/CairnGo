@@ -276,8 +276,8 @@ Nothing in this moment happens inside a worktree.
    ```
    That single call marks the phase, marks every requirement whose phases are
    all closed, moves the coverage table and its footer, ticks the plan
-   checkboxes whose `-SUMMARY.md` is on disk, moves the STATE counters,
-   regenerates the phase map and releases the lease. It is idempotent, so
+   checkboxes whose `-SUMMARY.md` is on disk, moves the STATE counters and
+   releases the lease. It is idempotent, so
    re-running it after a partial batch is safe.
 
    Exit 5 means `bd` was not reachable and **nothing** was written — fix that

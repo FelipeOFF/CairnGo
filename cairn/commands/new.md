@@ -32,9 +32,10 @@ project-creation interview over an existing `.planning/`.
    roadmap-implied ordering with `bd dep add`.
 4. Generate each phase's map — never hand-write the tables:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>   # once per phase
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>   # prints a phase's map
    ```
-5. Confirm: `bd list` shows the new issues and each phase dir has its
-   generated `NN-BEADS-MAP.md`.
+5. Confirm: `bd list` shows the new issues, and `cairn-map.sh <N>` prints each
+   phase's requirement↔issue table. The map is a printed view — nothing is
+   written, so there is no file to check for.
 
 Then the loop is `/cairn:plan N` → `/cairn:work N` → `/cairn:ship`.

@@ -193,11 +193,16 @@ refute_contains() {
   assert_json_eq "$(bd show "$epic2" --json)" '.[0].status' "open"
   assert_json_eq "$(bd show "$api" --json)" '.[0].status' "open"
 
-  # maps generated with requirement rows
-  [ -f .planning/phases/01-auth/01-BEADS-MAP.md ]
-  [ -f .planning/phases/02-api/02-BEADS-MAP.md ]
-  grep -qF "| AUTH-01 | $a1 |" .planning/phases/01-auth/01-BEADS-MAP.md
-  grep -qF "| API-01 | $api |" .planning/phases/02-api/02-BEADS-MAP.md
+  # v1.7: a migracao nao gera mapa — ele virou vista impressa. O que a
+  # importacao tem de deixar pronto e' o BD, e e' isso que se confere aqui:
+  # a vista sai do tracker importado, com as linhas de requisito.
+  [ -z "$(find .planning -name '*BEADS-MAP.md' 2>/dev/null)" ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1
+  [ "$status" -eq 0 ]
+  grep -qF "| AUTH-01 | $a1 |" <<<"$output"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2
+  [ "$status" -eq 0 ]
+  grep -qF "| API-01 | $api |" <<<"$output"
 
   # beads: frontmatter appended to both plans, with the resolved ids
   assert_frontmatter_key .planning/phases/01-auth/01-01-PLAN.md beads
@@ -280,7 +285,7 @@ refute_contains() {
   [ "$(tr ',' '\n' <<<"$beads_line" | grep -c "$(id_for_req AUTH-01)")" = "1" ]
 }
 
-@test "mode B bootstraps planning docs from bd without fabricating PLAN.md" {
+@test "modo B NAO fabrica documento nenhum — so estampa o backlog" {
   require_bd
   make_tmp_repo
   bd init -q --prefix mgb --non-interactive >/dev/null 2>&1
@@ -298,41 +303,34 @@ refute_contains() {
   run MIGRATE apply --yes
   [ "$status" -eq 0 ]
 
-  # the three generated docs exist; PROJECT.md is NOT written
-  [ -f .planning/REQUIREMENTS.md ]
-  [ -f .planning/ROADMAP.md ]
-  [ -f .planning/STATE.md ]
-  [ ! -e .planning/PROJECT.md ]
+  # v1.7 — O CONTRATO INVERTEU, E A DIRECAO E' A RAZAO. Ate aqui o modo B
+  # ESCREVIA REQUIREMENTS.md, ROADMAP.md, STATE.md, MILESTONES.md e uma pasta
+  # por fase — 40 linhas deste teste afirmavam o conteudo exato dos quatro.
+  # A migracao corre num sentido so (GSD -> cairn); o modo B corria no oposto,
+  # manufaturando o `.planning/` que o modo A importa. Num mundo sem
+  # `.planning/` ele criava o problema que o modo A resolve.
+  #
+  # A assercao que SOBREVIVE intacta e' a das labels e da metadata, porque
+  # sempre foi o que o modo B tinha de util. A que INVERTE e' a dos
+  # documentos: de "existem e tem este conteudo" para "nao existem".
+  [ ! -e .planning ]
 
-  # roadmap: one phase per epic, with a requirements list
-  grep -qF "**Phase 1: Auth epic**" .planning/ROADMAP.md
-  grep -qF "**Requirements**: [AUTH-01, AUTH-02]" .planning/ROADMAP.md
-  grep -qF "**AUTH-01**: Implement login flow (bd: $c1)" .planning/REQUIREMENTS.md
-  grep -qF "**AUTH-02**: Scaffold auth module (bd: $c2)" .planning/REQUIREMENTS.md
-  assert_frontmatter_key .planning/STATE.md active_phase
-  grep -qF 'active_phase: "1"' .planning/STATE.md
-
-  # closed issues recorded in the pre-cairn milestone section
-  grep -qF "## Completed pre-cairn" .planning/MILESTONES.md
-  grep -qF "$standalone" .planning/MILESTONES.md
-  grep -qF "$c2" .planning/MILESTONES.md
-
-  # labels + metadata stamped on the epic and its children
+  # labels + metadata estampados no epico e nos filhos
   assert_json_eq "$(bd show "$epic" --json)" \
     '.[0].labels | sort | join(",")' "m-v1.0,phase-1"
   assert_json_eq "$(bd show "$epic" --json)" '.[0].metadata.gsd.phase' "1"
   assert_json_eq "$(bd show "$c1" --json)" '.[0].metadata.gsd.req' "AUTH-01"
   assert_json_eq "$(bd show "$c2" --json)" '.[0].metadata.gsd.req' "AUTH-02"
-  # the closed standalone got no phase pairing (pre-cairn history only)
+  # a standalone fechada nao ganhou par de fase (historia pre-cairn)
   assert_json_eq "$(bd show "$standalone" --json)" \
     '[(.[0].labels // [])[] | select(startswith("phase-"))] | length' "0"
 
-  # map generated inside the created phase dir; no PLAN.md fabricated
-  ls .planning/phases/01-*/01-BEADS-MAP.md >/dev/null
-  grep -qF "| AUTH-01 | $c1 |" .planning/phases/01-*/01-BEADS-MAP.md
-  [ "$(find .planning -name '*PLAN.md' | wc -l | tr -d ' ')" = "0" ]
+  # e a vista da fase sai do bd, sem arquivo nenhum
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 --milestone v1.0
+  [ "$status" -eq 0 ]
+  grep -qF "| AUTH-01 | $c1 |" <<<"$output"
 
-  # replan after apply: no more writes or links, only map regeneration
+  # replan depois do apply: nada a escrever, nada a ligar
   run MIGRATE plan --mode B --milestone v1.0
   [ "$status" -eq 0 ]
   assert_json_eq "$(cat .cairn/migrate-plan.json)" \
@@ -340,7 +338,7 @@ refute_contains() {
     "0"
 }
 
-@test "mode B never overwrites an existing doc without --force" {
+@test "modo B: --force nao ressuscita a escrita de documento" {
   require_bd
   make_tmp_repo
   bd init -q --prefix mgo --non-interactive >/dev/null 2>&1
@@ -348,19 +346,22 @@ refute_contains() {
   mkdir -p .planning
   echo "SENTINEL: hand-written requirements" > .planning/REQUIREMENTS.md
 
-  run MIGRATE plan --mode B --milestone v1.0
-  [ "$status" -eq 0 ]
-  run MIGRATE apply --yes
-  [ "$status" -eq 0 ]
-  grep -qF "SENTINEL: hand-written requirements" .planning/REQUIREMENTS.md
-  [ -f .planning/ROADMAP.md ]   # absent docs are still generated
-
+  # O teste que existia aqui media "--force sobrescreve o documento, sem
+  # --force nao sobrescreve". Sem escrita de documento, --force perde objeto
+  # sobre esse eixo — e o que precisa ser provado agora e' que ele NAO virou
+  # uma porta dos fundos para a fabricacao voltar.
   run MIGRATE plan --mode B --milestone v1.0 --force
   [ "$status" -eq 0 ]
   run MIGRATE apply --yes
   [ "$status" -eq 0 ]
-  refute_contains "SENTINEL" "$(cat .planning/REQUIREMENTS.md)"
-  grep -qF "Bootstrapped from beads" .planning/REQUIREMENTS.md
+
+  # o documento escrito a mao segue intacto, byte por byte
+  grep -qF "SENTINEL: hand-written requirements" .planning/REQUIREMENTS.md
+  # e nenhum dos quatro que o modo B fabricava apareceu
+  [ ! -e .planning/ROADMAP.md ]
+  [ ! -e .planning/STATE.md ]
+  [ ! -e .planning/MILESTONES.md ]
+  [ ! -e .planning/phases ]
 }
 
 @test "mode C links exact matches, defers fuzzy candidates, creates the rest" {

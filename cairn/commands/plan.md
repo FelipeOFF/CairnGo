@@ -16,13 +16,9 @@ drives `cairn-map` and labels; the flags go **only** to the vendored workflow in
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N"
    ```
-   Exit 5 means bd is unavailable — fall back to reading the existing file
-   as-is (resolve the phase directory by its numeric prefix under
-   `.planning/phases/`, then read its `*-BEADS-MAP.md`). `cairn-map` resolves
-   the phase directory itself (`3` matches both
-   `3-auth` and `03-auth`, with an optional project-code prefix like
-   `myproj-03-auth`) and prints the map's path; read that
-   `*-BEADS-MAP.md` file, including any manual notes outside the markers.
+   Exit 5 means bd is unavailable — say so and continue without the map;
+   there is no cached copy to fall back to, because the map is printed from
+   bd on demand and never stored.
 2. Execute the vendored planning workflow with the full arguments (phase
    number plus any flags). It ships inside this plugin — read it and follow
    it:

@@ -88,8 +88,7 @@ Two things to tell the user once, when they first ask for it:
   `<!-- cairn:generated:board:start -->` and `<!-- cairn:generated:board:end -->`
   is regenerated; every byte outside it — their CSS edits, their notes, their
   wrapper markup — survives untouched. So re-running the command on the same
-  path is safe, and restyling the page is expected. Same contract as
-  `NN-BEADS-MAP.md`.
+  path is safe, and restyling the page is expected.
 - **Re-run it to refresh.** Nothing watches the repo; the page is a snapshot
   and carries the timestamp it was generated at.
 
