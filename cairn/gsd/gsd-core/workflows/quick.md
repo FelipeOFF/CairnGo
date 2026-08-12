@@ -1,5 +1,5 @@
 <purpose>
-Execute small, ad-hoc tasks with GSD guarantees (atomic commits, STATE.md tracking). Quick mode spawns gsd-planner (quick mode) + gsd-executor(s), tracks tasks in `.planning/quick/`, and updates STATE.md's "Quick Tasks Completed" table.
+Execute small, ad-hoc tasks with GSD guarantees (atomic commits, state tracked as fact). Quick mode spawns gsd-planner (quick mode) + gsd-executor(s), tracks each task as a bd issue (`quick-tasks-append`), and records the session against the state carrier.
 
 With `--full` flag: enables the complete quality pipeline — discussion + research + plan-checking + verification. One flag for everything.
 
@@ -21,7 +21,7 @@ Valid GSD subagent types (use exact names — do not fall back to 'general-purpo
 - gsd-phase-researcher — Researches technical approaches for a phase
 - gsd-planner — Creates detailed plans from phase scope
 - gsd-plan-checker — Reviews plan quality before execution
-- gsd-executor — Executes plan tasks, commits, creates SUMMARY.md
+- gsd-executor — Executes plan tasks, commits, closes the plan record with its summary
 - gsd-verifier — Verifies phase completion, checks quality gates
 - gsd-code-reviewer — Reviews source files for bugs, security issues, and code quality
 </available_agent_types>
@@ -271,13 +271,29 @@ QUICK_DIR="${task_dir}"
 mkdir -p "$QUICK_DIR"
 ```
 
+Resolve the quick task's bead — it is the record this workflow opens and
+closes, and every `cairn-record.sh` call below targets it:
+
+```bash
+QUICK_ISSUE=$(bd list -l quick --status in_progress --json 2>/dev/null \
+  | jq -r 'sort_by(.updated_at) | last | .id // empty')
+[ -n "$QUICK_ISSUE" ] || {
+  echo "ERROR: no claimed quick issue. Side work stays tracked — run /cairn:quick so the task has a bead before planning." >&2
+  exit 1
+}
+```
+
+The failure is NAMED and fatal: there is no markdown fallback for a missing
+fact.
+
 Report to user:
 ```
 Creating quick task ${quick_id}: ${DESCRIPTION}
 Directory: ${QUICK_DIR}
+Record: ${QUICK_ISSUE}
 ```
 
-Store `$QUICK_DIR` for use in orchestration.
+Store `$QUICK_DIR` and `$QUICK_ISSUE` for use in orchestration.
 
 ---
 
@@ -333,8 +349,16 @@ ${VALIDATE_MODE ? '- Each task MUST have `files`, `action`, `verify`, `done` fie
 </constraints>
 
 <output>
-Write plan to: ${QUICK_DIR}/${quick_id}-PLAN.md
-Return: ## PLANNING COMPLETE with plan path
+Open the plan record — no file:
+
+```bash
+cairn/scripts/cairn-record.sh plan --issue ${QUICK_ISSUE} --plan 1 <<'BODY'
+[the plan body]
+BODY
+```
+
+Then index the same prose: `ctx_index(content: <the body>, source: "gb/${QUICK_ISSUE}/quick-${quick_id}")`.
+Return: ## PLANNING COMPLETE with the record id the call printed
 </output>
 ",
   subagent_type="gsd-planner",
@@ -346,11 +370,11 @@ Return: ## PLANNING COMPLETE with plan path
 > **ORCHESTRATOR RULE — CODEX RUNTIME**: After calling Agent() above, stop working on this task immediately. Do not read more files, edit code, or run tests related to this task while the subagent is active. Wait for the subagent to return its result. This prevents duplicate work, conflicting edits, and wasted context. Only resume when the subagent result is available.
 
 After planner returns:
-1. Verify plan exists at `${QUICK_DIR}/${quick_id}-PLAN.md`
+1. Verify the plan record was opened: `bd show ${QUICK_ISSUE} --json | jq -e '.description | length > 0'`
 2. Extract plan count (typically 1 for quick tasks)
-3. Report: "Plan created: ${QUICK_DIR}/${quick_id}-PLAN.md"
+3. Report: "Plan recorded on ${QUICK_ISSUE}"
 
-If plan not found, error: "Planner failed to create ${quick_id}-PLAN.md"
+If the record has no plan body, error: "Planner failed to open the plan record on ${QUICK_ISSUE}"
 
 ---
 
@@ -412,23 +436,20 @@ ${USE_WORKTREES !== "false" ? `
 ORCHESTRATOR build-time embed (NOT a sub-agent runtime step): before this dispatch, read \`gsd-core/references/worktree-branch-check.md\`, substitute \`{EXPECTED_BASE}\` with the base SHA captured above (${EXPECTED_BASE}), substitute \`{EXPECTED_BASE_ALTERNATE}\` with \`${QUICK_PLAN_PARENT}\` when it differs from \`${EXPECTED_BASE}\` (otherwise empty), and replace this note with that fragment's \`<worktree_branch_check>\` block so the dispatched prompt carries the runnable guard verbatim — do not pass this instruction through in its place.
 </worktree_branch_check>
 
-FIRST ACTION after the worktree branch check: ensure the quick PLAN.md exists at a worktree-rooted relative path before any Read/Edit/Write path can be primed. If \`${QUICK_DIR}/${quick_id}-PLAN.md\` is absent, materialize it from the shared git object store:
+FIRST ACTION after the worktree branch check: read the plan from its record. There is no plan file to materialize into the worktree, and none to path-prime:
 
 \`\`\`bash
-QUICK_PLAN_COMMIT="${QUICK_PLAN_COMMIT}"
-QUICK_PLAN_PATH="${QUICK_DIR}/${quick_id}-PLAN.md"
-if [ ! -f "$QUICK_PLAN_PATH" ]; then
-  mkdir -p "$(dirname "$QUICK_PLAN_PATH")"
-  git show "${QUICK_PLAN_COMMIT}:${QUICK_PLAN_PATH}" > "$QUICK_PLAN_PATH" || {
-    echo "FATAL: unable to materialize quick plan from ${QUICK_PLAN_COMMIT}:${QUICK_PLAN_PATH}; refusing to continue." >&2
-    exit 42
-  }
-fi
+bd -C "\${CLAUDE_PROJECT_DIR:-.}" show ${QUICK_ISSUE} --json | jq -re '.description' || {
+  echo "FATAL: plan record ${QUICK_ISSUE} carries no plan body; refusing to continue." >&2
+  exit 42
+}
 \`\`\`
+
+`bd -C` is pinned to the primary checkout on purpose: a worktree has no issue store of its own.
 ` : ''}
 
 <files_to_read>
-- ${QUICK_DIR}/${quick_id}-PLAN.md (Plan)
+- The plan is NOT in this list and is NOT a file to read: it is the `description` of record ${QUICK_ISSUE}, read with the `bd show` above.
 - Project state is NOT in this list and is NOT a file to read: ask the binary for it with `gsd_run query state.load`, resolved by your own preamble.
 - ./CLAUDE.md or ./.claude/CLAUDE.md (Project instructions, if exists)
 - .claude/skills/ or .agents/skills/ (Project skills, if either exists — list skills, read SKILL.md for each, follow relevant rules during implementation)
@@ -466,16 +487,23 @@ fi
 \`\`\`
 
 If the guard aborts, do NOT attempt the commit, do NOT remove the staged files,
-and do NOT continue subsequent tasks. Surface the abort message in your
-SUMMARY.md and stop — the user must rerun with worktrees disabled.
+and do NOT continue subsequent tasks. Surface the abort message in the
+summary you close the record with, and stop — the user must rerun with worktrees disabled.
 </submodule_commit_guard>
 
 <constraints>
 - Execute all tasks in the plan
 - Commit each task atomically (code changes only)
 - Run the <submodule_commit_guard> bash block before every \`git commit\` if SUBMODULE_PATHS is non-empty
-- Create summary at: ${QUICK_DIR}/${quick_id}-SUMMARY.md with `status: complete` in SUMMARY frontmatter (required so the audit-open milestone-close scanner recognises the task as done, not [unknown])
-- Do NOT commit docs artifacts (SUMMARY.md, STATE.md, PLAN.md) — the orchestrator handles the docs commit in Step 8
+- CLOSE the plan record with the summary — a summary is not a new artifact, it is the close of the record the plan opened:
+  \`\`\`bash
+  cairn/scripts/cairn-record.sh summary --issue ${QUICK_ISSUE} --plan 1 <<'BODY'
+  status: complete
+  [the summary body]
+  BODY
+  \`\`\`
+  `status: complete` must be in the body (the audit-open milestone-close scanner reads it to recognise the task as done, not [unknown]). Then index the prose: `ctx_index(content: <the body>, source: "gb/${QUICK_ISSUE}/quick-${quick_id}")`.
+- Do NOT write or commit planning documents — the plan and the summary are records, and the orchestrator handles the remaining docs commit in Step 8
 - Do NOT update ROADMAP.md (quick tasks are separate from planned phases)
 </constraints>
 ",
@@ -509,13 +537,13 @@ After executor returns:
 
    > **ISOLATED-RUN RECOVERY — FAIL SAFE (#1292):** When an isolated (worktree) run is *rejected* — the user declines to merge it, the orchestrator surfaces recovery guidance for a blocked/halted plan, or the run over-reached the requested scope — the worktree-isolation contract MUST hold through recovery. Do **NOT** propose continuing on `main`/the primary checkout as the default or recommended recovery path. Default to a **safe halt** and offer: (a) re-attempt in a **fresh, narrowly-scoped worktree**, or (b) inspect or discard the rejected worktree without merging. Any path that edits the primary checkout requires an **explicit, clearly-labeled confirmation** from the user first — editing `main` directly is never the proposed or default option for a run the user configured to be isolated.
 
-2. Verify summary exists at `${QUICK_DIR}/${quick_id}-SUMMARY.md`
+2. Verify the record was closed: `bd show ${QUICK_ISSUE} --json | jq -e '.status == "closed" and (.notes | length > 0)'`
 3. Extract commit hash from executor output
 4. Report completion status
 
-**Known Claude Code bug (classifyHandoffIfNeeded):** If executor reports "failed" with error `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. Check if summary file exists and git log shows commits. If so, treat as successful.
+**Known Claude Code bug (classifyHandoffIfNeeded):** If executor reports "failed" with error `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. Check whether the record is closed with notes and git log shows commits. If so, treat as successful.
 
-If summary not found, error: "Executor failed to create ${quick_id}-SUMMARY.md"
+If the record is still open or carries no notes, error: "Executor failed to close the record on ${QUICK_ISSUE}"
 
 Note: For quick tasks producing multiple plans (rare), spawn executors in parallel waves per execute-phase patterns.
 
@@ -617,20 +645,20 @@ creates a bead and `state.record-session` transitions the carrier, and neither l
 file behind. Listing a path that nothing writes is dead weight in a commit, the same
 reason `plan-phase.md`'s step 14 and `execute-phase.md`'s wave and closing commits do
 not carry it either.
-- `${QUICK_DIR}/${quick_id}-PLAN.md`
-- `${QUICK_DIR}/${quick_id}-SUMMARY.md`
 - If `$DISCUSS_MODE` and context file exists: `${QUICK_DIR}/${quick_id}-CONTEXT.md`
 - If `$RESEARCH_MODE` and research file exists: `${QUICK_DIR}/${quick_id}-RESEARCH.md`
 - If `$VALIDATE_MODE` and verification file exists: `${QUICK_DIR}/${quick_id}-VERIFICATION.md`
 - If `${QUICK_DIR}/${quick_id}-deferred-items.md` exists: `${QUICK_DIR}/${quick_id}-deferred-items.md`
 
 ```bash
-# Explicitly stage all artifacts before commit — PLAN.md may be untracked
-# if the executor ran without worktree isolation and committed docs early
-# Filter .planning/ files from staging if commit_docs is disabled (#1783)
+# Explicitly stage the remaining artifacts before commit — they may be
+# untracked if the executor ran without worktree isolation and committed early.
+# Filter the planning documents from staging if commit_docs is disabled (#1783).
+# Every entry of file_list lives under $QUICK_DIR, so anchoring the filter there
+# is exactly the old prefix test, minus the hardcoded path.
 COMMIT_DOCS=$(gsd_run query config-get commit_docs 2>/dev/null || echo "true")
 if [ "$COMMIT_DOCS" = "false" ]; then
-  file_list_filtered=$(echo "${file_list}" | tr ' ' '\n' | grep -v '^\.planning/' | tr '\n' ' ')
+  file_list_filtered=$(echo "${file_list}" | tr ' ' '\n' | grep -v "^${QUICK_DIR}/" | tr '\n' ' ')
   git add ${file_list_filtered} 2>/dev/null
 else
   git add ${file_list} 2>/dev/null
@@ -654,7 +682,7 @@ GSD > QUICK TASK COMPLETE (VALIDATED)
 Quick Task ${quick_id}: ${DESCRIPTION}
 
 ${RESEARCH_MODE ? 'Research: ' + QUICK_DIR + '/' + quick_id + '-RESEARCH.md' : ''}
-Summary: ${QUICK_DIR}/${quick_id}-SUMMARY.md
+Record: ${QUICK_ISSUE} (closed)
 Verification: ${QUICK_DIR}/${quick_id}-VERIFICATION.md (${VERIFICATION_STATUS})
 Commit: ${commit_hash}
 
@@ -672,7 +700,7 @@ GSD > QUICK TASK COMPLETE
 Quick Task ${quick_id}: ${DESCRIPTION}
 
 ${RESEARCH_MODE ? 'Research: ' + QUICK_DIR + '/' + quick_id + '-RESEARCH.md' : ''}
-Summary: ${QUICK_DIR}/${quick_id}-SUMMARY.md
+Record: ${QUICK_ISSUE} (closed)
 Commit: ${commit_hash}
 
 ---
@@ -689,12 +717,13 @@ Ready for next task: /gsd:quick ${GSD_WS}
 - [ ] `--full` sets all booleans (`$FULL_MODE`, `$DISCUSS_MODE`, `$RESEARCH_MODE`, `$VALIDATE_MODE`)
 - [ ] Slug generated (lowercase, hyphens, max 40 chars)
 - [ ] Quick ID generated (YYMMDD-xxx format, 2s Base36 precision)
-- [ ] Directory created at `.planning/quick/YYMMDD-xxx-slug/`
+- [ ] Quick directory created at `${QUICK_DIR}` (YYMMDD-xxx-slug under the quick root)
+- [ ] `$QUICK_ISSUE` resolved to the claimed quick bead before planning
 - [ ] (--discuss) Gray areas identified and presented, decisions captured in `${quick_id}-CONTEXT.md`
 - [ ] (--research) Research agent spawned, `${quick_id}-RESEARCH.md` created
-- [ ] `${quick_id}-PLAN.md` created by planner (honors CONTEXT.md decisions when --discuss, uses RESEARCH.md findings when --research)
+- [ ] Plan record opened by planner on `$QUICK_ISSUE` (honors CONTEXT.md decisions when --discuss, uses RESEARCH.md findings when --research)
 - [ ] (--validate) Plan checker validates plan, revision loop capped at 2
-- [ ] `${quick_id}-SUMMARY.md` created by executor
+- [ ] Record closed by executor with the summary in its notes
 - [ ] (--validate) `${quick_id}-VERIFICATION.md` created by verifier
 - [ ] Quick task recorded as a fact by `quick-tasks-append` (its exit code is the answer; the verb picks the row shape, Status column included, from the table it finds)
 - [ ] Artifacts committed

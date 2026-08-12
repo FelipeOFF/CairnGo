@@ -97,13 +97,10 @@ agents/gsd-debug-session-manager.md|0|3
 agents/gsd-debugger.md|0|22
 agents/gsd-executor.md|2|12
 agents/gsd-integration-checker.md|0|1
-agents/gsd-pattern-mapper.md|8|1
-agents/gsd-phase-researcher.md|6|4
 agents/gsd-plan-checker.md|2|0
 agents/gsd-planner.md|4|16
 agents/gsd-ui-auditor.md|5|5
 agents/gsd-ui-checker.md|1|1
-agents/gsd-ui-researcher.md|6|0
 agents/gsd-verifier.md|3|4
 commands/gsd/autonomous.md|0|2
 commands/gsd/debug.md|0|1
@@ -148,7 +145,6 @@ gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md|2|0
 gsd-core/workflows/execute-phase/steps/gap-closure-artifacts.md|0|5
 gsd-core/workflows/execute-phase/steps/post-merge-gate.md|0|1
 gsd-core/workflows/execute-phase/steps/regression-gate.md|1|1
-gsd-core/workflows/execute-phase.md|10|15
 gsd-core/workflows/fast.md|1|0
 gsd-core/workflows/plan-phase/steps/adr-ingest-express-path.md|1|0
 gsd-core/workflows/plan-phase/steps/chunked-planning-mode.md|2|0
@@ -156,11 +152,9 @@ gsd-core/workflows/plan-phase/steps/prd-express-gate.md|1|0
 gsd-core/workflows/plan-phase/steps/prd-express-path.md|5|0
 gsd-core/workflows/plan-phase/steps/research-only-modifiers.md|1|0
 gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md|0|1
-gsd-core/workflows/plan-phase.md|9|5
 gsd-core/workflows/quick/steps/discussion-phase.md|2|0
 gsd-core/workflows/quick/steps/quick-verification.md|1|0
 gsd-core/workflows/quick/steps/research-phase.md|1|0
-gsd-core/workflows/quick.md|7|4
 gsd-core/workflows/verify-work.md|2|3
 skills/gsd-autonomous/SKILL.md|0|2
 skills/gsd-debug/SKILL.md|0|1
@@ -170,14 +164,26 @@ skills/gsd-quick/SKILL.md|0|8
 "
 
 # O PLACAR. Some as colunas do ledger; e' o numero do milestone.
-ZM_DECLARED_W1=123
-ZM_DECLARED_W2=209
+ZM_DECLARED_W1=77
+ZM_DECLARED_W2=180
 
 # CONVERTIDOS — caminhos que ja passaram pelo protocolo de registro e que
-# DEVEM medir 0|0 nas duas familias. Vazia hoje: nenhuma onda de conversao
-# fechou ainda. Uma linha aqui e uma linha no ledger com contagem nao-zero
-# sao contraditorias, e ha teste que recusa a contradicao.
+# DEVEM medir 0|0 nas duas familias. Uma linha aqui e uma linha no ledger com
+# contagem nao-zero sao contraditorias, e ha teste que recusa a contradicao.
+#
+# ONDA 1 (2026-08-12) — os SEIS arquivos de maior densidade do corpus, 46 sitios
+# W1 e 29 W2, todos convertidos para a fronteira cairn-record.sh: os tres
+# agentes que produziam documento de desenho (patterns, research, ui-spec), os
+# dois workflows que abriam e fechavam o registro de plano (plan-phase,
+# execute-phase) e o quick, cujo plano e sumario passam a ser o mesmo registro
+# aberto e fechado no bead da side-quest. O PLACAR caiu de 123|209 para 77|180.
 ZM_CONVERTED="\
+agents/gsd-pattern-mapper.md
+agents/gsd-phase-researcher.md
+agents/gsd-ui-researcher.md
+gsd-core/workflows/execute-phase.md
+gsd-core/workflows/plan-phase.md
+gsd-core/workflows/quick.md
 "
 
 # --- o instrumento ------------------------------------------------------------

@@ -182,7 +182,7 @@ agents/gsd-debugger.md|6|editado
 agents/gsd-executor.md|7|editado
 agents/gsd-integration-checker.md|6|intocado
 agents/gsd-nyquist-auditor.md|6|intocado
-agents/gsd-pattern-mapper.md|6|intocado
+agents/gsd-pattern-mapper.md|6|editado
 agents/gsd-phase-researcher.md|6|editado
 agents/gsd-plan-checker.md|6|editado
 agents/gsd-planner.md|6|editado
