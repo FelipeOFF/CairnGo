@@ -7,6 +7,102 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-12
+
+The prompt layer stopped writing planning documents.
+
+The 1.0.0 release named this as the next milestone's goal, in its own Known
+limits: "Planning artifacts are still written as markdown." They no longer
+are. Every instruction that told the model to produce a `PLAN.md`, a
+`SUMMARY.md`, a `CONTEXT.md` — and every `.planning/...` path that served as
+its destination — is gone from the vendored prompt layer. The oracle that
+measures it, `tests/cairn-zero-md.bats`, went from 123 write instructions and
+209 destinations to **zero of each**.
+
+### Changed
+
+- **A plan is a record, not a file.** `cairn-record.sh plan --phase N --plan
+  NN` opens it on a bead carrying the labels `phase-N` + `plan-NN`. The pair
+  no longer names a file; it *addresses* a record, and a wrong pair does not
+  write to the wrong path — it talks to a different record.
+
+- **A summary is not a new artifact — it is the close of the record the plan
+  opened.** `summary --phase N --plan P` puts the body in the plan bead's
+  notes and closes it. The bead count does not rise when a summary is
+  recorded, which is the difference between "the plan and the summary are two
+  files" and "they are two moments of one record".
+
+- **A debug session is a bead.** Its lifecycle was a status field encoded as a
+  directory: active in `debug/`, resolved by *moving* the file to
+  `debug/resolved/`. The field already existed — active is `open`, resolved is
+  `closed`, and `bd close` replaces the `mv`. The cross-session
+  `knowledge-base.md` of root causes became `bd remember` / `bd memories`; a
+  memory file fragments per checkout and never syncs.
+
+- **Append and set are not interchangeable.** UAT sessions and discussion logs
+  accumulate, so they append (`log`); a `set` would erase the previous answer
+  on every write. Context, research and spec replace, so they set.
+
+- **Verification and review became records** on the phase carrier bead —
+  `VERIFICATION.md`, `REVIEW.md` and `UI-REVIEW.md` were three files saying
+  the same kind of thing in three places.
+
+- **The step is named `record_context`**, not `write_context`, across the
+  whole tree. The name of a step is half the mental model the model carries,
+  and a step called "write" invites writing even when its body says record.
+
+- **Screenshots left `.planning/`.** The UI auditor's binaries now live in
+  `.cairn/ui-reviews`: a screenshot is not a record, does not fit in `bd`, and
+  had no reason to sit in the directory this work retires.
+
+### Fixed
+
+- **`cairn-record` could not find a phase carrier in any repository with
+  history.** Two independent defects, either one sufficient on its own. The
+  resolver filtered candidates with `not issue.get("parent")` — but no `bd`
+  JSON output carries a `parent` key, not `list`, not `show`, not the
+  `.beads/issues.jsonl` export, so the condition was always true: a filter
+  that filtered nothing, promoting every bead in the phase to candidate. And
+  there was no carrier to find — across the 38 phases of the development
+  repository, zero epics and almost no bead without `gsd.req`. Every
+  `phase-N` bead there is a requirement.
+
+  A carrier is now the bead that is none of the three other things wearing the
+  same label: not a requirement (`gsd.req`), not a plan record (`plan-NN`,
+  which inherits `phase-N` from its parent), not a child (an id carrying its
+  parent's suffix). When none exists it is created and its id is printed —
+  absence is the normal state of a project with history, not a user error.
+
+  The suite was green over this because the fixture created one bead and
+  nothing else; with a single candidate, ambiguity never happens.
+
+### Upgrading
+
+**Nothing to do for an existing install.** `.planning/` is still read, and
+every document already on disk stays readable — this release changed what the
+prompt layer *writes*, not what the tooling reads. `ROADMAP.md` and
+`PROJECT.md` are still files.
+
+What changes is where new planning output lands. After upgrading, plans,
+summaries, contexts, research, verifications and reviews are recorded on
+beads instead of being written to `.planning/phases/`. To read one:
+
+```bash
+bd list -l "phase-<N>" --all --limit 0 --json | jq -r '.[].description'  # the plans
+bd list -l "phase-<N>" --all --limit 0 --json | jq -r '.[].notes'        # the summaries
+bd show <phase-bead> --json | jq -r '.design'                           # context / research
+```
+
+If your phases predate this release and have no carrier bead, the first
+recording creates one and prints its id. Nothing is migrated and nothing is
+deleted.
+
+Debug sessions are the one place where the old and new shapes do not coexist:
+a session started before this release lives in `.planning/debug/<slug>.md` and
+`/gsd:debug continue <slug>` will not find it, because the lookup now asks
+`bd`. Finish sessions in flight before upgrading, or re-open them with
+`/gsd:debug <description>`.
+
 ## [1.0.0] - 2026-08-12
 
 First release of CairnGo as a standalone project.
