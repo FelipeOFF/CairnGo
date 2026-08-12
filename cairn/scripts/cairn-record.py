@@ -53,16 +53,38 @@ quando um summary e' gravado, e ha teste que compara antes/depois. Esta e' a
 diferenca entre "o plano e o sumario sao dois arquivos" (o mundo que sai) e
 "sao dois momentos do mesmo registro" (o mundo que entra).
 
-QUEM E' O PORTADOR DA FASE, E POR QUE "SEM PAI"
------------------------------------------------
+QUEM E' O PORTADOR DA FASE
+--------------------------
 MEDIDO: `bd create --parent` faz o filho HERDAR os labels do pai (um filho de
 um bead `phase-1` nasce `phase-1`). Logo "o bead com label phase-N" NAO
 identifica o portador — depois do primeiro plano gravado ha dois, e depois de
-tres planos ha quatro. A regra que resiste e' a HIERARQUIA, que ja e' o
-desenho: o portador da fase e' o bead `phase-N` SEM PAI; registros de plano
-tem pai. Ambiguidade real (dois sem pai) nao escolhe sozinha — nomeia os
-candidatos e pede `--issue`, na doutrina CORE-04 de fato ausente e' falha
-NOMEADA, nunca fallback silencioso e nunca fallback para markdown.
+tres planos ha quatro.
+
+A PRIMEIRA REGRA ESCRITA AQUI FOI "o phase-N SEM PAI", E ELA NAO FUNCIONA.
+MEDIDO (bd 1.1.0, 2026-08-12): o JSON do bd NAO tem chave `parent` — nem em
+`list`, nem em `show`, nem no export `.beads/issues.jsonl`. As chaves sao
+assignee, close_reason, closed_at, comment_count, created_at, created_by,
+dependencies, dependency_count, dependent_count, description, id, issue_type,
+labels, metadata, owner, priority, status, title, updated_at. Um filtro
+`not i.get("parent")` e' portanto uma condicao SEMPRE-VERDADEIRA disfarcada
+de filtro: ele nao eliminava ninguem, e este resolvedor devolvia "portador
+ambiguo" em TODAS as 38 fases deste repositorio. A hierarquia existe e e'
+visivel por outro caminho — o id do filho e' o do pai mais sufixo
+(`CairnGo-9c0h` -> `CairnGo-9c0h.3`), e `bd list --parent <id>` filtra — mas
+o campo nao viaja no JSON.
+
+A REGRA QUE RESISTE E' A METADATA: um REQUISITO tem `gsd.req`, o portador da
+fase NAO tem. Isso e' o que de fato distingue, e nao depende de campo ausente
+nem de hierarquia.
+
+E QUANDO NAO HA PORTADOR NENHUM. MEDIDO no mesmo dia: das 38 fases deste
+repo, ZERO tem epico e quase nenhuma tem bead sem `gsd.req` — todo bead
+`phase-N` daqui e' um requisito. "Existe um portador por fase" descrevia o
+fixture, nao o repositorio. Entao a ausencia nao e' erro do usuario: e' o
+estado normal de um projeto com historico, e o resolvedor CRIA o portador,
+imprimindo o id que criou. CORE-04 proibe o fallback SILENCIOSO e o fallback
+para markdown; criar o fato que falta e dizer em voz alta que criou nao e'
+nenhum dos dois.
 """
 import argparse
 import json
@@ -150,23 +172,92 @@ def bd_json(args, root):
     return data if isinstance(data, list) else [data]
 
 
-def resolve_phase_carrier(phase, milestone, root):
-    """O bead `phase-N` SEM PAI. Ver o cabecalho para por que sem pai."""
+def issue_req(issue):
+    """O `gsd.req` do bead, ou None. Tolerante a metadata como string JSON."""
+    meta = issue.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            return None
+    gsd = (meta or {}).get("gsd") or {}
+    return gsd.get("req") if isinstance(gsd, dict) else None
+
+
+def phase_labels(phase, milestone):
     labels = "phase-%s" % phase
     if milestone:
         labels += ",m-%s" % milestone
-    issues = bd_json(["list", "-l", labels, "--all", "--limit", "0"], root)
-    carriers = [i for i in issues if not i.get("parent")]
-    if not carriers:
-        die("nenhum bead portador com label phase-%s — o FATO nao existe. "
-            "Crie a fase com `cairn-milestone` / `/cairn:phase add`, ou passe "
-            "--issue <ID> para gravar num bead que ja exista." % phase,
+    return labels
+
+
+def infer_milestone(issues):
+    """O m-<M> dos beads da fase, quando todos concordam. A convencao cairn e'
+    o PAR m-<milestone> + phase-<N>: um portador criado so com phase-N nasceria
+    fora dela, e nenhuma chamada da camada prompt passa --milestone."""
+    ms = {l[2:] for i in issues for l in (i.get("labels") or [])
+          if l.startswith("m-")}
+    return ms.pop() if len(ms) == 1 else None
+
+
+def create_phase_carrier(phase, milestone, root):
+    """Cria o portador que falta, e NOMEIA o que criou (ver cabecalho)."""
+    gsd = {"phase": phase}
+    if milestone:
+        gsd["milestone"] = milestone
+    proc = bd(["create", "Phase %s" % phase, "--type", "epic",
+               "--labels", phase_labels(phase, milestone),
+               "--metadata", json.dumps({"gsd": gsd}), "--silent"], root)
+    lines = [ln.strip() for ln in (proc.stdout or "").splitlines() if ln.strip()]
+    new_id = lines[-1] if lines else ""
+    if not new_id:
+        die("bd create nao devolveu id ao criar o portador da fase %s" % phase,
             EXIT_CONTRACT)
+    print("%s portador da fase %s nao existia — criado: %s"
+          % (TAG_PREFIX, phase, new_id))
+    return new_id
+
+
+def is_child_id(issue_id):
+    """O bd nao emite `parent`, mas a hierarquia esta VISIVEL no id: o filho e'
+    o id do pai mais sufixo (`CairnGo-9c0h` -> `CairnGo-9c0h.3`). O ponto vem
+    depois do prefixo do projeto, entao a busca comeca depois do primeiro `-`."""
+    tail = issue_id.split("-", 1)[1] if "-" in issue_id else issue_id
+    return "." in tail
+
+
+def is_carrier(issue):
+    """Portador = o bead da fase que nao e' nenhuma das tres outras coisas que
+    carregam o mesmo label `phase-N`:
+
+      - um REQUISITO, que tem `gsd.req`;
+      - um REGISTRO DE PLANO, que tem `plan-NN` (e herda `phase-N` do pai —
+        MEDIDO: `bd create --parent` herda os labels, e foi assim que o
+        primeiro plano gravado passou a disputar a vaga de portador);
+      - qualquer FILHO, cujo id carrega o sufixo do pai.
+
+    As tres condicoes sao independentes: uma so nao basta, porque um filho
+    pode nao ter req, e um plano pode ser criado sem passar por aqui."""
+    labels = issue.get("labels") or []
+    return (not issue_req(issue)
+            and not any(l.startswith("plan-") for l in labels)
+            and not is_child_id(issue.get("id", "")))
+
+
+def resolve_phase_carrier(phase, milestone, root):
+    """O bead `phase-N` que nao e' requisito, nem plano, nem filho. Ver o
+    cabecalho para por que a metadata, e nao o campo `parent`, distingue."""
+    issues = bd_json(["list", "-l", phase_labels(phase, milestone),
+                      "--all", "--limit", "0"], root)
+    carriers = [i for i in issues if is_carrier(i)]
     if len(carriers) > 1:
         ids = ", ".join(i["id"] for i in carriers)
         die("portador ambiguo para phase-%s: %s. Passe --issue <ID> para "
             "dizer em qual gravar." % (phase, ids), EXIT_CONTRACT)
-    return carriers[0]["id"]
+    if carriers:
+        return carriers[0]["id"]
+    return create_phase_carrier(phase, milestone or infer_milestone(issues),
+                                root)
 
 
 def resolve_plan_record(phase, plan, milestone, root):

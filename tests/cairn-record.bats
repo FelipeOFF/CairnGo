@@ -179,14 +179,19 @@ print(d[0]['id'] if d else '')
 
 # --- resolucao de alvo: fato ausente e' falha NOMEADA (doutrina CORE-04) -----
 
-@test "record: fase sem portador nomeia o fato E o comando que o cria" {
+@test "record: fase sem portador NENHUM — cria o fato e nomeia o id criado" {
   require_bd
   make_tmp_repo
   bd init -q --prefix rec --non-interactive >/dev/null 2>&1
+  # Este teste afirmava o contrato inverso ate 2026-08-12 (exit 1, "o FATO nao
+  # existe"). A medicao no repositorio real o derrubou: das 38 fases daqui,
+  # ZERO tem portador — a ausencia e' o estado NORMAL de um projeto com
+  # historico, nao erro do usuario. CORE-04 proibe o fallback silencioso e o
+  # fallback para markdown; criar o fato que falta e dizer o id em voz alta
+  # nao e' nenhum dos dois.
   run bash -c "echo corpo | python3 '$RECORD' context --phase 9"
-  [ "$status" -eq 1 ]
-  grep -qF "phase-9" <<<"$output"
-  grep -qi "cairn" <<<"$output"
+  [ "$status" -eq 0 ]
+  grep -qF "fase 9 nao existia" <<<"$output"
 }
 
 @test "record: portador ambiguo lista os candidatos e pede --issue" {
@@ -257,4 +262,104 @@ assert d['issue'], d
 @test "record: o wrapper .sh repassa o exit code do python sem traduzir" {
   run bash -c "echo corpo | '$CAIRN_SCRIPTS_DIR/cairn-record.sh' banana --phase 1"
   [ "$status" -eq 4 ]
+}
+
+# --- o portador da fase: quem e', e o que acontece quando nao ha -------------
+#
+# MEDIDO no repositorio real (2026-08-12) e por isso estes casos existem: das
+# 38 fases deste repo, ZERO tem epico portador e quase nenhuma tem bead sem
+# `gsd.req` — todo bead `phase-N` daqui e' um REQUISITO. O fixture de cima
+# (um unico bead com o label) nunca encosta nessa forma, e por isso a versao
+# anterior do resolvedor podia estar quebrada com a suite verde.
+
+# Fixture do repo REAL: tres requisitos da fase 7, nenhum portador.
+make_reqs_only_fixture() {
+  bd init -q --prefix noc --non-interactive >/dev/null 2>&1
+  bd create "REQ-01: alfa" -t task -l phase-7,m-v1.0 \
+    --metadata '{"gsd":{"phase":7,"milestone":"v1.0","req":"REQ-01"}}' --silent >/dev/null 2>&1
+  bd create "REQ-02: beta" -t task -l phase-7,m-v1.0 \
+    --metadata '{"gsd":{"phase":7,"milestone":"v1.0","req":"REQ-02"}}' --silent >/dev/null 2>&1
+  bd create "REQ-03: gama" -t task -l phase-7,m-v1.0 \
+    --metadata '{"gsd":{"phase":7,"milestone":"v1.0","req":"REQ-03"}}' --silent >/dev/null 2>&1
+}
+
+@test "record: fase so com requisitos — o portador e criado e o id sai NOMEADO" {
+  require_bd
+  make_tmp_repo
+  make_reqs_only_fixture
+  local before
+  before="$(count_md)"
+  run bash -c "echo 'corpo do contexto' | python3 '$RECORD' context --phase 7 --milestone v1.0"
+  [ "$status" -eq 0 ]
+  grep -qF "portador da fase 7 nao existia" <<<"$output"
+  # e continua sem escrever markdown nenhum
+  [ "$(count_md)" = "$before" ]
+}
+
+@test "record: o portador criado NAO e um requisito, e o corpo nao cai num deles" {
+  require_bd
+  make_tmp_repo
+  make_reqs_only_fixture
+  echo "corpo do contexto" | python3 "$RECORD" context --phase 7 --milestone v1.0 >/dev/null
+  # nenhum dos tres requisitos recebeu o corpo
+  run bash -c "bd list -l phase-7 --all --json | python3 -c \"
+import json,sys
+d = json.load(sys.stdin)
+reqs = [i for i in d if ((i.get('metadata') or {}).get('gsd') or {}).get('req')]
+print(sum(1 for i in reqs if (i.get('design') or '')))
+\""
+  [ "$output" = "0" ]
+  # e o portador criado tem o corpo, sem gsd.req
+  run bash -c "bd list -l phase-7 --all --json | python3 -c \"
+import json,sys
+d = json.load(sys.stdin)
+c = [i for i in d if not ((i.get('metadata') or {}).get('gsd') or {}).get('req')]
+print(len(c), (c[0].get('issue_type') if c else ''), 'corpo' if c and (c[0].get('design') or '') else 'vazio')
+\""
+  [ "$output" = "1 epic corpo" ]
+}
+
+@test "record: a segunda gravacao REUSA o portador criado, nao cria outro" {
+  require_bd
+  make_tmp_repo
+  make_reqs_only_fixture
+  echo "primeiro" | python3 "$RECORD" context --phase 7 --milestone v1.0 >/dev/null
+  run bash -c "echo segundo | python3 '$RECORD' research --phase 7 --milestone v1.0"
+  [ "$status" -eq 0 ]
+  refute_output_has "nao existia"
+  run bash -c "bd list -l phase-7 --all --json | python3 -c \"
+import json,sys
+d = json.load(sys.stdin)
+print(len([i for i in d if not ((i.get('metadata') or {}).get('gsd') or {}).get('req')]))
+\""
+  [ "$output" = "1" ]
+}
+
+@test "record: DOIS portadores continuam sendo ambiguidade NOMEADA, com os ids" {
+  require_bd
+  make_tmp_repo
+  make_reqs_only_fixture
+  bd create "Phase 7" -t epic -l phase-7,m-v1.0 \
+    --metadata '{"gsd":{"phase":7,"milestone":"v1.0"}}' --silent >/dev/null 2>&1
+  bd create "Phase 7 (duplicata)" -t epic -l phase-7,m-v1.0 \
+    --metadata '{"gsd":{"phase":7,"milestone":"v1.0"}}' --silent >/dev/null 2>&1
+  run bash -c "echo corpo | python3 '$RECORD' context --phase 7 --milestone v1.0"
+  [ "$status" -eq 1 ]
+  grep -qF "portador ambiguo" <<<"$output"
+  grep -qF -- "--issue" <<<"$output"
+}
+
+@test "record: controle negativo — o filtro de portador NAO pode ser a chave 'parent'" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  # MEDIDO (bd 1.1.0): o JSON do bd nao emite `parent` em list, show nem no
+  # export. Este teste FIXA a medicao: se um dia passar a emitir, quem
+  # reescrever o resolvedor vera aqui que a versao antiga dependia dela.
+  run bash -c "bd list -l phase-1 --all --json | python3 -c \"
+import json,sys
+d = json.load(sys.stdin)
+print('parent' in (d[0] if d else {}))
+\""
+  [ "$output" = "False" ]
 }
