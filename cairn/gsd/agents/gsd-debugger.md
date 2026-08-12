@@ -556,11 +556,12 @@ Can I observe the behavior directly?
 
 The knowledge base is a persistent, append-only record of resolved debug sessions. It lets future debugging sessions skip straight to high-probability hypotheses when symptoms match a known pattern.
 
-## File Location
+## Location
 
-```
-.planning/debug/knowledge-base.md
-```
+The knowledge base is beads' own persistent memory: `bd remember` writes an
+entry, `bd memories <keyword>` reads them back. There is no knowledge-base
+file — a cross-session memory in a file was always the wrong shape, because
+it fragments per checkout and never syncs.
 
 ## Entry Format
 
@@ -600,12 +601,16 @@ At the **end of `archive_session`**, after the session file is moved to `resolve
 
 ## File Location
 
-```
-DEBUG_DIR=.planning/debug
-DEBUG_RESOLVED_DIR=.planning/debug/resolved
+A debug session is a BEAD, not a file: `bd create --type=bug -l debug`. Its
+lifecycle is the bead's status — an ACTIVE session is `open`, a RESOLVED one
+is `closed`. The old `debug/` → `debug/resolved/` move was a status field
+encoded as a directory; the status field already exists.
+
+```bash
+DEBUG_BEAD=$(bd list -l debug --status open --json | jq -r '.[0].id // empty')
 ```
 
-## File Structure
+## Session body structure
 
 ```markdown
 ---
@@ -700,7 +705,7 @@ The file IS the debugging brain.
 **First:** Check for active debug sessions.
 
 ```bash
-ls .planning/debug/*.md 2>/dev/null | grep -v resolved
+bd list -l debug --status open --json | jq -r '.[] | "\(.id)\t\(.title)"'
 ```
 
 **If active sessions exist AND no $ARGUMENTS:**
@@ -708,34 +713,39 @@ ls .planning/debug/*.md 2>/dev/null | grep -v resolved
 - Wait for user to select (number) or describe new issue (text)
 
 **If active sessions exist AND $ARGUMENTS:**
-- Start new session (continue to create_debug_file)
+- Start new session (continue to open_debug_session)
 
 **If no active sessions AND no $ARGUMENTS:**
 - Prompt: "No active sessions. Describe the issue to start."
 
 **If no active sessions AND $ARGUMENTS:**
-- Continue to create_debug_file
+- Continue to open_debug_session
 </step>
 
-<step name="create_debug_file">
-**Create debug file IMMEDIATELY.**
+<step name="open_debug_session">
+**Open the session bead IMMEDIATELY.**
 
-**ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
+You write NO file: the session is a bead, and its body is the bead's fields.
 
 1. Generate slug from user input (lowercase, hyphens, max 30 chars)
-2. `mkdir -p .planning/debug`
-3. Create file with initial state:
-   - status: gathering
-   - trigger: verbatim $ARGUMENTS
-   - Current Focus: next_action = "gather symptoms"
-   - Symptoms: empty
-4. Proceed to symptom_gathering
+2. Open it, with the initial state as the body:
+   ```bash
+   DEBUG_BEAD=$(bd create --type=bug -l debug \
+     --title "{slug}: {one-line symptom}" \
+     --description "status: gathering
+   trigger: {verbatim \$ARGUMENTS}
+   next_action: gather symptoms
+   symptoms: (none yet)" --json | jq -r '.id')
+   ```
+3. Proceed to symptom_gathering
 </step>
 
 <step name="symptom_gathering">
 **Skip if `symptoms_prefilled: true`** - Go directly to investigation_loop.
 
-Gather symptoms through questioning. Update file after EACH answer.
+Gather symptoms through questioning. Update the bead after EACH answer
+(`bd update "$DEBUG_BEAD" --description ...`) — the session state is the
+record, so an un-updated bead is a lost session.
 
 1. Expected behavior -> Update Symptoms.expected
 2. Actual behavior -> Update Symptoms.actual
@@ -749,10 +759,10 @@ Gather symptoms through questioning. Update file after EACH answer.
 At investigation decision points, apply structured reasoning:
 @~/.claude/gsd-core/references/thinking-models-debug.md
 
-**Autonomous investigation. Update file continuously.**
+**Autonomous investigation. Update the session bead continuously.**
 
 **Phase 0: Check knowledge base**
-- Query MemPalace semantically with the current symptoms (top-k meaning-similar prior resolutions); fall back to reading `.planning/debug/knowledge-base.md` and keyword overlap when MemPalace is absent
+- Query MemPalace semantically with the current symptoms (top-k meaning-similar prior resolutions); fall back to `bd memories <keyword>` and keyword overlap when MemPalace is absent
 - If match found:
   - Note in Current Focus: `known_pattern_candidate: "{matched slug} — {description}"`
   - Add to Evidence: `found: Knowledge base match on [{keywords}] → Root cause was: {root_cause}. Fix was: {fix}. Why not caught: {why_not_caught}. Recurrence guard: {recurrence_guard}.` (the last two are absent on old entries — that's fine; consume them when present)
@@ -843,7 +853,7 @@ Return structured diagnosis:
 ```markdown
 ## ROOT CAUSE FOUND
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 
 **Root Cause:** {from Resolution.root_cause — one cause, or a '; '-joined list when the AND-gate identified multiple contributing causes}
 
@@ -864,7 +874,7 @@ If inconclusive:
 ```markdown
 ## INVESTIGATION INCONCLUSIVE
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 
 **What Was Checked:**
 - {area}: {finding}
@@ -915,7 +925,7 @@ Return:
 ## CHECKPOINT REACHED
 
 **Type:** human-verify
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 **Progress:** {evidence_count} evidence entries, {eliminated_count} hypotheses eliminated
 
 ### Investigation State
@@ -948,11 +958,10 @@ Do NOT move file to `resolved/` in this step.
 
 Only run this step when checkpoint response confirms the fix works end-to-end.
 
-Update status to "resolved".
+Resolving the session is closing its bead — that IS the status change:
 
 ```bash
-mkdir -p .planning/debug/resolved
-mv .planning/debug/{slug}.md .planning/debug/resolved/
+bd close "$DEBUG_BEAD" --reason "resolved: {root_cause}"
 ```
 
 **Check planning config using state load (commit_docs is available from the output):**
@@ -975,30 +984,25 @@ git commit -m "fix: {brief description}
 Root cause: {root_cause}"
 ```
 
-Then commit planning docs via CLI (respects `commit_docs` config automatically):
-```bash
-gsd_run query commit "docs: resolve debug {slug}" --files .planning/debug/resolved/{slug}.md
-```
+The session itself needs no commit — closing the bead is what records it.
 
 **Append to knowledge base (with the Prevention block):**
 
-Read `.planning/debug/resolved/{slug}.md` to extract final `Resolution` values. Then produce the **Prevention block** — a blameless postmortem (branching 5-Whys per RCA, "why wasn't this caught?", and a concrete recurrence guard):
+Read the closed bead (`bd show "$DEBUG_BEAD" --json`) to extract final `Resolution` values. Then produce the **Prevention block** — a blameless postmortem (branching 5-Whys per RCA, "why wasn't this caught?", and a concrete recurrence guard):
 
 @~/.claude/gsd-core/references/debugger-prevention.md
 
-Then append to `.planning/debug/knowledge-base.md` (create file with header if it doesn't exist):
+Then write one memory — `bd remember` is the append, and there is no header
+to create because a memory store needs no preamble:
 
-If creating for the first time, write this header first:
-```markdown
-# GSD Debug Knowledge Base
-
-Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypotheses at the start of new investigations.
-
----
-
+```bash
+bd remember "$(cat <<'ENTRY'
+[the entry below]
+ENTRY
+)"
 ```
 
-Then append the entry:
+The entry:
 ```markdown
 ## {slug} — {one-line description of the bug}
 - **Date:** {ISO date}
@@ -1012,12 +1016,9 @@ Then append the entry:
 
 ```
 
-Commit the knowledge base update alongside the resolved session:
-```bash
-gsd_run query commit "docs: update debug knowledge base with {slug}" --files .planning/debug/knowledge-base.md
-```
+Nothing to commit: `bd remember` is durable when it returns.
 
-**Index into MemPalace (when available)** per the semantic-recall reference — the Resolution summary (not raw symptoms), redacted — so a future Phase-0 query surfaces it by meaning. Skip with a logged note when MemPalace is absent or the KB write failed; `knowledge-base.md` is the durable fallback.
+**Index into MemPalace (when available)** per the semantic-recall reference — the Resolution summary (not raw symptoms), redacted — so a future Phase-0 query surfaces it by meaning. Skip with a logged note when MemPalace is absent or the memory write failed; `bd memories` is the durable fallback.
 
 Report completion and offer next steps.
 </step>
@@ -1039,7 +1040,7 @@ Return a checkpoint when:
 ## CHECKPOINT REACHED
 
 **Type:** [human-verify | human-action | decision]
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 **Progress:** {evidence_count} evidence entries, {eliminated_count} hypotheses eliminated
 
 ### Investigation State
@@ -1110,7 +1111,7 @@ Orchestrator presents checkpoint to user, gets response, spawns fresh continuati
 ```markdown
 ## ROOT CAUSE FOUND
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 
 **Root Cause:** {specific cause with evidence — one cause, or a '; '-joined list when the AND-gate identified multiple contributing causes}
 
@@ -1133,7 +1134,7 @@ Orchestrator presents checkpoint to user, gets response, spawns fresh continuati
 ```markdown
 ## DEBUG COMPLETE
 
-**Debug Session:** .planning/debug/resolved/{slug}.md
+**Debug Session:** {DEBUG_BEAD} (closed)
 
 **Root Cause:** {what was wrong}
 **Fix Applied:** {what was changed}
@@ -1152,7 +1153,7 @@ Only return this after human verification confirms the fix.
 
 Returned when a fix-acceptance guardrail signal fails (see `@~/.claude/gsd-core/references/debugger-fix-acceptance.md`). Do **not** mark the session resolved.
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 **Failing signal:** {signal 1–5 name}
 **Evidence:** {why the signal failed — e.g. "mutant at fix site survived", "deletion-only diff with no RCA justification", "bug did not return on revert"}
 
@@ -1163,7 +1164,7 @@ The session-manager continuation surfaces this and offers revise / accept-as-deb
 ```markdown
 ## INVESTIGATION INCONCLUSIVE
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 
 **What Was Checked:**
 - {area 1}: {finding}
@@ -1185,7 +1186,7 @@ The session-manager continuation surfaces this and offers revise / accept-as-deb
 ```markdown
 ## TDD CHECKPOINT
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 
 **Test Written:** {test_file}:{test_name}
 **Status:** RED (failing as expected — bug confirmed reproducible via test)

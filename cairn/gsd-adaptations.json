@@ -13,17 +13,19 @@
       "path": "agents/gsd-debug-session-manager.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        6
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 6, v1.7 zero-markdown): DEBUG. Uma sessao de debug deixa de ser arquivo e vira BEAD (bd create --type=bug -l debug): o ciclo de vida ativo/resolvido, que era o move de debug/ para debug/resolved/, passa a ser o status open/closed que o bd ja tem, e o list/status/continue consultam o bd em vez de varrer o diretorio. A knowledge-base.md cross-sessao vira bd remember/bd memories, que e' a memoria persistente do proprio beads — um arquivo de memoria fragmenta por checkout e nunca sincroniza."
     },
     {
       "path": "agents/gsd-debugger.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        6
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 6, v1.7 zero-markdown): DEBUG. Uma sessao de debug deixa de ser arquivo e vira BEAD (bd create --type=bug -l debug): o ciclo de vida ativo/resolvido, que era o move de debug/ para debug/resolved/, passa a ser o status open/closed que o bd ja tem, e o list/status/continue consultam o bd em vez de varrer o diretorio. A knowledge-base.md cross-sessao vira bd remember/bd memories, que e' a memoria persistente do proprio beads — um arquivo de memoria fragmenta por checkout e nunca sincroniza."
     },
     {
       "path": "agents/gsd-executor.md",
@@ -114,6 +116,14 @@
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: as duas linhas de prosa que mandavam usar o runtime antigo (:241, :317) passam a nomear gsd_run — o bloco de código logo abaixo de cada uma já chamava o verbo certo. Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
     },
     {
+      "path": "commands/gsd/debug.md",
+      "phase": "38",
+      "waves": [
+        6
+      ],
+      "reason": "Fase 38 (onda 6, v1.7 zero-markdown): DEBUG. Uma sessao de debug deixa de ser arquivo e vira BEAD (bd create --type=bug -l debug): o ciclo de vida ativo/resolvido, que era o move de debug/ para debug/resolved/, passa a ser o status open/closed que o bd ja tem, e o list/status/continue consultam o bd em vez de varrer o diretorio. A knowledge-base.md cross-sessao vira bd remember/bd memories, que e' a memoria persistente do proprio beads — um arquivo de memoria fragmenta por checkout e nunca sincroniza."
+    },
+    {
       "path": "commands/gsd/discuss-phase.md",
       "phase": "36",
       "waves": [
@@ -137,6 +147,22 @@
         3
       ],
       "reason": "Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
+    },
+    {
+      "path": "gsd-core/references/debugger-fix-acceptance.md",
+      "phase": "38",
+      "waves": [
+        6
+      ],
+      "reason": "Fase 38 (onda 6, v1.7 zero-markdown): DEBUG. Uma sessao de debug deixa de ser arquivo e vira BEAD (bd create --type=bug -l debug): o ciclo de vida ativo/resolvido, que era o move de debug/ para debug/resolved/, passa a ser o status open/closed que o bd ja tem, e o list/status/continue consultam o bd em vez de varrer o diretorio. A knowledge-base.md cross-sessao vira bd remember/bd memories, que e' a memoria persistente do proprio beads — um arquivo de memoria fragmenta por checkout e nunca sincroniza."
+    },
+    {
+      "path": "gsd-core/references/debugger-semantic-recall.md",
+      "phase": "38",
+      "waves": [
+        6
+      ],
+      "reason": "Fase 38 (onda 6, v1.7 zero-markdown): DEBUG. Uma sessao de debug deixa de ser arquivo e vira BEAD (bd create --type=bug -l debug): o ciclo de vida ativo/resolvido, que era o move de debug/ para debug/resolved/, passa a ser o status open/closed que o bd ja tem, e o list/status/continue consultam o bd em vez de varrer o diretorio. A knowledge-base.md cross-sessao vira bd remember/bd memories, que e' a memoria persistente do proprio beads — um arquivo de memoria fragmenta por checkout e nunca sincroniza."
     },
     {
       "path": "gsd-core/references/execute-phase-context-guard.md",
@@ -229,6 +255,14 @@
       "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
     },
     {
+      "path": "gsd-core/templates/DEBUG.md",
+      "phase": "38",
+      "waves": [
+        6
+      ],
+      "reason": "Fase 38 (onda 6, v1.7 zero-markdown): DEBUG. Uma sessao de debug deixa de ser arquivo e vira BEAD (bd create --type=bug -l debug): o ciclo de vida ativo/resolvido, que era o move de debug/ para debug/resolved/, passa a ser o status open/closed que o bd ja tem, e o list/status/continue consultam o bd em vez de varrer o diretorio. A knowledge-base.md cross-sessao vira bd remember/bd memories, que e' a memoria persistente do proprio beads — um arquivo de memoria fragmenta por checkout e nunca sincroniza."
+    },
+    {
       "path": "gsd-core/templates/UAT.md",
       "phase": "38",
       "waves": [
@@ -281,9 +315,10 @@
       "path": "gsd-core/workflows/debug.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        6
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 6, v1.7 zero-markdown): DEBUG. Uma sessao de debug deixa de ser arquivo e vira BEAD (bd create --type=bug -l debug): o ciclo de vida ativo/resolvido, que era o move de debug/ para debug/resolved/, passa a ser o status open/closed que o bd ja tem, e o list/status/continue consultam o bd em vez de varrer o diretorio. A knowledge-base.md cross-sessao vira bd remember/bd memories, que e' a memoria persistente do proprio beads — um arquivo de memoria fragmenta por checkout e nunca sincroniza."
     },
     {
       "path": "gsd-core/workflows/discuss-phase.md",
@@ -542,6 +577,14 @@
         1
       ],
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "skills/gsd-debug/SKILL.md",
+      "phase": "38",
+      "waves": [
+        6
+      ],
+      "reason": "Fase 38 (onda 6, v1.7 zero-markdown): DEBUG. Uma sessao de debug deixa de ser arquivo e vira BEAD (bd create --type=bug -l debug): o ciclo de vida ativo/resolvido, que era o move de debug/ para debug/resolved/, passa a ser o status open/closed que o bd ja tem, e o list/status/continue consultam o bd em vez de varrer o diretorio. A knowledge-base.md cross-sessao vira bd remember/bd memories, que e' a memoria persistente do proprio beads — um arquivo de memoria fragmenta por checkout e nunca sincroniza."
     },
     {
       "path": "skills/gsd-discuss-phase/SKILL.md",

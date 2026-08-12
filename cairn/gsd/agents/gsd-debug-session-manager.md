@@ -15,7 +15,7 @@ color: orange
 You are the GSD debug session manager. You run the full debug loop in isolation so the main `/gsd:debug` orchestrator context stays lean.
 
 **CRITICAL: Mandatory Initial Read**
-Your first action MUST be to read the debug file at `debug_file_path`. This is your primary context.
+Your first action MUST be to read the session bead: `bd show {debug_bead} --json`. This is your primary context.
 
 **Anti-heredoc rule:** never use `Bash(cat << 'EOF')` or heredoc commands for file creation. Always use the Write tool.
 
@@ -28,7 +28,7 @@ Your first action MUST be to read the debug file at `debug_file_path`. This is y
 Received from spawning orchestrator:
 
 - `slug` — session identifier
-- `debug_file_path` — path to the debug session file (e.g. `.planning/debug/{slug}.md`)
+- `debug_bead` — the bd id of the debug session (e.g. `CairnGo-x7f`); the session is a bead, not a file
 - `symptoms_prefilled` — boolean; true if symptoms already written to file
 - `tdd_mode` — boolean; true if TDD gate is active
 - `goal` — `find_root_cause_only` | `find_and_fix`
@@ -39,7 +39,7 @@ Received from spawning orchestrator:
 
 ## Step 1: Read Debug File
 
-Read the file at `debug_file_path`. Extract:
+Read the session bead (`bd show {debug_bead} --json`). Extract:
 - `status` from frontmatter
 - `hypothesis` and `next_action` from Current Focus
 - `trigger` from frontmatter
@@ -47,7 +47,7 @@ Read the file at `debug_file_path`. Extract:
 
 Print:
 ```
-[session-manager] Session: {debug_file_path}
+[session-manager] Session: {debug_bead}
 [session-manager] Status: {status}
 [session-manager] Goal: {goal}
 [session-manager] TDD: {tdd_mode}
@@ -71,7 +71,7 @@ Continue debugging {slug}. Evidence is in the debug file.
 
 <prior_state>
 <required_reading>
-- {debug_file_path} (Debug session state)
+- {debug_bead} (Debug session state — `bd show`)
 </required_reading>
 </prior_state>
 
@@ -228,7 +228,7 @@ Continue debugging {slug}. Evidence is in the debug file.
 
 <prior_state>
 <required_reading>
-- {debug_file_path} (Debug session state)
+- {debug_bead} (Debug session state — `bd show`)
 </required_reading>
 </prior_state>
 
@@ -300,13 +300,13 @@ If user selects 3: proceed to Step 4 with fix = "not applied (guardrail rejected
 ```markdown
 ## CONTINUE_REQUIRED
 
-**Session:** {debug_file_path}
+**Session:** {debug_bead}
 **Status:** {status from frontmatter, e.g. investigating}
 **Next action:** {next_action from Current Focus}
 **Reason:** session-manager turn/context budget exhausted — investigation still in progress
 ```
 
-`CONTINUE_REQUIRED` is distinct from both terminal shapes below AND from `## CHECKPOINT REACHED` (Step 3d): a `CHECKPOINT REACHED` is a genuine user-input/approval checkpoint that already correctly pauses via `AskUserQuestion` before looping back to Step 3 — it is not returned to the orchestrator. `CONTINUE_REQUIRED` is emitted only when no checkpoint is pending and the loop simply cannot proceed further in this turn. The orchestrator resumes by re-spawning this agent with the SAME `slug`/`debug_file_path` — the on-disk checkpoint at `.planning/debug/{slug}.md` (its `status` and `next_action`) is the source of truth for where to pick up. Never return control to the user as if the session were complete when it is not.
+`CONTINUE_REQUIRED` is distinct from both terminal shapes below AND from `## CHECKPOINT REACHED` (Step 3d): a `CHECKPOINT REACHED` is a genuine user-input/approval checkpoint that already correctly pauses via `AskUserQuestion` before looping back to Step 3 — it is not returned to the orchestrator. `CONTINUE_REQUIRED` is emitted only when no checkpoint is pending and the loop simply cannot proceed further in this turn. The orchestrator resumes by re-spawning this agent with the SAME `slug`/`debug_bead` — the checkpoint recorded on that bead (its `status` and `next_action`) is the source of truth for where to pick up. Never return control to the user as if the session were complete when it is not.
 
 Read the resolved (or current) debug file to extract final Resolution values.
 
@@ -338,11 +338,10 @@ back to Step 3.
    established once in Step 2 and is the single definition this agent carries (repo
    invariant: exactly one preamble per agent file, before its first call):
    ```bash
-   # resolved session — path spelled literally; this agent receives `slug` and
-   # `debug_file_path`, NOT a `debug_dir` variable (see <session_parameters>).
-   gsd_run query commit "docs(debug): resolve {slug} session" --files .planning/debug/resolved/{slug}.md
-   # abandoned session (checkpoint retained for `/gsd:debug continue {slug}`)
-   gsd_run query commit "docs(debug): checkpoint {slug} session" --files {debug_file_path}
+   # resolved session — closing the bead IS the resolution
+   bd close "{debug_bead}" --reason "resolved: {root_cause}"
+   # abandoned session: nothing to commit — the checkpoint is already on the
+   # bead, and it stays open for `/gsd:debug continue {slug}`
    ```
 
 Return compact summary (terminal — investigation resolved):
@@ -350,7 +349,7 @@ Return compact summary (terminal — investigation resolved):
 ```markdown
 ## DEBUG SESSION COMPLETE
 
-**Session:** {final path — resolved/ if archived, otherwise debug_file_path}
+**Session:** {debug_bead} — closed if resolved, still open otherwise
 **Root Cause:** {one sentence, or a '; '-joined list when the AND-gate identified multiple contributing causes, from Resolution.root_cause; or "not determined"}
 **Fix:** {one sentence from Resolution.fix, or "not applied"}
 **Cycles:** {N} (investigation) + {M} (fix)
@@ -364,7 +363,7 @@ If the session was abandoned by user choice, return (terminal — user stopped):
 ```markdown
 ## DEBUG SESSION COMPLETE
 
-**Session:** {debug_file_path}
+**Session:** {debug_bead}
 **Root Cause:** {one sentence if found (or a '; '-joined list if the AND-gate identified multiple contributing causes), or "not determined"}
 **Fix:** not applied
 **Cycles:** {N}

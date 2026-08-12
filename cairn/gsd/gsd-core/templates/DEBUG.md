@@ -1,6 +1,6 @@
 # Debug Template
 
-Template for `.planning/debug/[slug].md` — active debug session tracking.
+Body structure for a debug session bead (`bd create --type=bug -l debug`) — active debug session tracking. There is no debug file.
 
 ---
 
@@ -141,7 +141,7 @@ files_changed: []
 
 **On resolution:**
 - status → "resolved"
-- Move file to .planning/debug/resolved/ (only after user confirms fix)
+- Close the bead (only after user confirms fix) — closed IS resolved
 
 </lifecycle>
 
