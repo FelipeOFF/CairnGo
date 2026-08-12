@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"found\": true,\n  \"phase_number\": 34,\n  \"phase_name\": \"Fase de teste\",\n  \"goal\": \"Provar os leitores de documento sobre o bd.\",\n  \"mode\": \"mvp\",\n  \"success_criteria\": [],\n  \"section\": \"### Phase 34: Fase de teste\\n\\n**Goal:** Provar os leitores de documento sobre o bd.\\n\\nMode: mvp\\n\\n**Plans:** 2 plans\\n\\n- [ ] 34-01-PLAN.md\\n- [ ] 34-02-PLAN.md\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "roadmap-get-phase",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

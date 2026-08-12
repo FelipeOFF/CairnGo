@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"updated\": true,\n  \"key\": \"workflow.research\",\n  \"value\": false\n}"
+  },
+  "provenance": "recorded",
+  "scenario": "config-set-json-envelope",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

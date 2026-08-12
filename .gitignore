@@ -1,0 +1,64 @@
+__pycache__/
+*.pyc
+.cairn/id-map.json
+.cairn/state.json
+# Per-machine pull-request review cache (cairn-review.py fetch). Every entry
+# is stamped with when it was fetched; committing it would ship a stale answer
+# that looks current on somebody else's machine.
+.cairn/pr-cache.json
+# On-demand clone of the pinned GSD tag (cairn-inventory.py). The pinned tag
+# commit is the invalidation key: a cache whose HEAD diverges dies with exit 6
+# and --refresh rebuilds it. Never committed — it is an external corpus of
+# ~880k lines that the inventory re-clones reproducibly (D-01).
+.cairn/cache/
+.cairn/conflicts.json
+.cairn/reconcile-evidence.json
+.cairn/hook.log
+.cairn/journal.jsonl*
+# .cairn/journal/ is the ONE versioned thing under .cairn/ (phase 28): one
+# partition per checkout, merged by union. Only its .jsonl segments are
+# versioned — locks and scratch siblings in there are per-machine. A
+# whitelist, not a list of suffixes, so nothing new leaks in by default.
+.cairn/journal/*
+!.cairn/journal/*.jsonl
+.cairn/migrate-plan.json
+.cairn/migrate-state.json
+.cairn/plugin-root
+.DS_Store
+
+# cairn 2.0 per-machine state (never commit)
+.cairn/state/
+
+# Staged benchmark plugin checkouts — disposable, reproducible from the
+# pinned refs in benchmarks/baselines/*.json (never commit)
+benchmarks/plugins/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+
+# pr-autopilot run artifacts (per-PR scratch, disposable)
+.pr-autopilot/
+
+# Generated status board output (regenerate with cairn-status.sh --html)
+status.html
+
+# Hook / tooling scratch
+.planning/.pending-auth-captures.jsonl
+.beads/hooks/*.old
+
+# GSD capability install state — per machine, and .gsd-capabilities.json
+# records an absolute source path. Re-created by /cairn:init.
+.gsd/
+.gsd-capabilities.json
+
+# Research fetch cache (per-machine, written by the research agents)
+.planning/research/.cache/
+
+# Skills instaladas por marketplace vivem no perfil global (~/.claude/plugins),
+# nunca aqui. Entraram uma vez neste repositorio por um `git add` abrangente,
+# junto com o lock que as fixa. A regra impede a segunda vez.
+.agents/
+skills-lock.json

@@ -1,0 +1,333 @@
+{
+  "family": "worktree",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  },
+  "verbs": [
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<subcommand>"
+        ],
+        "flags": [],
+        "stdin": null
+      },
+      "invocation": "gsd_run worktree set-baseref",
+      "notes": "Comando de familia (routeWorktree em gsd-core/bin/gsd-tools.cjs L2175-L2193; subcommands: cleanup-wave, record-agent, reap-orphans, base-check, set-baseref, create). O unico sitio do universo (execute-phase.md:131) usa set-baseref -> cmdWorktreeSetBaseRef: grava worktree.baseRef='head' em .claude/settings.local.json, no-clobber (baseRef explicito != head vira skipped: 'explicit-other'; ja head vira 'already-head'); JSON malformado no arquivo -> throw ('Refusing to modify ...'). Shape abaixo e a do payload de set-baseref. Subcommand desconhecido -> error exit 1.",
+      "output": {
+        "exit_codes": {
+          "0": "gravado ou skip no-clobber ({changed, skipped})",
+          "1": "settings.local.json malformado (throw) ou subcommand desconhecido"
+        },
+        "kind": "json",
+        "shape": [
+          "baseRef",
+          "changed",
+          "file",
+          "previous",
+          "skipped"
+        ]
+      },
+      "source_ref": {
+        "lines": "L274-L330",
+        "path": "src/worktree-base-ref.cts"
+      },
+      "spellings": [
+        "worktree"
+      ],
+      "verb": "worktree"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 4
+      },
+      "input": {
+        "argv": [],
+        "flags": [],
+        "stdin": null
+      },
+      "invocation": "gsd_run query worktree.base-check",
+      "notes": "#683: avalia se a execucao paralela em worktrees deve degradar para sequencial porque o HEAD do orquestrador divergiu da base de fork do worktree. Resolve o baseRef efetivo (settings.local.json do projeto -> global) e compara HEAD vs forkRef via git. baseRef='head' curto-circuita {shouldDegrade: false, reason: 'baseref-head'}. headAbsenceVerified so e significativo com reason 'no-head' (#3057 B8). Call sites extraem --pick shouldDegrade e --pick message. Roteado por routeWorktree ('base-check') em gsd-core/bin/gsd-tools.cjs L2184-L2185.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre — o veredito vai em shouldDegrade/reason, nunca no exit"
+        },
+        "kind": "json",
+        "shape": [
+          "forkRef",
+          "forkSha",
+          "headAbsenceVerified",
+          "headSha",
+          "message",
+          "reason",
+          "shouldDegrade"
+        ]
+      },
+      "source_ref": {
+        "lines": "L242-L264",
+        "path": "src/worktree-base-ref.cts"
+      },
+      "spellings": [
+        "query worktree.base-check"
+      ],
+      "verb": "worktree.base-check"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 3
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--manifest",
+            "meaning": "path do manifest da wave ({orchestrator_root, worktrees: []}) que enumera os worktrees a limpar (obrigatorio)",
+            "takes_value": true
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query worktree.cleanup-wave --manifest <path>",
+      "notes": "Limpeza pos-wave dos worktrees de agente registrados no manifest: planWorktreeWaveCleanup decide a acao por entrada e executeWorktreeWaveCleanupPlan executa. Payload {ok, plan: {action, discovery, reason, entries}, result}. Manifest ilegivel -> {ok: false, reason: 'manifest_read_failed'} exit 1. Sem --manifest -> usage em stderr exit 2. Roteado por routeWorktree ('cleanup-wave') em gsd-core/bin/gsd-tools.cjs L2178-L2179.",
+      "output": {
+        "exit_codes": {
+          "0": "limpeza concluida (result.ok true)",
+          "1": "manifest ilegivel ou limpeza com falha (result.ok false)",
+          "2": "uso invalido (--manifest ausente)"
+        },
+        "kind": "json",
+        "shape": [
+          "error",
+          "ok",
+          "plan",
+          "reason",
+          "result"
+        ]
+      },
+      "source_ref": {
+        "lines": "L921-L995",
+        "path": "src/worktree-safety.cts"
+      },
+      "spellings": [
+        "query worktree.cleanup-wave"
+      ],
+      "verb": "worktree.cleanup-wave"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--manifest",
+            "meaning": "path do manifest da wave, previamente inicializado pelo orquestrador (obrigatorio)",
+            "takes_value": true
+          },
+          {
+            "flag": "--agent-id",
+            "meaning": "id do agente dono do worktree",
+            "takes_value": true
+          },
+          {
+            "flag": "--path",
+            "meaning": "path do worktree a criar",
+            "takes_value": true
+          },
+          {
+            "flag": "--branch",
+            "meaning": "branch por-agente do worktree",
+            "takes_value": true
+          },
+          {
+            "flag": "--base",
+            "meaning": "sha base do fork",
+            "takes_value": true
+          },
+          {
+            "flag": "--root",
+            "meaning": "diretorio raiz que confina o path (path fora do root -> path_outside_root)",
+            "takes_value": true
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query worktree.create --manifest <path> --agent-id <id> --path <worktree> --branch <branch> --base <sha> --root <dir>",
+      "notes": "Cria o worktree de agente E o registra no manifest na mesma operacao. Valida manifest (JSON, shape), confina o path ao --root, roda git worktree add; falha na gravacao do manifest faz rollback best-effort do worktree ('git worktree remove --force') e sai manifest_write_failed. reason enumera: created, usage, manifest_read_failed, invalid_manifest_json, manifest_shape_invalid, root_required, path_outside_root, manifest_write_failed e falhas do git. Roteado por routeWorktree ('create') em gsd-core/bin/gsd-tools.cjs L2188-L2189.",
+      "output": {
+        "exit_codes": {
+          "0": "criado e registrado ({ok: true, reason: 'created', entry, cwd, manifest_path})",
+          "1": "qualquer falha de manifest/validacao/git ({ok: false, reason, hint})",
+          "2": "uso invalido (--manifest ausente)"
+        },
+        "kind": "json",
+        "shape": [
+          "cwd",
+          "entry",
+          "error",
+          "hint",
+          "manifest_path",
+          "ok",
+          "reason"
+        ]
+      },
+      "source_ref": {
+        "lines": "L1419-L1618",
+        "path": "src/worktree-safety.cts"
+      },
+      "spellings": [
+        "query worktree.create"
+      ],
+      "verb": "worktree.create"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 2
+      },
+      "input": {
+        "argv": [],
+        "flags": [],
+        "stdin": null
+      },
+      "invocation": "gsd_run query worktree.reap-orphans",
+      "notes": "Colhe worktrees linkados orfaos: dono do lock morto, branch tip totalmente merged na default branch e lock mais velho que 5 min (REAP_MTIME_GUARD_MS, guarda de corrida). Fail-open deliberado: excecao interna vira warning em stderr e payload vazio com exit 0 para nao quebrar os workflows; orfaos skipped sao contados em stderr. entries lista {path, status: reaped|skipped, reason} por worktree. Roteado por routeWorktree ('reap-orphans') em gsd-core/bin/gsd-tools.cjs L2182-L2183.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre — inclusive quando a colheita interna falha (fail-open)"
+        },
+        "kind": "json",
+        "shape": [
+          "entries",
+          "ok",
+          "reaped"
+        ]
+      },
+      "source_ref": {
+        "lines": "L1876-L1910",
+        "path": "src/worktree-safety.cts"
+      },
+      "spellings": [
+        "query worktree.reap-orphans"
+      ],
+      "verb": "worktree.reap-orphans"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--manifest",
+            "meaning": "path do manifest da wave, previamente inicializado (obrigatorio)",
+            "takes_value": true
+          },
+          {
+            "flag": "--agent-id",
+            "meaning": "id do agente (obrigatorio nao-vazio)",
+            "takes_value": true
+          },
+          {
+            "flag": "--path",
+            "meaning": "path do worktree do agente (obrigatorio nao-vazio)",
+            "takes_value": true
+          },
+          {
+            "flag": "--branch",
+            "meaning": "branch do agente (obrigatorio nao-vazio)",
+            "takes_value": true
+          },
+          {
+            "flag": "--base",
+            "meaning": "sha base esperado (obrigatorio nao-vazio)",
+            "takes_value": true
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query worktree.record-agent --manifest <path> --agent-id <id> --path <worktree> --branch <branch> --base <sha>",
+      "notes": "Registra um worktree JA criado (ex: pelo harness) no manifest da wave, para o cleanup-wave posterior enxerga-lo (#1297). planWorktreeRecordAgent valida manifest e exige os 4 campos nao-whitespace (hint enumera os ausentes). Sucesso regrava o manifest e devolve {ok: true, reason: 'ok', entry, manifest_path}. Roteado por routeWorktree ('record-agent') em gsd-core/bin/gsd-tools.cjs L2180-L2181.",
+      "output": {
+        "exit_codes": {
+          "0": "registrado ({ok: true, entry})",
+          "1": "manifest ilegivel/invalido ou campos ausentes ({ok: false, reason, hint})",
+          "2": "uso invalido (--manifest ausente)"
+        },
+        "kind": "json",
+        "shape": [
+          "entry",
+          "error",
+          "hint",
+          "manifest_path",
+          "ok",
+          "reason"
+        ]
+      },
+      "source_ref": {
+        "lines": "L1148-L1227",
+        "path": "src/worktree-safety.cts"
+      },
+      "spellings": [
+        "query worktree.record-agent"
+      ],
+      "verb": "worktree.record-agent"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "references": 1,
+        "workflows8": 0
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "String(valor) em vez de JSON",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query worktree.set-baseref",
+      "notes": "Grafia pontuada da MESMA operacao de `worktree set-baseref` (cmdWorktreeSetBaseRef): grava worktree.baseRef='head' em .claude/settings.local.json, no-clobber — ja head vira skipped 'already-head', outro valor explicito vira 'explicit-other' e NAO sobrescreve, JSON malformado morre nomeado sem clobberar. Chamado em gsd-core/references/, FORA dos escopos workflows8+agents que o inventario varre — por isso o contrato da fase 33 nao o trouxe. Medido pela fase 38 (M2) com tests/parity-scan.py. Sitio: gsd-core/references/execute-phase-between-wave-reset.md:30, embrulhado em `2>/dev/null || true` — o exit 2 do dispatcher nunca aparecia.",
+      "output": {
+        "exit_codes": {
+          "0": "gravado ou skip no-clobber ({changed, skipped})",
+          "1": "settings.local.json malformado ou falha de escrita"
+        },
+        "kind": "json",
+        "shape": [
+          "baseRef",
+          "changed",
+          "file",
+          "previous",
+          "skipped"
+        ]
+      },
+      "scope": "references",
+      "source_ref": {
+        "lines": "L286-L338",
+        "path": "src/worktree-base-ref.cts"
+      },
+      "spellings": [
+        "query worktree.set-baseref"
+      ],
+      "verb": "worktree.set-baseref"
+    }
+  ]
+}

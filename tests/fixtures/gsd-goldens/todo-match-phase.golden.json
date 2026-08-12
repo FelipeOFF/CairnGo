@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"phase\": \"34\",\n  \"matches\": [\n    \"todo-1.md\"\n  ],\n  \"todo_count\": 2\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "todo-match-phase",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "cells": {
+    "microedit-greet::cairn": {
+      "baseline_id": "cairn",
+      "category": "honest-non-win",
+      "cost_iqr": null,
+      "cost_max": null,
+      "cost_median": null,
+      "cost_min": null,
+      "n_passed": 0,
+      "n_total": 5,
+      "pass_rate": 0.0,
+      "task_id": "microedit-greet",
+      "tokens": {
+        "cache_creation_median": null,
+        "cache_creation_sum": 0,
+        "cache_read_median": null,
+        "cache_read_sum": 0,
+        "input_median": null,
+        "input_sum": 0,
+        "output_median": null,
+        "output_sum": 0
+      }
+    },
+    "smoke-convert::cairn": {
+      "baseline_id": "cairn",
+      "category": "smoke",
+      "cost_iqr": 0.0175,
+      "cost_max": 0.1912,
+      "cost_median": 0.1618,
+      "cost_min": 0.1301,
+      "n_passed": 5,
+      "n_total": 5,
+      "pass_rate": 1.0,
+      "task_id": "smoke-convert",
+      "tokens": {
+        "cache_creation_median": 118,
+        "cache_creation_sum": 590,
+        "cache_read_median": 210,
+        "cache_read_sum": 1050,
+        "input_median": 14,
+        "input_sum": 70,
+        "output_median": 58,
+        "output_sum": 290
+      }
+    },
+    "smoke-convert::vanilla": {
+      "baseline_id": "vanilla",
+      "category": "smoke",
+      "cost_iqr": 0.021,
+      "cost_max": 0.171,
+      "cost_median": 0.1223,
+      "cost_min": 0.1101,
+      "n_passed": 4,
+      "n_total": 5,
+      "pass_rate": 0.8,
+      "task_id": "smoke-convert",
+      "tokens": {
+        "cache_creation_median": 96,
+        "cache_creation_sum": 384,
+        "cache_read_median": 180,
+        "cache_read_sum": 720,
+        "input_median": 12,
+        "input_sum": 48,
+        "output_median": 51,
+        "output_sum": 204
+      }
+    }
+  },
+  "rejected_rows": 1
+}

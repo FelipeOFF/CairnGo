@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"phase\": \"34\",\n  \"passed\": true,\n  \"blockers\": [],\n  \"checks\": [\n    {\n      \"file\": \"34-UAT.md\",\n      \"status\": \"passed\"\n    }\n  ],\n  \"no_uat_artifacts\": false,\n  \"policy\": \"fail-closed\",\n  \"uat_files\": [\n    \"34-UAT.md\"\n  ],\n  \"verification_files\": [],\n  \"verification_stale_check_indeterminate\": true\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "phase-uat-passed",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

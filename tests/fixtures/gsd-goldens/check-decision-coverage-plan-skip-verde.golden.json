@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"passed\": true, \"skipped\": true, \"reason\": \"CONTEXT.md missing\", \"total\": 0, \"covered\": 0, \"uncovered\": [], \"message\": \"No CONTEXT.md - nothing to check.\"}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "check-decision-coverage-plan-skip-verde",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

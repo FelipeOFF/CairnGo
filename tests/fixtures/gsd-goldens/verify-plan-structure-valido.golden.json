@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"valid\": true, \"errors\": [], \"warnings\": [], \"task_count\": 1, \"tasks\": [{\"name\": \"Task 1: alvo\", \"type\": \"auto\", \"hasFiles\": true, \"hasAction\": true, \"hasVerify\": true, \"hasDone\": true}], \"frontmatter_fields\": [\"phase\", \"plan\", \"type\", \"wave\", \"depends_on\", \"files_modified\", \"autonomous\", \"must_haves\"]}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "verify-plan-structure-valido",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

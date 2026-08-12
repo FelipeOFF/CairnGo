@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"raw_tokens\": 80000,\n  \"calibrated_tokens\": 80000,\n  \"calibration_applied\": false,\n  \"calibration_factor\": 1.0,\n  \"sample_count\": 0,\n  \"confidence\": \"low\",\n  \"pre_calibrated\": false,\n  \"budget\": 150000,\n  \"budget_valid\": true,\n  \"ratio\": 0.53,\n  \"over_budget\": false,\n  \"recommendation\": \"proceed\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "estimate-check",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

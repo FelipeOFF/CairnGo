@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"project_root\": \"<masked>\",\n  \"agents_dir\": \"<masked>\",\n  \"agents_installed\": true,\n  \"missing_agents\": [],\n  \"agent_runtime\": \"claude\",\n  \"project_code\": null,\n  \"project_title\": null,\n  \"response_language\": null,\n  \"section_manifest\": null,\n  \"description\": \"ajuste rapido\",\n  \"slug\": \"ajuste-rapido\",\n  \"date\": \"<masked>\",\n  \"timestamp\": \"<masked>\",\n  \"quick_id\": \"<masked>\",\n  \"quick_dir\": \"<masked>\",\n  \"task_dir\": \"<masked>\",\n  \"branch_name\": \"quick/ajuste-rapido\",\n  \"planner_model\": \"opus\",\n  \"executor_model\": \"sonnet\",\n  \"verifier_model\": \"sonnet\",\n  \"checker_model\": \"sonnet\",\n  \"reviewer_model\": \"sonnet\",\n  \"planning_exists\": true,\n  \"roadmap_exists\": true,\n  \"commit_docs\": true\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "init-quick",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

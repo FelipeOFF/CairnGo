@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"ok\": true,\n  \"reaped\": 0,\n  \"entries\": []\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "worktree-reap-orphans",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"mode\": \"coverage\", \"summary_file\": \".planning/phases/01-x/01-01-SUMMARY.md\", \"total\": 1, \"all_auto_covered\": true, \"auto_passed\": [{\"id\": \"COV-01\", \"description\": \"grafia dupla coberta por golden\", \"verification\": [{\"kind\": \"unit\", \"ref\": \"tests/cairn-gsd.bats\", \"status\": \"pass\"}], \"human_judgment\": false, \"source\": \"automated\"}], \"present\": [], \"errors\": []}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "uat-classify-coverage-auto-passed",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

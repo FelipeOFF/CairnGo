@@ -1,0 +1,31 @@
+{
+  "name": "competitor-ralph-specum",
+  "description": "tzachbon/smart-ralph's ralph-specum plugin: spec-driven, task-by-task autonomous execution. Chosen over github/spec-kit (no Claude Code plugin manifest anywhere in repo -- a specify-cli project scaffolder, not --plugin-dir-provisionable), bmad-code-org/BMAD-METHOD (no root .claude-plugin/plugin.json -- only marketplace.json -- and every skill requires a separate `npx bmad-method install` scaffold incompatible with this harness's provisioning model), and obra/superpowers (261k stars vs. 431 -- vastly larger adoption, but its documented default workflow has a hard design-approval gate with zero non-interactive escape hatch, unlike ralph-specum's --quick mode). Pinned to v4.0.0 (verified live via `git ls-remote --tags` 2026-07-26 -- the newest real git tag; plugin.json at HEAD self-reports 4.10.1, untagged -- disclosed staleness, not a provisioning error). --plugin-dir target is the plugins/ralph-specum/ subpath inside the cloned repo, per the vendor's own documented local-dev instructions (README.md, v4.0.0, 'Installation' section).",
+  "model": "claude-haiku-4-5-20251001",
+  "defaults_source": "https://github.com/tzachbon/smart-ralph/blob/v4.0.0/README.md#quick-start (documents /ralph-specum:start ... and the --quick mode as the two first-party default entry points) and https://github.com/tzachbon/smart-ralph/blob/v4.0.0/plugins/ralph-specum/references/quick-mode.md (full non-interactive execution contract, including the explicit 'non-interactive -- do not block or prompt user' directive)",
+  "claude_flags": {
+    "bare": true,
+    "max_turns": 30,
+    "no_session_persistence": true,
+    "permission_mode": "bypassPermissions"
+  },
+  "provisioning": {
+    "plugin_dirs": [
+      {
+        "plugin": "ralph-specum",
+        "source": {
+          "type": "git",
+          "repo": "tzachbon/smart-ralph",
+          "ref": "v4.0.0"
+        },
+        "staged_path": "benchmarks/plugins/ralph-specum/v4.0.0",
+        "plugin_dir_subpath": "plugins/ralph-specum",
+        "build": []
+      }
+    ]
+  },
+  "_notes": {
+    "permission_mode": "bypassPermissions (not acceptEdits): acceptEdits denies Bash, so the agent cannot run the fixture's tests — that measures one-shot coding, not a development workflow, and penalises exactly the arms whose value is plan->code->test->fix. Verified live 2026-07-27: acceptEdits produced 3 permission_denials for test-running commands. Risk is bounded: every run executes in a disposable temp workdir with a disposable empty HOME. Identical across all arms, so FAIR-02 holds.",
+    "max_turns": "30, not 8: a live smoke run consumed 8/8 turns on the trivial task with the leanest arm — a ceiling that low measures which workflow fits in the budget, not which one solves the task. The ceiling is identical across arms; error_max_turns rows are gated out of headline metrics either way."
+  }
+}

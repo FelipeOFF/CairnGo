@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"point\": \"plan:post\",\n  \"activeHooks\": [],\n  \"rendered\": \"_No active hooks at plan:post._\",\n  \"warnings\": []\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "loop-disabled-empty",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

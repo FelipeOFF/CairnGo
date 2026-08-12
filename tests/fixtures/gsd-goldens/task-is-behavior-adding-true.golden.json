@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"is_behavior_adding\": true, \"checks\": {\"tdd_true\": true, \"has_behavior_block\": true, \"has_source_files\": true}, \"reason\": null}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "task-is-behavior-adding-true",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

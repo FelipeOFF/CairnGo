@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"passed\": true, \"skipped\": false, \"total\": 1, \"covered\": 1, \"uncovered\": [], \"message\": \"All trackable CONTEXT.md decisions are covered by plans.\"}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "check-decision-coverage-plan-cobre",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

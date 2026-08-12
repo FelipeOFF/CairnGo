@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"project_root\": \"<masked>\",\n  \"agents_dir\": \"<masked>\",\n  \"agents_installed\": true,\n  \"missing_agents\": [],\n  \"agent_runtime\": \"claude\",\n  \"project_code\": null,\n  \"project_title\": null,\n  \"response_language\": null,\n  \"milestone_name\": \"v1.0 Primeiro\",\n  \"milestone_version\": \"v1.0\",\n  \"milestone_slug\": \"v1-0-primeiro\",\n  \"phase_count\": 2,\n  \"completed_phases\": 0,\n  \"all_phases_complete\": false,\n  \"roadmap_exists\": true,\n  \"state_exists\": true,\n  \"project_exists\": false,\n  \"phases_dir_exists\": true,\n  \"archive_exists\": false,\n  \"archive_count\": 0,\n  \"archived_milestones\": [],\n  \"commit_docs\": true\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "init-milestone-op",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

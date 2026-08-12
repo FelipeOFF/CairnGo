@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"scanned_at\": \"<masked>\", \"has_open_items\": false, \"counts\": {\"debug_sessions\": 0, \"quick_tasks\": 0, \"threads\": 0, \"todos\": 0, \"seeds\": 0, \"uat_gaps\": 0, \"verification_gaps\": 0, \"context_questions\": 0, \"deferred_items\": 0, \"total\": 0}, \"items\": {\"debug_sessions\": [], \"quick_tasks\": [], \"threads\": [], \"todos\": [], \"seeds\": [], \"uat_gaps\": [], \"verification_gaps\": [], \"context_questions\": [], \"deferred_items\": []}}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "audit-open-vazio",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

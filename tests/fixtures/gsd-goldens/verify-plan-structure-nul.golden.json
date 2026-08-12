@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"valid\": false, \"errors\": [\".planning/phases/01-x/01-01-PLAN.md: file contains NUL bytes (first at offset 17). Artifact files must be UTF-8 text. A NUL-corrupted file is binary-classified and silently skipped by recursive / binary-skipping search tools (rg, grep -I), so downstream verification reports its contents as missing rather than corrupt.\"]}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "verify-plan-structure-nul",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

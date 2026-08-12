@@ -1,0 +1,7 @@
+{
+  "context_window": 200000,
+  "model_profile": "balanced",
+  "workflow": {
+    "research": true
+  }
+}

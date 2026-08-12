@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"status\": \"passed\",\n  \"next_action\": \"Verification passed — continue.\",\n  \"next_command\": \"\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "verification-status-grafia-espacada",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

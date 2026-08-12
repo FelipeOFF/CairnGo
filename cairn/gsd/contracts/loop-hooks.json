@@ -1,0 +1,69 @@
+{
+  "family": "loop-hooks",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  },
+  "verbs": [
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 17
+      },
+      "input": {
+        "argv": [
+          "render-hooks",
+          "<point>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "emite o envelope como JSON (a forma dominante nos 8: gsd_run loop render-hooks <point> --raw)",
+            "takes_value": false
+          },
+          {
+            "flag": "--active-cap",
+            "meaning": "modo scanner: imprime exatamente true|false (capId ativo entre os activeHooks do point) + newline, sem envelope — limpo para captura $(...); capId desconhecido/inativo e false, nao erro",
+            "takes_value": true
+          },
+          {
+            "flag": "--config-dir",
+            "meaning": "override do diretorio de config do runtime (formas --config-dir <dir> e --config-dir=<dir>); resolvido com path.resolve",
+            "takes_value": true
+          },
+          {
+            "flag": "--runtime",
+            "meaning": "override explicito do runtime (#2003): a resolucao de config-dir ignora o fallback persistido GSD_RUNTIME -> config.runtime",
+            "takes_value": true
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run loop render-hooks <point> [--raw] [--active-cap <capId>] [--config-dir <dir>] [--runtime <r>]",
+      "notes": "Top-level, NAO e subcomando de query — spelling 'loop' no corpus; unico subcomando na tag e render-hooks (17 sitios nos 8 workflows). <point> pertence ao vocabulario canonico de 12 pontos CANONICAL_POINTS (discuss/plan/execute/verify/ship pre/post + execute:wave:pre/post — o mesmo fechado assertado em tests/capability.bats). Gates de capability que FALHARAM no load falham ABERTO com warning alto em stderr e no canal warnings do envelope (#2009: nenhum gate sintetico blocante e injetado). Parsing de flags nas duas formas em routeLoop, gsd-core/bin/gsd-tools.cjs L2060-L2122; delega a loopResolver.cmdLoopRenderHooks.",
+      "output": {
+        "exit_codes": {
+          "0": "hooks resolvidos e envelope emitido (ou true|false no modo --active-cap)",
+          "1": "<point> ausente/invalido, subcomando desconhecido, valor de flag ausente ou falha na resolucao dos hooks"
+        },
+        "kind": "json",
+        "shape": [
+          "activeHooks",
+          "point",
+          "rendered",
+          "warnings"
+        ]
+      },
+      "source_ref": {
+        "lines": "L478-L620",
+        "path": "src/loop-resolver.cts"
+      },
+      "spellings": [
+        "loop"
+      ],
+      "verb": "loop"
+    }
+  ]
+}

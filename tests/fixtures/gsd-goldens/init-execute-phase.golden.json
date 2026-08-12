@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"project_root\": \"<masked>\",\n  \"agents_dir\": \"<masked>\",\n  \"agents_installed\": true,\n  \"missing_agents\": [],\n  \"agent_runtime\": \"claude\",\n  \"project_code\": null,\n  \"project_title\": null,\n  \"response_language\": null,\n  \"section_manifest\": null,\n  \"phase_found\": true,\n  \"phase_number\": 34,\n  \"phase_name\": \"fase-teste\",\n  \"phase_slug\": \"fase-teste\",\n  \"phase_dir\": \"<masked>\",\n  \"phase_req_ids\": [\n    \"CORE-01\"\n  ],\n  \"plans\": [\n    \"34-01-PLAN.md\",\n    \"34-02-PLAN.md\"\n  ],\n  \"summaries\": [\n    \"34-01-SUMMARY.md\"\n  ],\n  \"plan_count\": 2,\n  \"incomplete_plans\": [\n    \"34-02\"\n  ],\n  \"incomplete_count\": 1,\n  \"runnable_plans\": [\n    \"34-02\"\n  ],\n  \"runnable_count\": 1,\n  \"halted_plans\": [],\n  \"blocked_by\": [],\n  \"executor_model\": \"sonnet\",\n  \"verifier_model\": \"sonnet\",\n  \"verifier_enabled\": true,\n  \"commit_docs\": true,\n  \"sub_repos\": [],\n  \"parallelization\": true,\n  \"context_window\": null,\n  \"branching_strategy\": \"none\",\n  \"branch_name\": null,\n  \"phase_branch_template\": null,\n  \"milestone_branch_template\": null,\n  \"milestone_name\": \"v1.0 Primeiro\",\n  \"milestone_version\": \"v1.0\",\n  \"milestone_slug\": \"v1-0-primeiro\",\n  \"config_path\": \"<masked>\",\n  \"config_exists\": true,\n  \"roadmap_path\": \"<masked>\",\n  \"roadmap_exists\": true,\n  \"requirements_path\": \"<masked>\",\n  \"state_path\": \"<masked>\",\n  \"state_exists\": true,\n  \"state_validation_ran\": false,\n  \"state_warnings\": [],\n  \"tdd_mode\": false\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "init-execute-phase",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

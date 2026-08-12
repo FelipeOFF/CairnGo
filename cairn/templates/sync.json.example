@@ -1,0 +1,60 @@
+{
+  "$schema": "cairn sync config. bd is the hub/source of truth. Tokens are read from the named ENV VARS at sync time — never store secrets in this file. Set enabled:true only for backends you use.",
+  "backends": [
+    {
+      "type": "github",
+      "enabled": false,
+      "adapter": "github",
+      "config": {
+        "repo": "owner/name",
+        "extra_labels": []
+      }
+    },
+    {
+      "type": "gitlab",
+      "enabled": false,
+      "adapter": "gitlab",
+      "config": {
+        "base_url": "https://gitlab.com",
+        "project": "namespace/project",
+        "token_env": "GITLAB_TOKEN",
+        "extra_labels": []
+      }
+    },
+    {
+      "type": "jira",
+      "enabled": false,
+      "adapter": "jira",
+      "config": {
+        "base_url": "https://yourorg.atlassian.net",
+        "project_key": "PROJ",
+        "issue_type": "Task",
+        "email_env": "JIRA_EMAIL",
+        "token_env": "JIRA_API_TOKEN",
+        "transitions": { "in_progress": "In Progress", "closed": "Done" }
+      }
+    },
+    {
+      "type": "asana",
+      "enabled": false,
+      "adapter": "asana",
+      "config": {
+        "project_gid": "1209000000000000",
+        "token_env": "ASANA_TOKEN"
+      }
+    },
+    {
+      "type": "azure-boards",
+      "enabled": false,
+      "adapter": "azure-boards",
+      "config": {
+        "org_url": "https://dev.azure.com/yourorg",
+        "project": "YourProject",
+        "work_item_type": "Issue",
+        "pat_env": "AZURE_DEVOPS_PAT",
+        "api_version": "7.0",
+        "states": { "in_progress": "Active", "closed": "Closed" }
+      }
+    }
+  ]
+}

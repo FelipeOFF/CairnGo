@@ -1,0 +1,221 @@
+{
+  "family": "dispatch-model",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  },
+  "verbs": [
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 6
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "default de fato: imprime exatamente harness-worktree | orchestrator-worktree | none",
+            "takes_value": false
+          },
+          {
+            "flag": "--json",
+            "meaning": "emite {runtime, isolation, exec, harnessFlag} em vez do modo cru — usado pelo call site que precisa do harnessFlag (executor-isolation-dispatch.md:95)",
+            "takes_value": false
+          },
+          {
+            "flag": "--phase",
+            "meaning": "identificador opcional do caller, gravado junto da decisao no sentinel",
+            "takes_value": true
+          },
+          {
+            "flag": "--plan",
+            "meaning": "identificador opcional do caller, gravado junto da decisao no sentinel",
+            "takes_value": true
+          },
+          {
+            "flag": "--cwd-target",
+            "meaning": "path do worktree criado pelo GSD; sem ele nao ha o que resolver e exec sai null (so importa em orchestrator-worktree)",
+            "takes_value": true
+          },
+          {
+            "flag": "--prompt",
+            "meaning": "prompt opcional atado ao exec resolvido (so com --cwd-target)",
+            "takes_value": true
+          },
+          {
+            "flag": "--force-isolation",
+            "meaning": "override do modo naturalmente resolvido com contexto que o resolver nao ve (ex.: intersecao de submodules por plano, #2474); valor fora do vocabulario e IGNORADO (best-effort, nao usage gate); none limpa harnessFlag e exec",
+            "takes_value": true
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query dispatch-isolation [--raw | --json] [--phase <n>] [--plan <id>] [--cwd-target <path> [--prompt <p>]] [--force-isolation <modo>]",
+      "notes": "Resolver UNICO do isolamento de dispatch (#2584/#2627, #3045 CORE REDESIGN): resolve o runtime (GSD_RUNTIME > config.runtime > 'claude'), le registry.runtimes[id].runtime.hostIntegration.dispatch.isolation e valida contra o vocabulario fechado {harness-worktree, orchestrator-worktree, none}. Fail-closed TOTAL para none (ADR-1239): runtime desconhecido, valor fora do vocabulario ou qualquer throw -> sequencial, nunca paralelo inseguro. Degradacoes: harness-worktree sem harnessIsolationFlag declarado -> none; orchestrator-worktree cujo exec nao resolve -> none. EFEITO COLATERAL incondicional (#3045): persiste a decisao resolvida (mode + harnessFlag + phase/plan) em .gsd/dispatch-isolation-sentinel.json via writeDispatchIsolationSentinel (gsd-core/bin/gsd-tools.cjs L1776-L1800), o sentinel que os guard hooks leem — gravacao estruturalmente inescapavel, e falha de escrita nunca falha a wave. Roteado por routeDispatchIsolation via HOST_COMMAND_ROUTERS 'dispatch-isolation' (L3359). Sitios: executor-isolation-dispatch.md:23,65,95,165 e per-plan-worktree-gate.md:107,111 — todos com `2>/dev/null || echo none`/`|| true`, consumindo o modo cru ou o harnessFlag do --json.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre — o fail-closed engole qualquer erro e resolve para none"
+        },
+        "kind": "text",
+        "shape": [
+          "exec",
+          "harnessFlag",
+          "isolation",
+          "runtime"
+        ]
+      },
+      "provenance": "extraído do gsd-tools.cjs bakeado",
+      "source_ref": {
+        "lines": "L1624-L1764",
+        "path": "gsd-core/bin/gsd-tools.cjs"
+      },
+      "spellings": [
+        "query dispatch-isolation"
+      ],
+      "verb": "dispatch-isolation"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 2
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "default de fato nos call sites: imprime exatamente true ou false",
+            "takes_value": false
+          },
+          {
+            "flag": "--json",
+            "meaning": "emite {runtime, shouldFlatten, dispatch} em vez do boolean cru",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query dispatch-should-flatten --raw",
+      "notes": "Query tipada que substituiu a regra em prosa `RUNTIME === 'codex'` (#1708/#853): resolve o runtime com a mesma precedencia de config-get runtime, le registry.runtimes[id].runtime.hostIntegration.dispatch e chama shouldFlattenDispatch (lib/host-integration.cjs). Fail-closed: runtime desconhecido, dispatch ausente ou qualquer throw imprime 'true' (inline — o default sempre seguro). Irmao direto de dispatch-isolation. Roteado por routeDispatchShouldFlatten via HOST_COMMAND_ROUTERS 'dispatch-should-flatten' (gsd-core/bin/gsd-tools.cjs L3358). Os 2 sitios (autonomous.md:350,402) chamam `--raw 2>/dev/null || echo \"true\"` — o proprio caller repete o fail-closed.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre — o fail-closed imprime true e sai 0"
+        },
+        "kind": "text",
+        "shape": [
+          "dispatch",
+          "runtime",
+          "shouldFlatten"
+        ]
+      },
+      "provenance": "extraído do gsd-tools.cjs bakeado",
+      "source_ref": {
+        "lines": "L1575-L1623",
+        "path": "gsd-core/bin/gsd-tools.cjs"
+      },
+      "spellings": [
+        "query dispatch-should-flatten"
+      ],
+      "verb": "dispatch-should-flatten"
+    },
+    {
+      "call_sites": {
+        "agents": 1,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<agent-type>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "emite o envelope JSON; sem --raw o texto e so o model id",
+            "takes_value": false
+          },
+          {
+            "flag": "--pick",
+            "meaning": "extrai uma chave do envelope; os call sites usam --pick model (evidencia direta do shape: ai-integration-phase.md L36-L39)",
+            "takes_value": true
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query resolve-model <agent-type> [--raw | --pick model]",
+      "notes": "Resolve o model id do agente pelo model_profile da config (default 'balanced') via resolveModelInternal + resolveEffortInternal. Agente fora de MODEL_PROFILES nao e erro: o envelope ganha unknown_agent: true. Roteamento: routeResolveModel, gsd-core/bin/gsd-tools.cjs L592-L594.",
+      "output": {
+        "exit_codes": {
+          "0": "resolvido — agente desconhecido tambem sai 0, com unknown_agent: true no envelope",
+          "1": "agent-type ausente"
+        },
+        "kind": "json",
+        "shape": [
+          "effort",
+          "model",
+          "profile",
+          "unknown_agent"
+        ]
+      },
+      "source_ref": {
+        "lines": "L495-L510",
+        "path": "src/commands.cts"
+      },
+      "spellings": [
+        "query resolve-model"
+      ],
+      "verb": "resolve-model"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 5
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--requested",
+            "meaning": "o nome do subagente GSD pedido (ex.: gsd-planner); ausente vira string vazia e resolve para 'coder'",
+            "takes_value": true
+          },
+          {
+            "flag": "--raw",
+            "meaning": "default de fato nos call sites: imprime so o type resolvido em stdout, sem envelope",
+            "takes_value": false
+          },
+          {
+            "flag": "--json",
+            "meaning": "emite {runtime, requested, resolved, dispatch} em vez do type cru",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query resolve-dispatch-type --requested <role> --raw",
+      "notes": "CONTRATO EM HOST UNICO: em runtime de named-dispatch (claude e todo runtime com dispatch desconhecido/ausente — o default fail-closed do GSD) o verbo devolve o role INALTERADO; a unica logica que muda o nome e o ramo multi-host namedDispatch:false (kimi-code), que mapeia por sufixo para plan/explore/coder via DISPATCH_TYPE_SUFFIX_MAP (src/host-integration.cts L654-L657) — no cairn em host unico o verbo e identidade sobre --requested. Fail-closed total no router: QUALQUER erro ecoa o nome pedido inalterado (routeResolveDispatchType, gsd-core/bin/gsd-tools.cjs L1870-L1908, #2508 Phase 4 Option A). shape abaixo e o do modo --json.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre — o fail-closed engole qualquer erro e ecoa o requested"
+        },
+        "kind": "text",
+        "shape": [
+          "dispatch",
+          "requested",
+          "resolved",
+          "runtime"
+        ]
+      },
+      "source_ref": {
+        "lines": "L664-L679",
+        "path": "src/host-integration.cts"
+      },
+      "spellings": [
+        "query resolve-dispatch-type"
+      ],
+      "verb": "resolve-dispatch-type"
+    }
+  ]
+}

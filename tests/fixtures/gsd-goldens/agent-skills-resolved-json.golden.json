@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"agent_type\": \"gsd-planner\",\n  \"block\": \"<agent_skills>\\nRead these user-configured skills:\\n- @skills/demo/SKILL.md\\n</agent_skills>\",\n  \"skills_count\": 1,\n  \"warnings\": [],\n  \"configured\": true,\n  \"reason\": \"resolved\",\n  \"source\": \"root\",\n  \"degraded\": false,\n  \"value\": {\n    \"block\": \"<agent_skills>\\nRead these user-configured skills:\\n- @skills/demo/SKILL.md\\n</agent_skills>\",\n    \"skills_count\": 1\n  }\n}"
+  },
+  "provenance": "recorded",
+  "scenario": "agent-skills-resolved-json",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

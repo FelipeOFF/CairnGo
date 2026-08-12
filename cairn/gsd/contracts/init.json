@@ -1,0 +1,987 @@
+{
+  "bundle_shapes": [
+    {
+      "composition_lines_upstream": 145,
+      "consumed_fields": [
+        "branch_name",
+        "branching_strategy",
+        "commit_docs",
+        "executor_model",
+        "incomplete_count",
+        "incomplete_plans",
+        "parallelization",
+        "phase_dir",
+        "phase_found",
+        "phase_name",
+        "phase_number",
+        "phase_req_ids",
+        "phase_slug",
+        "plan_count",
+        "plans",
+        "requirements_path",
+        "response_language",
+        "roadmap_exists",
+        "section_manifest",
+        "state_exists",
+        "sub_repos",
+        "verifier_model"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "bloco 'Parse JSON for:' logo apos a captura de INIT na linha 85",
+          "fields": "executor_model, verifier_model, commit_docs, parallelization, branching_strategy, branch_name, phase_found, phase_dir, phase_number, phase_name, phase_slug, plans, incomplete_plans, plan_count, incomplete_count, state_exists, roadmap_exists, phase_req_ids, response_language, requirements_path, section_manifest",
+          "file": "gsd-core/workflows/execute-phase.md",
+          "line": 90
+        },
+        {
+          "evidence": "bloco 'Extract from init JSON:' logo apos a captura de INIT na linha 81",
+          "fields": "executor_model, commit_docs, sub_repos, phase_dir, plans, incomplete_plans",
+          "file": "agents/gsd-executor.md",
+          "line": 85
+        }
+      ],
+      "origin_handler": "cmdInitExecutePhase",
+      "python_estimate_lines": 140,
+      "python_estimate_rationale": "22 campos consumidos; inclui o locator de fase/planos sobre bd+fs (~45 linhas, contado UMA vez aqui — primeiro shape do fluxo a exigi-lo); plans/incomplete_plans/summaries por listagem de arquivos da fase sao o grosso; modelos e config sao passthrough; section_manifest e leitura de workflows/section-manifest.json",
+      "source_ref": {
+        "lines": "L817-L961",
+        "path": "src/init.cts"
+      },
+      "verb": "init.execute-phase"
+    },
+    {
+      "composition_lines_upstream": 186,
+      "consumed_fields": [
+        "checker_model",
+        "commit_docs",
+        "context_path",
+        "granularity",
+        "has_context",
+        "has_plans",
+        "has_research",
+        "has_reviews",
+        "nyquist_validation_enabled",
+        "padded_phase",
+        "phase_dir",
+        "phase_found",
+        "phase_name",
+        "phase_number",
+        "phase_req_ids",
+        "phase_slug",
+        "phase_status",
+        "plan_checker_enabled",
+        "plan_count",
+        "planner_model",
+        "planning_exists",
+        "requirements_path",
+        "research_enabled",
+        "research_path",
+        "researcher_model",
+        "response_language",
+        "reviews_path",
+        "roadmap_exists",
+        "roadmap_path",
+        "state_path",
+        "text_mode",
+        "uat_path",
+        "verification_path"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "bloco 'Parse JSON for:' logo apos a captura de INIT na linha 76",
+          "fields": "researcher_model, planner_model, checker_model, research_enabled, plan_checker_enabled, nyquist_validation_enabled, commit_docs, text_mode, phase_found, phase_dir, phase_number, phase_name, phase_slug, padded_phase, has_research, has_context, has_reviews, has_plans, plan_count, phase_status, planning_exists, roadmap_exists, phase_req_ids, response_language, granularity",
+          "file": "gsd-core/workflows/plan-phase.md",
+          "line": 89
+        },
+        {
+          "evidence": "bloco 'File paths (for <files_to_read> blocks)'",
+          "fields": "state_path, roadmap_path, requirements_path, context_path, research_path, verification_path, uat_path, reviews_path",
+          "file": "gsd-core/workflows/plan-phase.md",
+          "line": 95
+        },
+        {
+          "evidence": "UNICO uso literal de --pick sobre um bundle init.* no corpus dos 8: gsd_run query init.plan-phase \"$PHASE\" --pick phase_req_ids",
+          "fields": "phase_req_ids",
+          "file": "gsd-core/workflows/plan-phase.md",
+          "line": 1361
+        },
+        {
+          "evidence": "bloco 'Extract from init JSON:' logo apos a captura de INIT na linha 609",
+          "fields": "planner_model, researcher_model, checker_model, commit_docs, research_enabled, phase_dir, phase_number, has_research, has_context",
+          "file": "agents/gsd-planner.md",
+          "line": 613
+        }
+      ],
+      "origin_handler": "cmdInitPlanPhase",
+      "python_estimate_lines": 105,
+      "python_estimate_rationale": "33 campos consumidos, a maioria existencia/paths (1-2 linhas cada) e passthrough de config; inclui a resolucao de modelos por profile (~25 linhas, contada UMA vez aqui); phase_status e o unico campo com logica propria nao coberta pelo locator compartilhado",
+      "source_ref": {
+        "lines": "L962-L1147",
+        "path": "src/init.cts"
+      },
+      "verb": "init.plan-phase"
+    },
+    {
+      "composition_lines_upstream": 158,
+      "consumed_fields": [
+        "commit_docs",
+        "has_context",
+        "has_plans",
+        "has_research",
+        "has_verification",
+        "padded_phase",
+        "phase_dir",
+        "phase_found",
+        "phase_name",
+        "phase_number",
+        "phase_slug",
+        "plan_count",
+        "planning_exists",
+        "response_language",
+        "roadmap_exists"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "bloco 'Parse JSON for:' logo apos a captura de INIT na linha 119",
+          "fields": "commit_docs, phase_found, phase_dir, phase_number, phase_name, phase_slug, padded_phase, has_research, has_context, has_plans, has_verification, plan_count, roadmap_exists, planning_exists, response_language",
+          "file": "gsd-core/workflows/discuss-phase.md",
+          "line": 123
+        },
+        {
+          "evidence": "Parse has_context from JSON (chamada na linha 231)",
+          "fields": "has_context",
+          "file": "gsd-core/workflows/autonomous.md",
+          "line": 234
+        },
+        {
+          "evidence": "Check has_context (chamada na linha 332)",
+          "fields": "has_context",
+          "file": "gsd-core/workflows/autonomous.md",
+          "line": 335
+        },
+        {
+          "evidence": "bloco 'Extract from init JSON:' logo apos a captura de INIT na linha 530",
+          "fields": "phase_dir, padded_phase, phase_number, commit_docs",
+          "file": "agents/gsd-phase-researcher.md",
+          "line": 534
+        },
+        {
+          "evidence": "bloco 'Extract from init JSON:' logo apos a captura de INIT na linha 708",
+          "fields": "phase_dir, phase_number, has_plans, plan_count",
+          "file": "agents/gsd-plan-checker.md",
+          "line": 712
+        }
+      ],
+      "origin_handler": "cmdInitPhaseOp",
+      "python_estimate_lines": 45,
+      "python_estimate_rationale": "15 campos consumidos: lookup de fase (reusa o locator compartilhado do execute-phase) + checagens de existencia has_* por glob no diretorio da fase + passthroughs",
+      "source_ref": {
+        "lines": "L1777-L1934",
+        "path": "src/init.cts"
+      },
+      "verb": "init.phase-op"
+    },
+    {
+      "composition_lines_upstream": 117,
+      "consumed_fields": [
+        "checker_model",
+        "commit_docs",
+        "has_verification",
+        "phase_dir",
+        "phase_found",
+        "phase_name",
+        "phase_number",
+        "planner_model",
+        "response_language",
+        "roadmap_path",
+        "state_path"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "bloco 'Parse JSON for:' logo apos a captura de INIT na linha 45. MISMATCH corpus vs tag: o bloco pede tambem uat_path, chave que cmdInitVerifyWork NUNCA emite (uat_path existe so nos bundles de plan-phase, src/init.cts L1097, e phase-op, L1919) — o parse resolve para ausente/null; mesma classe do phases.list --pick summaries_total do plano 03. Excluida de consumed_fields (que registra o que o bundle PODE servir); a fase 33 decide emitir a chave ou corrigir o workflow.",
+          "fields": "planner_model, checker_model, commit_docs, phase_found, phase_dir, phase_number, phase_name, has_verification, uat_path (fantasma — ver MISMATCH), state_path, roadmap_path, response_language",
+          "file": "gsd-core/workflows/verify-work.md",
+          "line": 51
+        }
+      ],
+      "origin_handler": "cmdInitVerifyWork",
+      "python_estimate_lines": 35,
+      "python_estimate_rationale": "12 campos consumidos: lookup de fase + paths + has_verification por existencia + modelos passthrough",
+      "source_ref": {
+        "lines": "L1441-L1557",
+        "path": "src/init.cts"
+      },
+      "verb": "init.verify-work"
+    },
+    {
+      "composition_lines_upstream": 76,
+      "consumed_fields": [
+        "branch_name",
+        "checker_model",
+        "commit_docs",
+        "date",
+        "executor_model",
+        "planner_model",
+        "planning_exists",
+        "quick_dir",
+        "quick_id",
+        "response_language",
+        "reviewer_model",
+        "roadmap_exists",
+        "slug",
+        "task_dir",
+        "timestamp",
+        "verifier_model"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "bloco 'Parse JSON for:' logo apos a captura de INIT na linha 138",
+          "fields": "planner_model, executor_model, checker_model, verifier_model, reviewer_model, commit_docs, branch_name, quick_id, slug, date, timestamp, quick_dir, task_dir, roadmap_exists, planning_exists, response_language",
+          "file": "gsd-core/workflows/quick.md",
+          "line": 146
+        }
+      ],
+      "origin_handler": "cmdInitQuick",
+      "python_estimate_lines": 45,
+      "python_estimate_rationale": "16 campos consumidos: geracao de quick_id/slug/timestamp/date + paths absolutos de quick_dir/task_dir + 5 modelos passthrough",
+      "source_ref": {
+        "lines": "L1294-L1369",
+        "path": "src/init.cts"
+      },
+      "verb": "init.quick"
+    },
+    {
+      "composition_lines_upstream": 106,
+      "consumed_fields": [
+        "commit_docs",
+        "completed_phases",
+        "milestone_name",
+        "milestone_version",
+        "phase_count",
+        "roadmap_exists",
+        "state_exists"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "bloco 'Parse JSON for:' logo apos a captura de INIT na linha 68",
+          "fields": "milestone_version, milestone_name, phase_count, completed_phases, roadmap_exists, state_exists, commit_docs",
+          "file": "gsd-core/workflows/autonomous.md",
+          "line": 101
+        }
+      ],
+      "origin_handler": "cmdInitMilestoneOp",
+      "python_estimate_lines": 30,
+      "python_estimate_rationale": "7 campos consumidos: info de milestone do ROADMAP (o cairn ja parseia no bookkeep/status) + contagens de fases completas",
+      "source_ref": {
+        "lines": "L1998-L2103",
+        "path": "src/init.cts"
+      },
+      "verb": "init.milestone-op"
+    },
+    {
+      "composition_lines_upstream": 382,
+      "consumed_fields": [
+        "phase_count",
+        "phases"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "'Parse the JSON phases array' logo apos a captura de INIT_MANAGER na linha 136; o filtro le phase_complete e verification_status de cada item",
+          "fields": "phases",
+          "file": "gsd-core/workflows/autonomous.md",
+          "line": 141
+        },
+        {
+          "evidence": "re-captura de INIT_MANAGER para re-filtrar fases incompletas com a mesma logica de discover_phases",
+          "fields": "phases",
+          "file": "gsd-core/workflows/autonomous.md",
+          "line": 612
+        }
+      ],
+      "origin_handler": "cmdInitManager",
+      "python_estimate_lines": 55,
+      "python_estimate_rationale": "1 chave consumida (phases, mais phase_count derivado), mas e o array por-fase inteiro — a composicao upstream mais pesada (382 linhas); no cairn vira adapter sobre o modelo de fase unico que o cairn-status ja computa (v1.3), nao reimplementacao",
+      "source_ref": {
+        "lines": "L2139-L2520",
+        "path": "src/init.cts"
+      },
+      "verb": "init.manager"
+    },
+    {
+      "composition_lines_upstream": 35,
+      "consumed_fields": [
+        "section_manifest"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "'Extract section_manifest from INIT_AUTONOMOUS' (captura na linha 70)",
+          "fields": "section_manifest",
+          "file": "gsd-core/workflows/autonomous.md",
+          "line": 74
+        }
+      ],
+      "origin_handler": "cmdInitAutonomous",
+      "python_estimate_lines": 15,
+      "python_estimate_rationale": "1 campo consumido: leitor de section_manifest compartilhado com execute-phase/debug; o resto do shape (plan_strategy_converge etc.) nao tem consumo no corpus dos 8",
+      "source_ref": {
+        "lines": "L2558-L2592",
+        "path": "src/init.cts"
+      },
+      "verb": "init.autonomous"
+    },
+    {
+      "composition_lines_upstream": 24,
+      "consumed_fields": [
+        "commit_docs",
+        "debug_dir",
+        "debugger_model",
+        "response_language",
+        "section_manifest",
+        "tdd_mode"
+      ],
+      "consumption_sites": [
+        {
+          "evidence": "bloco 'Extract from init JSON:' em bullets logo apos a captura de INIT na linha 20",
+          "fields": "commit_docs, response_language, debug_dir, debugger_model, tdd_mode, section_manifest",
+          "file": "gsd-core/workflows/debug.md",
+          "line": 24
+        }
+      ],
+      "origin_handler": "cmdInitDebug",
+      "python_estimate_lines": 20,
+      "python_estimate_rationale": "6 campos consumidos: debug_dir absoluto + modelo + 3 passthroughs + section_manifest (null por contrato hoje)",
+      "source_ref": {
+        "lines": "L2731-L2754",
+        "path": "src/init.cts"
+      },
+      "verb": "init.debug"
+    }
+  ],
+  "bundle_shapes_note": "Um objeto por shape de bundle lido pelos 8 workflows (9 verbos init.*, 13 sitios nos 8 + 4 em agents — inventario 2026-08-10). consumed_fields e a UNIAO dos campos que os call sites declaram consumir (blocos 'Parse JSON for:'/'Extract from init JSON:' e o unico --pick literal); a premissa 'lidos por --pick' do research vale para 1 sitio (plan-phase.md:1361) — os demais capturam o envelope inteiro e parseiam em contexto. python_estimate_lines orca SO o que serve os campos consumidos sobre o bd; helpers compartilhados (locator de fase/planos, resolucao de modelos, leitor de manifest) sao contados UMA vez, no primeiro shape que os exige (convencao escrita nas rationales). Soma: 490 (measurements.init_budget no agregado).",
+  "family": "init",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  },
+  "verbs": [
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--converge",
+            "meaning": "ativa plan_strategy_converge (estrategia de convergencia de planos)",
+            "takes_value": false
+          },
+          {
+            "flag": "--cross-ai",
+            "meaning": "alias documentado de --converge (#2994)",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.autonomous [--converge|--cross-ai]",
+      "notes": "O menor bundle da familia: plan_strategy_converge + section_manifest + as chaves comuns de withProjectRoot (src/init.cts L306: project_root, agents_installed, missing_agents, agents_dir, agent_runtime, project_code, project_title, response_language). Roteado por routeInitCommand ('autonomous') em src/init-command-router.cts L162-L168.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "missing_agents",
+          "plan_strategy_converge",
+          "project_code",
+          "project_root",
+          "project_title",
+          "response_language",
+          "section_manifest"
+        ]
+      },
+      "source_ref": {
+        "lines": "L2558-L2592",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.autonomous"
+      ],
+      "verb": "init.autonomous"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--diagnose",
+            "meaning": "modo diagnostico (ecoado no bundle como diagnose)",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.debug [--diagnose]",
+      "notes": "#3149: entry point proprio do debug.md — carrega debug_dir (o mesmo planningPaths(cwd).debug que state.load tambem expoe), debugger_model, tdd_mode, commit_docs, diagnose + section_manifest + chaves comuns de withProjectRoot. Roteado por routeInitCommand ('debug') em src/init-command-router.cts L175-L178.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "commit_docs",
+          "debug_dir",
+          "debugger_model",
+          "diagnose",
+          "missing_agents",
+          "project_code",
+          "project_root",
+          "project_title",
+          "response_language",
+          "section_manifest",
+          "tdd_mode"
+        ]
+      },
+      "source_ref": {
+        "lines": "L2731-L2754",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.debug"
+      ],
+      "verb": "init.debug"
+    },
+    {
+      "call_sites": {
+        "agents": 1,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--validate",
+            "meaning": "flag booleana repassada ao gate de secoes (buildSectionManifestField)",
+            "takes_value": false
+          },
+          {
+            "flag": "--tdd",
+            "meaning": "forca tdd_mode: true no bundle",
+            "takes_value": false
+          },
+          {
+            "flag": "--wave",
+            "meaning": "flag booleana repassada ao gate de secoes",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.execute-phase <phase> [--validate] [--tdd] [--wave]",
+      "notes": "O bundle do orquestrador de execucao: modelos (executor/verifier), config de execucao (commit_docs, sub_repos, parallelization, context_window, branching), resolucao da fase (plans/summaries/incomplete_plans/halted_plans/blocked_by/runnable_plans com contagens), milestone e paths absolutos (#2376). Inclui section_manifest, state_validation_ran/state_warnings condicionais e as chaves comuns de withProjectRoot. Payloads grandes podem sair como @file:<path> (io.cjs, >50KB, #1891) — o dispatcher resolve transparentemente. Roteado por routeInitCommand ('execute-phase') em src/init-command-router.cts L79-L86.",
+      "output": {
+        "exit_codes": {
+          "0": "bundle emitido (phase_found false quando a fase nao resolve)",
+          "1": "phase ausente (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "blocked_by",
+          "branch_name",
+          "branching_strategy",
+          "commit_docs",
+          "config_exists",
+          "config_path",
+          "context_window",
+          "executor_model",
+          "halted_plans",
+          "incomplete_count",
+          "incomplete_plans",
+          "milestone_branch_template",
+          "milestone_name",
+          "milestone_slug",
+          "milestone_version",
+          "missing_agents",
+          "parallelization",
+          "phase_branch_template",
+          "phase_dir",
+          "phase_found",
+          "phase_name",
+          "phase_number",
+          "phase_req_ids",
+          "phase_slug",
+          "plan_count",
+          "plans",
+          "project_code",
+          "project_root",
+          "project_title",
+          "requirements_path",
+          "response_language",
+          "roadmap_exists",
+          "roadmap_path",
+          "runnable_count",
+          "runnable_plans",
+          "section_manifest",
+          "state_exists",
+          "state_path",
+          "state_validation_ran",
+          "state_warnings",
+          "sub_repos",
+          "summaries",
+          "tdd_mode",
+          "verifier_enabled",
+          "verifier_model"
+        ]
+      },
+      "source_ref": {
+        "lines": "L817-L961",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.execute-phase"
+      ],
+      "verb": "init.execute-phase"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 2
+      },
+      "input": {
+        "argv": [],
+        "flags": [],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.manager",
+      "notes": "Bundle do /gsd-manager: estado agregado do projeto (project_exists, roadmap_exists, state_exists, phase_count, completed_count, in_progress_count, all_complete, milestone_version/name), comandos recomendados renderizados por runtime (discuss/plan/execute, manager_flags, recommended_actions) e waiting_signal. Mantido em CJS para a renderizacao runtime-specific ($gsd-* no codex) ficar consistente com runtime-slash. Roteado por routeInitCommand ('manager') em src/init-command-router.cts L160.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "all_complete",
+          "completed_count",
+          "discuss",
+          "execute",
+          "in_progress_count",
+          "manager_flags",
+          "milestone_name",
+          "milestone_version",
+          "missing_agents",
+          "phase_count",
+          "phases",
+          "plan",
+          "project_code",
+          "project_exists",
+          "project_root",
+          "project_title",
+          "recommended_actions",
+          "response_language",
+          "roadmap_exists",
+          "state_exists",
+          "waiting_signal"
+        ]
+      },
+      "source_ref": {
+        "lines": "L2139-L2520",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.manager"
+      ],
+      "verb": "init.manager"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [],
+        "flags": [],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.milestone-op",
+      "notes": "Bundle das operacoes de milestone (new-milestone/complete-milestone): identidade do milestone corrente, contagens de fases (phase_count/completed_phases via ROADMAP + diretorios), all_phases_complete, existencia de artefatos (roadmap/state/project/phases_dir) e estado do arquivo de milestones (archive_exists, archive_count, archived_milestones) + chaves comuns de withProjectRoot. Roteado por routeInitCommand ('milestone-op') em src/init-command-router.cts L152.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "all_phases_complete",
+          "archive_count",
+          "archive_exists",
+          "archived_milestones",
+          "commit_docs",
+          "completed_phases",
+          "milestone_name",
+          "milestone_slug",
+          "milestone_version",
+          "missing_agents",
+          "phase_count",
+          "phases_dir_exists",
+          "project_code",
+          "project_exists",
+          "project_root",
+          "project_title",
+          "response_language",
+          "roadmap_exists",
+          "state_exists"
+        ]
+      },
+      "source_ref": {
+        "lines": "L1998-L2103",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.milestone-op"
+      ],
+      "verb": "init.milestone-op"
+    },
+    {
+      "call_sites": {
+        "agents": 2,
+        "workflows8": 3
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.phase-op <phase>",
+      "notes": "Bundle generico de operacao sobre fase (discuss-phase, research etc.): resolucao da fase via guardedFindPhase com deteccao de colisao ambigua (#2237: ambiguous_matches devolve phase_found false), flags de artefatos (has_research/has_context/has_reviews/has_plans/has_verification), paths condicionais (context_path/research_path/reviews_path/uat_path/verification_path) e config de busca (brave_search/exa_search/firecrawl) + chaves comuns de withProjectRoot. Roteado por routeInitCommand ('phase-op') em src/init-command-router.cts L141.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre — fase nao resolvida sai phase_found: false"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "brave_search",
+          "commit_docs",
+          "context_path",
+          "exa_search",
+          "expected_phase_dir",
+          "firecrawl",
+          "has_context",
+          "has_plans",
+          "has_research",
+          "has_reviews",
+          "has_verification",
+          "missing_agents",
+          "padded_phase",
+          "phase_dir",
+          "phase_found",
+          "phase_name",
+          "phase_number",
+          "phase_slug",
+          "plan_count",
+          "planning_exists",
+          "project_code",
+          "project_root",
+          "project_title",
+          "requirements_path",
+          "research_path",
+          "response_language",
+          "reviews_path",
+          "roadmap_exists",
+          "roadmap_path",
+          "state_path",
+          "uat_path",
+          "verification_path"
+        ]
+      },
+      "source_ref": {
+        "lines": "L1777-L1934",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.phase-op"
+      ],
+      "verb": "init.phase-op"
+    },
+    {
+      "call_sites": {
+        "agents": 1,
+        "workflows8": 2
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--validate",
+            "meaning": "flag booleana repassada ao gate de secoes",
+            "takes_value": false
+          },
+          {
+            "flag": "--tdd",
+            "meaning": "forca tdd_mode: true no bundle",
+            "takes_value": false
+          },
+          {
+            "flag": "--granularity",
+            "meaning": "override de granularidade do planejamento",
+            "takes_value": true
+          },
+          {
+            "flag": "--prd",
+            "meaning": "path de PRD repassado ao gate de secoes",
+            "takes_value": true
+          },
+          {
+            "flag": "--ingest",
+            "meaning": "path de ingest repassado ao gate de secoes",
+            "takes_value": true
+          },
+          {
+            "flag": "--research-phase",
+            "meaning": "fase de research associada",
+            "takes_value": true
+          },
+          {
+            "flag": "--reviews",
+            "meaning": "flag booleana repassada ao gate de secoes",
+            "takes_value": false
+          },
+          {
+            "flag": "--chunked",
+            "meaning": "flag booleana repassada ao gate de secoes",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.plan-phase <phase> [--validate] [--tdd] [--granularity <g>] [--prd <p>] [--ingest <p>] [--research-phase <N>] [--reviews] [--chunked]",
+      "notes": "Bundle do planejamento: modelos (researcher/planner/checker), gates de workflow (research_enabled, plan_checker_enabled, nyquist_validation_enabled, auto_advance, auto_chain_active, mode, text_mode), resolucao da fase com phase_req_ids extraido do ROADMAP (call site extrai --pick phase_req_ids), phase_status derivado e paths condicionais (context_path/research_path/reviews_path/uat_path/verification_path) + section_manifest + chaves comuns de withProjectRoot. Roteado por routeInitCommand ('plan-phase') em src/init-command-router.cts L87-L103.",
+      "output": {
+        "exit_codes": {
+          "0": "bundle emitido (phase_found false quando a fase nao resolve)",
+          "1": "phase ausente (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "auto_advance",
+          "auto_chain_active",
+          "checker_model",
+          "commit_docs",
+          "context_path",
+          "expected_phase_dir",
+          "granularity",
+          "has_context",
+          "has_plans",
+          "has_research",
+          "has_reviews",
+          "mode",
+          "missing_agents",
+          "nyquist_validation_enabled",
+          "padded_phase",
+          "patterns_path",
+          "phase_dir",
+          "phase_found",
+          "phase_name",
+          "phase_number",
+          "phase_req_ids",
+          "phase_slug",
+          "phase_status",
+          "plan_checker_enabled",
+          "plan_count",
+          "planner_model",
+          "planning_exists",
+          "project_code",
+          "project_root",
+          "project_title",
+          "requirements_path",
+          "research_enabled",
+          "research_path",
+          "researcher_model",
+          "response_language",
+          "reviews_path",
+          "roadmap_exists",
+          "roadmap_path",
+          "section_manifest",
+          "state_path",
+          "state_validation_ran",
+          "state_warnings",
+          "tdd_mode",
+          "text_mode",
+          "uat_path",
+          "verification_path"
+        ]
+      },
+      "source_ref": {
+        "lines": "L962-L1147",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.plan-phase"
+      ],
+      "verb": "init.plan-phase"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<descricao...>"
+        ],
+        "flags": [
+          {
+            "flag": "--discuss",
+            "meaning": "flag de workflow repassada ao gate de secoes (removida da descricao, #2994)",
+            "takes_value": false
+          },
+          {
+            "flag": "--research",
+            "meaning": "flag de workflow repassada ao gate de secoes",
+            "takes_value": false
+          },
+          {
+            "flag": "--validate",
+            "meaning": "flag de workflow repassada ao gate de secoes",
+            "takes_value": false
+          },
+          {
+            "flag": "--full",
+            "meaning": "flag de workflow repassada ao gate de secoes",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.quick <descricao...> [--discuss] [--research] [--validate] [--full]",
+      "notes": "Bundle da task rapida: identidade da task (quick_id, slug de ate 40 chars, date, timestamp, description), diretorios (quick_dir, task_dir), modelos (planner/executor/verifier/checker/reviewer), branch_name e existencias + section_manifest + chaves comuns de withProjectRoot. A descricao e o argv livre com os 4 flag tokens reconhecidos removidos antes do join (#2994). Roteado por routeInitCommand ('quick') em src/init-command-router.cts L118-L138.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre — sem descricao, slug/quick_id saem null"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "branch_name",
+          "checker_model",
+          "commit_docs",
+          "date",
+          "description",
+          "executor_model",
+          "missing_agents",
+          "planner_model",
+          "planning_exists",
+          "project_code",
+          "project_root",
+          "project_title",
+          "quick_dir",
+          "quick_id",
+          "response_language",
+          "reviewer_model",
+          "roadmap_exists",
+          "section_manifest",
+          "slug",
+          "task_dir",
+          "timestamp",
+          "verifier_model"
+        ]
+      },
+      "source_ref": {
+        "lines": "L1294-L1369",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.quick"
+      ],
+      "verb": "init.quick"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [],
+        "stdin": null
+      },
+      "invocation": "gsd_run query init.verify-work <phase>",
+      "notes": "Bundle do verify-work: resolucao da fase (com fallback de roadmap via applyRoadmapFallback), phase_completion, has_verification, ui_phase_active, modelos (planner/checker) e paths + section_manifest + chaves comuns de withProjectRoot. Roteado por routeInitCommand ('verify-work') em src/init-command-router.cts L140.",
+      "output": {
+        "exit_codes": {
+          "0": "bundle emitido",
+          "1": "phase ausente (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "agent_runtime",
+          "agents_dir",
+          "agents_installed",
+          "checker_model",
+          "commit_docs",
+          "has_verification",
+          "missing_agents",
+          "phase_completion",
+          "phase_dir",
+          "phase_found",
+          "phase_name",
+          "phase_number",
+          "planner_model",
+          "project_code",
+          "project_root",
+          "project_title",
+          "response_language",
+          "roadmap_path",
+          "section_manifest",
+          "state_path",
+          "ui_phase_active"
+        ]
+      },
+      "source_ref": {
+        "lines": "L1441-L1557",
+        "path": "src/init.cts"
+      },
+      "spellings": [
+        "query init.verify-work"
+      ],
+      "verb": "init.verify-work"
+    }
+  ]
+}

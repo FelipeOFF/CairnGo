@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"agent_type\": \"gsd-planner\",\n  \"block\": \"\",\n  \"skills_count\": 0,\n  \"warnings\": [],\n  \"configured\": false,\n  \"reason\": \"not_configured\",\n  \"source\": \"root\",\n  \"degraded\": false,\n  \"value\": {\n    \"block\": \"\",\n    \"skills_count\": 0\n  }\n}"
+  },
+  "provenance": "recorded",
+  "scenario": "agent-skills-json-not-configured",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

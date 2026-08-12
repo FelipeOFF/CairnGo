@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"shouldDegrade\": false,\n  \"reason\": \"baseref-head\",\n  \"message\": \"baseRef is head — worktrees fork do HEAD corrente, sem degradação\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "worktree-base-check",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

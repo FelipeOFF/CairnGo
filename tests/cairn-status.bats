@@ -1,0 +1,1789 @@
+#!/usr/bin/env bats
+# cairn-status.bats — exercises the status board renderer's CLI contract
+# (cairn-status.py / the cairn-status.sh wrapper): the box-drawing kanban
+# board, graceful width degradation (columns → stacked → raw list), the
+# machine formats (--json, --plain, non-TTY default), --brief, color
+# suppression (NO_COLOR / --color), the --html board (marker-scoped
+# regeneration, escaping, zero network), and the documented exit codes
+# (0 ok, 2 usage, 5 bd unavailable).
+#
+# Assertion style note: a failing `[[ ]]` or `! cmd` mid-test does NOT fail a
+# bats test on this bash, so substring checks use grep -qF and negative
+# checks use refute_in_output.
+
+load 'helpers'
+
+# The journal-failure test uses `run --separate-stderr` (bats-core >= 1.5.0)
+# to assert on stdout and stderr independently.
+bats_require_minimum_version 1.5.0
+
+# Assert NEEDLE does not appear in $output. (`! grep` cannot be used inline:
+# bash's `!` suppresses errexit, so its failure would never fail the test.)
+refute_in_output() {
+  if grep -qF -- "$1" <<<"$output"; then
+    echo "unexpectedly found '$1' in output" >&2
+    return 1
+  fi
+}
+
+# Deterministic board fixture on top of make_gsd_fixture (active_phase 2,
+# next_action execute-phase, no milestone):
+#   ST_READY1   p1, phase-2 — blocks ST_BLOCKED, so it also feeds the ⧗ chain
+#   ST_READY2   p2, phase-2
+#   ST_DOING    p1, phase-2, in_progress, assignee felipe
+#   ST_BLOCKED  phase-2, blocked by ST_READY1
+#   ST_CLOSED   phase-1, closed (the done count)
+# Callers must require_bd and make_tmp_repo first.
+make_status_fixture() {
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  ST_BLOCKED="$(bd create "Docs index page" -t task -l phase-2,m-v1.0 --silent)"
+  ST_READY1="$(bd create "Gate regex hardening" -t task -p 1 -l phase-2,m-v1.0 \
+    --deps "blocks:$ST_BLOCKED" --silent)"
+  ST_READY2="$(bd create "Timeout tuning" -t task -p 2 -l phase-2,m-v1.0 --silent)"
+  ST_DOING="$(bd create "Status board renderer" -t task -p 1 -l phase-2,m-v1.0 --silent)"
+  bd update "$ST_DOING" --status in_progress -a felipe >/dev/null
+  ST_CLOSED="$(bd create "Login handler" -t task -l phase-1,m-v1.0 --silent)"
+  bd close "$ST_CLOSED" >/dev/null
+}
+
+# Permission bits of FILE, as octal digits, identically on macOS and Linux.
+# `stat` is the trap here: -f is "format" on BSD and "file system" on GNU, so
+# `stat -f '%Lp' x 2>/dev/null || stat -c '%a' x` does not fall through on
+# Linux the way it appears to — the first call can succeed and print something
+# that is not a mode at all. Python reads the same struct on both.
+file_mode() {
+  python3 -c 'import os,sys; print(format(os.stat(sys.argv[1]).st_mode & 0o777, "o"))' "$1"
+}
+
+BOARD_START='<!-- cairn:generated:board:start -->'
+BOARD_END='<!-- cairn:generated:board:end -->'
+
+# Print everything OUTSIDE the generated board region of FILE, both markers
+# included. This is the half of the file the user owns; regeneration must
+# leave it byte for byte alone.
+board_outside() {
+  awk '/cairn:generated:board:start/ { print; inside = 1; next }
+       /cairn:generated:board:end/   { inside = 0 }
+       !inside                        { print }' "$1"
+}
+
+# Print only the generated region of FILE (markers excluded).
+board_inside() {
+  awk '/cairn:generated:board:end/   { inside = 0 }
+       inside                         { print }
+       /cairn:generated:board:start/ { inside = 1 }' "$1"
+}
+
+# REWRITTEN 2026-08-05 (Phase 21). It used to assert the three-lane grid
+# (`┌─ READY (2)`), which is what this phase removes. The three things it
+# actually guarded — the four counts are on screen, each issue renders on
+# the right lane with its own suffix, and the footer is untouched — are all
+# still guarded, in the grouped list's spelling. Nothing was dropped.
+#
+# This fixture's ROADMAP has no `## Milestones` section, so no milestone is
+# open, no milestone group is emitted (Phase 20, D-03) and every issue lands
+# in the loose group. The hierarchy itself is proved in
+# tests/cairn-grouped-board.bats, over a fixture that HAS an open cycle.
+@test "board at --width 100: counts, stage symbols, footer, next action" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+
+  # The four numbers the lane headers used to carry.
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  # `No milestone` until 2026-08-06 (Phase 22, CairnGo-uz6): with no
+  # `## Milestones` section no cycle is open, and the group carrying the
+  # pending phases now says so by name. The phase line above the issues is
+  # part of the same fix and is asserted below.
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '◔ 2  API' <<<"$output"
+  # And no grid: the kanban is gone, not hidden.
+  refute_in_output '┌'
+  refute_in_output '│'
+
+  # Rows: stage symbol + id + title; ◆ assignee on the in-progress row; the
+  # blocker NAMED on the blocked row (BOARD-05) rather than glyphed.
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◔ $ST_READY2  Timeout tuning" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
+  grep -qF '◆ felipe' <<<"$output"
+  grep -qF "⧗ $ST_BLOCKED  Docs index page  blocked by $ST_READY1" <<<"$output"
+
+  # Footer below the list: GSD position, done count, ONE next action.
+  grep -qF 'phase 2/2' <<<"$output"
+  grep -qF 'done: 1' <<<"$output"
+  grep -qF "▶ next: continue $ST_DOING" <<<"$output"
+
+  # The closed issue never appears as a row.
+  refute_in_output "$ST_CLOSED"
+}
+
+# REWRITTEN 2026-08-05 (Phase 21), and INVERTED on purpose: this test used to
+# be called "long titles are truncated with an ellipsis inside the cell" and
+# asserted `refute_in_output "cannot possibly fit inside one board cell"`.
+# BOARD-03 makes the opposite the contract, so the assertion is turned over
+# rather than deleted — the file keeps a test on this exact title, and the
+# history shows the day the rule changed and why.
+@test "long titles are not truncated: the whole title reaches the screen" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "An enormously long issue title that cannot possibly fit inside one board cell" \
+    -t task --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF "cannot possibly fit inside one board cell" <<<"$output"
+  # Scoped to the task rows: six leading spaces is the grouped list's issue
+  # indent, and nothing else in this render starts there (the phase panel
+  # indents by two, PURPOSE continuations by five). The footer's `next:` line
+  # still truncates — that is the footer's contract, not the list's.
+  [ "$(grep -E '^      ' <<<"$output" | grep -c '…' || true)" -eq 0 ]
+}
+
+# REWRITTEN 2026-08-05 (Phase 21). It used to assert that a long bd prefix is
+# cut with `...` so every grid line keeps one width. There is no grid, and
+# nothing is cut. What it guarded — a long prefix must not break the column
+# the titles start on — is asserted directly instead.
+@test "a long bd prefix keeps every title on one column, cutting nothing" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix an-extremely-long-project-prefix-name \
+    --non-interactive >/dev/null 2>&1
+  bd create "Long prefix issue" -t task -p 1 --silent >/dev/null
+  bd create "Second long prefix issue" -t task -p 2 --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
+  [ "$status" -eq 0 ]
+  grep -qF 'an-extremely-long-project-prefix-name' <<<"$output"
+  refute_in_output 'Long prefix issu...'
+  run python3 -c '
+import sys
+rows = [l for l in sys.stdin.read().splitlines() if l.startswith("      ")]
+assert len(rows) == 2, "expected two task rows, got %r" % rows
+cols = {r.index("Long prefix issue") if "Long prefix issue" in r
+        else r.index("Second long prefix issue") for r in rows}
+assert len(cols) == 1, "titles start on different columns: %r" % rows
+print("ok column %d" % cols.pop())
+' <<<"$output"
+  [ "$status" -eq 0 ]
+}
+
+# REWRITTEN 2026-08-05 (Phase 21): the cap moved from a LANE to a BUCKET,
+# because the lane stopped being a container. `+1 more` became `+3 more` on
+# this fixture for that exact reason — one loose bucket holding all four
+# issues instead of three lanes holding 2/1/1.
+@test "--max-rows caps a bucket and shows the +k more overflow row" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --max-rows 1
+  [ "$status" -eq 0 ]
+  grep -qF '+3 more' <<<"$output"
+  refute_in_output "$ST_READY2"
+}
+
+@test "--json prints one machine line: lanes, counts, phase, next" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 1 ]
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.counts.doing' '1'
+  assert_json_eq "$output" '.counts.blocked' '1'
+  assert_json_eq "$output" '.counts.closed' '1'
+  assert_json_eq "$output" '.phase.active' '2'
+  assert_json_eq "$output" '.phase.total' '2'
+  assert_json_eq "$output" '.phase.completed' '1'
+  assert_json_eq "$output" '.milestone' 'null'
+  assert_json_eq "$output" '.next.kind' 'continue'
+  assert_json_eq "$output" '.next.id' "$ST_DOING"
+  assert_json_eq "$output" '.ready[0].id' "$ST_READY1"
+  assert_json_eq "$output" '.blocked[0].blocked_by[0]' "$ST_READY1"
+  assert_json_eq "$output" '.sync.configured' 'false'
+  refute_in_output '│'
+}
+
+@test "--brief is exactly three lines: position, counts, next" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --brief
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 3 ]
+  grep -qF '[cairn-status] phase 2/2' <<<"${lines[0]}"
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"${lines[1]}"
+  grep -qF "next: continue $ST_DOING" <<<"${lines[2]}"
+}
+
+# BOARD-04, and the case it was written from: on 2026-08-03, ten minutes after
+# v1.4 was archived, the board still announced `v1.4`. main() reads
+# `fm["milestone"] or roadmap_milestone(...)`, so STATE.md — which nobody
+# updates at archive time — wins over the roadmap's own marker.
+#
+# make_board_fixture arms exactly that trap: STATE.md names v1.0 (ARCHIVED)
+# while the roadmap marks v1.1 open. The test archives v1.1 too and leaves
+# STATE.md untouched, then asserts the board names NEITHER — which is only
+# possible if the header stopped reading STATE.md altogether. Asserting that
+# STATE.md still says v1.0 is not decoration: without it the test cannot tell
+# "the header changed source" from "the fixture changed its mind".
+@test "archiving the open milestone stops the board from naming it" {
+  require_bd
+  make_tmp_repo
+  make_board_fixture "$PWD"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF 'v1.1 Surface' <<<"$output"
+
+  # Archive it, the way /cairn:milestone complete does: the marker on the
+  # milestone's own line.
+  sed -i.bak 's/^- 🚧 \*\*v1.1 Surface\*\*/- ✅ **v1.1 Surface**/' \
+    .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+  # A sed that matched nothing would leave the board unchanged and let every
+  # assertion below pass for the wrong reason.
+  run grep -c '🚧' .planning/ROADMAP.md
+  [ "$output" = "0" ]
+  # STATE.md is untouched and still points at the older archived cycle.
+  run grep -c '^milestone: v1.0$' .planning/STATE.md
+  [ "$output" = "1" ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF 'no open milestone' <<<"$output"
+  refute_in_output 'v1.1 Surface'
+  # And it does not fall back on STATE.md's v1.0 either — the fallback that
+  # produced the measured defect in the first place.
+  refute_in_output '· v1.0 ·'
+  # The pending phases are still on the list: BOARD-04 removes a name, never
+  # the work (CairnGo-uz6 is the other half of this, in cairn-group-model).
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '3  Phase model' <<<"$output"
+}
+
+# SPLIT IN TWO 2026-08-06 (Phase 22, PIPE-03), never deleted.
+#
+# Until this date these were ONE test, `non-TTY without flags defaults to
+# --plain`, and it ended on `[ "$output" = "$piped" ]` — the contract of the
+# coupling itself: explicit --plain byte-identical to the flagless non-TTY
+# default. Measured that morning, four command lines produced one md5
+# (e98d3096656463236c2ed12a12be90e3).
+#
+# PIPE-02 undoes that coupling on purpose, so the equality assertion was
+# describing something the phase exists to end. It was not dropped for
+# convenience: what replaces it is two POSITIVE claims, one per surface, each
+# able to fail on its own. Re-couple the two paths and the first test goes red
+# immediately — a re-coupled run carries no stage symbol at all.
+#
+# The reason the pair matters more than the equality did: an equality says the
+# two are the same without saying what either one IS. These say what each one
+# is, which is what a contract is for.
+@test "non-TTY without flags renders the grouped list in plain text" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # bats captures a pipe, so this run IS non-TTY.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh"
+  [ "$status" -eq 0 ]
+
+  # The grouped list: counts, then a stage symbol and an id beside each title.
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
+  grep -qF "⧗ $ST_BLOCKED  Docs index page  blocked by $ST_READY1" <<<"$output"
+  # The footer and the phase panel: a pipe gets the whole board, not a part.
+  grep -qF 'phase 2/2' <<<"$output"
+  grep -qF "▶ next: continue $ST_DOING" <<<"$output"
+  grep -qF 'PENDING PHASES' <<<"$output"
+
+  # Plain text: no ANSI (PIPE-02 says so explicitly), and no grid.
+  refute_in_output "$(printf '\x1b')"
+  refute_in_output '│'
+  # The one negation this test carries: the machine format's own marking must
+  # not be here. A re-coupled non-TTY path trips this line and the greps above.
+  refute_in_output "$(printf 'READY\t')"
+}
+
+@test "--plain is the machine contract: tab-separated rows and meta rows" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'READY\t%s\t1\tGate regex hardening' "$ST_READY1")" <<<"$output"
+  grep -qF "$(printf 'DOING\t%s\t1\tStatus board renderer\tfelipe' "$ST_DOING")" <<<"$output"
+  grep -qF "$(printf 'BLOCKED\t%s\t2\tDocs index page\t%s' "$ST_BLOCKED" "$ST_READY1")" <<<"$output"
+  grep -qF "$(printf 'PHASE\t2/2')" <<<"$output"
+  grep -qF "$(printf 'DONE\t1')" <<<"$output"
+  grep -qF "$(printf 'NEXT\tcontinue')" <<<"$output"
+  refute_in_output "$(printf '\x1b')"
+  refute_in_output '│'
+  # The TSV never carried a glyph and does not start now: the stage symbols
+  # belong to the human surface, and this is the other one.
+  refute_in_output '◔'
+  refute_in_output '◕'
+  refute_in_output '⧗'
+}
+
+@test "titles are never truncated in plain mode" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "An enormously long issue title that cannot possibly fit inside one board cell" \
+    -t task --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF 'cannot possibly fit inside one board cell' <<<"$output"
+  refute_in_output '…'
+}
+
+# REWRITTEN 2026-08-05 (plan 21-02). There is no stacked degrade any more:
+# it existed because three columns do not fit in 50, and one column does.
+# What the test guarded — at 50 columns the board is still a readable board,
+# with the counts and the next action, and no grid — is asserted of the list.
+#
+# The proof here is the three positive greps, NOT the refutes. Plan 21-02
+# also removed the box-drawing glyphs from Style, so `┌` and `│` no longer
+# exist anywhere in cairn-status.py and those two lines cannot go red from
+# any change to this renderer. They are kept as REINTRODUCTION guards — a
+# future phase that brings a grid back trips them — and are labelled as such
+# so nobody reads them as evidence that the list rendered.
+@test "--width 50 renders the same list, wrapped sooner" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 50
+  [ "$status" -eq 0 ]
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
+  grep -qF "▶ next: continue $ST_DOING" <<<"$output"
+  refute_in_output '┌'
+  refute_in_output '│'
+  refute_in_output 'READY ('
+}
+
+# REWRITTEN 2026-08-05 (plan 21-02). The raw degrade printed `LANE  id  title`
+# whole and let the terminal wrap it. The specific thing it guarded — at a
+# width where nothing fits, the id and the title still arrive INTACT — is
+# still true, now because the row wraps itself instead of overflowing. At 30
+# columns the id keeps its own line and the title hangs beneath it
+# (NARROW_BODY), so the assertions join the row before comparing.
+#
+# Same caveat as the 50-column test above: the two refutes are
+# reintroduction guards, not the proof. The proof is that every id and every
+# title survives the join, and that no visible ROW carries an ellipsis.
+@test "--width 30 keeps every id and title intact, wrapping instead of cutting" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 30
+  [ "$status" -eq 0 ]
+  refute_in_output '┌'
+  refute_in_output '│'
+  run python3 -c '
+import sys
+lines = sys.stdin.read().splitlines()
+text = " ".join(l.strip() for l in lines)
+for iid, title in ((sys.argv[1], "Gate regex hardening"),
+                   (sys.argv[2], "Status board renderer"),
+                   (sys.argv[3], "Docs index page")):
+    assert iid in text, "id %s never reached the board" % iid
+    assert title in text, "title %r came back cut" % title
+# The ellipsis check belongs to the LIST rows, not the whole render: the
+# footer truncates its own `next:` line at max(20, width - 10) and has since
+# Phase 10, and the PENDING PHASES table is fixed-width by design. A blanket
+# refute here would be asserting about those while claiming to assert about
+# the list. The list ends where the footer meta line begins, and that line
+# is the only one carrying "done: ".
+end = [i for i, l in enumerate(lines) if "done: " in l]
+assert end, "the footer never rendered — the boundary below is guesswork"
+rows = [l for l in lines[:end[0]] if l.startswith("  ")]
+assert rows, "no row rendered at --width 30"
+bad = [l for l in rows if "…" in l or "..." in l]
+assert not bad, "a row came back truncated: %r" % bad
+print("ok %d rows" % len(rows))
+' "$ST_READY1" "$ST_DOING" "$ST_BLOCKED" <<<"$output"
+  [ "$status" -eq 0 ]
+}
+
+@test "color: --color=always emits SGR; NO_COLOR strips it; the flag wins" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --color=always
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf '\x1b[')" <<<"$output"
+
+  run env NO_COLOR=1 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$(printf '\x1b')"
+
+  # Precedence: an explicit --color=always overrides NO_COLOR.
+  run env NO_COLOR=1 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" \
+    --width 100 --color=always
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf '\x1b[')" <<<"$output"
+}
+
+@test "color precedence: CAIRN_NO_COLOR, TERM=dumb, empty NO_COLOR, --color=never" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # CAIRN_NO_COLOR — the tool's own kill switch, above NO_COLOR.
+  run env CAIRN_NO_COLOR=1 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$(printf '\x1b')"
+
+  # The explicit flag beats TERM=dumb (and an unset-but-empty NO_COLOR).
+  run env TERM=dumb NO_COLOR= bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" \
+    --width 100 --color=always
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf '\x1b[')" <<<"$output"
+
+  # Empty NO_COLOR must not disable color (no-color.org: present AND
+  # non-empty). Only approximable without a pty: the board still carries SGR
+  # with NO_COLOR="" in the environment. (Said "the flag-forced board" until
+  # 2026-08-06 — Phase 22 made the board the default on a pipe, so nothing is
+  # being forced here any more. `--width 100` in these runs is determinism,
+  # not an escape from the machine format.)
+  run env NO_COLOR="" bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" \
+    --width 100 --color=always
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf '\x1b[')" <<<"$output"
+
+  # --color=never suppresses SGR in an otherwise color-friendly context.
+  run env TERM=xterm-256color bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" \
+    --width 100 --color=never
+  [ "$status" -eq 0 ]
+  refute_in_output "$(printf '\x1b')"
+}
+
+# REWRITTEN 2026-08-06 (Phase 22), and it had to be. This test used to be
+# called `--color=always piped without --width opts into the board renderer`
+# and asserted that the flag FORCES the human renderer on a pipe. PIPE-02 made
+# the pipe render the board by default, which turned every one of its
+# assertions into something that would pass with the flag removed entirely —
+# a test that cannot fail is not a test.
+#
+# What it owns now is the claim the split actually creates: renderer and color
+# are two independent decisions. Neither half proves it alone; the pair does.
+@test "piping decides color, not the renderer" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # Same pipe, same width, no flag: the board, and not one escape byte.
+  run env COLUMNS=100 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh"
+  [ "$status" -eq 0 ]
+  grep -qF 'ready 2' <<<"$output"
+  grep -qF '◔' <<<"$output"
+  refute_in_output "$(printf '\x1b')"
+
+  # Same pipe, same width, --color=always: the same board, now painted. SGR
+  # paints each span separately, so grep the counts text and the stage symbol
+  # on their own rather than as one contiguous string.
+  run env COLUMNS=100 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --color=always
+  [ "$status" -eq 0 ]
+  grep -qF 'ready 2' <<<"$output"
+  grep -qF '◔' <<<"$output"
+  grep -qF "$(printf '\x1b[')" <<<"$output"
+}
+
+# REWRITTEN 2026-08-05 (Phase 21): `+- READY (2)` was the ASCII grid header,
+# and there is no grid. The ASCII stage set takes its place, which is the
+# same claim one layer down — every glyph this script injects has an ASCII
+# form and none of the Unicode ones survives --ascii.
+@test "--ascii swaps the stage symbols, ellipsis, and glyphs" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
+  [ "$status" -eq 0 ]
+  grep -qF "o $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "O $ST_DOING  Status board renderer" <<<"$output"
+  grep -qF "~ $ST_BLOCKED  Docs index page" <<<"$output"
+  grep -qF '> next: continue' <<<"$output"
+  grep -qF '@ felipe' <<<"$output"
+  refute_in_output '┌'
+  refute_in_output '▶'
+  refute_in_output '…'
+  refute_in_output '◔'
+  refute_in_output '◕'
+  refute_in_output '⧗'
+}
+
+@test "no phase-labeled ready work falls back to STATE.md's workflow step" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  # Issues WITHOUT phase labels: bd has ready work, but none of it belongs
+  # to the active phase — STATE.md wins for workflow steps.
+  make_bd_fixture "$PWD"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.next.kind' 'workflow'
+  assert_json_eq "$output" '.next.text' 'execute-phase (phase 2)'
+}
+
+@test "configured but never-pulled sync surfaces a staleness line" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+  mkdir -p .cairn
+  echo '{"backends": []}' > .cairn/sync.json
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF 'sync: never pulled — run /cairn:sync-pull' <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.sync.configured' 'true'
+  assert_json_eq "$output" '.sync.stale' 'true'
+}
+
+@test "usage errors exit 2" {
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --nope
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width abc
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json --brief
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --color sometimes
+  [ "$status" -eq 2 ]
+}
+
+@test "bd missing from PATH exits 5" {
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  local stub="$BATS_TEST_TMPDIR/nobd-bin"
+  mkdir -p "$stub"
+  # Link the real interpreter (not a version-manager shim needing PATH).
+  ln -s "$(python3 -c 'import sys; print(sys.executable)')" "$stub/python3"
+  ln -s "$(command -v bash)" "$stub/bash"
+  ln -s "$(command -v dirname)" "$stub/dirname"
+
+  run env PATH="$stub" "$stub/bash" "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 5 ]
+}
+
+@test "--planning-dir pointed at another checkout renders THAT repo, not the cwd's" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+  local target_repo="$CAIRN_TMP_REPO"
+
+  # A second bd repo becomes the cwd; its issues must never leak into the
+  # target repo's board (the renderer pins bd to the planning dir's parent).
+  make_tmp_repo
+  bd init -q --prefix other --non-interactive >/dev/null 2>&1
+  local stray
+  stray="$(bd create "Stray issue from the wrong repo" -t task --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 \
+    --planning-dir "$target_repo/.planning"
+  [ "$status" -eq 0 ]
+  grep -qF "$ST_READY1" <<<"$output"
+  grep -qF 'phase 2/2' <<<"$output"
+  refute_in_output "$stray"
+}
+
+@test "bd-only repo without .planning degrades to an issues-only board" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local solo
+  solo="$(bd create "Solo issue" -t task --silent)"
+
+  # The board footer always carries the done count, so the roadmap-less
+  # marker only shows in --brief (which omits it); here assert done: 0.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF "$solo" <<<"$output"
+  grep -qF 'done: 0' <<<"$output"
+  grep -qF "▶ next: start $solo" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --brief
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 3 ]
+  grep -qF '(no roadmap position)' <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output "$(printf 'PHASE\t')"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.phase.total' 'null'
+  assert_json_eq "$output" '.phase.active' 'null'
+  assert_json_eq "$output" '.next.kind' 'ready'
+}
+
+@test "GSD repo without .beads degrades to a GSD-only board with a note" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  # No bd init: bd would walk UP to an ancestor database — the board must
+  # not query bd at all (cairn-gate's applicability decision, mirrored).
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  # REWRITTEN 2026-08-05 (Phase 21): `READY (0)` was the empty lane header
+  # saying "the board rendered and found nothing". With no lanes, the list
+  # says it in words instead of leaving a hole where three empty headers
+  # used to be — the same claim, spelled so a reader can act on it.
+  #
+  # UPDATED 2026-08-06 (Phase 22, CairnGo-uz6), and the change is the fix
+  # arriving here on its own: this asserted `(no open work)` while the phase
+  # panel below it, in the same output, printed `PENDING PHASES  1`. Zero
+  # ISSUES is true; "no open work" was not, and a reader acting on it would
+  # have been acting on a contradiction. The list now names the pending phase.
+  grep -qF 'ready 0 · doing 0 · blocked 0 · done 0' <<<"$output"
+  refute_in_output '(no open work)'
+  grep -qF 'No open milestone' <<<"$output"
+  grep -qF '◔ 2  API' <<<"$output"
+  grep -qF 'PENDING PHASES' <<<"$output"
+  grep -qF 'no .beads/' <<<"$output"
+  grep -qF '▶ next: execute-phase (phase 2)' <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'NOTE\tno .beads/')" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counts.ready' '0'
+  assert_json_eq "$output" '.next.kind' 'workflow'
+  [ "$(jq -r '.note' <<<"$output")" != "null" ]
+}
+
+@test "control bytes in titles cannot inject escapes or forge rows" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local evil
+  evil="$(bd create "$(printf 'x\033[31my\nREADY\tfake\t0\tz')" \
+    -t task -p 0 -l phase-2 --silent)"
+
+  # --plain: zero escape bytes, and the embedded newline/tabs never become
+  # a forged lane row — every line still starts with a known tag.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output "$(printf '\x1b')"
+  refute_in_output "$(printf '\tfake\t')"
+  [ "$(grep -c $'^READY\t' <<<"$output")" -eq 1 ]
+  local tag_re=$'^(READY|DOING|BLOCKED|PHASE|MILESTONE|DONE|NEXT|SYNC|NOTE)\t'
+  [ "$(grep -Evc "$tag_re" <<<"$output" || true)" -eq 0 ]
+  grep -qF "$(printf 'NEXT\tstart %s' "$evil")" <<<"$output"
+
+  # Board render (non-TTY, no color): still zero escape bytes.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$(printf '\x1b')"
+
+  # --brief stays exactly three lines even with \n inside the next title.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --brief
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 3 ]
+}
+
+@test "open issues in roadmap-complete phases: lane marker + footer warning" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  # Phase 1 is [x] in the fixture ROADMAP — this p0 straggler is stale.
+  local stale live
+  stale="$(bd create "Leftover auth polish" -t task -p 0 -l phase-1 --silent)"
+  live="$(bd create "Rate limit middleware" -t task -p 2 -l phase-2 --silent)"
+
+  # NO_COLOR-safe: marker and warning survive as plain text, zero escapes.
+  run env NO_COLOR=1 bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$(printf '\x1b')"
+  # The stale issue keeps its lane (data is data) but carries the marker;
+  # the live issue does not (exactly one marked card on the board).
+  grep -qF "$stale" <<<"$output"
+  grep -qF '·done-phase' <<<"$output"
+  [ "$(grep -cF '·done-phase' <<<"$output")" -eq 1 ]
+  grep -qF '1 open issue(s) belong to roadmap-complete phases. run /cairn:doctor --close-completed' <<<"$output"
+  # next picks the active-phase issue, never the delivered-phase one.
+  grep -qF "▶ next: start $live" <<<"$output"
+  refute_in_output "start $stale"
+
+  # --ascii swaps the marker glyph along with everything else.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
+  [ "$status" -eq 0 ]
+  grep -qF '*done-phase' <<<"$output"
+  refute_in_output '·'
+}
+
+@test "--json exposes stale_complete and the ready fallback skips delivered phases" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  # No STATE.md: no active phase and no workflow step, so the OVERALL
+  # ready fallback is the pick under test — it used to hand back the
+  # highest-priority issue even when its phase was already delivered.
+  rm .planning/STATE.md
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local stale live
+  stale="$(bd create "Leftover auth polish" -t task -p 0 -l phase-1 --silent)"
+  live="$(bd create "Rate limit middleware" -t task -p 2 -l phase-2 --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 1 ]
+  assert_json_eq "$output" '.stale_complete | length' '1'
+  assert_json_eq "$output" '.stale_complete[0]' "$stale"
+  assert_json_eq "$output" '.next.kind' 'ready'
+  assert_json_eq "$output" '.next.id' "$live"
+  # The stale issue still ships in the ready lane payload.
+  assert_json_eq "$output" ".ready | map(.id) | contains([\"$stale\"])" 'true'
+}
+
+@test "active_phase pointing at a roadmap-complete phase falls back to the workflow step" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  # STATE.md lagging the roadmap (active_phase 1, but ROADMAP marks phase 1
+  # complete): the phase-labeled pick must not resurrect a delivered phase.
+  sed -i.bak 's/^active_phase: "2"/active_phase: "1"/' .planning/STATE.md
+  rm .planning/STATE.md.bak
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local stale
+  stale="$(bd create "Leftover auth polish" -t task -p 0 -l phase-1 --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.next.kind' 'workflow'
+  assert_json_eq "$output" '.next.text' 'execute-phase (phase 1)'
+  assert_json_eq "$output" '.stale_complete[0]' "$stale"
+
+  # --plain carries the warning as a NOTE meta row.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'NOTE\t1 open issue(s) belong to roadmap-complete phases')" <<<"$output"
+}
+
+# ------------------------------------------------------------------- --html
+
+@test "--html seeds a standalone page from the template, with the markers" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  grep -qF 'wrote' <<<"$output"
+  [ -f board.html ]
+
+  run cat board.html
+  # A whole document, not a fragment: doctype, both html tags, inline styles.
+  grep -qF '<!DOCTYPE html>' <<<"$output"
+  grep -qF '<html lang="en">' <<<"$output"
+  grep -qF '</html>' <<<"$output"
+  grep -qF '<style>' <<<"$output"
+  grep -qF '</style>' <<<"$output"
+  grep -qF "$BOARD_START" <<<"$output"
+  grep -qF "$BOARD_END" <<<"$output"
+  # The board itself: three lanes, the issues, the one next action.
+  grep -qF '>ready</h2>' <<<"$output"
+  grep -qF '>doing</h2>' <<<"$output"
+  grep -qF '>blocked</h2>' <<<"$output"
+  grep -qF 'Gate regex hardening' <<<"$output"
+  grep -qF "$ST_DOING" <<<"$output"
+  grep -qF 'claimed by felipe' <<<"$output"
+  grep -qF "waiting on $ST_READY1" <<<"$output"
+  # The template placeholder was replaced, not left behind.
+  refute_in_output 'no board rendered yet'
+  # The closed issue is a card nowhere (it only feeds the profile + count).
+  refute_in_output "$ST_CLOSED"
+}
+
+@test "--html profile: terrain from real per-phase counts, cairn on the active phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  run cat board.html
+  grep -qF 'class="terrain-mass"' <<<"$output"
+  grep -qF 'class="cairn-stack"' <<<"$output"
+  grep -qF 'roadmap profile: 2 phases, standing at phase 2' <<<"$output"
+  # Elevation is data: phase 1 carries the one closed issue, phase 2 the four
+  # open ones. Phase 1 is [x] in the ROADMAP, phase 2 is where we stand.
+  grep -qF '<span class="tick is-done"><span class="tick-n">01</span><span class="tick-c">1</span></span>' <<<"$output"
+  grep -qF '<span class="tick is-here"><span class="tick-n">02</span><span class="tick-c">4</span></span>' <<<"$output"
+}
+
+@test "--html regeneration rewrites ONLY the generated region" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  board_outside board.html > "$BATS_TEST_TMPDIR/outside-1"
+  board_inside board.html > "$BATS_TEST_TMPDIR/inside-1"
+
+  # State moves on: a new claimable issue appears.
+  local fresh
+  fresh="$(bd create "Terrain smoothing pass" -t task -p 1 -l phase-2,m-v1.0 --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  board_outside board.html > "$BATS_TEST_TMPDIR/outside-2"
+  board_inside board.html > "$BATS_TEST_TMPDIR/inside-2"
+
+  # Everything outside the markers is untouched — proven by diff, then by a
+  # byte-level compare (diff is line-based and would miss trailing bytes).
+  run diff -u "$BATS_TEST_TMPDIR/outside-1" "$BATS_TEST_TMPDIR/outside-2"
+  [ "$status" -eq 0 ]
+  run cmp "$BATS_TEST_TMPDIR/outside-1" "$BATS_TEST_TMPDIR/outside-2"
+  [ "$status" -eq 0 ]
+
+  # …and the generated region really did move to the new state.
+  run cmp -s "$BATS_TEST_TMPDIR/inside-1" "$BATS_TEST_TMPDIR/inside-2"
+  [ "$status" -ne 0 ]
+  run cat "$BATS_TEST_TMPDIR/inside-2"
+  grep -qF "$fresh" <<<"$output"
+  grep -qF 'Terrain smoothing pass' <<<"$output"
+  run cat "$BATS_TEST_TMPDIR/inside-1"
+  refute_in_output "$fresh"
+}
+
+@test "--html preserves the user's own edits outside the markers" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  # The user retitles the page, restyles a token and leaves a note below the
+  # board — all outside the markers, all theirs.
+  sed -i.bak 's|<title>cairn: status board</title>|<title>trail head</title>|' board.html
+  sed -i.bak 's|--amber:     #D98A3A;|--amber:     #4FB8A0;|' board.html
+  sed -i.bak "s|</main>|</main>\n<p id=\"mine\">my own note, hands off</p>|" board.html
+  rm -f board.html.bak
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  run cat board.html
+  grep -qF '<title>trail head</title>' <<<"$output"
+  # `--` first: the pattern itself starts with dashes.
+  grep -qF -- '--amber:     #4FB8A0;' <<<"$output"
+  grep -qF '<p id="mine">my own note, hands off</p>' <<<"$output"
+  refute_in_output '<title>cairn: status board</title>'
+  # The board itself still regenerated inside the markers.
+  grep -qF 'Gate regex hardening' <<<"$output"
+}
+
+@test "--html escapes issue text: markup in a title cannot execute" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create '<script>alert(1)</script> tea & scones <img src=x onerror=alert(2)>' \
+    -t task -p 0 -l phase-2 --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  run cat board.html
+  # Escaped, so it renders as text…
+  grep -qF '&lt;script&gt;alert(1)&lt;/script&gt; tea &amp; scones' <<<"$output"
+  grep -qF '&lt;img src=x onerror=alert(2)&gt;' <<<"$output"
+  # …and nothing from it survives as markup. The literal string "onerror="
+  # is still in the file and that is FINE: escaping its angle brackets is
+  # exactly what makes it inert text instead of an attribute. What must not
+  # exist is an element — a title can never open a tag, because esc() takes
+  # < > & " ' before anything reaches the page.
+  refute_in_output '<script'
+  refute_in_output '<img'
+  run grep -ciE '<script|<img|<iframe|javascript:' board.html
+  [ "$status" -eq 1 ]
+}
+
+@test "--html page makes zero network requests" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  # No absolute or protocol-relative URL, no @import, no fetch, no src: the
+  # styles, the texture and the profile are all inline, so the page opens
+  # offline and inside a locked-down viewer.
+  run grep -nE 'https?://|//cdn|@import|fetch\(|<link |src=' board.html
+  [ "$status" -eq 1 ]
+
+  # The page DOES carry references: `url(#…)` for the mask and clip, and
+  # `<use href="#pebble">` for the mark on a blocked or delivered-phase card.
+  # Banning those attributes outright would fail on a board that has any
+  # blocked work, so the rule is the one that actually matters: every
+  # reference must point INSIDE this document. Listing forbidden shapes only
+  # catches the ones we thought of; requiring a fragment catches the rest.
+  run bash -c "grep -o 'url([^)]*)' board.html | sort -u | grep -cv 'url(#' \
+    || true"
+  [ "$output" = "0" ]
+  run bash -c "grep -o 'href=\"[^\"]*\"' board.html | sort -u \
+    | grep -cv 'href=\"#' || true"
+  [ "$output" = "0" ]
+
+  # …and the references are really there, so the two checks above cannot pass
+  # by matching nothing. This board has a blocked card, so it has both kinds.
+  run bash -c "grep -c 'url(#' board.html"
+  [ "$output" != "0" ]
+  grep -qF '<use href="#pebble">' board.html
+}
+
+@test "--html without a roadmap degrades to a flat band, no invented terrain" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local solo
+  solo="$(bd create "Solo issue" -t task --silent)"
+
+  # No .planning at all: must not crash, must not draw phases it cannot know.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  [ -f board.html ]
+
+  run cat board.html
+  grep -qF 'no roadmap phases. counts only.' <<<"$output"
+  grep -qF 'no roadmap position' <<<"$output"
+  grep -qF "$solo" <<<"$output"
+  refute_in_output 'class="cairn-stack"'
+  refute_in_output 'class="ticks"'
+}
+
+@test "--html on a GSD repo without .beads renders the note and empty lanes" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  run cat board.html
+  grep -qF 'no .beads/' <<<"$output"
+  grep -qF 'no work ready. plan a phase.' <<<"$output"
+  grep -qF 'nothing in flight.' <<<"$output"
+  grep -qF 'nothing blocked.' <<<"$output"
+  # The roadmap still draws, at zero elevation everywhere.
+  grep -qF 'class="terrain-mass"' <<<"$output"
+}
+
+@test "--html composes with --json and --planning-dir, and refuses --plain/--brief" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+  local target_repo="$CAIRN_TMP_REPO"
+
+  # --json reports the write instead of the confirmation line.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json --html board.html
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 1 ]
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.html.changed' 'true'
+  # pwd -P: the reported path is fully resolved, and on macOS the tmpdir
+  # reaches it through a /var -> /private/var symlink.
+  [ "$(jq -r '.html.file' <<<"$output")" = "$(pwd -P)/board.html" ]
+
+  # --planning-dir still points the board at another checkout.
+  make_tmp_repo
+  bd init -q --prefix other --non-interactive >/dev/null 2>&1
+  local stray
+  stray="$(bd create "Stray issue from the wrong repo" -t task --silent)"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html elsewhere.html \
+    --planning-dir "$target_repo/.planning"
+  [ "$status" -eq 0 ]
+  run cat elsewhere.html
+  grep -qF 'Gate regex hardening' <<<"$output"
+  refute_in_output "$stray"
+
+  # Stdout render modes are not file render targets.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html --plain
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html --brief
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html
+  [ "$status" -eq 2 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html /no/such/dir/board.html
+  [ "$status" -eq 2 ]
+}
+
+@test "--html elevation is proportional: relief has no floor, and one strata band means one issue" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  # Phase 1 carries one issue, phase 2 carries four: a 4:1 reading.
+  bd create "Auth one" -t task -l phase-1,m-v1.0 --silent >/dev/null
+  for n in 1 2 3 4; do
+    bd create "Api $n" -t task -l phase-2,m-v1.0 --silent >/dev/null
+  done
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  # One band per issue of the busiest phase, and the bands sit at exactly
+  # BASE_Y - k*(MAX_RELIEF/busiest) = 196 - k*31. A phase carrying one issue
+  # therefore peaks on the FIRST band and the four-issue phase on the last:
+  # that is the 4:1 the data says, and it is what a relief floor destroyed
+  # (it used to render as 2.32:1).
+  run bash -c "grep -o '<line x1=\"[^\"]*\" y1=\"[^\"]*\"' board.html | wc -l | tr -d ' '"
+  [ "$output" = "4" ]
+  grep -qF 'y1="165.0"' board.html
+  grep -qF 'y1="134.0"' board.html
+  grep -qF 'y1="103.0"' board.html
+  grep -qF 'y1="72.0"' board.html
+  # The caption names the band's unit, so counting them is a defined reading.
+  grep -qF 'one band each' board.html
+}
+
+@test "--html a finished roadmap draws no climb ahead; an unfinished one does, and hands off without a shear" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # Phase 2 is open in the fixture: there IS ground still ahead.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html mid.html
+  [ "$status" -eq 0 ]
+  grep -qF '<polyline class="terrain-ahead"' mid.html
+  # …and the walked mass dissolves into it instead of being cut off square.
+  grep -qF 'id="cairn-ground-cut"' mid.html
+
+  # Tick every phase: nothing is left to climb.
+  sed -i.bak 's/- \[ \] \*\*Phase 2/- [x] **Phase 2/' .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html done.html
+  [ "$status" -eq 0 ]
+  # No dotted trail asserting work that does not exist, and with no cut
+  # there is nothing to feather: the ground runs off the page.
+  run bash -c "grep -c '<polyline class=\"terrain-ahead\"' done.html || true"
+  [ "$output" = "0" ]
+  run bash -c "grep -c 'id=\"cairn-ground-cut\"' done.html || true"
+  [ "$output" = "0" ]
+  # The crest itself is still drawn — the terrain did not disappear with it.
+  grep -qF '<polyline class="terrain-crest"' done.html
+}
+
+@test "--html the caption reports work the terrain cannot show" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "Placed" -t task -l phase-2,m-v1.0 --silent >/dev/null
+  bd create "No phase label at all" -t task --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  # Two issues tracked, one of them has no phase: the profile says so rather
+  # than quietly under-reporting the board it sits on.
+  grep -qF '1 of 2 issues carry a phase' board.html
+
+  # With every issue placed, the caption does not carry the clause at all.
+  rm -f board.html
+  bd create "Also placed" -t task -l phase-2,m-v1.0 --silent >/dev/null
+  bd list --status open --json >/dev/null 2>&1
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html full.html
+  [ "$status" -eq 0 ]
+  run bash -c "grep -c 'issues carry a phase' full.html || true"
+  [ "$output" = "1" ]
+}
+
+@test "--html the next line points at its card instead of repeating it" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+
+  # The card the next action names is marked, exactly once.
+  run bash -c "grep -c 'class=\"card is-next\"' board.html"
+  [ "$output" = "1" ]
+  # …and the sentence is printed once on the page, in the card — not also
+  # spelled out in the next line 130px above it. Scoped to the generated
+  # region: the .next-title RULE still lives in the stylesheet, because the
+  # line does carry a title when the next action has no card to point at.
+  board_inside board.html > inside.html
+  run bash -c "grep -c 'next-title' inside.html || true"
+  [ "$output" = "0" ]
+  # The line still names the id, which is what sends you to the card.
+  grep -qF 'class="next-id"' board.html
+}
+
+@test "--html an empty lane keeps its heading but not an equal share of the width" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "The only work there is" -t task -l phase-2,m-v1.0 --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  # ready holds the one issue; doing and blocked are empty and get half its
+  # track. The zero still states itself: "nothing blocked" and "blocked was
+  # never checked" must not look the same.
+  # `--` first: the pattern itself starts with dashes.
+  grep -qF -- '--lane-tracks: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)' \
+    board.html
+  grep -qF 'nothing blocked.' board.html
+  grep -qF 'nothing in flight.' board.html
+  # -o then count: the three lanes are emitted on ONE line, so grep -c would
+  # report 1 however many matched.
+  run bash -c "grep -o 'class=\"lane lane-[a-z]* is-empty\"' board.html \
+    | wc -l | tr -d ' '"
+  [ "$output" = "2" ]
+
+  # With nothing anywhere, the three stay even: then the emptiness IS the
+  # message and lopsided columns would only read as broken.
+  rm -rf .beads && bd init -q --prefix e2 --non-interactive >/dev/null 2>&1
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html bare.html
+  [ "$status" -eq 0 ]
+  grep -qF -- '--lane-tracks: repeat(3, minmax(0, 1fr))' bare.html
+}
+
+@test "--html the header and the profile agree on which phase you stand in" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+  # STATE.md says nothing about the active phase: the terrain resolves it,
+  # and the header must not stay silent while the SVG label announces it.
+  printf -- '---\nmilestone: v1.0\n---\n\n# State\n' > .planning/STATE.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  # Phase 1 is delivered in the fixture, so the first phase not yet complete
+  # is 2 — in the label a screen reader reads AND in the line a sighted
+  # reader reads.
+  grep -qF 'standing at phase 2' board.html
+  grep -qF 'phase <span class="n">2</span> of' board.html
+}
+
+@test "--html refuses a page with broken markers and leaves every byte of it alone" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # A page carrying only the START marker. Appending a block here would
+  # forge the missing partner, and the NEXT run would splice between the
+  # orphan and the newcomer, taking the user's closing tags with it.
+  printf '<html><body>\n<p id="mine">hands off</p>\n%s\n</body></html>\n' \
+    "$BOARD_START" > lone-start.html
+  cp lone-start.html lone-start.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html lone-start.html
+  [ "$status" -eq 2 ]
+  grep -qF 'broken board markers' <<<"$output"
+  run diff lone-start.html lone-start.expected
+  [ "$status" -eq 0 ]
+
+  # The mirror case used to grow an extra board on every single run.
+  printf '<html><body>\n%s\n</body></html>\n' "$BOARD_END" > lone-end.html
+  cp lone-end.html lone-end.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html lone-end.html
+  [ "$status" -eq 2 ]
+  run diff lone-end.html lone-end.expected
+  [ "$status" -eq 0 ]
+
+  # A duplicated pair is ambiguous, so it is refused rather than guessed at.
+  printf '%s\n%s\n%s\n%s\n' "$BOARD_START" "$BOARD_END" "$BOARD_START" \
+    "$BOARD_END" > doubled.html
+  cp doubled.html doubled.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html doubled.html
+  [ "$status" -eq 2 ]
+  run diff doubled.html doubled.expected
+  [ "$status" -eq 0 ]
+
+  # End before start: same refusal.
+  printf '%s\n<p>x</p>\n%s\n' "$BOARD_END" "$BOARD_START" > inverted.html
+  cp inverted.html inverted.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html inverted.html
+  [ "$status" -eq 2 ]
+  run diff inverted.html inverted.expected
+  [ "$status" -eq 0 ]
+
+  # A page with NEITHER marker is still appended to, never destroyed.
+  printf '<html><body>\n<p id="mine">keep me</p>\n</body></html>\n' > plain.html
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html plain.html
+  [ "$status" -eq 0 ]
+  grep -qF '<p id="mine">keep me</p>' plain.html
+  grep -qF "$BOARD_START" plain.html
+  grep -qF "$BOARD_END" plain.html
+}
+
+@test "--html on a target that is not UTF-8 text exits 2 instead of a traceback" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  printf '\xff\xfe\x00\x01not text at all' > binary.html
+  cp binary.html binary.expected
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html binary.html
+  # UnicodeDecodeError is a ValueError, so `except OSError` used to miss it
+  # and the run died with a traceback and exit 1.
+  [ "$status" -eq 2 ]
+  grep -qF 'as UTF-8 text' <<<"$output"
+  refute_in_output 'Traceback'
+  run diff binary.html binary.expected
+  [ "$status" -eq 0 ]
+}
+
+@test "--html writes a readable page and keeps a mode the reader chose" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # A board is opened in a browser and sometimes served from another machine.
+  # The atomic write goes through a temp file, which Python creates 0600, and
+  # os.replace carries that mode onto the target — so the mode has to be set
+  # back to what an ordinary create would have produced.
+  #
+  # The rule is "the board lands with the mode an ordinary create produces
+  # here", so the reference is an ordinary create made right here, in this
+  # directory, by this process. Computing it from the umask was closer than
+  # hardcoding 644, but still a model of the environment rather than the
+  # environment: a mount option or a default ACL moves the real answer and
+  # the model does not follow.
+  : > reference.tmp
+  local expected
+  expected="$(file_mode reference.tmp)"
+  rm -f reference.tmp
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run file_mode board.html
+  # Both sides on failure: three CI cycles produced "expected != got" without
+  # printing either value, which is why this took so long to pin down.
+  if [ "$output" != "$expected" ]; then
+    echo "board=$output reference=$expected umask=$(umask)" >&2
+  fi
+  [ "$output" = "$expected" ]
+
+  # And a mode the reader set themselves survives regeneration.
+  chmod 640 board.html
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run file_mode board.html
+  [ "$output" = "640" ]
+}
+
+# ------------------------------------------------------------------- lease
+# Plan 15-05: the phase lease (Plan 15-01) is visible on the status board's
+# footer only (D-05) and its own bookkeeping bd issue must never leak into
+# a lane, a count, or the terrain. LEASE_SH is the cairn-lease.sh wrapper —
+# acquiring for phase 2 targets make_gsd_fixture's own active_phase.
+
+LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
+
+@test "the lease-labeled bookkeeping issue never appears in any lane in open, in_progress, or closed status, and never inflates counts" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # An "open" lease issue — the shape bd_create_lease_issue() produces
+  # just after `bd create`, before acquire's own --claim runs.
+  local lease_open
+  lease_open="$(bd create "phase-9 lease" -t chore -l lease --silent)"
+
+  # An "in_progress" lease issue, acquired exactly as Plan 15-01 shapes
+  # it: title "phase-N lease", type chore, single label "lease", claimed
+  # in_progress by acquire's own --claim.
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_doing
+  lease_doing="$(jq -r '.id' <<<"$output")"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$lease_open"
+  refute_in_output "$lease_doing"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output "$lease_open"
+  refute_in_output "$lease_doing"
+
+  # The exclusion reaches the counts themselves, not just the card render:
+  # without it .counts.doing would read 2 (ST_DOING + the lease issue).
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.counts.doing' '1'
+  assert_json_eq "$output" '.counts.blocked' '1'
+  assert_json_eq "$output" '.counts.closed' '1'
+
+  # Closing both lease issues (bookkeeping churn, not real completed work)
+  # must never inflate the done count either. (The closed array itself is
+  # never exposed via --json — only counts.closed is — so the count is the
+  # whole proof here; the additive "lease" key legitimately still carries
+  # the lease issue's own id via cairn-lease.py status, which is not a
+  # lane leak and must not be asserted away.)
+  run bd close "$lease_doing"
+  [ "$status" -eq 0 ]
+  run bd close "$lease_open"
+  [ "$status" -eq 0 ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.counts.closed' '1'
+}
+
+@test "--json's lease key is additive: every pre-existing top-level key keeps its exact name and shape" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  # Exhaustive top-level key set: the pre-15-05 keys, unchanged, plus the
+  # additive "lease" key (15-05), "groups" (20-02) and "open_milestones"
+  # (22-03) — nothing renamed, nothing dropped. What this list guards is that
+  # no EXISTING key changes name or disappears; a genuinely additive key is
+  # expected to land here, and the one line below is where it is declared.
+  # `milestone` in particular is still the STATE.md-first read it always was:
+  # BOARD-04 moved the HUMAN surfaces onto open_milestones and deliberately
+  # left the machine key alone, because PIPE-01 freezes --plain's bytes.
+  # `landing` (30-01, PR-01) is the fourth declared additive key: which branch
+  # "delivered" means in this repository, whether that came from a decision or
+  # from detection, and whether the question could be answered at all. Declared
+  # here, in the one line this test says is where it is declared.
+  local keys
+  keys="$(jq -c 'keys' <<<"$output")"
+  [ "$keys" = '["blocked","counts","doing","groups","landing","lease","milestone","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+
+  # Shape of the pre-existing keys is untouched.
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '.counts.doing' '1'
+  assert_json_eq "$output" '.counts.blocked' '1'
+  assert_json_eq "$output" '.counts.closed' '1'
+  assert_json_eq "$output" '.phase.active' '2'
+  assert_json_eq "$output" '.next.kind' 'continue'
+  assert_json_eq "$output" '.ready[0].id' "$ST_READY1"
+
+  # The new key itself: no lease was ever acquired for phase 2 here.
+  assert_json_eq "$output" '.lease.held' 'false'
+}
+
+@test "--json: lease is null when no active_phase is resolvable, with no traceback" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  bd create "Some issue" -t task --silent >/dev/null
+  # No .planning/ at all -> no STATE.md -> active_phase can never resolve.
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.lease' 'null'
+  refute_in_output 'Traceback'
+}
+
+@test "--html composes cleanly with a held, fresh lease for the active phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  grep -qF 'wrote' <<<"$output"
+  [ -f board.html ]
+}
+
+@test "an actively held, fresh lease renders the same holder path on the terminal board, --plain, and --html" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  local holder
+  holder="$(git rev-parse --show-toplevel)"
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF "◆ phase 2 in use by $holder" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'LEASE\t2\t%s' "$holder")" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run cat board.html
+  grep -qF "phase 2 in use by $holder" <<<"$output"
+}
+
+@test "a stale lease is not rendered as held on any surface" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local lease_id acquired_at holder
+  lease_id="$(jq -r '.id' <<<"$output")"
+  acquired_at="$(jq -r '.acquired_at' <<<"$output")"
+  holder="$(jq -r '.holder' <<<"$output")"
+
+  # Hand-advance heartbeat_at more than 4h into the past via bd directly —
+  # same technique as tests/cairn-lease.bats and tests/hooks.bats.
+  local stale_ts
+  stale_ts="$(python3 -c "
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
+")"
+  run bd update "$lease_id" --metadata \
+    "{\"cairn\":{\"lease\":{\"phase\":2,\"holder\":\"$holder\",\"actor\":\"a\",\"host\":\"h\",\"acquired_at\":\"$acquired_at\",\"heartbeat_at\":\"$stale_ts\"}}}"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  refute_in_output "$holder"
+  refute_in_output 'in use by'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output 'LEASE'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --html board.html
+  [ "$status" -eq 0 ]
+  run cat board.html
+  refute_in_output "$holder"
+}
+
+@test "no lease held: the pre-existing footer content is unchanged and no lease line appears" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+
+  # Regression against "board at --width 100: counts, stage symbols, footer,
+  # next action"'s own assertions — the lease plan must not touch any of
+  # them. REWRITTEN 2026-08-05 (Phase 21) in lockstep with that test: the
+  # anchors follow the grouped list, the claim ("the board above the footer
+  # is exactly what the other test pinned") is identical.
+  grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
+  # `No milestone` until 2026-08-06: this fixture's roadmap has no
+  # `## Milestones` section, so before Phase 22 every issue fell into the
+  # loose group and the phase line vanished. It now groups under the unnamed
+  # group, with the phase line above the issues (CairnGo-uz6).
+  grep -qF 'No open milestone' <<<"$output"
+  refute_in_output '┌'
+  grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
+  grep -qF "◔ $ST_READY2  Timeout tuning" <<<"$output"
+  grep -qF "◕ $ST_DOING  Status board renderer" <<<"$output"
+  grep -qF '◆ felipe' <<<"$output"
+  grep -qF "⧗ $ST_BLOCKED  Docs index page  blocked by $ST_READY1" <<<"$output"
+  grep -qF 'phase 2/2' <<<"$output"
+  grep -qF 'done: 1' <<<"$output"
+  grep -qF "▶ next: continue $ST_DOING" <<<"$output"
+  refute_in_output "$ST_CLOSED"
+
+  # No lease was ever acquired for phase 2: no lease line anywhere.
+  refute_in_output 'in use by'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output 'LEASE'
+}
+
+@test "--ascii downgrades the lease line's glyph to @ like every other glyph" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$LEASE_SH" acquire 2 --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100 --ascii
+  [ "$status" -eq 0 ]
+  grep -qF '@ phase 2 in use by' <<<"$output"
+  refute_in_output '◆'
+}
+
+#-----------------------------------------------------------------------------
+# Phase 16 Plan 04: phase_model() batch-wires every render into
+# cairn-journal.py's `observe` subcommand (JOUR-01/JOUR-02, D-01/D-02), and
+# corroborate() itself stays provably independent of the journal's presence
+# or contents (JOUR-03 — Pitfall 11's exact failure shape, closed
+# mechanically, not narrated).
+#
+# CAIRN_JOURNAL is phase_model()'s own env-override seam (identical shape to
+# cairn-lease.py's seam of the same name).
+#-----------------------------------------------------------------------------
+
+JOURNAL_SH="$CAIRN_SCRIPTS_DIR/cairn-journal.sh"
+
+@test "journal observe: exactly one batched cairn-journal.py invocation per --json run, not one per phase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  # A stub that counts its own invocations to a side file, then execs into
+  # the real cairn-journal.py so the run still actually journals (this test
+  # also proves the DONE criterion: history shows the expected records).
+  local stub="$BATS_TEST_TMPDIR/counting-journal.py"
+  local count_file="$BATS_TEST_TMPDIR/journal-call-count"
+  cat > "$stub" <<'PYEOF'
+#!/usr/bin/env python3
+import os, sys
+with open(os.environ["CAIRN_JOURNAL_CALL_COUNT_FILE"], "a") as f:
+    f.write("1\n")
+os.execv(sys.executable,
+         [sys.executable, os.environ["CAIRN_JOURNAL_REAL"]] + sys.argv[1:])
+PYEOF
+  chmod +x "$stub"
+
+  run env CAIRN_JOURNAL="$stub" \
+      CAIRN_JOURNAL_CALL_COUNT_FILE="$count_file" \
+      CAIRN_JOURNAL_REAL="$CAIRN_SCRIPTS_DIR/cairn-journal.py" \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  # Exactly one subprocess spawn for this whole render, not one per phase
+  # (this fixture has 2 phases via make_gsd_fixture).
+  [ "$(wc -l < "$count_file" | tr -d ' ')" = "1" ]
+
+  # The one batched call wrote what phase_model() actually computed: one
+  # state_changed/verdict_changed set per phase, on a journal that had never
+  # observed either phase before (4 evidence axes + 1 verdict each = 5).
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '[.records[] | select(.phase==1)] | length' '5'
+  assert_json_eq "$output" '[.records[] | select(.phase==2)] | length' '5'
+  assert_json_eq "$output" \
+    '[.records[] | select(.phase==1 and .event=="verdict_changed")] | length' '1'
+  assert_json_eq "$output" \
+    '[.records[] | select(.phase==2 and .event=="verdict_changed")] | length' '1'
+}
+
+@test "journal observe: a broken CAIRN_JOURNAL produces byte-identical --json output to a working one, plus a stderr warning" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local working_output="$output"
+
+  run --separate-stderr env CAIRN_JOURNAL=/nonexistent/path \
+      bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  [ "$output" = "$working_output" ]
+  grep -qF "[cairn-status] warning:" <<<"$stderr"
+  grep -qiF "journal" <<<"$stderr"
+}
+
+@test "journal observe: two --json runs with no state change between them append zero new records the second time" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  local count_after_first
+  count_after_first="$(jq '.records | length' <<<"$output")"
+  [ "$count_after_first" -gt 0 ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+
+  run bash "$JOURNAL_SH" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  local count_after_second
+  count_after_second="$(jq '.records | length' <<<"$output")"
+  [ "$count_after_second" -eq "$count_after_first" ]
+}
+
+#-----------------------------------------------------------------------------
+# JOUR-03: corroborate() itself is provably independent of the journal —
+# a hand-edit made outside any cairn command is caught on the FIRST read
+# (never depends on a prior observe having seen an intermediate state), and
+# deleting the journal entirely changes zero bytes of the next --json
+# render. This is the mechanical proof this plan exists to carry (Pitfall
+# 11: journal-as-ground-truth is the milestone's own root bug shape).
+#-----------------------------------------------------------------------------
+
+@test "JOUR-03: a hand-edit outside any cairn command is caught on the first read, and deleting the journal changes nothing" {
+  require_bd
+  make_tmp_repo
+  # A 2-phase roadmap; neither phase has a directory on disk yet, and
+  # nothing has ever run cairn-status.sh in this repo.
+  mkdir -p .planning
+  cat > .planning/ROADMAP.md <<'EOF'
+# Roadmap: JOUR-03 Fixture
+
+## Phases
+
+- [ ] Phase 1: First phase
+- [ ] Phase 2: Second phase
+EOF
+  bd init -q --prefix j3 --non-interactive >/dev/null 2>&1
+
+  # No prior cairn-status.sh run has happened yet in this fixture — the
+  # journal genuinely does not exist before the hand-edit below. This rules
+  # out the test passing only because a PRIOR observe call happened to have
+  # already recorded the right thing.
+  #
+  # Phase 28: the journal is PARTITIONED, one file per checkout under
+  # .cairn/journal/. The path is asked of the script itself rather than
+  # recomputed here — a test that rebuilt the slug would just be a second
+  # implementation of the naming scheme, and would keep passing while
+  # pointing at a file nothing writes. That is exactly how the pre-phase-28
+  # version of this test would have died: its `rm -f .cairn/journal.jsonl`
+  # would have deleted nothing and the diff below would have compared a
+  # render with itself.
+  local segment
+  segment="$(python3 "$CAIRN_SCRIPTS_DIR/cairn-journal.py" provenance \
+    --project-dir "$PWD" --json | jq -r '.segment')"
+  [ ! -f "$segment" ]
+  [ ! -d .cairn/journal ]
+
+  # Part (1): hand-edit OUTSIDE any cairn command — a plain sed on
+  # ROADMAP.md, never a cairn-*.sh invocation — checks phase 1's box while
+  # its phase directory has no -SUMMARY.md/-VERIFICATION.md at all. This
+  # deterministically produces R2's roadmap-vs-disk "blocks" conflict.
+  sed -i.bak 's/^- \[ \] Phase 1/- [x] Phase 1/' .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
+
+  # This IS the first read after the hand-edit — the journal cannot have
+  # observed this phase before (it did not even exist a moment ago).
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local first_read_output="$output"
+  printf '%s' "$first_read_output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+p = [x for x in d["phases"] if x["number"] == 1][0]
+assert p["corroboration"] == "conflict", p
+items = [c for c in p["conflicts"]
+         if c["severity"] == "blocks" and c["sources"] == ["roadmap", "disk"]]
+assert len(items) == 1, p["conflicts"]
+'
+
+  # That first read's own observe call just wrote this phase's evidence into
+  # this checkout's own partition for the first time — confirm it, rather
+  # than assume it.
+  [ -f "$segment" ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  [ "$(jq '.records | length' <<<"$output")" -gt 0 ]
+
+  # Part (2): pin the fixture — no .cairn/sync.json, no lease held anywhere
+  # — the only two genuinely time-varying keys the --json payload can carry.
+  # Assert this directly rather than trust it; a fixture that violates
+  # either would make the coming full-output diff flaky for reasons that
+  # have nothing to do with JOUR-03.
+  [ ! -f .cairn/sync.json ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" status --all --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
+
+  # "before": a SECOND read, now against a journal that genuinely has real
+  # accumulated history for this phase (unlike first_read_output, which ran
+  # against no journal at all) — this is the render that deletion below
+  # must prove made no difference to, not a repeat of the no-journal case.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local before_output="$output"
+  # A second read against a populated journal changes nothing either — the
+  # same structural proof, one call earlier.
+  diff <(jq -S . <<<"$first_read_output") <(jq -S . <<<"$before_output")
+
+  # Delete the journal ENTIRELY — the partition directory and the inherited
+  # single file both, because phase 28 made the surface bigger than one
+  # path. Deleting a journal that had real history in it must change zero
+  # bytes of the corroboration output.
+  rm -rf .cairn/journal
+  rm -f .cairn/journal.jsonl*
+
+  # The assertion that keeps this test from dying quietly a second time: it
+  # proves the delete actually hit its target. Without it, a `rm` aimed at
+  # the wrong path leaves the diff below comparing a render with itself —
+  # green, and measuring nothing.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-journal.sh" history --json --project-dir "$PWD"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.records | length' '0'
+  assert_json_eq "$output" '.partitions | length' '0'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  local after_output="$output"
+
+  diff <(jq -S . <<<"$before_output") <(jq -S . <<<"$after_output")
+}

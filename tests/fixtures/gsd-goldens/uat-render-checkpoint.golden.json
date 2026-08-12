@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"file_path\": \"UAT.md\", \"test_number\": 2, \"test_name\": \"O irmao check responde\", \"checkpoint\": \"╔══════════════════════════════════════════════════════════════╗\\n║  CHECKPOINT: Verification Required                           ║\\n╚══════════════════════════════════════════════════════════════╝\\n\\n**Test 2: O irmao check responde**\\n\\nAs duas grafias devolvem envelope identico.\\n\\n──────────────────────────────────────────────────────────────\\nType `pass` or describe what's wrong.\\n──────────────────────────────────────────────────────────────\"}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "uat-render-checkpoint",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

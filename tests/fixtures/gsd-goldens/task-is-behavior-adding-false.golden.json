@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"is_behavior_adding\": false, \"checks\": {\"tdd_true\": false, \"has_behavior_block\": false, \"has_source_files\": false}, \"reason\": \"Not behavior-adding: tdd=\\\"true\\\" frontmatter absent; <behavior> block missing or empty; <files> has no non-test source file\"}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "task-is-behavior-adding-false",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

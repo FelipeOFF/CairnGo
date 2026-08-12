@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"completed_phase\": 34,\n  \"phase_name\": \"Fase de teste\",\n  \"is_last_phase\": false,\n  \"next_phase\": 35,\n  \"next_phase_name\": \"Fase seguinte\",\n  \"plans_executed\": 1,\n  \"roadmap_updated\": true,\n  \"state_updated\": true,\n  \"requirements_updated\": false,\n  \"auto_pruned\": [],\n  \"has_warnings\": false,\n  \"warnings\": [],\n  \"verification_stale_check_indeterminate\": true\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "phase-complete",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

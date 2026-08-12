@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"project_root\": \"<masked>\",\n  \"agents_dir\": \"<masked>\",\n  \"agents_installed\": true,\n  \"missing_agents\": [],\n  \"agent_runtime\": \"claude\",\n  \"project_code\": null,\n  \"project_title\": null,\n  \"response_language\": null,\n  \"section_manifest\": null,\n  \"debug_dir\": \"<masked>\",\n  \"debugger_model\": \"sonnet\",\n  \"tdd_mode\": false,\n  \"commit_docs\": true,\n  \"diagnose\": false\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "init-debug",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

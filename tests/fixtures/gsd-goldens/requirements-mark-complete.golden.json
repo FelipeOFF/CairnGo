@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"updated\": true,\n  \"ids\": [\n    \"CORE-01\"\n  ],\n  \"marked_complete\": [\n    \"CORE-01\"\n  ],\n  \"already_complete\": [],\n  \"not_found\": [],\n  \"table_unmatched\": [],\n  \"total\": 1,\n  \"write_set\": [\n    \"CORE-01\"\n  ],\n  \"write_set_complete\": true\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "requirements-mark-complete",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

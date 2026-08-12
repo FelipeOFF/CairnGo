@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"phases\": [\n    {\n      \"name\": \"34-fase-teste\",\n      \"provides\": [\n        \"autenticacao\"\n      ],\n      \"affects\": [\n        \"api\"\n      ],\n      \"patterns\": [\n        \"refresh rotation\"\n      ]\n    },\n    {\n      \"name\": \"34-fase-teste\",\n      \"provides\": [\n        \"cache\"\n      ],\n      \"affects\": [],\n      \"patterns\": []\n    }\n  ],\n  \"decisions\": [\n    {\n      \"phase\": \"34-fase-teste\",\n      \"decision\": \"usar jose — menor superficie\"\n    },\n    {\n      \"phase\": \"34-fase-teste\",\n      \"decision\": \"cache no redis\"\n    }\n  ],\n  \"tech_stack\": [\n    \"jose\",\n    \"redis\"\n  ]\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "history-digest",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

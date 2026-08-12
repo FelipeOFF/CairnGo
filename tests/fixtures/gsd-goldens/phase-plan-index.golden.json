@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"phase\": \"34\",\n  \"plans\": [\n    {\n      \"id\": \"34-01\",\n      \"file\": \"34-01-PLAN.md\",\n      \"wave\": 1,\n      \"autonomous\": true,\n      \"depends_on\": [],\n      \"status\": \"complete\",\n      \"has_checkpoints\": false\n    },\n    {\n      \"id\": \"34-02\",\n      \"file\": \"34-02-PLAN.md\",\n      \"wave\": 2,\n      \"autonomous\": true,\n      \"depends_on\": [\n        \"34-01\"\n      ],\n      \"status\": \"incomplete\",\n      \"has_checkpoints\": false\n    }\n  ],\n  \"waves\": {\n    \"1\": [\n      \"34-01\"\n    ],\n    \"2\": [\n      \"34-02\"\n    ]\n  },\n  \"incomplete\": [\n    \"34-02\"\n  ],\n  \"runnable\": [\n    \"34-02\"\n  ],\n  \"has_checkpoints\": false\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "phase-plan-index",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

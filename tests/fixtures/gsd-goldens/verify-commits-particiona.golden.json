@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"all_valid\": false, \"valid\": [\"HEAD\"], \"invalid\": [\"0000000000000000000000000000000000000001\"], \"total\": 2}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "verify-commits-particiona",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

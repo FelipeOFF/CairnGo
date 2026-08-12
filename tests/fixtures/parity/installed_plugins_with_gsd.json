@@ -1,0 +1,36 @@
+{
+  "enabledPlugins": {},
+  "plugins": {
+    "cairn@cairngo": [
+      {
+        "gitCommitSha": "0000000000000000000000000000000000000000",
+        "installPath": "/plugins/cache/cairngo/cairn/0000000000",
+        "installedAt": "2026-08-12T00:00:00.000Z",
+        "lastUpdated": "2026-08-12T00:00:00.000Z",
+        "scope": "user",
+        "version": "0000000000"
+      }
+    ],
+    "context-mode@context-mode": [
+      {
+        "gitCommitSha": "0000000000000000000000000000000000000000",
+        "installPath": "/plugins/cache/context-mode/context-mode/0000000000",
+        "installedAt": "2026-08-12T00:00:00.000Z",
+        "lastUpdated": "2026-08-12T00:00:00.000Z",
+        "scope": "user",
+        "version": "0000000000"
+      }
+    ],
+    "gsd-core@cairngo": [
+      {
+        "gitCommitSha": "1111111111111111111111111111111111111111",
+        "installPath": "/plugins/cache/cairngo/gsd-core/1111111111",
+        "installedAt": "2026-08-12T00:00:00.000Z",
+        "lastUpdated": "2026-08-12T00:00:00.000Z",
+        "scope": "user",
+        "version": "1111111111"
+      }
+    ]
+  },
+  "version": 2
+}

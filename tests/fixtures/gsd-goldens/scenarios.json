@@ -1,0 +1,3495 @@
+{
+  "scenarios": [
+    {
+      "argv": [
+        "query",
+        "config-get",
+        "model_profile"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "model_profile": "quality"
+        }
+      },
+      "id": "config-get-scope-hit",
+      "mask": null,
+      "verb": "config-get"
+    },
+    {
+      "argv": [
+        "query",
+        "config-get",
+        "model_profile",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "model_profile": "quality"
+        }
+      },
+      "id": "config-get-raw-scalar",
+      "mask": null,
+      "verb": "config-get"
+    },
+    {
+      "argv": [
+        "query",
+        "config-get",
+        "chave.inexistente",
+        "--default",
+        "x",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "model_profile": "quality"
+        }
+      },
+      "id": "config-get-default-flag",
+      "mask": null,
+      "verb": "config-get"
+    },
+    {
+      "argv": [
+        "query",
+        "config-get",
+        "chave.inexistente"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "model_profile": "quality"
+        }
+      },
+      "id": "config-get-missing",
+      "mask": null,
+      "verb": "config-get"
+    },
+    {
+      "argv": [
+        "query",
+        "config-get",
+        "saudacao"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "saudacao": "ação e coração"
+        }
+      },
+      "id": "config-get-nonascii",
+      "mask": null,
+      "verb": "config-get"
+    },
+    {
+      "argv": [
+        "query",
+        "config-get",
+        "git"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "git": {
+            "branching_strategy": "none",
+            "phase_branch_template": "gsd/phase-{phase}-{slug}"
+          }
+        }
+      },
+      "id": "config-get-subtree",
+      "mask": null,
+      "verb": "config-get"
+    },
+    {
+      "argv": [
+        "query",
+        "config-get",
+        "context_window"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "config-get-schema-default",
+      "mask": null,
+      "requires": "config-manifest",
+      "verb": "config-get"
+    },
+    {
+      "argv": [
+        "query",
+        "config-set",
+        "workflow.research",
+        "false",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "config-set-raw-bool",
+      "mask": null,
+      "requires": "config-manifest",
+      "verb": "config-set"
+    },
+    {
+      "argv": [
+        "query",
+        "config-set",
+        "workflow.research",
+        "false"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "config-set-json-envelope",
+      "mask": null,
+      "requires": "config-manifest",
+      "verb": "config-set"
+    },
+    {
+      "argv": [
+        "query",
+        "config-set",
+        "workflow.research",
+        "null",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "workflow": {
+            "research": true
+          }
+        }
+      },
+      "id": "config-set-unset-null",
+      "mask": null,
+      "requires": "config-manifest",
+      "verb": "config-set"
+    },
+    {
+      "argv": [
+        "query",
+        "commit",
+        "feat: cenario gravado"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "commit-committed",
+      "mask": {
+        ".hash": "^[0-9a-f]{7,40}$"
+      },
+      "verb": "commit"
+    },
+    {
+      "argv": [
+        "query",
+        "commit",
+        "feat: duas",
+        "partes soltas"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "commit-join-positionals",
+      "mask": {
+        ".hash": "^[0-9a-f]{7,40}$"
+      },
+      "verb": "commit"
+    },
+    {
+      "argv": [
+        "query",
+        "commit",
+        "docs: nunca chega ao git"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "commit_docs": false
+        }
+      },
+      "id": "commit-skip-config-docs",
+      "mask": null,
+      "verb": "commit"
+    },
+    {
+      "argv": [
+        "query",
+        "commit",
+        "docs: nunca chega ao git",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "commit_docs": false
+        }
+      },
+      "id": "commit-skip-raw-text",
+      "mask": null,
+      "verb": "commit"
+    },
+    {
+      "argv": [
+        "query",
+        "commit",
+        "docs: planning ignorado"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".gitignore": ".planning/\n"
+        },
+        "git": true,
+        "planning_config": {
+          "commit_docs": true
+        }
+      },
+      "id": "commit-skip-gitignored",
+      "mask": null,
+      "verb": "commit"
+    },
+    {
+      "argv": [
+        "query",
+        "commit",
+        "docs: default suprimido"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".gitignore": ".planning/\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "commit-gitignored-suppresses-default",
+      "mask": null,
+      "verb": "commit"
+    },
+    {
+      "argv": [
+        "query",
+        "commit",
+        "docs: nada staged",
+        "--files",
+        "arquivo-que-nao-existe.txt"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "commit-nothing-to-commit",
+      "mask": null,
+      "verb": "commit"
+    },
+    {
+      "argv": [
+        "query",
+        "commit"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "commit-missing-message",
+      "mask": null,
+      "verb": "commit"
+    },
+    {
+      "argv": [
+        "query",
+        "commit-to-subrepo",
+        "docs: sem sub_repos",
+        "--files",
+        "a/b.txt"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "commit-subrepo-unconfigured",
+      "mask": null,
+      "verb": "commit-to-subrepo"
+    },
+    {
+      "argv": [
+        "query",
+        "agent-skills"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "agent-skills-noarg",
+      "mask": null,
+      "verb": "agent-skills"
+    },
+    {
+      "argv": [
+        "query",
+        "agent-skills",
+        "gsd-planner"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "agent-skills-not-configured",
+      "mask": null,
+      "verb": "agent-skills"
+    },
+    {
+      "argv": [
+        "query",
+        "agent-skills",
+        "gsd-planner",
+        "--json"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "agent-skills-json-not-configured",
+      "mask": null,
+      "verb": "agent-skills"
+    },
+    {
+      "argv": [
+        "query",
+        "agent-skills",
+        "gsd-planner"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "skills/demo/SKILL.md": "# Demo\n"
+        },
+        "git": true,
+        "planning_config": {
+          "agent_skills": {
+            "gsd-planner": [
+              "skills/demo"
+            ]
+          }
+        }
+      },
+      "id": "agent-skills-resolved-block",
+      "mask": null,
+      "verb": "agent-skills"
+    },
+    {
+      "argv": [
+        "query",
+        "agent-skills",
+        "gsd-planner",
+        "--json"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "skills/demo/SKILL.md": "# Demo\n"
+        },
+        "git": true,
+        "planning_config": {
+          "agent_skills": {
+            "gsd-planner": [
+              "skills/demo"
+            ]
+          }
+        }
+      },
+      "id": "agent-skills-resolved-json",
+      "mask": null,
+      "verb": "agent-skills"
+    },
+    {
+      "argv": [
+        "loop",
+        "render-hooks",
+        "plan:post",
+        "--raw"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "loop-plan-post-native",
+      "mask": null,
+      "verb": "loop"
+    },
+    {
+      "argv": [
+        "loop",
+        "render-hooks",
+        "plan:post",
+        "--raw"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "cairn": {
+            "enabled": false
+          }
+        }
+      },
+      "id": "loop-disabled-empty",
+      "mask": null,
+      "verb": "loop"
+    },
+    {
+      "argv": [
+        "loop",
+        "render-hooks",
+        "ponto-invalido",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "loop-invalid-point",
+      "mask": null,
+      "verb": "loop"
+    },
+    {
+      "argv": [
+        "loop",
+        "render-hooks",
+        "plan:post",
+        "--active-cap",
+        "cap-que-nao-existe"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "loop-active-cap-unknown",
+      "mask": null,
+      "verb": "loop"
+    },
+    {
+      "argv": [
+        "query",
+        "dispatch-isolation",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "dispatch-isolation-raw",
+      "mask": null,
+      "verb": "dispatch-isolation"
+    },
+    {
+      "argv": [
+        "query",
+        "dispatch-isolation",
+        "--json"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "dispatch-isolation-json",
+      "mask": null,
+      "verb": "dispatch-isolation"
+    },
+    {
+      "argv": [
+        "query",
+        "dispatch-should-flatten",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "dispatch-should-flatten-raw",
+      "mask": null,
+      "verb": "dispatch-should-flatten"
+    },
+    {
+      "argv": [
+        "query",
+        "resolve-model",
+        "gsd-planner"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "resolve-model-known",
+      "mask": null,
+      "verb": "resolve-model"
+    },
+    {
+      "argv": [
+        "query",
+        "resolve-model",
+        "gsd-planner",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "resolve-model-raw",
+      "mask": null,
+      "verb": "resolve-model"
+    },
+    {
+      "argv": [
+        "query",
+        "resolve-model",
+        "agente-inventado"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "resolve-model-unknown",
+      "mask": null,
+      "verb": "resolve-model"
+    },
+    {
+      "argv": [
+        "query",
+        "resolve-dispatch-type",
+        "--requested",
+        "gsd-verifier",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "resolve-dispatch-type-echo",
+      "mask": null,
+      "verb": "resolve-dispatch-type"
+    },
+    {
+      "argv": [
+        "query",
+        "resolve-dispatch-type",
+        "--raw"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "resolve-dispatch-type-default",
+      "mask": null,
+      "verb": "resolve-dispatch-type"
+    },
+    {
+      "argv": [
+        "query",
+        "resolve-dispatch-type",
+        "--requested",
+        "gsd-planner",
+        "--json"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "resolve-dispatch-type-json",
+      "mask": null,
+      "verb": "resolve-dispatch-type"
+    },
+    {
+      "argv": [
+        "query",
+        "state.load"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": true,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sfa",
+          "seed": []
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-load-fato-ausente",
+      "mask": null,
+      "verb": "state.load"
+    },
+    {
+      "argv": [
+        "query",
+        "state.load"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": true,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "smd",
+          "seed": []
+        },
+        "files": {
+          ".planning/STATE.md": "# Project State\n\n## Current Position\n\nPhase: 18 of 20\nStatus: executing\nPlan: 18-02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-load-md-presente-fato-ausente",
+      "mask": null,
+      "verb": "state.load"
+    },
+    {
+      "argv": [
+        "query",
+        "state.begin-phase",
+        "1"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sbp",
+          "seed": []
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-begin-phase-cria-portador",
+      "mask": null,
+      "verb": "state.begin-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "state.load"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sld",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed 34-01"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed 34-01"
+            ]
+          ]
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-load-do-bd",
+      "mask": {
+        ".debug_dir": "[.]planning/debug$"
+      },
+      "verb": "state.load"
+    },
+    {
+      "argv": [
+        "query",
+        "state.begin-phase",
+        "1"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sbr",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=1",
+              "--reason",
+              "seed 34-01"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed 34-01"
+            ]
+          ]
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-begin-phase-reentrada",
+      "mask": null,
+      "verb": "state.begin-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "state.update",
+        "status",
+        "executing"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sum",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=planned",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-update-campo-mapeado",
+      "mask": null,
+      "verb": "state.update"
+    },
+    {
+      "argv": [
+        "query",
+        "state.update",
+        "cor",
+        "azul"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sun",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ]
+          ]
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-update-campo-nao-mapeado",
+      "mask": null,
+      "verb": "state.update"
+    },
+    {
+      "argv": [
+        "query",
+        "state.advance-plan"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sap",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "plan=34-01",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34\n---\n# plano\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34\n---\n# plano\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-advance-plan",
+      "mask": null,
+      "verb": "state.advance-plan"
+    },
+    {
+      "argv": [
+        "query",
+        "state.advance-plan"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": true,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "saf",
+          "seed": []
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-advance-plan-fato-ausente",
+      "mask": null,
+      "verb": "state.advance-plan"
+    },
+    {
+      "argv": [
+        "query",
+        "state.record-session",
+        "--stopped-at",
+        "fim do plano 34-01"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "srs",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ]
+          ]
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-record-session",
+      "mask": null,
+      "verb": "state.record-session"
+    },
+    {
+      "argv": [
+        "query",
+        "state.update-progress"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sup",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34\n---\n# plano\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34\n---\n# summary\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34\n---\n# plano\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-update-progress",
+      "mask": null,
+      "verb": "state.update-progress"
+    },
+    {
+      "argv": [
+        "query",
+        "state.update-progress"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": true,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "spf",
+          "seed": []
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-update-progress-fato-ausente",
+      "mask": null,
+      "verb": "state.update-progress"
+    },
+    {
+      "argv": [
+        "query",
+        "state.add-blocker",
+        "integração X pendente"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sab",
+          "seed": []
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-add-blocker",
+      "mask": null,
+      "verb": "state.add-blocker"
+    },
+    {
+      "argv": [
+        "query",
+        "state.add-decision",
+        "--phase",
+        "34",
+        "--summary",
+        "estado vive no bd",
+        "--rationale",
+        "duas fontes é a doença"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "sad",
+          "seed": []
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-add-decision",
+      "mask": null,
+      "verb": "state.add-decision"
+    },
+    {
+      "argv": [
+        "query",
+        "state.planned-phase",
+        "35"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "spp",
+          "seed": []
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-planned-phase",
+      "mask": null,
+      "verb": "state.planned-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "state.record-metric",
+        "--phase",
+        "18",
+        "--plan",
+        "18-02",
+        "--duration",
+        "5min",
+        "--tasks",
+        "2",
+        "--files",
+        "3"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "s18",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "plan=34-02",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/STATE.md": "# Project State\n\n## Current Position\n\nPhase: 18 of 20\nStatus: executing\nPlan: 18-02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "state-record-metric-caso-18",
+      "mask": null,
+      "verb": "state.record-metric"
+    },
+    {
+      "argv": [
+        "query",
+        "roadmap.get-phase",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos leitores de documento.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - leitores de documento\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os leitores de documento sobre o bd.\n\nMode: mvp\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "roadmap-get-phase",
+      "mask": null,
+      "verb": "roadmap.get-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "find-phase",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "find-phase",
+      "mask": null,
+      "verb": "find-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "phases.list"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "phases-list",
+      "mask": null,
+      "verb": "phases.list"
+    },
+    {
+      "argv": [
+        "query",
+        "phase.list-plans",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "phase-list-plans",
+      "mask": null,
+      "verb": "phase.list-plans"
+    },
+    {
+      "argv": [
+        "query",
+        "phase-plan-index",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "phase-plan-index",
+      "mask": null,
+      "verb": "phase-plan-index"
+    },
+    {
+      "argv": [
+        "query",
+        "phase.mvp-mode",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos leitores de documento.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - leitores de documento\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os leitores de documento sobre o bd.\n\nMode: mvp\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "phase-mvp-mode",
+      "mask": null,
+      "verb": "phase.mvp-mode"
+    },
+    {
+      "argv": [
+        "query",
+        "roadmap.analyze"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "ran",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos leitores de documento.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - leitores de documento\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os leitores de documento sobre o bd.\n\nMode: mvp\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "roadmap-analyze",
+      "mask": null,
+      "verb": "roadmap.analyze"
+    },
+    {
+      "argv": [
+        "query",
+        "roadmap.analyze"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": true,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "raf",
+          "seed": []
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos leitores de documento.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - leitores de documento\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os leitores de documento sobre o bd.\n\nMode: mvp\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "roadmap-analyze-fato-ausente",
+      "mask": null,
+      "verb": "roadmap.analyze"
+    },
+    {
+      "argv": [
+        "query",
+        "phase.list-artifacts",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": true,
+      "fixture": {
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "phase-list-artifacts-fantasma",
+      "mask": null,
+      "verb": "phase.list-artifacts"
+    },
+    {
+      "argv": [
+        "phase",
+        "uat-passed",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos leitores de documento.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - leitores de documento\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os leitores de documento sobre o bd.\n\nMode: mvp\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n",
+          ".planning/phases/34-fase-teste/34-UAT.md": "---\nstatus: passed\n---\n# UAT da fase 34\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "phase-uat-passed",
+      "mask": null,
+      "verb": "phase"
+    },
+    {
+      "argv": [
+        "query",
+        "phase.complete",
+        "34"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "pcp",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos leitores de documento.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - leitores de documento\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os leitores de documento sobre o bd.\n\nMode: mvp\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "phase-complete",
+      "mask": null,
+      "verb": "phase.complete"
+    },
+    {
+      "argv": [
+        "query",
+        "roadmap.update-plan-progress",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "rup",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos leitores de documento.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - leitores de documento\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os leitores de documento sobre o bd.\n\nMode: mvp\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n",
+          ".planning/phases/34-fase-teste/34-02-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 02\n---\n# Summary 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "roadmap-update-plan-progress",
+      "mask": null,
+      "verb": "roadmap.update-plan-progress"
+    },
+    {
+      "argv": [
+        "query",
+        "roadmap.annotate-dependencies",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos leitores de documento.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - leitores de documento\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os leitores de documento sobre o bd.\n\nMode: mvp\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\nmust_haves:\n  truths:\n    - \"regra compartilhada X\"\n    - \"regra propria do 02\"\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "roadmap-annotate-dependencies",
+      "mask": null,
+      "verb": "roadmap.annotate-dependencies"
+    },
+    {
+      "argv": [
+        "worktree",
+        "set-baseref"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "worktree-set-baseref",
+      "mask": {
+        ".file": "settings[.]local[.]json$"
+      },
+      "verb": "worktree"
+    },
+    {
+      "argv": [
+        "query",
+        "worktree.base-check"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".claude/settings.local.json": "{\"worktree\": {\"baseRef\": \"head\"}}\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "worktree-base-check",
+      "mask": null,
+      "verb": "worktree.base-check"
+    },
+    {
+      "argv": [
+        "query",
+        "worktree.create",
+        "--manifest",
+        "wave.json",
+        "--agent-id",
+        "a1",
+        "--path",
+        "wt/a1",
+        "--branch",
+        "agent-a1",
+        "--base",
+        "HEAD",
+        "--root",
+        "."
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "wave.json": "{\"orchestrator_root\": \".\", \"worktrees\": []}\n"
+        },
+        "git": true,
+        "git_commit": true,
+        "planning_config": {}
+      },
+      "id": "worktree-create",
+      "mask": {
+        ".cwd": "wt/a1$",
+        ".entry.path": "wt/a1$",
+        ".manifest_path": "wave[.]json$"
+      },
+      "verb": "worktree.create"
+    },
+    {
+      "argv": [
+        "query",
+        "worktree.record-agent",
+        "--manifest",
+        "wave.json",
+        "--agent-id",
+        "a2",
+        "--path",
+        "wt/a2",
+        "--branch",
+        "agent-a2",
+        "--base",
+        "abc123"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "wave.json": "{\"orchestrator_root\": \".\", \"worktrees\": []}\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "worktree-record-agent",
+      "mask": {
+        ".entry.path": "wt/a2$",
+        ".manifest_path": "wave[.]json$"
+      },
+      "verb": "worktree.record-agent"
+    },
+    {
+      "argv": [
+        "query",
+        "worktree.cleanup-wave",
+        "--manifest",
+        "wave.json"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "wave.json": "{\"orchestrator_root\": \".\", \"worktrees\": [{\"agent_id\": \"a9\", \"path\": \"wt/gone\", \"branch\": \"agent-a9\", \"base\": \"HEAD\"}]}\n"
+        },
+        "git": true,
+        "git_commit": true,
+        "planning_config": {}
+      },
+      "id": "worktree-cleanup-wave",
+      "mask": {
+        ".plan.entries[0].path": "wt/gone$"
+      },
+      "verb": "worktree.cleanup-wave"
+    },
+    {
+      "argv": [
+        "query",
+        "worktree.reap-orphans"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "git_commit": true,
+        "planning_config": {}
+      },
+      "id": "worktree-reap-orphans",
+      "mask": null,
+      "verb": "worktree.reap-orphans"
+    },
+    {
+      "argv": [
+        "query",
+        "init.autonomous"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-autonomous",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".project_root": "gsdfx"
+      },
+      "verb": "init.autonomous"
+    },
+    {
+      "argv": [
+        "query",
+        "init.debug"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-debug",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".debug_dir": "[.]planning/debug$",
+        ".project_root": "gsdfx"
+      },
+      "verb": "init.debug"
+    },
+    {
+      "argv": [
+        "query",
+        "init.execute-phase",
+        "34"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "ini",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-execute-phase",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".config_path": "[.]planning/config[.]json$",
+        ".phase_dir": "34-fase-teste$",
+        ".project_root": "gsdfx",
+        ".requirements_path": "[.]planning/REQUIREMENTS[.]md$",
+        ".roadmap_path": "[.]planning/ROADMAP[.]md$",
+        ".state_path": "[.]planning/STATE[.]md$"
+      },
+      "verb": "init.execute-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "init.manager"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "ini",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-manager",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".project_root": "gsdfx"
+      },
+      "verb": "init.manager"
+    },
+    {
+      "argv": [
+        "query",
+        "init.milestone-op"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "ini",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-milestone-op",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".project_root": "gsdfx"
+      },
+      "verb": "init.milestone-op"
+    },
+    {
+      "argv": [
+        "query",
+        "init.phase-op",
+        "34"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-phase-op",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".expected_phase_dir": "34-fase-teste$",
+        ".phase_dir": "34-fase-teste$",
+        ".project_root": "gsdfx",
+        ".requirements_path": "[.]planning/REQUIREMENTS[.]md$",
+        ".roadmap_path": "[.]planning/ROADMAP[.]md$",
+        ".state_path": "[.]planning/STATE[.]md$"
+      },
+      "verb": "init.phase-op"
+    },
+    {
+      "argv": [
+        "query",
+        "init.plan-phase",
+        "34"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "ini",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-plan-phase",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".expected_phase_dir": "34-fase-teste$",
+        ".phase_dir": "34-fase-teste$",
+        ".project_root": "gsdfx",
+        ".requirements_path": "[.]planning/REQUIREMENTS[.]md$",
+        ".roadmap_path": "[.]planning/ROADMAP[.]md$",
+        ".state_path": "[.]planning/STATE[.]md$"
+      },
+      "verb": "init.plan-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "init.quick",
+        "ajuste",
+        "rapido"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-quick",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".date": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+        ".project_root": "gsdfx",
+        ".quick_dir": "[.]planning/quick$",
+        ".quick_id": "^[0-9]{4}-",
+        ".task_dir": "[.]planning/quick/",
+        ".timestamp": "^[0-9]{8}-[0-9]{6}$"
+      },
+      "verb": "init.quick"
+    },
+    {
+      "argv": [
+        "query",
+        "init.verify-work",
+        "34"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-verify-work",
+      "mask": {
+        ".agents_dir": "cairn/gsd/agents$",
+        ".phase_dir": "34-fase-teste$",
+        ".project_root": "gsdfx",
+        ".roadmap_path": "[.]planning/ROADMAP[.]md$",
+        ".state_path": "[.]planning/STATE[.]md$"
+      },
+      "verb": "init.verify-work"
+    },
+    {
+      "argv": [
+        "query",
+        "init.plan-phase",
+        "34",
+        "--pick",
+        "planner_model"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "ini",
+          "seed": [
+            [
+              "create",
+              "gsd: portador de estado (D-02)",
+              "-t",
+              "chore",
+              "-l",
+              "gsd-state",
+              "--silent"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase=34",
+              "--reason",
+              "seed"
+            ],
+            [
+              "set-state",
+              "@id",
+              "phase_status=executing",
+              "--reason",
+              "seed"
+            ]
+          ]
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-plan-phase-pick",
+      "mask": null,
+      "verb": "init.plan-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "init.execute-phase",
+        "34"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": true,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "ifa",
+          "seed": []
+        },
+        "files": {
+          ".planning/ROADMAP.md": "# Roadmap: Teste\n\n## Milestone: v1.0 Primeiro\n\n**A prova dos bundles.**\n\n## Phases\n\n### v1.0 Primeiro (Phases 34-35)\n\n- [ ] **Phase 34: Fase de teste** - bundles\n- [ ] **Phase 35: Fase seguinte** - proxima\n\n## Detalhe das fases\n\n### Phase 34: Fase de teste\n\n**Goal:** Provar os bundles de init.\n\nMode: mvp\n\n**Requirements**: CORE-01\n\n**Plans:** 2 plans\n\n- [ ] 34-01-PLAN.md\n- [ ] 34-02-PLAN.md\n\n### Phase 35: Fase seguinte\n\n**Goal:** A proxima fase.\n\n**Plans:** 0 plans\n",
+          ".planning/phases/34-fase-teste/34-01-PLAN.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\nautonomous: true\n---\n# Plano 01\n",
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\n---\n# Summary 01\n",
+          ".planning/phases/34-fase-teste/34-02-PLAN.md": "---\nphase: 34-fase-teste\nplan: 02\nwave: 2\ndepends_on: [34-01]\nautonomous: true\n---\n# Plano 02\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "init-execute-phase-fato-ausente",
+      "mask": null,
+      "verb": "init.execute-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "summary-extract",
+        ".planning/phases/34-fase-teste/34-01-SUMMARY.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\none-liner: JWT com rotacao de refresh\ntech-stack:\n  added:\n    - jose\n  patterns:\n    - refresh rotation\nkey-files:\n  created:\n    - src/auth.ts\n  modified:\n    - src/app.ts\ndecisions:\n  - \"usar jose — menor superficie\"\nrequirements-completed: [CORE-01]\nprovides:\n  - autenticacao\naffects:\n  - api\n---\n# Phase 34 Plan 01 Summary\n\n**JWT auth com refresh rotation.**\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "summary-extract",
+      "mask": null,
+      "verb": "summary-extract"
+    },
+    {
+      "argv": [
+        "query",
+        "todo.match-phase",
+        "34"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/todos/todo-1.md": "---\nphase: 34\n---\n# Ajustar o parser\n",
+          ".planning/todos/todo-2.md": "---\nphase: 35\n---\n# Outro ajuste\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "todo-match-phase",
+      "mask": null,
+      "verb": "todo.match-phase"
+    },
+    {
+      "argv": [
+        "query",
+        "requirements.mark-complete",
+        "CORE-01"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/REQUIREMENTS.md": "# Requirements\n\n- [ ] **CORE-01**: labels projetados como chave\n- [ ] **CORE-02**: consulta por label\n\n## Traceability\n\n| Req | Phase | Status |\n|-----|-------|--------|\n| CORE-01 | 34 | Pending |\n| CORE-02 | 34 | Pending |\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "requirements-mark-complete",
+      "mask": null,
+      "verb": "requirements.mark-complete"
+    },
+    {
+      "argv": [
+        "quick-tasks-append",
+        "--task",
+        "consertar o parser"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "bd": {
+          "init": true,
+          "prefix": "qta",
+          "seed": []
+        },
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "quick-tasks-append",
+      "mask": null,
+      "verb": "quick-tasks-append"
+    },
+    {
+      "argv": [
+        "query",
+        "history-digest"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/34-fase-teste/34-01-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 01\none-liner: JWT com rotacao de refresh\ntech-stack:\n  added:\n    - jose\n  patterns:\n    - refresh rotation\nkey-files:\n  created:\n    - src/auth.ts\n  modified:\n    - src/app.ts\ndecisions:\n  - \"usar jose — menor superficie\"\nrequirements-completed: [CORE-01]\nprovides:\n  - autenticacao\naffects:\n  - api\n---\n# Phase 34 Plan 01 Summary\n\n**JWT auth com refresh rotation.**\n",
+          ".planning/phases/34-fase-teste/34-02-SUMMARY.md": "---\nphase: 34-fase-teste\nplan: 02\none-liner: cache de sessao\ntech-stack:\n  added:\n    - redis\ndecisions:\n  - \"cache no redis\"\nprovides:\n  - cache\n---\n# Phase 34 Plan 02 Summary\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "history-digest",
+      "mask": null,
+      "verb": "history-digest"
+    },
+    {
+      "argv": [
+        "query",
+        "research-plan",
+        "--input",
+        "questions.json"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "questions.json": "{\"questions\": [\"como funciona o set-state do bd\"]}\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "research-plan",
+      "mask": null,
+      "verb": "research-plan"
+    },
+    {
+      "argv": [
+        "query",
+        "research-store",
+        "get",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "research-store-miss",
+      "mask": null,
+      "verb": "research-store"
+    },
+    {
+      "argv": [
+        "query",
+        "classify-confidence",
+        "--provider",
+        "context7",
+        "--verified"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "classify-confidence",
+      "mask": null,
+      "verb": "classify-confidence"
+    },
+    {
+      "argv": [
+        "query",
+        "estimate-check",
+        "--tokens",
+        "80000"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "estimate-check",
+      "mask": null,
+      "verb": "estimate-check"
+    },
+    {
+      "argv": [
+        "query",
+        "frontmatter.get",
+        "plan.md",
+        "--field",
+        "wave"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "plan.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\n---\n# Plano\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "frontmatter-get",
+      "mask": null,
+      "verb": "frontmatter.get"
+    },
+    {
+      "argv": [
+        "query",
+        "frontmatter.set",
+        "plan.md",
+        "--field",
+        "plan",
+        "--value",
+        "02"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "plan.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\n---\n# Plano\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "frontmatter-set",
+      "mask": null,
+      "verb": "frontmatter.set"
+    },
+    {
+      "argv": [
+        "query",
+        "frontmatter.validate",
+        "plan.md",
+        "--schema",
+        "plan"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "plan.md": "---\nphase: 34-fase-teste\nplan: 01\nwave: 1\ndepends_on: []\n---\n# Plano\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "frontmatter-validate",
+      "mask": null,
+      "verb": "frontmatter.validate"
+    },
+    {
+      "argv": [
+        "query",
+        "git.base-branch"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "git-base-branch",
+      "mask": null,
+      "verb": "git.base-branch"
+    },
+    {
+      "argv": [
+        "graphify",
+        "status"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "graphify-status",
+      "mask": null,
+      "verb": "graphify"
+    },
+    {
+      "argv": [
+        "intel",
+        "api-surface"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "intel-api-surface",
+      "mask": null,
+      "verb": "intel"
+    },
+    {
+      "argv": [
+        "query",
+        "learnings.copy"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "learnings-copy",
+      "mask": null,
+      "verb": "learnings.copy"
+    },
+    {
+      "argv": [
+        "query",
+        "learnings.query",
+        "--tag",
+        "auth"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "learnings-query",
+      "mask": null,
+      "verb": "learnings.query"
+    },
+    {
+      "argv": [
+        "query",
+        "normalize-test-command",
+        "vitest"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "normalize-test-command",
+      "mask": null,
+      "verb": "normalize-test-command"
+    },
+    {
+      "argv": [
+        "query",
+        "package-legitimacy",
+        "check",
+        "--ecosystem",
+        "npm",
+        "leftpad"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "package-legitimacy",
+      "mask": null,
+      "verb": "package-legitimacy"
+    },
+    {
+      "argv": [
+        "query",
+        "plan.task-structure",
+        "x.md"
+      ],
+      "compare": "json",
+      "expect_stderr": true,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "plan-task-structure-fantasma",
+      "mask": null,
+      "verb": "plan.task-structure"
+    },
+    {
+      "argv": [
+        "query",
+        "teams-status"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "teams-status",
+      "mask": null,
+      "verb": "teams-status"
+    },
+    {
+      "argv": [
+        "query",
+        "websearch",
+        "como usar bd"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "websearch",
+      "mask": null,
+      "verb": "websearch"
+    },
+    {
+      "argv": [
+        "windows",
+        "append",
+        "--kind",
+        "stub",
+        "--phase",
+        "34",
+        "--file",
+        "src/x.py",
+        "--description",
+        "stub de teste"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "windows-append",
+      "mask": {
+        ".ledger": "[.]planning/windows[.]json$"
+      },
+      "verb": "windows"
+    },
+    {
+      "argv": [
+        "is"
+      ],
+      "compare": "json",
+      "expect_stderr": true,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "is-fantasma",
+      "mask": null,
+      "verb": "is"
+    },
+    {
+      "argv": [
+        "query",
+        "verification.status",
+        ".planning/phases/01-x"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-VERIFICATION.md": "---\nstatus: passed\n---\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verification-status-grafia-pontuada",
+      "mask": null,
+      "verb": "verification.status"
+    },
+    {
+      "argv": [
+        "query",
+        "verification",
+        "status",
+        ".planning/phases/01-x"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-VERIFICATION.md": "---\nstatus: passed\n---\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verification-status-grafia-espacada",
+      "mask": null,
+      "verb": "verification.status"
+    },
+    {
+      "argv": [
+        "query",
+        "verification.status",
+        ".planning/phases/01-x"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-SUMMARY.md": "# resumo do plano 01\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verification-status-sem-verification-md",
+      "mask": null,
+      "verb": "verification.status"
+    },
+    {
+      "argv": [
+        "query",
+        "verification.status"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verification-status-phase-dir-ausente",
+      "mask": null,
+      "verb": "verification.status"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.plan-structure",
+        ".planning/phases/01-x/01-01-PLAN.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-PLAN.md": "---\nphase: 01-x\nplan: 01\ntype: execute\nwave: 1\ndepends_on: []\nfiles_modified:\n  - src/a.txt\nautonomous: true\nmust_haves:\n  artifacts:\n    - path: src/a.txt\n      contains: alvo\n---\n\n<task type=\"auto\">\n  <name>Task 1: alvo</name>\n  <files>src/a.txt</files>\n  <action>faz</action>\n  <verify>ok</verify>\n  <done>feito</done>\n</task>\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-plan-structure-valido",
+      "mask": null,
+      "verb": "verify.plan-structure"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.plan-structure",
+        ".planning/phases/01-x/01-01-PLAN.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-PLAN.md": "---\nphase: 01-x\nplan: 01\ntype: execute\nwave: 1\ndepends_on: []\nfiles_modified:\n  - src/a.txt\nautonomous: true\n---\n\n<task type=\"auto\">\n  <files>src/a.txt</files>\n  <action>faz</action>\n  <verify>ok</verify>\n  <done>feito</done>\n</task>\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-plan-structure-invalido",
+      "mask": null,
+      "verb": "verify.plan-structure"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.plan-structure",
+        "nao/existe.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-plan-structure-arquivo-inexistente",
+      "mask": null,
+      "verb": "verify.plan-structure"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.plan-structure"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-plan-structure-sem-path",
+      "mask": null,
+      "verb": "verify.plan-structure"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.plan-structure",
+        ".planning/phases/01-x/01-01-PLAN.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-PLAN.md": "---\nphase: x\n---\n\u0000resto"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-plan-structure-nul",
+      "mask": null,
+      "verb": "verify.plan-structure"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.artifacts",
+        ".planning/phases/01-x/01-01-PLAN.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-PLAN.md": "---\nphase: 01-x\nplan: 01\ntype: execute\nwave: 1\ndepends_on: []\nfiles_modified:\n  - src/a.txt\nautonomous: true\nmust_haves:\n  artifacts:\n    - path: src/a.txt\n      contains: alvo\n---\n",
+          "src/a.txt": "linha com alvo\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-artifacts-passa",
+      "mask": null,
+      "verb": "verify.artifacts"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.artifacts",
+        ".planning/phases/01-x/01-01-PLAN.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-PLAN.md": "---\nphase: 01-x\nplan: 01\ntype: execute\nwave: 1\ndepends_on: []\nfiles_modified:\n  - src/a.txt\nautonomous: true\nmust_haves:\n  artifacts:\n    - path: src/a.txt\n      contains: alvo\n---\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-artifacts-reprova",
+      "mask": null,
+      "verb": "verify.artifacts"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.key-links",
+        ".planning/phases/01-x/01-01-PLAN.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-PLAN.md": "---\nphase: 01-x\nplan: 01\ntype: execute\nwave: 1\ndepends_on: []\nfiles_modified:\n  - src/c.txt\nautonomous: true\nmust_haves:\n  key_links:\n    - from: src/futuro.txt\n      to: src/b.txt\n      pattern: liga\n---\n",
+          ".planning/phases/01-x/01-02-PLAN.md": "---\nphase: 01-x\nplan: 02\ntype: execute\nwave: 2\ndepends_on: [\"01-01\"]\nfiles_modified:\n  - src/futuro.txt\nautonomous: true\nmust_haves:\n  artifacts: []\n---\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-key-links-pendente",
+      "mask": null,
+      "verb": "verify.key-links"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.commits",
+        "HEAD",
+        "0000000000000000000000000000000000000001"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "git_commit": true,
+        "planning_config": {}
+      },
+      "id": "verify-commits-particiona",
+      "mask": null,
+      "verb": "verify.commits"
+    },
+    {
+      "argv": [
+        "query",
+        "verify.commits"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-commits-sem-hash",
+      "mask": null,
+      "verb": "verify.commits"
+    },
+    {
+      "argv": [
+        "verify",
+        "codebase-drift"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-codebase-drift-skip-verde",
+      "mask": null,
+      "verb": "verify"
+    },
+    {
+      "argv": [
+        "verify",
+        "nao-existe"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "verify-subcommand-desconhecido",
+      "mask": null,
+      "verb": "verify"
+    },
+    {
+      "argv": [
+        "check",
+        "auto-mode"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "workflow": {
+            "auto_advance": true
+          }
+        }
+      },
+      "id": "check-auto-mode",
+      "mask": null,
+      "verb": "check"
+    },
+    {
+      "argv": [
+        "check",
+        "auto.mode"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {
+          "workflow": {
+            "auto_advance": true
+          }
+        }
+      },
+      "id": "check-normalizacao-pontuada",
+      "mask": null,
+      "verb": "check"
+    },
+    {
+      "argv": [
+        "check",
+        "nao-existe"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "check-subcommand-desconhecido",
+      "mask": null,
+      "verb": "check"
+    },
+    {
+      "argv": [
+        "query",
+        "check.decision-coverage-plan",
+        ".planning/phases/01-x",
+        ""
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "check-decision-coverage-plan-fail-closed",
+      "mask": null,
+      "verb": "check.decision-coverage-plan"
+    },
+    {
+      "argv": [
+        "query",
+        "check.decision-coverage-plan",
+        ".planning/phases/01-x",
+        "nao/existe/CONTEXT.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "check-decision-coverage-plan-skip-verde",
+      "mask": null,
+      "verb": "check.decision-coverage-plan"
+    },
+    {
+      "argv": [
+        "query",
+        "check.decision-coverage-plan",
+        ".planning/phases/01-x",
+        ".planning/phases/01-x/01-CONTEXT.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-PLAN.md": "---\nphase: 01-x\nplan: 01\nwave: 1\n---\n\n<task type=\"auto\">\n  <name>t</name>\n  <action>implementa a checagem por D-01</action>\n</task>\n",
+          ".planning/phases/01-x/01-CONTEXT.md": "# Phase 01 Context\n\n<decisions>\n- **D-01:** o irmao check responde a checagem inteira desta fase\n</decisions>\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "check-decision-coverage-plan-cobre",
+      "mask": null,
+      "verb": "check.decision-coverage-plan"
+    },
+    {
+      "argv": [
+        "check",
+        "predicate",
+        "--predicate",
+        "{\"kind\":\"command-exit-zero\",\"command\":\"true\"}"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "check-predicate-passa",
+      "mask": null,
+      "verb": "check"
+    },
+    {
+      "argv": [
+        "check",
+        "predicate",
+        "--predicate",
+        "{\"kind\":\"command-exit-zero\",\"command\":\"false\"}"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "check-predicate-reprova",
+      "mask": null,
+      "verb": "check"
+    },
+    {
+      "argv": [
+        "check",
+        "predicate",
+        "--predicate",
+        "{nao-json"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "check-predicate-malformado",
+      "mask": null,
+      "verb": "check"
+    },
+    {
+      "argv": [
+        "check",
+        "predicate",
+        "--predicate",
+        "{\"kind\":\"artifact-frontmatter-equals\",\"artifact\":\"VERIFICATION.md\",\"field\":\"status\",\"equals\":\"passed\"}",
+        "--phase-dir",
+        ".planning/phases/01-x"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-VERIFICATION.md": "---\nstatus: passed\n---\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "check-predicate-composto",
+      "mask": null,
+      "verb": "check"
+    },
+    {
+      "argv": [
+        "query",
+        "user-story.validate",
+        "--story",
+        "As a dev, I want to ship, so that users win."
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "user-story-valida",
+      "mask": null,
+      "verb": "user-story.validate"
+    },
+    {
+      "argv": [
+        "query",
+        "user-story.validate",
+        "--story",
+        "As a dev, I want to ship."
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "user-story-sem-outcome",
+      "mask": null,
+      "verb": "user-story.validate"
+    },
+    {
+      "argv": [
+        "query",
+        "user-story.validate"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "user-story-vazia",
+      "mask": null,
+      "verb": "user-story.validate"
+    },
+    {
+      "argv": [
+        "query",
+        "user-story.frobar",
+        "--story",
+        "x"
+      ],
+      "compare": "json",
+      "divergent_from_real": true,
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "user-story-subcommand-errado",
+      "mask": null,
+      "verb": "user-story.validate"
+    },
+    {
+      "argv": [
+        "query",
+        "uat.render-checkpoint",
+        "--file",
+        "UAT.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "UAT.md": "# UAT da fase\n\n## Current Test\n\nnumber: 2\nname: O irmao check responde\nexpected: |\n  As duas grafias devolvem envelope identico.\n\n## Tests\n"
+        },
+        "git": true,
+        "planning_config": {
+          "response_language": "english"
+        }
+      },
+      "id": "uat-render-checkpoint",
+      "mask": null,
+      "verb": "uat.render-checkpoint"
+    },
+    {
+      "argv": [
+        "query",
+        "uat.render-checkpoint",
+        "--file",
+        "UAT.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          "UAT.md": "# UAT\n\n## Current Test\n\n[testing complete]\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "uat-render-checkpoint-sessao-completa",
+      "mask": null,
+      "verb": "uat.render-checkpoint"
+    },
+    {
+      "argv": [
+        "query",
+        "uat.render-checkpoint"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "uat-render-checkpoint-sem-file",
+      "mask": null,
+      "verb": "uat.render-checkpoint"
+    },
+    {
+      "argv": [
+        "query",
+        "uat.classify-coverage",
+        "--summary",
+        ".planning/phases/01-x/01-01-SUMMARY.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-SUMMARY.md": "---\nphase: 01-x\nplan: 01\ncoverage:\n  - id: COV-01\n    description: grafia dupla coberta por golden\n    human_judgment: false\n    verification:\n      - kind: unit\n        ref: tests/cairn-gsd.bats\n        status: pass\n---\n\n# resumo\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "uat-classify-coverage-auto-passed",
+      "mask": null,
+      "verb": "uat.classify-coverage"
+    },
+    {
+      "argv": [
+        "query",
+        "uat.classify-coverage",
+        "--file",
+        ".planning/phases/01-x/01-01-SUMMARY.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-SUMMARY.md": "---\nphase: 01-x\nplan: 01\ncoverage:\n  - id: COV-02\n    description: olhar humano no layout\n    human_judgment: true\n    rationale: estetica e julgamento humano\n---\n\n# resumo\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "uat-classify-coverage-fail-safe",
+      "mask": null,
+      "verb": "uat.classify-coverage"
+    },
+    {
+      "argv": [
+        "query",
+        "uat.classify-coverage",
+        "--summary",
+        ".planning/phases/01-x/01-01-SUMMARY.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/phases/01-x/01-01-SUMMARY.md": "---\nphase: 01-x\nplan: 01\n---\n\n# resumo sem coverage\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "uat-classify-coverage-legacy",
+      "mask": null,
+      "verb": "uat.classify-coverage"
+    },
+    {
+      "argv": [
+        "query",
+        "agent.classify-failure",
+        "--",
+        "429 rate limit retry-after: 30"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "agent-classify-quota",
+      "mask": null,
+      "verb": "agent.classify-failure"
+    },
+    {
+      "argv": [
+        "query",
+        "agent.classify-failure",
+        "--",
+        "erro qualquer sem padrao"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "agent-classify-unknown",
+      "mask": null,
+      "verb": "agent.classify-failure"
+    },
+    {
+      "argv": [
+        "query",
+        "audit-open",
+        "--json"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "audit-open-vazio",
+      "mask": {
+        ".scanned_at": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$"
+      },
+      "verb": "audit-open"
+    },
+    {
+      "argv": [
+        "query",
+        "audit-open",
+        "--json"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {
+          ".planning/debug/sessao-x.md": "---\nstatus: open\nupdated: 2026-08-11\n---\n\n## Current Focus\n\nhipotese do vazamento\n",
+          ".planning/todos/pending/todo-1.md": "---\npriority: alta\narea: gsd\n---\n\nligar o guard\n"
+        },
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "audit-open-com-itens",
+      "mask": {
+        ".scanned_at": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$"
+      },
+      "verb": "audit-open"
+    },
+    {
+      "argv": [
+        "query",
+        "task.is-behavior-adding",
+        "--task-content",
+        "<task type=\"auto\" tdd=\"true\"><behavior>usuario ve o resultado novo</behavior><files>src/motor.py</files></task>"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "task-is-behavior-adding-true",
+      "mask": null,
+      "verb": "task.is-behavior-adding"
+    },
+    {
+      "argv": [
+        "query",
+        "task.is-behavior-adding",
+        "--task-content",
+        "<task type=\"auto\"><files>docs/nota.md</files></task>"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "task-is-behavior-adding-false",
+      "mask": null,
+      "verb": "task.is-behavior-adding"
+    },
+    {
+      "argv": [
+        "query",
+        "task.is-behavior-adding",
+        "../fora-do-escopo.md"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "task-is-behavior-adding-path-invalido",
+      "mask": null,
+      "verb": "task.is-behavior-adding"
+    },
+    {
+      "argv": [
+        "review-lane",
+        "flags"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "review-lane-flags",
+      "mask": null,
+      "verb": "review-lane"
+    },
+    {
+      "argv": [
+        "review-lane",
+        "sections"
+      ],
+      "compare": "bytes",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "review-lane-sections",
+      "mask": null,
+      "verb": "review-lane"
+    },
+    {
+      "argv": [
+        "review-lane",
+        "nao-existe"
+      ],
+      "compare": "json",
+      "expect_stderr": false,
+      "fixture": {
+        "files": {},
+        "git": true,
+        "planning_config": {}
+      },
+      "id": "review-lane-subcommand-invalido",
+      "mask": null,
+      "verb": "review-lane"
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

@@ -1,0 +1,570 @@
+{
+  "family": "roadmap-phase",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  },
+  "verbs": [
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "emite o directory como texto em vez do envelope JSON",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query find-phase <phase>",
+      "notes": "Localiza o diretorio da fase por token match (normalizePhaseName + phaseTokenMatches) em .planning/phases/ e nos milestones arquivados (milestones/v*-phases, ordenados). Devolve plans (canonicos) e summaries do diretorio; warning quando ha planos nao-canonicos. Nao encontrada -> {found: false} com searched_directories preenchido, exit 0. Roteado por routeFindPhase em gsd-core/bin/gsd-tools.cjs L890-L904 (nao pertence a familia hub; comando nao-familia).",
+      "output": {
+        "exit_codes": {
+          "0": "fase encontrada ({found: true, directory, ...}) ou nao ({found: false, searched_directories})",
+          "1": "identificador de fase ausente (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "directory",
+          "found",
+          "phase_name",
+          "phase_number",
+          "plans",
+          "searched_directories",
+          "summaries",
+          "warning"
+        ]
+      },
+      "source_ref": {
+        "lines": "L403-L598",
+        "path": "src/phase.cts"
+      },
+      "spellings": [
+        "query find-phase"
+      ],
+      "verb": "find-phase"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<subcommand>",
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "emite forma condensada quando o handler do subcommand a define",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run phase uat-passed <phase>",
+      "notes": "Comando de familia (routePhaseCommand): o unico sitio do universo usa o subcommand uat-passed (verify-work.md:596). cmdPhaseUatPassed resolve o diretorio via findPhaseInternal e roda evaluateUatPassed (src/uat-predicate.cts L203+, shape travada da UatPassedReport, FAIL-CLOSED: ausencia/ambiguidade -> passed false). Shape abaixo e a do payload de uat-passed ({phase, ...report}). Subcommand desconhecido -> 'Unknown phase subcommand. Available: ...' exit 1 (router L272-L277); scaffold e unsupported.",
+      "output": {
+        "exit_codes": {
+          "0": "avaliacao concluida — o veredito vai em passed/blockers, nunca no exit",
+          "1": "phase ausente, fase nao encontrada, ou subcommand desconhecido/unsupported (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "blockers",
+          "checks",
+          "no_uat_artifacts",
+          "passed",
+          "phase",
+          "policy",
+          "uat_files",
+          "verification_files",
+          "verification_stale_check_indeterminate"
+        ]
+      },
+      "source_ref": {
+        "lines": "L2786-L2814",
+        "path": "src/phase.cts"
+      },
+      "spellings": [
+        "phase"
+      ],
+      "verb": "phase"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 2
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "sem forma condensada propria — output(result, raw) sem terceiro argumento",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query phase-plan-index <phase>",
+      "notes": "Indexa os PLAN.md canonicos da fase com wave, status (SUMMARY presente?) e checkpoints: plans (objetos por plano), waves (mapa wave -> ids), incomplete, runnable, has_checkpoints. Fase nao achada -> {phase, error: 'Phase not found', plans: [], ...} com exit 0. warning para planos nao-canonicos, warnings para frontmatter problematico. Roteado por routePhasePlanIndex em gsd-core/bin/gsd-tools.cjs L2124-L2126 (comando nao-familia).",
+      "output": {
+        "exit_codes": {
+          "0": "indice construido, ou fase nao encontrada ({error} no payload)",
+          "1": "phase ausente (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "error",
+          "has_checkpoints",
+          "incomplete",
+          "phase",
+          "plans",
+          "runnable",
+          "warning",
+          "warnings",
+          "waves"
+        ]
+      },
+      "source_ref": {
+        "lines": "L599-L870",
+        "path": "src/phase.cts"
+      },
+      "spellings": [
+        "query phase-plan-index"
+      ],
+      "verb": "phase-plan-index"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "sem forma condensada propria",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query phase.complete <phase>",
+      "notes": "Fecha a fase: marca ROADMAP/STATE/REQUIREMENTS, calcula next_phase, poda artefatos aposentados (auto_pruned) e reporta warnings. O adapter do router (src/phase-command-router.cts L171-L186) rejeita QUALQUER flag alem de --raw ('phase complete does not support X'). shape do result em src/phase.cts L2766-L2781.",
+      "output": {
+        "exit_codes": {
+          "0": "fase completada — warnings vao no payload (has_warnings)",
+          "1": "phase ausente, fase nao encontrada, ou flag nao suportada (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "auto_pruned",
+          "completed_phase",
+          "date",
+          "has_warnings",
+          "is_last_phase",
+          "next_phase",
+          "next_phase_name",
+          "phase_name",
+          "plans_executed",
+          "requirements_updated",
+          "roadmap_updated",
+          "state_updated",
+          "verification_stale_check_indeterminate",
+          "warnings"
+        ]
+      },
+      "source_ref": {
+        "lines": "L1796-L2785",
+        "path": "src/phase.cts"
+      },
+      "spellings": [
+        "query phase.complete"
+      ],
+      "verb": "phase.complete"
+    },
+    {
+      "call_sites": {
+        "agents": 2,
+        "workflows8": 0
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--type",
+            "meaning": "tipo de artefato pedido pelos call sites (research, summary) — flag que o router da tag nunca chega a ler",
+            "takes_value": true
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query phase.list-artifacts <phase> --type <tipo>",
+      "notes": "MISMATCH corpus vs implementacao: o verbo NAO existe na tag. 'list-artifacts' nao consta de PHASE_COMMAND_ALIASES (src/command-aliases.cts L487-L801 lista os canonicos phase.*) nem ha handler em src/ ou no bundle bakeado. Toda invocacao cai no caminho UnknownCommand do hub e morre 'Unknown phase subcommand. Available: ...' com exit 1. Os 2 sitios (agents/gsd-plan-checker.md:722,724) chamam um verbo fantasma — o source_ref aponta o caminho de erro que responde a chamada. A fase 33 precisa decidir: implementar o verbo ou corrigir o agente.",
+      "output": {
+        "exit_codes": {
+          "1": "sempre — UnknownCommand: 'Unknown phase subcommand. Available: ...' em stderr"
+        },
+        "kind": "exit-only",
+        "shape": []
+      },
+      "source_ref": {
+        "lines": "L272-L277",
+        "path": "src/phase-command-router.cts"
+      },
+      "spellings": [
+        "query phase.list-artifacts"
+      ],
+      "verb": "phase.list-artifacts"
+    },
+    {
+      "call_sites": {
+        "agents": 1,
+        "workflows8": 0
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "sem forma condensada propria",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query phase.list-plans <phase>",
+      "notes": "#1437: lista os PLAN.md da fase via findPhaseInternal + scanPhasePlans, com paths relativos utilizaveis (phase_dir + arquivo, POSIX). Fase nao encontrada -> {phase, plan_count: 0, has_plans: false, plans: [], phase_dir: null} com exit 0. Roteado pelo adapter em src/phase-command-router.cts L214-L240.",
+      "output": {
+        "exit_codes": {
+          "0": "lista devolvida (vazia quando a fase nao existe)",
+          "1": "phase ausente (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "has_plans",
+          "phase",
+          "phase_dir",
+          "plan_count",
+          "plans"
+        ]
+      },
+      "source_ref": {
+        "lines": "L2815-L2841",
+        "path": "src/phase.cts"
+      },
+      "spellings": [
+        "query phase.list-plans"
+      ],
+      "verb": "phase.list-plans"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 3
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--cli-flag",
+            "meaning": "forca active: true com source: cli_flag (precedencia maxima)",
+            "takes_value": false
+          },
+          {
+            "flag": "--raw",
+            "meaning": "sem forma condensada propria",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query phase.mvp-mode <phase> [--cli-flag]",
+      "notes": "Resolve o modo MVP da fase em precedencia cli_flag > roadmap (Mode: mvp na secao da fase) > config (mvp_mode). CJS-only: despachado ANTES do hub (src/phase-command-router.cts L85). Call sites extraem --pick active. source e um de cli_flag/roadmap/config/none.",
+      "output": {
+        "exit_codes": {
+          "0": "modo resolvido",
+          "1": "phase ausente (error() USAGE)"
+        },
+        "kind": "json",
+        "shape": [
+          "active",
+          "cli_flag_present",
+          "config_mvp_mode",
+          "roadmap_mode",
+          "source"
+        ]
+      },
+      "source_ref": {
+        "lines": "L367-L402",
+        "path": "src/phase.cts"
+      },
+      "spellings": [
+        "query phase.mvp-mode"
+      ],
+      "verb": "phase.mvp-mode"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--type",
+            "meaning": "filtra arquivos por tipo: plans (PLAN.md canonicos) ou summaries (*-SUMMARY.md); muda o shape para files/count",
+            "takes_value": true
+          },
+          {
+            "flag": "--phase",
+            "meaning": "restringe a uma fase (token match); nao achada -> {files: [], count: 0, phase_dir: null, error}",
+            "takes_value": true
+          },
+          {
+            "flag": "--include-archived",
+            "meaning": "inclui diretorios de fases arquivadas ('nome [milestone]')",
+            "takes_value": false
+          },
+          {
+            "flag": "--raw",
+            "meaning": "emite a lista uma-por-linha em vez do envelope JSON",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query phases.list [--type plans|summaries] [--phase <N>] [--include-archived]",
+      "notes": "Sem --type devolve {directories, count}; com --type devolve {files, count, phase_dir, warning?}. MISMATCH no call site: plan-phase.md:154 pede --pick summaries_total, chave que o handler NUNCA emite — extractField nao acha e o --pick devolve string vazia (o fallback '|| echo 0' do caller nao dispara porque o exit e 0). Roteado por routePhasesCommand ('list') em src/phases-command-router.cts L55-L64.",
+      "output": {
+        "exit_codes": {
+          "0": "lista devolvida (inclusive vazia); phase nao achada vai como {error} no payload",
+          "1": "falha de leitura do diretorio de fases (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "count",
+          "directories",
+          "error",
+          "files",
+          "phase_dir",
+          "warning"
+        ]
+      },
+      "source_ref": {
+        "lines": "L201-L274",
+        "path": "src/phase.cts"
+      },
+      "spellings": [
+        "query phases.list"
+      ],
+      "verb": "phases.list"
+    },
+    {
+      "call_sites": {
+        "agents": 1,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "sem forma condensada propria",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query roadmap.analyze",
+      "notes": "Analisa o ROADMAP.md inteiro (milestones + fases com plan_count/summary_count por diretorio) e deriva progresso agregado. ROADMAP.md ausente -> {error, milestones: [], phases: [], current_phase: null} com exit 0. missing_phase_details lista fases no checklist sem secao de detalhe. Roteado por routeRoadmapCommand ('analyze') em src/roadmap-command-router.cts L144.",
+      "output": {
+        "exit_codes": {
+          "0": "sempre — ausencia do roadmap vai como {error} no payload"
+        },
+        "kind": "json",
+        "shape": [
+          "completed_phases",
+          "current_phase",
+          "error",
+          "milestones",
+          "missing_phase_details",
+          "next_phase",
+          "phase_count",
+          "phases",
+          "progress_percent",
+          "total_plans",
+          "total_summaries"
+        ]
+      },
+      "source_ref": {
+        "lines": "L303-L511",
+        "path": "src/roadmap.cts"
+      },
+      "spellings": [
+        "query roadmap.analyze"
+      ],
+      "verb": "roadmap.analyze"
+    },
+    {
+      "call_sites": {
+        "agents": 0,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "emite resumo textual ('annotated N wave(s), M constraint(s)' | 'skipped ...')",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query roadmap.annotate-dependencies <phase>",
+      "notes": "Anota o checklist de planos da fase no ROADMAP.md com headers de wave ('Wave 2 — blocked on Wave 1 completion') e subsecao de cross-cutting constraints (truths de must_haves presentes em 2+ planos). Idempotente: headers ja presentes -> updated: false. Pre-condicoes ausentes viram {updated: false, reason} com exit 0. Roteado por routeRoadmapCommand ('annotate-dependencies') em src/roadmap-command-router.cts L146.",
+      "output": {
+        "exit_codes": {
+          "0": "anotado ou skip idempotente/sem planos ({updated, reason?})",
+          "1": "phase ausente (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "cross_cutting_constraints",
+          "phase",
+          "reason",
+          "updated",
+          "waves"
+        ]
+      },
+      "source_ref": {
+        "lines": "L791-L980",
+        "path": "src/roadmap.cts"
+      },
+      "spellings": [
+        "query roadmap.annotate-dependencies"
+      ],
+      "verb": "roadmap.annotate-dependencies"
+    },
+    {
+      "call_sites": {
+        "agents": 3,
+        "workflows8": 5
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "emite a section como texto em vez do envelope JSON",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query roadmap.get-phase <phase>",
+      "notes": "Resolve a secao da fase no ROADMAP.md em duas passadas (milestone corrente, depois roadmap completo sem shipped) e tres fontes de lookup em ordem (exact -> numeric -> prefix-tolerant, #2121/#3599/#3537). Payload achado: found/phase_number/phase_name/goal/mode/success_criteria/section (mode lowercased, ex: mvp). Checklist sem secao de detalhe -> {found: false, error: 'malformed_roadmap', message}. Fase 999* e curto-circuito {found: false}. Call sites extraem --pick goal/mode/section. Roteado por routeRoadmapCommand ('get-phase') em src/roadmap-command-router.cts L143.",
+      "output": {
+        "exit_codes": {
+          "0": "resolvido ou nao encontrado ({found: false}); malformed_roadmap tambem sai 0",
+          "1": "falha de leitura do ROADMAP.md (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "error",
+          "found",
+          "goal",
+          "message",
+          "mode",
+          "phase_name",
+          "phase_number",
+          "section",
+          "success_criteria"
+        ]
+      },
+      "source_ref": {
+        "lines": "L249-L302",
+        "path": "src/roadmap.cts"
+      },
+      "spellings": [
+        "query roadmap.get-phase"
+      ],
+      "verb": "roadmap.get-phase"
+    },
+    {
+      "call_sites": {
+        "agents": 1,
+        "workflows8": 1
+      },
+      "input": {
+        "argv": [
+          "<phase>"
+        ],
+        "flags": [
+          {
+            "flag": "--raw",
+            "meaning": "emite 'S/P status' em vez do envelope JSON",
+            "takes_value": false
+          }
+        ],
+        "stdin": null
+      },
+      "invocation": "gsd_run query roadmap.update-plan-progress <phase>",
+      "notes": "Reconta PLAN vs SUMMARY da fase no disco e atualiza a linha da tabela de Progress do ROADMAP.md (escopo em camadas ADR-2143 §7: milestone corrente -> secao ## Progress; nunca toca milestone arquivado) e marca checkboxes dos planos com SUMMARY. status derivado (complete quando summary_count == plan_count). Sem planos ou sem roadmap -> {updated: false, reason} com exit 0. Roteado por routeRoadmapCommand ('update-plan-progress') em src/roadmap-command-router.cts L145.",
+      "output": {
+        "exit_codes": {
+          "0": "linha atualizada ({updated: true, ...}) ou skip com razao",
+          "1": "phase ausente ou fase nao encontrada (error())"
+        },
+        "kind": "json",
+        "shape": [
+          "complete",
+          "phase",
+          "plan_count",
+          "reason",
+          "status",
+          "summary_count",
+          "updated",
+          "verification_stale_check_indeterminate"
+        ]
+      },
+      "source_ref": {
+        "lines": "L533-L790",
+        "path": "src/roadmap.cts"
+      },
+      "spellings": [
+        "query roadmap.update-plan-progress"
+      ],
+      "verb": "roadmap.update-plan-progress"
+    }
+  ]
+}

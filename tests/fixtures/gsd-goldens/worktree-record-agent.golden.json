@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"ok\": true,\n  \"reason\": \"ok\",\n  \"entry\": {\n    \"agent_id\": \"a2\",\n    \"path\": \"<masked>\",\n    \"branch\": \"agent-a2\",\n    \"base\": \"abc123\"\n  },\n  \"manifest_path\": \"<masked>\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "worktree-record-agent",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

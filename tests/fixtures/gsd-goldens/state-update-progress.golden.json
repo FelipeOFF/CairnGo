@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"updated\": true,\n  \"percent\": 50,\n  \"completed\": 1,\n  \"total\": 2,\n  \"bar\": \"[██████████░░░░░░░░░░] 50%\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "state-update-progress",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

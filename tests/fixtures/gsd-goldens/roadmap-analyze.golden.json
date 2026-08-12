@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"milestones\": [\n    \"v1.0 Primeiro\"\n  ],\n  \"phases\": [\n    {\n      \"phase\": 34,\n      \"name\": \"Fase de teste\",\n      \"complete\": false,\n      \"plan_count\": 2,\n      \"summary_count\": 1\n    },\n    {\n      \"phase\": 35,\n      \"name\": \"Fase seguinte\",\n      \"complete\": false,\n      \"plan_count\": 0,\n      \"summary_count\": 0\n    }\n  ],\n  \"phase_count\": 2,\n  \"completed_phases\": 0,\n  \"current_phase\": 34,\n  \"next_phase\": 35,\n  \"total_plans\": 2,\n  \"total_summaries\": 1,\n  \"progress_percent\": 50,\n  \"missing_phase_details\": []\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "roadmap-analyze",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

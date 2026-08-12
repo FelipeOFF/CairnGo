@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"project_root\": \"<masked>\",\n  \"agents_dir\": \"<masked>\",\n  \"agents_installed\": true,\n  \"missing_agents\": [],\n  \"agent_runtime\": \"claude\",\n  \"project_code\": null,\n  \"project_title\": null,\n  \"response_language\": null,\n  \"phase_found\": true,\n  \"phase_number\": 34,\n  \"phase_name\": \"fase-teste\",\n  \"phase_slug\": \"fase-teste\",\n  \"padded_phase\": \"34\",\n  \"phase_dir\": \"<masked>\",\n  \"expected_phase_dir\": \"<masked>\",\n  \"plan_count\": 2,\n  \"planning_exists\": true,\n  \"has_plans\": true,\n  \"has_research\": false,\n  \"research_path\": null,\n  \"has_context\": false,\n  \"context_path\": null,\n  \"has_reviews\": false,\n  \"reviews_path\": null,\n  \"has_verification\": false,\n  \"verification_path\": null,\n  \"uat_path\": null,\n  \"brave_search\": null,\n  \"exa_search\": null,\n  \"firecrawl\": null,\n  \"commit_docs\": true,\n  \"roadmap_exists\": true,\n  \"roadmap_path\": \"<masked>\",\n  \"requirements_path\": \"<masked>\",\n  \"state_path\": \"<masked>\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "init-phase-op",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

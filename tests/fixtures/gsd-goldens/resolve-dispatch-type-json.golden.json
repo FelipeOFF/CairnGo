@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"runtime\": \"claude\",\n  \"requested\": \"gsd-planner\",\n  \"resolved\": \"gsd-planner\",\n  \"dispatch\": {\n    \"namedDispatch\": true,\n    \"nested\": true,\n    \"maxDepth\": 5,\n    \"background\": true,\n    \"subagentToolkit\": \"full\",\n    \"backgroundDispatch\": false,\n    \"isolation\": \"harness-worktree\"\n  }\n}"
+  },
+  "provenance": "recorded",
+  "scenario": "resolve-dispatch-type-json",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

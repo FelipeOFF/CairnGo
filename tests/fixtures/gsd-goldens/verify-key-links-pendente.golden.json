@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"all_verified\": true, \"verified\": 0, \"pending\": 1, \"total\": 1, \"links\": [{\"from\": \"src/futuro.txt\", \"to\": \"src/b.txt\", \"via\": \"\", \"verified\": false, \"detail\": \"Source file not yet created — declared in files_modified of a same-or-later-wave plan\", \"pending\": true}]}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "verify-key-links-pendente",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

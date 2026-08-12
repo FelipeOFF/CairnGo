@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"project_root\": \"<masked>\",\n  \"agents_dir\": \"<masked>\",\n  \"agents_installed\": true,\n  \"missing_agents\": [],\n  \"agent_runtime\": \"claude\",\n  \"project_code\": null,\n  \"project_title\": null,\n  \"response_language\": null,\n  \"project_exists\": false,\n  \"roadmap_exists\": true,\n  \"state_exists\": true,\n  \"phase_count\": 2,\n  \"completed_count\": 0,\n  \"in_progress_count\": 1,\n  \"all_complete\": false,\n  \"milestone_name\": \"v1.0 Primeiro\",\n  \"milestone_version\": \"v1.0\",\n  \"phases\": [\n    {\n      \"phase\": 34,\n      \"name\": \"Fase de teste\",\n      \"complete\": false\n    },\n    {\n      \"phase\": 35,\n      \"name\": \"Fase seguinte\",\n      \"complete\": false\n    }\n  ],\n  \"discuss\": \"/gsd:discuss-phase 34\",\n  \"plan\": \"/gsd:plan-phase 34\",\n  \"execute\": \"/gsd:execute-phase 34\",\n  \"manager_flags\": [],\n  \"recommended_actions\": [],\n  \"waiting_signal\": false\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "init-manager",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

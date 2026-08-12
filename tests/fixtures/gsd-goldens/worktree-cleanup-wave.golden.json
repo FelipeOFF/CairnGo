@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"ok\": true,\n  \"plan\": {\n    \"action\": \"cleanup\",\n    \"discovery\": \"manifest\",\n    \"reason\": \"wave-complete\",\n    \"entries\": [\n      {\n        \"path\": \"<masked>\",\n        \"action\": \"skipped\",\n        \"reason\": \"missing\"\n      }\n    ]\n  },\n  \"result\": {\n    \"ok\": true,\n    \"removed\": 0\n  }\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "worktree-cleanup-wave",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"point\": \"plan:post\",\n  \"activeHooks\": [\n    {\n      \"capId\": \"cairn\",\n      \"kind\": \"contribution\",\n      \"into\": \"planner\",\n      \"fragment\": {\n        \"path\": \"fragments/plan-post.md\"\n      },\n      \"when\": \"cairn.enabled\",\n      \"produces\": [\n        \".planning/phases/<phase>/<NN>-BEADS-MAP.md\"\n      ],\n      \"consumes\": [\n        \"PLAN.md\"\n      ],\n      \"onError\": \"skip\"\n    }\n  ],\n  \"rendered\": \"<contribution from=\\\"cairn\\\" into=\\\"planner\\\">\\n_Contribution fragment path is declared but not rendered by loop-resolver: fragments/plan-post.md_\\n- produces: .planning/phases/<phase>/<NN>-BEADS-MAP.md\\n- consumes: PLAN.md\\n- when: `cairn.enabled`\\n- onError: skip\\n</contribution>\",\n  \"warnings\": []\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "loop-plan-post-native",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

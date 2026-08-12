@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"path\": \".planning/phases/34-fase-teste/34-01-SUMMARY.md\",\n  \"one_liner\": \"JWT com rotacao de refresh\",\n  \"key_files\": [\n    \"src/auth.ts\",\n    \"src/app.ts\"\n  ],\n  \"tech_added\": [\n    \"jose\"\n  ],\n  \"patterns\": [\n    \"refresh rotation\"\n  ],\n  \"decisions\": [\n    {\n      \"summary\": \"usar jose\",\n      \"rationale\": \"menor superficie\"\n    }\n  ],\n  \"requirements_completed\": [\n    \"CORE-01\"\n  ]\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "summary-extract",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

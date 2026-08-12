@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "--gemini\n--claude\n--codex\n--coderabbit\n--opencode\n--qwen\n--cursor\n--antigravity\n--agy\n--ollama\n--lm-studio\n--llama-cpp\n--kimi-code\n"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "review-lane-flags",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

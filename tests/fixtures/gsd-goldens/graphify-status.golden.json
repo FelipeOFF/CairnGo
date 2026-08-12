@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"available\": false,\n  \"reason\": \"graphify: capability não habilitada no cairn — o subsistema foi cortado pelo research §4; nenhum call site do corpus o consome\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "graphify-status",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

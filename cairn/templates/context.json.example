@@ -1,0 +1,18 @@
+{
+  "$schema": "cairn context-mode integration. Makes context-mode (the ctx_* MCP tools) GSD/beads-aware: scope the knowledge base by the active bd issue + GSD phase, and watch token usage to advise task-splitting. SCOPE-BY-LABEL ONLY — this layer never deletes the knowledge base; purge stays a manual, explicit user action. The presence of this file opts the repo in.",
+  "enabled": true,
+  "scoping": {
+    "source_template": "gb/{bd_id}/{phase}",
+    "_comment": "Every ctx_index / ctx_batch_execute done while a bd issue is active uses this as its `source` label. Retrieval is scoped with ctx_search(source: \"<bd_id>\") for the task, or source: \"<phase>\" for the whole phase. {bd_id} = active issue id (e.g. proj-7hp); {phase} = its phase label (e.g. phase-3)."
+  },
+  "capacity_guard": {
+    "enabled": true,
+    "token_threshold": 150000,
+    "action": "advise_split",
+    "_comment": "When ctx_stats reports cumulative tool-output tokens for the session above token_threshold, advise splitting the active bd issue into sub-issues (bd create + bd dep add) before continuing, then carry the source label onto the new ids. Heuristic, agent-driven — context-mode cannot pause execution itself. Default tuned for MEDIUM multi-phase loops; lower it for short single-phase loops, raise it for long autonomous runs."
+  },
+  "reset": {
+    "mode": "scope-by-label",
+    "_comment": "scope-by-label = never delete mid-project; isolate phases/tasks by source label only. context-mode can only delete by whole session or whole project, so any real wipe (ctx_purge) stays a manual, explicit user action — this integration never calls it automatically."
+  }
+}

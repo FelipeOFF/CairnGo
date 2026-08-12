@@ -1,0 +1,39 @@
+{
+  "name": "cairngo",
+  "owner": {
+    "name": "Felipe Oliveira (FelipeOFF)",
+    "url": "https://github.com/FelipeOFF"
+  },
+  "metadata": {
+    "description": "CairnGo — Claude Code plugins by FelipeOFF",
+    "version": "1.0.0"
+  },
+  "allowCrossMarketplaceDependenciesOn": [
+    "context-mode"
+  ],
+  "plugins": [
+    {
+      "name": "cairn",
+      "source": "./cairn",
+      "description": "Cairn — marks the trail and remembers the path. Self-contained: the GSD planning runtime ships INSIDE the plugin (no external gsd-core plugin is installed or required), and installing cairn bootstraps the beads issue tracker (bd); a single /cairn:init wires a project end to end, while /cairn:migrate wires repos that already have .planning/ or .beads/ history. The /cairn:* verbs drive the whole loop — plan, work, verify, ship — creating, claiming, closing and gating bd issues as they go. Optionally mirrors bd issues two-way (hub-and-spoke) to GitHub Issues, GitLab, Jira, Asana, and Azure Boards, and optionally makes the context-mode knowledge base intent-aware (scopes compressed memory to the active issue + phase). The integration conventions activate only in repos that use both GSD and beads.",
+      "category": "workflow",
+      "tags": [
+        "cairn",
+        "gsd",
+        "beads",
+        "bd",
+        "planning",
+        "issue-tracker",
+        "workflow",
+        "github",
+        "gitlab",
+        "jira",
+        "asana",
+        "azure-boards",
+        "sync",
+        "context-mode",
+        "memory"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "id": "longhorizon-notify",
+  "category": "long-horizon",
+  "timeout_s": 600,
+  "max_turns": 14,
+  "prompt_file": "prompt.md",
+  "model": "claude-haiku-4-5-20251001"
+}

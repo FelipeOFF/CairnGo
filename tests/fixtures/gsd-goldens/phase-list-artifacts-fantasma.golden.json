@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 1,
+    "stderr": "[cairn-gsd-state] error: Unknown phase subcommand. Available: uat-passed — phase.list-artifacts é verbo fantasma da tag (contrato da fase 31)",
+    "stdout": ""
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "phase-list-artifacts-fantasma",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

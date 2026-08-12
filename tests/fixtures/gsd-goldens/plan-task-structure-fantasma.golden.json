@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 1,
+    "stderr": "[cairn-gsd-init] error: Unknown command: plan — plan.task-structure é verbo fantasma da tag (contrato da fase 31); a checagem real é verify.plan-structure (fase 35)",
+    "stdout": ""
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "plan-task-structure-fantasma",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

@@ -1,0 +1,541 @@
+{
+  "divergences": [
+    {
+      "aspect": "workstream-root-layer",
+      "cairn": "camada ausente — a cadeia vai direto do config do escopo para --default",
+      "family": "config",
+      "reason": "o cairn não usa workstreams; a camada seria código morto e a regra do CONTEXT manda declarar, não improvisar",
+      "upstream": "resolveFromRootConfig (#2702): com workstream ativo sem config próprio, o config root do projeto herda antes de --default e do schema default",
+      "verb": "config-get"
+    },
+    {
+      "aspect": "raw-flag-contract-doc",
+      "cairn": "igual ao binário medido: sem --raw sai JSON.stringify(valor, null, 2); com --raw sai String(valor); nenhum dos dois carrega newline final",
+      "family": "config",
+      "reason": "cairn/gsd/contracts/config.json (fase 31) descreve o --raw invertido em relação ao binário real (medido em src/io.cts output() e gsd-tools.cjs L3782-3784); o diferencial segue o binário porque é dele que os goldens gravam, e a árvore de contratos é somente-leitura para a fase 33",
+      "upstream": "binário real: default é JSON (indent 2, string com aspas), --raw é texto String(valor)",
+      "verb": "config-get"
+    },
+    {
+      "aspect": "schema-default-source",
+      "cairn": "dotted-get sobre o config-defaults.manifest.json resolvido pela cadeia declarada (vendorizado → clone em cache verificado → falha nomeada)",
+      "family": "config",
+      "reason": "TRIV-01 manda o manifest de defaults ser a fonte; os valores coincidem nas chaves que os 8 workflows consultam (ex. context_window=200000, workflow.research=true) e o capability-registry é módulo JS que o binário python não executa",
+      "upstream": "SCHEMA_DEFAULTS hardcoded (context_window, executor.*, planner.*, git.create_tag, workflow.smart_zone_tokens) mais o default do capability-registry configSchema (src/config.cts resolveSchemaDefault)",
+      "verb": "config-get"
+    },
+    {
+      "aspect": "valid-keys-domain",
+      "cairn": "validKeys + runtimeStateKeys + dynamicKeyPatterns do config-schema.manifest.json irmão do manifest de defaults resolvido, unidos aos dotted-paths do próprio manifest de defaults; sem o irmão, só os caminhos do manifest mais os padrões que o contrato nomeia (agent_skills.<agent>, features.<nome>)",
+      "family": "config",
+      "reason": "o capability-registry é .cjs e não é legível sem node; os dotted-paths do manifest cobrem as chaves federadas que os workflows gravam (ex. workflow.research); a mensagem de erro lista o domínio efetivo do cairn, não o texto exato do upstream",
+      "upstream": "isValidConfigKey: VALID_CONFIG_KEYS + RUNTIME_STATE_KEYS + DYNAMIC_KEY_PATTERNS + chaves federadas do capability-registry configSchema",
+      "verb": "config-set"
+    },
+    {
+      "aspect": "capability-type-validation",
+      "cairn": "só os validadores centrais hardcoded do cmdConfigSet são reproduzidos (enums, booleans, inteiros positivos)",
+      "family": "config",
+      "reason": "mesma raiz da entrada valid-keys-domain: o registry não é legível sem node; os validadores centrais cobrem os erros contratados que os workflows exercitam",
+      "upstream": "capDef do capability-registry valida o tipo (enum/boolean/number/string) das chaves federadas em config-set",
+      "verb": "config-set"
+    },
+    {
+      "aspect": "branch-precreation",
+      "cairn": "nenhuma pré-criação de branch — o commit sempre cai na branch corrente",
+      "family": "commit",
+      "reason": "a resolução de branch exige findPhaseInternal/getMilestoneInfo (família estado, fase 34); o corpus do cairn usa git.branching_strategy=none, então o ramo nunca dispara nos call sites; portar metade seria pior que declarar",
+      "upstream": "#1278/#2539/#3079: com branching_strategy phase|milestone, cmdCommit cria (sem trocar) a branch da fase/milestone antes do primeiro commit, com warnings em stderr",
+      "verb": "commit"
+    },
+    {
+      "aspect": "persona-fallback-2454",
+      "cairn": "fallback não portado — sem config o bloco sai vazio, sempre",
+      "family": "skills",
+      "reason": "o fallback é GATED a runtime !== claude no upstream; o cairn é host único claude, então o ramo é código morto aqui — o contrato da fase 31 já registra que em host claude ele não dispara",
+      "upstream": "#2454: em runtimes não-claude sem config agent_skills, o .md do agente no agents dir do runtime vira o bloco (persona fallback)",
+      "verb": "agent-skills"
+    },
+    {
+      "aspect": "skills-path-validation-detail",
+      "cairn": "validação reduzida: caminho absoluto ou que escapa a raiz (realpath) é inseguro; textos de warning próprios nesses ramos raros; hint de global skill homônima (#2941) não emitido",
+      "family": "skills",
+      "reason": "validatePath e getGlobalSkillsBase são infra multi-runtime do upstream; os ramos comuns (resolved, not found, malformed, empty) carregam os textos exatos do upstream e são os que o corpus exercita",
+      "upstream": "validatePath com allowAbsolute/trusted_global_roots, hint quando existe global skill de mesmo nome, e NOTE de aceitação via trusted root",
+      "verb": "agent-skills"
+    },
+    {
+      "aspect": "native-hook-table",
+      "cairn": "activeHooks nasce SÓ das entradas por point de cairn/capability/capability.json (steps/contributions/gates), com ativação por `when` resolvida no config do projeto e no default do próprio manifest; capabilities first-party do upstream (ex. gap-analysis em plan:post) não aparecem",
+      "family": "loop-hooks",
+      "reason": "TRIV-03 manda a tabela ser nativa — o capability-registry de 7k linhas é módulo JS que o binário python não executa (o corte do research §4); os call sites do corpus consomem os hooks do CAIRN, que são exatamente os que a tabela carrega",
+      "upstream": "cmdLoopRenderHooks resolve hooks do capability-registry completo + overlays instalados (loadRegistry includeInstalled) + resolveCapabilityRuntimeState do config-dir do runtime",
+      "verb": "loop"
+    },
+    {
+      "aspect": "warnings-always-present",
+      "cairn": "o envelope carrega SEMPRE as 4 chaves {point, activeHooks, rendered, warnings} — warnings [] quando não há aviso",
+      "family": "loop-hooks",
+      "reason": "a forma das 4 chaves é o shape do contrato da fase 31 e o bar do plano 02; a tabela nativa não tem canal de warnings de load-failure para omitir condicionalmente",
+      "upstream": "a chave warnings só entra no envelope quando há warnings (state warnings + fail-open #2009)",
+      "verb": "loop"
+    },
+    {
+      "aspect": "static-host-table",
+      "cairn": "tabela estática HOST_RUNTIMES com UMA entrada (claude: dispatch de 7 eixos + isolation + harnessIsolationFlag, copiada de capability-registry.cjs runtimes.claude.runtime da tag); qualquer outro runtime resolve fail-closed (none / true / eco do requested); a precedência de runtime pula o marcador per-install .gsd-runtime",
+      "family": "dispatch-model",
+      "reason": "o registry multi-host é módulo JS de 7k linhas; o cairn é host único claude e o descritor vendorizado reproduz byte a byte as respostas do binário medido (harness-worktree, shouldFlatten true, identidade do dispatch-type) — goldens recorded provam",
+      "upstream": "resolveRuntime (GSD_RUNTIME > config.runtime > marcador .gsd-runtime > claude) + registry.runtimes[id].runtime.hostIntegration.dispatch para todos os runtimes conhecidos",
+      "verb": "*"
+    },
+    {
+      "aspect": "model-resolution-subset",
+      "cairn": "só o caminho perfil→tier do MODEL_PROFILES (copiado de model-catalog.json .agents da tag, com adaptiveTierMap e MODEL_ALIAS_MAP claude) + resolve_model_ids=true + a escada de effort (agent_overrides → routing_tier_defaults → default); model_overrides, model_policy, models[phaseType] e runtime-tier não são portados",
+      "family": "dispatch-model",
+      "reason": "os call sites do corpus resolvem por perfil (o manifest de defaults da tag não carrega model_profiles — fonte declarada: cópia do catálogo com source_ref no cairn-gsd.py); as camadas não portadas são multi-runtime/policy fora do uso do cairn",
+      "upstream": "resolveModelInternal: model_overrides com mapeamento de alias (#2041) → models[phaseType] → model_policy presets (#49/#1133) → runtime-tier (#2517) → resolve_model_ids omit (#2297) → perfil",
+      "verb": "resolve-model"
+    },
+    {
+      "aspect": "stderr-form",
+      "cairn": "'[cairn-gsd] error: <razão contratada>: <mensagem>' — o prefixo e a razão nomeada na forma da casa",
+      "family": "config",
+      "reason": "padrão die() dos scripts cairn; nenhum cenário do diferencial registra stderr como parte do envelope comparado (expect_stderr=false), então a divergência é de forma, não de contrato",
+      "upstream": "'Error: <mensagem>' em stderr, exit 1",
+      "verb": "*"
+    },
+    {
+      "aspect": "source-of-truth-state-load",
+      "cairn": "portador bd ausente é falha nomeada exit 1 prescrevendo 'state.begin-phase <N>' — nunca envelope com state_exists false, nunca leitura de STATE.md como fallback",
+      "family": "estado",
+      "reason": "CORE-04: fato vem do bd ou o verbo falha nomeado; duas fontes de fato é a doença que o milestone mata (provado pelo cenário state-load-md-presente-fato-ausente)",
+      "upstream": "state.load nunca falha: STATE.md ausente sai state_exists: false com state_raw vazio (contrato estado.json, notes)",
+      "verb": "state.load"
+    },
+    {
+      "aspect": "source-of-truth-state-raw",
+      "cairn": "state_raw é rendering determinístico das dimensões D-02 do portador bd (uma linha 'dim: valor' por dimensão presente, ordenadas)",
+      "family": "estado",
+      "reason": "D-02: o fato vive nos labels projetados do portador; o markdown deixa de ser fonte de fato nesta fase",
+      "upstream": "state_raw é o markdown cru de .planning/STATE.md",
+      "verb": "state.load"
+    },
+    {
+      "aspect": "raw-form-state-load",
+      "cairn": "rawValue indefinido: --raw e default emitem o MESMO envelope JSON (indent 2, sem newline final)",
+      "family": "estado",
+      "reason": "os call sites do corpus parseiam o envelope com jq; o formato condensado é superfície sem consumidor no cairn",
+      "upstream": "--raw emite formato condensado key=value (model_profile, commit_docs, ..., state_exists)",
+      "verb": "state.load"
+    },
+    {
+      "aspect": "carrier-dwim-created-key",
+      "cairn": "quando state.begin-phase cria o portador gsd-state (DWIM), o envelope carrega created: true além do shape do contrato",
+      "family": "estado",
+      "reason": "o portador é conceito do cairn (D-02) — a criação é registrada no envelope como as DWIMs do upstream registram scaffold (created: true), nunca silenciosa",
+      "upstream": "begin-phase escreve no STATE.md existente; shape {error, phase, phase_name, plan_count, updated} sem created",
+      "verb": "state.begin-phase"
+    },
+    {
+      "aspect": "recorder-inapplicable-bd-verbs",
+      "cairn": "goldens dos verbos de estado nascem derived-from-contract (comparação por FORMA); o recorder não os grava",
+      "family": "estado",
+      "reason": "cairn-gsd-record grava do binário real da tag, que lê markdown — um verbo que responde do bd não tem o que gravar dele; a provenance declarada é o registro dessa decisão",
+      "upstream": "goldens recorded byte a byte do gsd-tools.cjs da tag",
+      "verb": "*"
+    },
+    {
+      "aspect": "record-metric-destination",
+      "cairn": "métrica registrada como metadata não-transição no portador (cairn.gsd.metrics[]); a tabela Performance Metrics de STATE.md deixa de ser escrita por este verbo",
+      "family": "estado",
+      "reason": "o markdown deixa de ser fonte/destino de fato nesta fase; metadata é payload consultável por show, nunca chave de consulta (CORE-02)",
+      "upstream": "appende linha '| Phase N PP | dur | t tasks | f files |' na tabela Per-Plan da secao ## Performance Metrics do STATE.md, achada pelo shape do header",
+      "verb": "state.record-metric"
+    },
+    {
+      "aspect": "record-metric-attribution-from-fact",
+      "cairn": "a atribuição de fase/plano vem SEMPRE dos labels do portador (phase:N, plan:NN-MM); as flags --phase/--plan são aceitas mas não são a atribuição",
+      "family": "estado",
+      "reason": "CORE-03, caso current_phase 18: o incidente nasceu de record-metric lendo prosa obsoleta; a fase corrente é fato do bd, não input do caller",
+      "upstream": "--phase/--plan obrigatórios: a linha gravada usa os valores das flags",
+      "verb": "state.record-metric"
+    },
+    {
+      "aspect": "update-progress-derived-only",
+      "cairn": "percent/completed/total/bar calculados na leitura (SUMMARYs vs PLANs sob .planning/phases); nada é persistido",
+      "family": "estado",
+      "reason": "progress não é dimensão D-02 — é derivado; persistir prosa de progresso recriaria a segunda fonte",
+      "upstream": "regrava o segmento de máquina '[barra] NN%' do campo Progress do STATE.md",
+      "verb": "state.update-progress"
+    },
+    {
+      "aspect": "record-session-destination",
+      "cairn": "session=YYYY-MM-DD é dimensão transicionada via set-state; stopped-at/resume-file viram payload não-transição no metadata do portador",
+      "family": "estado",
+      "reason": "última atividade é fato consultável por label (session:YYYY-MM-DD); os textos de sessão são payload, não chave",
+      "upstream": "atualiza Last session/Last Date/Stopped At/Resume File no bloco ## Session do STATE.md",
+      "verb": "state.record-session"
+    },
+    {
+      "aspect": "update-envelope-lists-field",
+      "cairn": "sucesso devolve {updated: [<campo>]} — a lista nomeia o campo projetado",
+      "family": "estado",
+      "reason": "paridade com begin-phase/planned-phase (updated é lista de campos alterados em todo o irmão); o consumidor vê O QUE mudou, não só que mudou",
+      "upstream": "sucesso devolve {updated: true}",
+      "verb": "state.update"
+    },
+    {
+      "aspect": "uat-passed-reduced",
+      "cairn": "o predicado lê o frontmatter status dos arquivos UAT da fase (passed/complete = aprovado); fail-closed preservado: sem artefato UAT ou status divergente -> passed false com blockers nomeados",
+      "family": "roadmap-phase",
+      "reason": "evaluateUatPassed (uat-predicate.cts) depende de mecânica de verificação que a 35 entrega; a redução preserva o invariante fail-closed do contrato",
+      "upstream": "evaluateUatPassed com UatPassedReport travada (fail-closed em ausência/ambiguidade)",
+      "verb": "phase"
+    },
+    {
+      "aspect": "stale-check-indeterminate",
+      "cairn": "verification_stale_check_indeterminate emitido sempre true — o mecanismo de staleness do upstream não existe no cairn nesta fase",
+      "family": "roadmap-phase",
+      "reason": "campo sem mecanismo é indeterminado por definição; declarar true é honesto, inventar false seria afirmar uma checagem que não rodou",
+      "upstream": "checagem de staleness de VERIFICATION.md alimenta o campo",
+      "verb": "*"
+    },
+    {
+      "aspect": "phase-complete-date-omitted",
+      "cairn": "a chave date não é emitida — o tempo da transição vive no event bead do set-state (auditoria)",
+      "family": "roadmap-phase",
+      "reason": "doutrina de determinismo da 33: nenhuma chave de timestamp em golden; o fato temporal já tem dono (bd)",
+      "upstream": "shape carrega date (data de completude)",
+      "verb": "phase.complete"
+    },
+    {
+      "aspect": "phase-complete-requirements-not-edited",
+      "cairn": "requirements_updated: false sempre — REQUIREMENTS.md é do cairn-bookkeep (escrituração pós-merge), não deste verbo",
+      "family": "roadmap-phase",
+      "reason": "duas mãos escrevendo rastreabilidade é a doença com outro chapéu; o dono já existe na casa",
+      "upstream": "marca requisitos da fase em REQUIREMENTS.md",
+      "verb": "phase.complete"
+    },
+    {
+      "aspect": "phase-complete-no-auto-prune",
+      "cairn": "auto_pruned: [] sempre — nenhuma poda de artefato",
+      "family": "roadmap-phase",
+      "reason": "poda automática de documento é destrutiva e sem consumidor no cairn; quem limpa é o humano ou o bookkeep",
+      "upstream": "poda artefatos aposentados da fase (auto_pruned lista)",
+      "verb": "phase.complete"
+    },
+    {
+      "aspect": "update-plan-progress-scoped-edit",
+      "cairn": "marca os checkboxes dos planos com SUMMARY na seção da fase; a tabela Progress não é editada (a visão agregada é do cairn-status)",
+      "family": "roadmap-phase",
+      "reason": "edição mínima escopada; a tabela é derivável e tem dono na casa",
+      "upstream": "atualiza a linha da tabela ## Progress e os checkboxes",
+      "verb": "roadmap.update-plan-progress"
+    },
+    {
+      "aspect": "current-phase-from-fact",
+      "cairn": "current_phase/progress vêm do portador bd (label phase:N) + contagem de artefatos; sem portador o verbo falha nomeado",
+      "family": "roadmap-phase",
+      "reason": "CORE-04/D-02: o documento lista fases; a posição corrente é fato — o ROADMAP nunca responde por ela",
+      "upstream": "current_phase derivado da prosa do próprio ROADMAP/STATE",
+      "verb": "roadmap.analyze"
+    },
+    {
+      "aspect": "base-check-default-head",
+      "cairn": "baseRef ausente resolve 'head' (curto-circuito shouldDegrade false); só um baseRef explícito não-head dispara a comparação HEAD vs forkRef",
+      "family": "worktree",
+      "reason": "host único: os worktrees do cairn forkam do HEAD do orquestrador; degradar por default quebraria a paralelização sem ganho de segurança",
+      "upstream": "resolve settings.local.json do projeto -> global; a cadeia global do multi-runtime não existe no cairn",
+      "verb": "worktree.base-check"
+    },
+    {
+      "aspect": "reap-orphans-heuristic-reduced",
+      "cairn": "órfão = worktree linkado cujo diretório sumiu do disco (git worktree prune); as heurísticas de lock/merge não são portadas",
+      "family": "worktree",
+      "reason": "dono-de-lock e tip-merged dependem do lease/lock do runtime upstream; a redução preserva o fail-open e limpa o caso real da casa (árvore removida à mão)",
+      "upstream": "lock owner morto + branch merged + lock > 5min (REAP_MTIME_GUARD_MS)",
+      "verb": "worktree.reap-orphans"
+    },
+    {
+      "aspect": "cleanup-wave-keeps-branches",
+      "cairn": "cleanup-wave remove as árvores registradas no manifest; as branches por-agente ficam (a decisão de apagar é do merge)",
+      "family": "worktree",
+      "reason": "apagar branch não mergeada é destrutivo; o merge da wave é quem sabe se a branch já foi consumida",
+      "upstream": "planWorktreeWaveCleanup decide por entrada, incluindo poda de branch",
+      "verb": "worktree.cleanup-wave"
+    },
+    {
+      "aspect": "section-manifest-empty",
+      "cairn": "section_manifest emitido null nos 6 bundles de init — o valor degradado que a camada prompt especifica como superset seguro, todos os steps lidos (execute-phase.md:92); o artefato gerado não é vendorizado e as seções vivem nos workflows sob cairn/gsd/",
+      "family": "init",
+      "reason": "a composição por manifesto + steps foi PRESERVADA (D-03: achatar inlinaria 21 arquivos / 806 linhas nos workflows raiz para adaptar 10 de 38 chamadas dos fragments); preencher included/excluded de verdade é incremento medido de outra fase, fora da 36",
+      "upstream": "section_manifest é objeto {workflow, included, excluded, read} quando gsd-core/workflows/section-manifest.json existe, e null quando o artefato falta ou o workflow não tem chave nele (src/init.cts:459-470 da tag)",
+      "verb": "*"
+    },
+    {
+      "aspect": "agents-from-vendored-tree",
+      "cairn": "agents_dir/agents_installed/missing_agents derivam de cairn/gsd/agents (a árvore vendorizada da fase 32), determinístico por construção",
+      "family": "init",
+      "reason": "host único: os agents do cairn são os vendorizados; a instalação por runtime não existe",
+      "upstream": "agents dir do runtime (~/.claude/agents) + verificação de instalação",
+      "verb": "*"
+    },
+    {
+      "aspect": "state-fields-from-carrier",
+      "cairn": "state_exists/phase_status dentro de bundle vêm do irmão cairn-gsd-state.py via subprocess (state.load) — a falha nomeada é propagada nos bundles de posição (execute-phase, plan-phase); manager/milestone-op reportam a ausência como state_exists false (a existência É a resposta deles)",
+      "family": "init",
+      "reason": "uma implementação de consulta na casa (CORE-04 por composição); duas que possam discordar é a doença",
+      "upstream": "state_exists = existência de .planning/STATE.md",
+      "verb": "*"
+    },
+    {
+      "aspect": "manager-render-reduced",
+      "cairn": "discuss/plan/execute renderizados na forma slash canônica (/gsd:<wf> <N>); manager_flags/recommended_actions vazios",
+      "family": "init",
+      "reason": "a renderização por runtime ($gsd-* no codex) é multi-host; o cairn é claude único",
+      "upstream": "comandos recomendados renderizados por runtime",
+      "verb": "init.manager"
+    },
+    {
+      "aspect": "quick-tasks-as-bd-issues",
+      "cairn": "quick task vira bead com label gsd-quick-task (row = a descrição, variant = bd-issue); a tabela de quick tasks do STATE.md deixa de existir",
+      "family": "misc",
+      "reason": "research §4: quick tasks já são issues bd na casa; appendar tabela markdown recriaria a segunda fonte",
+      "upstream": "appendQuickTaskRow appende linha na tabela do STATE.md sob lock",
+      "verb": "quick-tasks-append"
+    },
+    {
+      "aspect": "requirements-table-not-edited",
+      "cairn": "marca o checkbox da linha alvo e SÓ dela (diff de 1 linha por id); a tabela de traceability não é editada (table_unmatched segue reportando ids sem linha)",
+      "family": "misc",
+      "reason": "a tabela é rastreabilidade agregada — dono na casa é o bookkeep; edição dupla é a doença",
+      "upstream": "marca checkboxes E a tabela de traceability",
+      "verb": "requirements.mark-complete"
+    },
+    {
+      "aspect": "research-provider-single",
+      "cairn": "provider é sempre 'websearch' (a ferramenta nativa do host claude); a chave sha256 da question preserva o contrato do research-store",
+      "family": "misc",
+      "reason": "o PROVIDER_WATERFALL (brave/exa/firecrawl) depende de chaves de API que o cairn não gerencia; host único",
+      "upstream": "PROVIDER_WATERFALL deriva provider por disponibilidade de chave",
+      "verb": "research-plan"
+    },
+    {
+      "aspect": "research-store-no-ttl",
+      "cairn": "stale é sempre false e a entry não carrega timestamp — o cache não expira por tempo",
+      "family": "misc",
+      "reason": "doutrina de determinismo (nenhuma chave de tempo em golden); expiração de cache de research não tem consumidor no corpus",
+      "upstream": "stale derivado de TTL sobre o created_at da entry",
+      "verb": "research-store"
+    },
+    {
+      "aspect": "capability-declared-unavailable",
+      "cairn": "graphify e intel devolvem {available: false, reason} exit 0 — indisponibilidade DECLARADA no envelope, nunca silêncio",
+      "family": "misc",
+      "reason": "o research §4 cortou os subsistemas; a nota do contrato manda declarar, não fingir Unknown command",
+      "upstream": "capability desligada -> o comando nem é despachado (Unknown command exit 1)",
+      "verb": "graphify"
+    },
+    {
+      "aspect": "websearch-native-host",
+      "cairn": "sempre {available: false, reason} orientando a WebSearch nativa do host claude — nenhuma chamada de rede",
+      "family": "misc",
+      "reason": "host único: o claude tem busca nativa; gerenciar BRAVE_API_KEY duplicaria capacidade que o host já tem (fail-open do contrato preservado)",
+      "upstream": "busca via Brave API com retry; sem chave -> available false exit 0",
+      "verb": "websearch"
+    },
+    {
+      "aspect": "package-legitimacy-offline",
+      "cairn": "verdict 'unverified' para todo pacote — offline, sem consulta de registry; fail-safe: nunca afirma legitimidade",
+      "family": "misc",
+      "reason": "consulta de registry exige rede que os verbos do cairn não fazem; 'unverified' força a verificação humana que o protocolo de package-legitimacy já exige",
+      "upstream": "checkPackages resolve sinais de registry e classifica verdicts (slopsquatting)",
+      "verb": "package-legitimacy"
+    },
+    {
+      "aspect": "windows-no-timestamp",
+      "cairn": "a entry do ledger não carrega timestamp; ordem e id sequencial dão a cronologia",
+      "family": "misc",
+      "reason": "doutrina de determinismo da 33; o tempo de auditoria vive no git log do ledger",
+      "upstream": "appende a entrada com timestamp",
+      "verb": "windows"
+    },
+    {
+      "aspect": "estimate-check-uncalibrated",
+      "cairn": "sem store de pares estimate/actuals: factor 1.0, sample_count 0, confidence low; budget = workflow.smart_zone_tokens do config (default 150000)",
+      "family": "misc",
+      "reason": "a calibração upstream lê histórico de fases que o cairn guarda no bd — a fase 35+ decide se porta; o veredito over_budget/recommendation preserva o contrato",
+      "upstream": "fator de calibração derivado das fases completas",
+      "verb": "estimate-check"
+    },
+    {
+      "aspect": "base-branch-order",
+      "cairn": "resolve main -> master -> branch corrente; sem nada resolvível degrada 'main' com warning em stderr e exit 0 (semântica medida #3057 preservada)",
+      "family": "misc",
+      "reason": "origin/HEAD raramente existe em repo local; a ordem main/master cobre a casa",
+      "upstream": "resolveBaseBranchDiagnostics com verificação contra o repo",
+      "verb": "git.base-branch"
+    },
+    {
+      "aspect": "stale-check-indeterminate-key",
+      "cairn": "a chave sai como verification_stale_check_indeterminate (o nome do shape de checagem.json), presente so quando o staleness check nao completou",
+      "family": "checagem",
+      "reason": "o contrato da fase 31 nomeia a projecao snake_case usada pelas superficies downstream da propria tag (init.cts L288, roadmap.cts L772); a casa segue o shape contratado — uma chave, um nome",
+      "upstream": "cmdVerificationStatus emite staleCheckIndeterminate (camelCase, src/verification.cts L495) nesta superficie",
+      "verb": "verification.status"
+    },
+    {
+      "aspect": "subcommand-nao-observado",
+      "cairn": "phase-completeness, references e o caminho nao-skip de schema-drift respondem {available: false, reason} exit 0 (molde 34-05); codebase-drift e os 4 com verbo dedicado respondem inteiros",
+      "family": "checagem",
+      "reason": "o universo da fase 31 so exercita codebase-drift (e schema-drift via --skip) no router verify; superficie nao observada nao ganha envelope inventado",
+      "upstream": "routeVerifyCommand roteia os 8 de VERIFY_SUBCOMMANDS para implementacoes completas (cmdVerifyPhaseCompleteness, cmdVerifyReferences, cmdVerifySchemaDrift)",
+      "verb": "verify"
+    },
+    {
+      "aspect": "echo-scan-429-omitido",
+      "cairn": "plan-structure valida frontmatter, estrutura de tasks e o conflito de gate file-wide (#968); o scanner de comment-echo (#429) nao roda",
+      "family": "checagem",
+      "reason": "a nota do contrato nomeia frontmatter, tasks e conflito file-wide — o echo-scan (#429) nao esta na letra contratada nem no plano da fase; omissao declarada, nao silenciada",
+      "upstream": "cmdVerifyPlanStructure tambem roda scanNegativeGrepCommentEcho (#429, src/verify.cts L280-L378)",
+      "verb": "verify.plan-structure"
+    },
+    {
+      "aspect": "worktree-entry-inner-shape",
+      "cairn": "entry emite {agent_id, path, branch, base} — os nomes internos da casa (34-04); os cenarios worktree-create/record-agent/cleanup-wave e os bundles init-* estao marcados divergent_from_real no manifesto (a re-gravacao do real e pulada por declaracao)",
+      "family": "worktree",
+      "reason": "o shape do contrato so fixa as chaves top-level (cwd, entry, ...); o interior de entry nao foi contratado e a casa nomeou pelos proprios campos — descoberto na fase 35 quando o runtime buildado abriu o teste de reproducao (latente: o skip-gate nunca tinha aberto)",
+      "upstream": "worktree.create do binario real emite entry {agent_id, worktree_path, branch, expected_base}",
+      "verb": "worktree.create"
+    },
+    {
+      "aspect": "subcommand-path-unreachable",
+      "cairn": "a rota por spelling do dispatcher nao tem caminho para subcommand desconhecido — query user-story.<outro> esta fora do universo e morre exit 2 (uso do dispatcher); o cenario user-story-subcommand-errado grava a letra da casa e esta divergent_from_real",
+      "family": "checagem",
+      "reason": "na casa o verbo canonico ja chega resolvido pelo spelling contratado; o split-no-primeiro-ponto (#3243) e mecanismo da tag, nao do dispatcher da casa",
+      "upstream": "a tag splita query user-story.frobar em user-story + frobar e routeUserStory morre exit 1 Unknown user-story subcommand",
+      "verb": "user-story.validate"
+    },
+    {
+      "aspect": "render-checkpoint-reducoes",
+      "cairn": "frames reduzidos a english (default) + portuguese com aliases proprios — outras linguas caem em english; sem o fallback parseFirstPendingTest para secao nao-estruturada (morre malformed); sem a camada sanitizeForDisplay de protocol-leak; largura de caixa por len() (frames latinos)",
+      "family": "checagem",
+      "reason": "as linguas da casa sao pt/en; o fallback de pending e a sanitizacao de prompt-injection nao tem sitio no universo da 31 — reducao declarada, nunca silenciada",
+      "upstream": "CHECKPOINT_FRAMES com 18+ linguas e aliases, parseFirstPendingTest, sanitizeForDisplay e displayWidth CJK (src/uat.cts L412-L594, src/security.cts L360)",
+      "verb": "uat.render-checkpoint"
+    },
+    {
+      "aspect": "lanes-reduzidas-sem-merge-nem-invocacao",
+      "cairn": "REVIEWER_LANES transcrito aos campos que o universo consome (slug, flags, reviewsSection — 12 lanes / 13 flags); sem merge com capabilities instaladas (a casa nao instala reviewer); plan/invoke respondem {available: false, reason} exit 0 — resolucao de effort e invocacao de CLIs headless nao tem sitio no universo da 31",
+      "family": "misc",
+      "reason": "o sitio unico do corpus (autonomous.md:84) usa flags; sections compartilha o contrato de saida; inventar plano/invocacao seria envelope inventado",
+      "upstream": "routeReviewLane monta plano por lane (spawn de resolve-execution por lane) e invoke executa reviewers (mergeReviewerLanes + review-lane-runner)",
+      "verb": "review-lane"
+    },
+    {
+      "aspect": "win32-nao-se-aplica",
+      "cairn": "execucao POSIX direta (Popen sem shell, process group proprio); nenhuma mediacao cmd.exe",
+      "family": "misc",
+      "reason": "a casa e bash/bats em macOS/Linux; o caminho Win32 nao tem como ser exercitado nem testado aqui",
+      "upstream": "run-with-timeout media .cmd/.bat por cmd.exe /c com argv array (#2667, CVE-2024-27980), .exe excluido",
+      "verb": "run-with-timeout"
+    },
+    {
+      "aspect": "intel-api-surface-indisponibilidade-consumida",
+      "cairn": "gsd_run intel api-surface responde {available: false, reason} com exit 0, e o UNICO call site do corpus (plan-phase.md §7.9) LÊ essa resposta: API_SURFACE_PATH fica vazio, o passo diz em uma linha por que segue sem o artefato, e a entrada de API Surface some do prompt do planner",
+      "family": "misc",
+      "reason": "ADAPT-05 item intel, decidido na fase 36 plano 05: NÃO implementar o subsistema — nenhum call site consome API-SURFACE.md além da presença do caminho, e o passo que ecoava \"✓ API surface regenerated\" sem conferir nada entregaria ao planner o caminho de um arquivo que ninguém escreveu",
+      "upstream": "intel api-surface renderiza api-map.json em .planning/intel/API-SURFACE.md e o sítio assume que o artefato foi gerado",
+      "verb": "intel"
+    },
+    {
+      "aspect": "deferred-verification-sem-dimensao",
+      "cairn": "o autonomous projeta o adiamento em DOIS fatos: state.update verification pending (a dimensão, no único valor do vocabulário fechado que é verdadeiro para um adiamento) e state.add-blocker com o texto canônico \"verification_deferred_{human,gaps} | phase <N> | resume: <comando>\", que o passo 2 relê com bd list -l gsd-blocker",
+      "family": "estado",
+      "reason": "D-02 tem CINCO dimensões e nenhuma carrega \"adiamento de verificação com comando de retomada\"; a distância fica registrada aqui em vez de improvisada — state.update com chave fora do field_map responde {updated: false, reason: \"campo não projeta dimensão D-02 — documento, não fato\"} com exit 0, ou seja, escrever a chave nova seria uma linha que não faz nada, e voltar ao markdown é o que a fase mata",
+      "upstream": "o workflow anexa uma seção ## Deferred Verification em .planning/STATE.md, com tabela Phase|State|Resume, e relê essa tabela do markdown na re-entrada",
+      "verb": "state.add-blocker"
+    },
+    {
+      "aspect": "quota-recovery-sem-escalada-automatica-resolve-execution",
+      "cairn": "o verbo esta FORA do universo de 87: o dispatcher responde 'verbo desconhecido (fora do universo do contrato)' no stderr com exit 2 e stdout VAZIO — medido. O passo 7.1a foi reescrito como prosa: declara que a escalada automatica nao existe nesta instalacao, explica por que, e manda pelo 7.1b (recuperacao manual) que o proprio arquivo ja trazia. Zero codigo novo; nenhum sitio do corpus consome mais a saida desse verbo",
+      "family": "dispatch-model",
+      "reason": "D-04 da fase 36: era o UNICO sitio do corpus que consumia um verbo fora do universo sem tolerancia (cinco jq encadeados, sem || true e sem 2>/dev/null). MEDIDO na onda 6: o pipe nao aborta — jq com entrada vazia sai 0 e nao imprime nada — entao as cinco variaveis saem VAZIAS, e vazio nao e nem \"true\" nem \"false\": NENHUM dos tres ramos de prosa casava, e o passo ficava em silencio justamente na falha de quota. Implementar depois e somar handler + golden e restaurar o ramo",
+      "upstream": "o passo 7.1a de execute-phase-quota-recovery.md chama o verbo de resolucao de execucao numa falha de quota e le cinco campos do JSON (escalated, exhausted, from, to, attempted) para trocar de provider sem perguntar",
+      "verb": "resolve-execution"
+    },
+    {
+      "aspect": "requirements-revert-phase-fora-do-universo-nao-corrigida",
+      "cairn": "o verbo esta fora do universo de 87 e o sitio NAO foi corrigido — decisao escrita, nao silencio: a chamada ja e `>/dev/null 2>&1 || true` por desenho upstream, entao a falha e absorvida no proprio sitio e nada quebra; o arquivo e um dos 40 de references que D-02 mantem fora do escopo de massa desta fase",
+      "family": "roadmap-phase",
+      "reason": "fase 36, plano 06: os dois verbos fora do universo foram avaliados juntos (research §4) e so um mordia. Registrar o que a fase decide NAO corrigir e o que separa decisao de esquecimento — o alvo e a 37/38, junto com os outros references",
+      "upstream": "execute-phase-requirement-revert.md:5 chama o verbo para desmarcar os requisitos de uma fase revertida",
+      "verb": "requirements.revert-phase"
+    },
+    {
+      "aspect": "worktree-set-baseref-descompasso-de-grafia-nao-corrigido",
+      "cairn": "o verbo existe e responde (exit 0, {changed, baseRef}), mas a grafia contratada e `worktree set-baseref` (verbo `worktree`, subcomando `set-baseref`) — `query worktree.set-baseref` cai fora do universo. NAO corrigido: o sitio tem `2>/dev/null || true`, entao falha calada sem quebrar, e o arquivo e references, que D-02 mantem fora",
+      "family": "worktree",
+      "reason": "o CONTEXT da fase 36 fixou a condicao: a linha entra se a fase tocar o arquivo, e fica registrada se nao tocar. A fase nao tocou — o unico references adaptado por edicao de conteudo nesta onda e o de quota, por excecao nomeada de D-04. Correcao futura e de UMA linha",
+      "upstream": "execute-phase-between-wave-reset.md:30 chama `gsd_run query worktree.set-baseref`",
+      "verb": "worktree.set-baseref"
+    },
+    {
+      "aspect": "graphify-indisponibilidade-consumida-nos-dois-sitios",
+      "cairn": "o subsistema de grafo NAO e implementado, e `graphify status`/`query` respondem {available: false, reason} com exit 0 — medido nos dois subcomandos. Os dois sitios passam a LER esse campo: anotam a razao no lugar da nota de frescor, pulam a consulta seguinte (que devolve o mesmo payload) e seguem pelo ramo de 'continuar sem contexto de grafo' que a prosa ja tinha para graph.json ausente. Nenhum verbo novo, nenhuma reestruturacao do passo",
+      "family": "misc",
+      "reason": "ADAPT-05 item graphify, decidido na fase 36 plano 06: os tres itens do requisito ficam decididos POR ESCRITO — intel no plano 05, graphify e o verbo de recuperacao de quota no 06. A entrada irma `capability-declared-unavailable` cobre o ENVELOPE (o binario declara em vez de fingir Unknown command); esta cobre o CONSUMO. Medicao que contradiz a letra da mensagem do binario: CAP_MSG diz 'nenhum call site do corpus o consome', e o corpus tem DOIS call sites de graphify (4 chamadas) — a frase e generica do handler de capability e ficou imprecisa para este verbo",
+      "upstream": "os dois sitios de contexto de grafo (gsd-phase-researcher.md Step 1.3 e references/planner-load-graph-context.md) chamam `graphify status` e depois `graphify query` assumindo que a capability existe: leem `stale`, `age_hours`, nodes e edges",
+      "verb": "graphify"
+    },
+    {
+      "aspect": "spot-check-node-do-projeto-verificado-permanece",
+      "cairn": "os dois sitios FICAM, com a razao escrita ao lado de cada um no proprio bloco. O node ali e o do PROJETO VERIFICADO, nao o runtime do GSD: converte-los para o dispatcher da casa adaptaria o projeto sob verificacao em vez da camada prompt, que e o escopo da fase 36. Medido no mesmo bloco: ha um terceiro uso de node (`node $CLI_PATH --help`) pela mesma razao, e nenhum deles fala com o GSD",
+      "family": "checagem",
+      "reason": "armadilha NODE-SOBREVIVE, fase 36 plano 06: trocar o preambulo nao remove node do caminho executado, e a lista precisa separar INFRA de EXEMPLO. Saldo MEDIDO do corpus (`grep -rn 'node -e' cairn/gsd/` menos a linha de preambulo): 14 sitios no inicio da fase, 13 hoje — execute-phase.md 4 e executor-isolation-dispatch.md 2 (plano 07), gsd-verifier.md 2 (estes, decisao escrita), plan-phase.md 1 (fechado no 36-05), references/specless-probe-fallback.md 3 e references/checkpoints.md 2 (fora por D-02, lacuna registrada). O mapa da fase listava SETE e omitia os 2 do fragment de isolamento e os 5 de references",
+      "upstream": "os spot-checks comportamentais do gsd-verifier (Step 7b) invocam o runtime node em dois exemplos: um consome a resposta de uma API da aplicacao verificada, o outro imprime o tipo de um export de modulo dela",
+      "verb": "verify.plan-structure"
+    },
+    {
+      "aspect": "desembrulho-at-file-inerte-divida-registrada",
+      "cairn": "o binario da casa NUNCA emite esse prefixo — medido: `grep -rn '@file:' cairn/scripts/*.py` da VAZIO. As 16 linhas de desembrulho em 12 arquivos markdown (mais uma mencao na nota de contracts/init.json) ficam INERTES: nao quebram nada, so nunca disparam. Registrado como divida, NAO corrigido nesta fase",
+      "family": "init",
+      "reason": "fase 36 plano 06: remover as 16 linhas seria uma edicao de massa em 12 arquivos, dois deles do plano 07, para apagar codigo que nao roda — custo de risco sem ganho observavel. Se algum dia o binario passar a cortar bundle grande em arquivo, o desembrulho ja esta no lugar. O mapa da fase contava 16 ocorrencias em 10 arquivos; a medicao desta onda da 16 em 12",
+      "upstream": "o bundle de init pode vir como `@file:<caminho>` quando passa do teto de tamanho, e cada sitio desembrulha com `if [[ \"$INIT\" == @file:* ]]; then INIT=$(cat \"${INIT#@file:}\"); fi`",
+      "verb": "init.execute-phase"
+    },
+    {
+      "aspect": "references-fora-de-escopo-lacuna-medida-em-numero",
+      "cairn": "MEDIDO na onda 7 da fase 36, sobre os 66 arquivos em escopo: eles citam 73 caminhos distintos de references, todos os 73 existem na arvore (a arvore tem 80 no total). Nesses 73: 17 chamadas gsd_run, 5 sitios de node -e (checkpoints.md:477 e :512; specless-probe-fallback.md:98, :111 e :116) e DOIS sitios de estado sob as quatro familias do oraculo — autonomous-smart-discuss.md:24 (`cat .planning/STATE.md`, familia A, o que o research ja nomeava) e planner-antipatterns.md:83 (`@.planning/STATE.md`, familia A, que nenhum documento da fase citava). Nenhum dos 73 esta sob o oraculo semantico nem no registro de adaptacoes",
+      "family": "init",
+      "reason": "D-02 deixa os references FORA da fase 36 por escopo de massa, com a lacuna medida e registrada em vez de descrita. A unica excecao nomeada foi execute-phase-quota-recovery.md (D-04, onda 6), porque aquele sitio nao tolerava falha. Alvo das fases 37 e 38. O CONTEXT estimava '40 arquivos citados, 18 chamadas, ~33 sitios de estado'; medido dao 73, 17 e 2 — a estimativa de sitios contava mencoes por nome de arquivo (8 linhas citam STATE.md e 34 citam .planning/ nesses 73), nao sitios sob as quatro familias",
+      "upstream": "os arquivos de gsd-core/references/ sao carregados pelos workflows e pelos agentes como parte do mesmo caminho de execucao, e falam com o mesmo runtime",
+      "verb": "*"
+    },
+    {
+      "aspect": "runtime-antigo-citado-em-22-arquivos-33-mencoes",
+      "cairn": "MEDIDO na onda 7: 22 arquivos markdown sob cairn/gsd/ ainda nomeiam o runtime antigo, 33 mencoes no total. QUATRO deles carregavam preambulo novo e portanto estavam em escopo, com 7 mencoes: agents/gsd-plan-checker.md:738 e :761, agents/gsd-verifier.md:241 e :317 e execute-phase/steps/codebase-drift-gate.md:10-11 foram corrigidos nesta onda (a prosa nomeava o runtime antigo enquanto o bloco de codigo logo abaixo ja chamava gsd_run); agents/gsd-phase-researcher.md:33 FICA, e tem entrada propria. Os 18 restantes, com 26 mencoes, nao carregam preambulo: 6 em commands/ e skills/, 11 em gsd-core/references/ e 1 em gsd-core/templates/summary.md",
+      "family": "init",
+      "reason": "a fase 37 remove o runtime antigo; estas 26 linhas em 18 arquivos sao exatamente onde ela vai bater. O mapa da fase citava QUATRO arquivos (commands/gsd/plan-phase.md, skills/gsd-plan-phase/SKILL.md, references/execute-phase-between-wave-reset.md, references/universal-anti-patterns.md); a medicao da onda 7 da 22, e a primeira contagem desta propria onda deu 22-sem-preambulo por um erro de medicao — o grep BSD trata {} como intervalo e devolveu zero para o marcador do preambulo. Remedido com grep -F",
+      "upstream": "o runtime node e' o binario que a camada prompt inteira invoca, e o nome dele aparece tanto no preambulo quanto na prosa que ensina a chamar cada verbo",
+      "verb": "*"
+    },
+    {
+      "aspect": "package-legitimacy-fora-do-universo-criterio-inatingivel",
+      "cairn": "o verbo esta FORA do universo de 87: o dispatcher responde '[cairn-gsd] error: verbo desconhecido (fora do universo do contrato)' em stderr, exit 2, stdout vazio. Consequencia medida: a regra de agents/gsd-phase-researcher.md:33 exige documentacao oficial/Context7 E o OK desse verbo, e o OK nunca vem — nenhum pacote pode receber [VERIFIED: npm registry] por esse caminho, so [ASSUMED]. NAO corrigido nesta onda",
+      "family": "init",
+      "reason": "mesma classe de D-04 (sitio que consome verbo fora do universo), mas sem o agravante que justificou a excecao daquela vez: aqui nao ha pipe que engula a falha em silencio — a falha e' nomeada e alta, e o efeito e' um criterio conservador demais, nao um passo mudo. Corrigir exige decidir se o cairn implementa a checagem de legitimidade ou se a regra passa a se apoiar so na documentacao oficial, e essa e' decisao de fase, nao de onda. Alvo da 37/38",
+      "upstream": "`query package-legitimacy check <pkg>` responde OK para um pacote confirmado, e a regra de proveniencia do pesquisador de fase usa esse OK como uma das duas condicoes para marcar [VERIFIED: npm registry]",
+      "verb": "*"
+    },
+    {
+      "aspect": "envelope-nao-medido",
+      "cairn": "{updated, ids, reverted, already_pending, not_found, total} — espelha o par requirements.mark-complete, que FOI medido",
+      "family": "misc",
+      "reason": "o clone pinado v1.10.0 traz o verbo como canonico em src/command-aliases.cts (alias `requirements revert-phase`, mutation true) mas nao expoe a fonte da implementacao, entao a forma exata do envelope do binario real nao pode ser medida daqui. A fase 38 precisava do verbo servido — o sitio real, gsd-core/references/execute-phase-requirement-revert.md:5, morria exit 2 embrulhado em `|| true` — e escolheu espelhar o par e DECLARAR, em vez de inventar em silencio.",
+      "upstream": "forma nao medida",
+      "verb": "requirements.revert-phase"
+    }
+  ],
+  "schema_version": 1
+}

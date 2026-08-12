@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"phase\": 1,\n  \"phase_name\": null,\n  \"plan_count\": 0,\n  \"updated\": []\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "state-begin-phase-reentrada",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

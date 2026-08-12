@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\"mode\": \"coverage\", \"summary_file\": \".planning/phases/01-x/01-01-SUMMARY.md\", \"total\": 1, \"all_auto_covered\": false, \"auto_passed\": [], \"present\": [{\"id\": \"COV-02\", \"description\": \"olhar humano no layout\", \"verification\": [], \"human_judgment\": true, \"rationale\": \"estetica e julgamento humano\", \"reason\": \"human_judgment\"}], \"errors\": []}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "uat-classify-coverage-fail-safe",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

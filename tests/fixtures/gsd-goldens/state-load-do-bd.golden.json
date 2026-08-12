@@ -1,0 +1,15 @@
+{
+  "expect": {
+    "exit_code": 0,
+    "stderr": null,
+    "stdout": "{\n  \"config\": {},\n  \"config_exists\": true,\n  \"debug_dir\": \"<masked>\",\n  \"roadmap_exists\": false,\n  \"state_exists\": true,\n  \"state_raw\": \"phase: 34\\nphase_status: executing\"\n}"
+  },
+  "provenance": "derived-from-contract",
+  "scenario": "state-load-do-bd",
+  "schema_version": 1,
+  "source": {
+    "commit": "68a04ccf8ef74803bdb651e12c3b85b218bbccdf",
+    "repo": "open-gsd/gsd-core",
+    "tag": "v1.10.0"
+  }
+}

@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "adaptations": [
+    {
+      "path": "agents/gsd-debug-session-manager.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "agents/gsd-debugger.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "agents/gsd-executor.md",
+      "phase": "36",
+      "waves": [
+        1,
+        7
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7 (ADAPT-04/ADAPT-02): os SETE sítios de estado do agente — só um deles mordido pelo oráculo (:850, família C passiva, pendência declarada na onda 6) e os outros seis invisíveis às quatro famílias por grafia (verbo minúsculo, nome entre crases, predicado de ausência, lista de commit). Junto, as três menções ao runtime antigo (`node` para invocar a CLI, `gsd-tools query` duas vezes) num arquivo cujo preâmbulo já resolve o binário python."
+    },
+    {
+      "path": "agents/gsd-phase-researcher.md",
+      "phase": "36",
+      "waves": [
+        1,
+        6
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 6 (ADAPT-05, graphify): o passo de contexto de grafo passa a ler o {available:false, reason} que o binário responde com exit 0 e a seguir pelo ramo de 'sem contexto de grafo' que a prosa já tinha para grafo ausente."
+    },
+    {
+      "path": "agents/gsd-plan-checker.md",
+      "phase": "36",
+      "waves": [
+        1,
+        7
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: as duas linhas de prosa que mandavam usar o runtime antigo (:738, :761) passam a nomear gsd_run — o bloco de código logo abaixo de cada uma já chamava o verbo certo desde a onda 1."
+    },
+    {
+      "path": "agents/gsd-planner.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "agents/gsd-ui-researcher.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "agents/gsd-verifier.md",
+      "phase": "36",
+      "waves": [
+        1,
+        7
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: as duas linhas de prosa que mandavam usar o runtime antigo (:241, :317) passam a nomear gsd_run — o bloco de código logo abaixo de cada uma já chamava o verbo certo."
+    },
+    {
+      "path": "commands/gsd/discuss-phase.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37."
+    },
+    {
+      "path": "gsd-core/references/execute-phase-quota-recovery.md",
+      "phase": "36",
+      "waves": [
+        6
+      ],
+      "reason": "D-04, EXCEÇÃO NOMEADA a D-02: os 40 arquivos de references ficam fora desta fase por ESCOPO DE MASSA, e este entra sozinho porque o sítio não tolera falha — era o único do corpus que consumia um verbo fora do universo de 87 em cinco jq encadeados, sem || true e sem 2>/dev/null. O passo 7.1a de escalada automática de provider vira prosa de recuperação manual, apoiada no 7.1b que o próprio arquivo já trazia; zero código novo. Registrar a exceção com o motivo é o que a separa de uma abertura de escopo."
+    },
+    {
+      "path": "gsd-core/references/planner-load-graph-context.md",
+      "phase": "36",
+      "waves": [
+        1,
+        6
+      ],
+      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37 — este é carregado pelo gsd-planner. Onda 6 (ADAPT-05, graphify): o passo de contexto de grafo passa a ler o {available:false, reason} que o binário responde com exit 0 e a seguir pelo ramo de 'sem contexto de grafo' que a prosa já tinha para grafo ausente."
+    },
+    {
+      "path": "gsd-core/workflows/autonomous.md",
+      "phase": "36",
+      "waves": [
+        1,
+        5
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 5 (ADAPT-03): as TRÊS leituras mecânicas do markdown de estado (duas idênticas a 476 linhas de distância, mais a instrução explícita de reler) viram consulta ao binário — state.load onde o que se quer é a posição, e `bd list -l gsd-blocker --limit 0 --json` onde o que se quer são os bloqueios, que são beads de coleção e não linhas de uma seção; o predicado de existência muda de SIGNIFICADO e não só de fonte: state_exists mantém o nome (é campo do bundle, contrato da fase 34) mas passa a perguntar se há PORTADOR de estado no bd, e a falha nomeia state.begin-phase, o comando que cria o fato — a mensagem antiga mandava rodar /gsd:new-milestone, que não cria mais nada. As duas seções que mandavam anexar uma tabela markdown de Deferred Verification viram dois verbos: state.update verification pending (a dimensão, com o único valor do vocabulário fechado que é verdadeiro) e state.add-blocker com a forma canônica que o passo 2 lê de volta. Intocados por medição: o caminho do audit de milestone (:693) e o do roadmap arquivado (:749) — documento."
+    },
+    {
+      "path": "gsd-core/workflows/autonomous/steps/converge-fail-fast.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/debug.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/discuss-phase.md",
+      "phase": "36",
+      "waves": [
+        1,
+        4
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 4 (ADAPT-03): das TRÊS leituras consecutivas do mesmo fence (:238-240) só a terceira era fato — PROJECT.md e REQUIREMENTS.md continuam byte a byte e só o STATE virou state.load; a prosa imperativa do update_state saiu deixando o record-session que já convivia com ela no mesmo bloco; o commit dedicado do markdown de estado sumiu (o verbo é o dono da escrita) e os dois itens de checklist passaram a nomear o verbo em vez do arquivo."
+    },
+    {
+      "path": "gsd-core/workflows/discuss-phase/modes/advisor.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/discuss-phase/modes/chain.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/discuss-phase/modes/text.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01, citação em instrução e não bloco de preâmbulo: a linha nomeava o runtime que a fase 37 mata e passa a chamar o binário por gsd_run na grafia contratada."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase.md",
+      "phase": "36",
+      "waves": [
+        1,
+        7
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7 (ADAPT-04): os sítios de FATO do workflow mais caro do corpus — a instrução de abertura, o predicado de existência de estado, as duas prosas de atualização, o critério de sucesso do prompt, a injeção do caminho de estado no prompt do executor (família D), o bloco do escritor único da onda e os três commits que listavam o arquivo de estado. Onda 7 (NODE-SOBREVIVE): os QUATRO sítios de node do manifesto de onda (escrita, duas leituras do campo de raiz e a listagem com recusa explícita) trocam de motor para jq, o mesmo escolhido no plano 05 — equivalência medida caso a caso, 23 casos, byte-idêntica na escrita."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase/steps/codebase-drift-gate.md",
+      "phase": "36",
+      "waves": [
+        1,
+        7
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: o comentário do gate descrevia a resolução do runtime antigo por PATH, logo abaixo de um preâmbulo que já resolve o binário do repo; passa a descrever o que o preâmbulo de fato faz. Zero mudança de comportamento."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md",
+      "phase": "36",
+      "waves": [
+        1,
+        7
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7 (NODE-SOBREVIVE): os DOIS sítios de node que o mapa da fase omitia (:96 harnessFlag, :176 fail-closed do exec) trocam para jq — equivalência medida em 15 casos; e a instrução ao agente de worktree passa a proibir REGISTRAR, alinhada ao bloco do escritor único."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase/steps/gap-closure-artifacts.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase/steps/partial-wave.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase/steps/per-plan-worktree-gate.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase/steps/post-merge-gate.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/execute-phase/steps/regression-gate-run.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/fast.md",
+      "phase": "36",
+      "waves": [
+        1,
+        3
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 3 (ADAPT-02): o bloco que perguntava ao markdown se a tabela de quick tasks existia sumiu — a chamada a quick-tasks-append e' incondicional e o exit code do verbo e' o predicado; a prosa e o item de checklist passaram a descrever o FATO registrado, nao o arquivo consultado."
+    },
+    {
+      "path": "gsd-core/workflows/plan-phase.md",
+      "phase": "36",
+      "waves": [
+        1,
+        5
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 5 (ADAPT-03 + ADAPT-05): o helper que lê TODO campo do bundle de init trocou de motor — a mesma função passa a extrair o campo com jq, e a armadilha NODE-SOBREVIVE fecha aqui no sítio mais crítico dos sete, porque nenhum campo do plan-phase era lido sem passar por ele; a variável de caminho de estado sai e a âncora de diretório do artefato de intel passa a vir de project_root, direto do bundle, em vez de dirname sobre ela; o gate de intel LÊ a resposta do subcomando ({available, reason}, exit 0) e diz por que segue sem o artefato em vez de ecoar \"regenerated\"; a injeção do caminho no prompt do planner virou instrução de pedir o fato ao binário; o registro de conclusão do planejamento nomeia o fato e o commit de planejamento deixa de carregar o markdown de estado — nenhum verbo chamado ali o escreve, e ROADMAP.md fica na lista exatamente como estava."
+    },
+    {
+      "path": "gsd-core/workflows/plan-phase/steps/adr-ingest-express-path.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01, citação em instrução e não bloco de preâmbulo: a linha nomeava o runtime que a fase 37 mata e passa a chamar o binário por gsd_run na grafia contratada."
+    },
+    {
+      "path": "gsd-core/workflows/plan-phase/steps/chunked-planning-mode.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/plan-phase/steps/prd-express-path.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/quick.md",
+      "phase": "36",
+      "waves": [
+        1,
+        4,
+        7
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 4 (ADAPT-03): a derivação do caminho de estado por dirname saiu junto com a dívida do #2376 (init.quick não emite state_path e agora não precisa emitir); o Step 7 deixou de perguntar ao markdown se a tabela existe e chama quick-tasks-append incondicional, com a falha nomeada do verbo como predicado — a mesma doutrina do fast.md; as duas injeções do caminho em prompt de subagente viraram instrução de pedir o fato ao binário. Onda 7: a linha do arquivo de estado na lista de arquivos a commitar do Step 8 cai — MEDIDO no binário da casa que nenhum verbo do caminho do quick escreve o markdown (quick-tasks-append cria bead, state.record-session transiciona o portador, sha1 do arquivo inalterado). A justificativa da onda 4 citava readModifyWriteStateMd, que descreve o upstream."
+    },
+    {
+      "path": "gsd-core/workflows/quick/steps/research-phase.md",
+      "phase": "36",
+      "waves": [
+        4
+      ],
+      "reason": "onda 4 (ADAPT-03), entrada NOVA: o fragment não carrega bloco de preâmbulo e por isso não foi registrado na onda zero — entra pela regra do plano 01, no mesmo commit que o edita, e o `list` do cairn-preamble o reporta como `none` (registrado por adaptação de conteúdo). A injeção do caminho de estado no prompt do gsd-phase-researcher virou instrução de pedir o fato ao binário; medido: esse agente NÃO carrega state.load próprio, então a linha era a única porta e apagá-la sem substituir perderia o fato."
+    },
+    {
+      "path": "gsd-core/workflows/quick/steps/worktree-pre-dispatch-commit.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "gsd-core/workflows/verify-work.md",
+      "phase": "36",
+      "waves": [
+        1,
+        5
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 5 (ADAPT-03): a transição automática de conclusão de fase deixa de dizer que marca a fase completa no roadmap e no markdown de estado e passa a nomear o FATO — phase.complete é quem o registra, e o passo diz explicitamente que a projeção para ROADMAP.md é do bookkeep, porque a forma mais fácil de violar a regra de integração do CONTEXT seria \"melhorar\" essa linha para escrita direta; a injeção do caminho de estado no prompt do gsd-planner em modo gap_closure virou instrução de pedir o fato ao binário, e com ela morre a última injeção do corpus de workflows fora do execute-phase. Intocados por medição: o find dos artefatos de UAT (:105), o caminho de escrita (:289) e o commit deles (:507) — são DOCUMENTO, e as três menções a .planning/ do arquivo são exatamente essas."
+    },
+    {
+      "path": "gsd-core/workflows/verify-work/steps/mvp-uat-framing.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+    },
+    {
+      "path": "skills/gsd-discuss-phase/SKILL.md",
+      "phase": "36",
+      "waves": [
+        1
+      ],
+      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37."
+    }
+  ]
+}
