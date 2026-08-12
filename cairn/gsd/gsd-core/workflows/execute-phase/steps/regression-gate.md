@@ -5,16 +5,20 @@ Run prior phases' test suites to catch cross-phase regressions BEFORE verificati
 
 **Step 1: Discover prior phases' test files**
 ```bash
-# Find all VERIFICATION.md files from prior phases in current milestone
-PRIOR_VERIFICATIONS=$(find .planning/phases/ -name "*-VERIFICATION.md" ! -path "*${PHASE_NUMBER}*" 2>/dev/null)
+# The verification of a phase is its carrier bead's acceptance criteria — read
+# every prior phase's, skipping the one being executed.
+PRIOR_VERIFICATIONS=$(bd list --all --limit 0 --json | jq -r --arg cur "phase-${PHASE_NUMBER}" '
+  .[] | select((.labels // []) | any(startswith("phase-")) and (index($cur) | not))
+      | select((.acceptance_criteria // "") != "")
+      | .acceptance_criteria')
 ```
 
 **Step 2: Extract test file lists from prior verifications**
 
-For each VERIFICATION.md found, look for test file references:
+In each verification found, look for test file references:
 - Lines containing `test`, `spec`, or `__tests__` paths
 - The "Test Suite" or "Automated Checks" section
-- File patterns from `key-files.created` in corresponding SUMMARY.md files that match `*.test.*` or `*.spec.*`
+- File patterns from `key-files.created` in the corresponding summary records that match `*.test.*` or `*.spec.*`
 
 Collect all unique test file paths into `REGRESSION_FILES`.
 

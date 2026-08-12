@@ -24,7 +24,7 @@ Extract implementation decisions that downstream agents need — researcher and 
 3. Analyze phase — skip gray areas already decided in prior phases
 4. Present remaining gray areas — user selects which to discuss
 5. Deep-dive each selected area until satisfied
-6. Create CONTEXT.md with decisions that guide research and planning
+6. Record the phase context with decisions that guide research and planning
 
 **Output:** `{phase_num}-CONTEXT.md` — decisions clear enough that downstream agents can act without asking the user again
 </objective>
@@ -63,7 +63,7 @@ Read and execute `~/.claude/gsd-core/workflows/discuss-phase.md` end-to-end.
 
 **MANDATORY:** Read the appropriate workflow file BEFORE taking any action. The objective and success_criteria sections in this command file are summaries — the workflow file contains the complete step-by-step process with all required behaviors, config checks, and interaction patterns. Do not improvise from the summary.
 
-**Lazy loading:** `templates/context.md` is loaded inside the `write_context` step of the active workflow. `discuss-phase-power.md` is loaded inside `discuss-phase.md` when `--power` is detected. Do not load either here.
+**Lazy loading:** `templates/context.md` is loaded inside the `record_context` step of the active workflow. `discuss-phase-power.md` is loaded inside `discuss-phase.md` when `--power` is detected. Do not load either here.
 </process>
 
 <success_criteria>

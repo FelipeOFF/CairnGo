@@ -15,7 +15,7 @@ file and run for every mode.
 
 For each selected area, conduct a focused discussion loop.
 
-**Research-before-questions mode:** Check if `workflow.research_before_questions` is enabled in config (from init context or `.planning/config.json`). When enabled, before presenting questions for each area:
+**Research-before-questions mode:** Check if `workflow.research_before_questions` is enabled in config (from init context or the planning config). When enabled, before presenting questions for each area:
 1. Do a brief web search for best practices related to the area topic
 2. Summarize the top findings in 2-3 bullet points
 3. Present the research alongside the question so the user can make a more informed decision
@@ -79,7 +79,7 @@ check whether to continue. Each answer should reveal the next question.
      - Identify 2-4 additional gray areas based on what was learned
      - Return to present_gray_areas logic with these new areas
      - Loop: discuss new areas, then prompt again
-   - If "I'm ready for context": Proceed to write_context
+   - If "I'm ready for context": Proceed to record_context
 
 **Canonical ref accumulation during discussion:**
 When the user references a doc, spec, or ADR during any answer — e.g., "read adr-014", "check the MCP spec", "per browse-spec.md" — immediately:
@@ -128,7 +128,7 @@ Schema: read `workflows/discuss-phase/templates/checkpoint.json` for the
 canonical structure — copy it and substitute the live values.
 
 **On session resume:** Handled in the parent's `check_existing` step. After
-`write_context` completes successfully, the parent's `git_commit` step
+`record_context` completes successfully, the parent's `git_commit` step
 deletes the checkpoint.
 
 **Track discussion log data internally:**
@@ -138,4 +138,4 @@ For each question asked, accumulate:
 - Which option the user selected (or their free-text response)
 - Any follow-up notes or clarifications the user provided
 
-This data is used to generate DISCUSSION-LOG.md in the parent's `git_commit` step.
+This data is appended as the discussion log in the parent's `git_commit` step.

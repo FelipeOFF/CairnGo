@@ -13,7 +13,10 @@ Usage:
                     [--apply-reconciliation N]
 
 Checks (each reported as {id, status: ok|not-applicable|warn|fail, detail,
-items[]}, plus `scope` when and only when the status is not-applicable):
+items[]}, plus `scope` when and only when the status is not-applicable, plus
+`state` when and only when the check is `gsd-unmigrated` — it carries the
+state letter of cairn-migrate.py's classifier, which that check reuses rather
+than re-deriving; see check_gsd_unmigrated for why the reuse is deliberate):
 
 THE FOURTH STATUS, `not-applicable` (phase 23, VOID-01). It says the check had
 nothing to check — as opposed to `ok`, which says it compared something and
@@ -3831,6 +3834,105 @@ def run_apply_reconciliation(root, n, issues, as_json):
 # --------------------------------------------------------------------------- #
 # output + main
 # --------------------------------------------------------------------------- #
+def migrate_detect_state(root):
+    """Estado do classificador de cairn-migrate.py, ou None quando indisponivel.
+
+    REUSO DELIBERADO, e a alternativa foi medida antes de ser recusada:
+    cairn-migrate.py `detect` JA classifica esta situacao como estado A
+    (".planning present, .beads absent -> GSD-only backfill"). Escrever um
+    segundo classificador aqui criaria duas definicoes de "projeto por
+    migrar" que divergiriam no primeiro caso de borda. O doctor PERGUNTA a
+    quem ja sabe responder.
+    """
+    script = Path(__file__).resolve().parent / "cairn-migrate.py"
+    if not script.is_file():
+        return None
+    proc = subprocess.run([sys.executable, str(script), "detect",
+                           "--project-dir", str(root), "--json"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout).get("state")
+    except ValueError:
+        return None
+
+
+def check_gsd_unmigrated(root, planning_dir):
+    """Um GSD que ainda nao foi migrado — ACHADO com rota, nao residuo.
+
+    ESTA E' A LEITURA DE `.planning/` QUE O MILESTONE v1.7 PRESERVA, e a
+    distincao que a preserva e' esta:
+
+        ler .planning/ para MIGRAR  !=  ler .planning/ como VERDADE
+
+    As duas frases terminais que governam o diretorio, e que ficam aqui no
+    codigo de proposito — nao so num registro de sumario — porque e' o que
+    separa "o doctor le markdown" (regressao) de "o doctor reconhece um
+    projeto por migrar" (feature):
+
+        (1) ANTES de migrar, .planning/ e' lido UMA vez, como ENTRADA da migracao.
+            E' o que esta funcao faz, e o unico motivo pelo qual ela abre o
+            diretorio.
+        (2) DEPOIS de migrado, .planning/ nao e' lido nem escrito. Nenhuma
+            checagem deste arquivo o consulta como fonte de estado, e o
+            caminho para ca deixa de ser alcancado no instante em que
+            `.beads/` existe.
+
+    Um leitor futuro que encontre esta leitura sem a doutrina ao lado vai
+    conclui-la residuo e apaga-la — e apagar isto deixa sem rota exatamente
+    a pessoa que o cairn mais quer receber: a que chega vinda do GSD, com o
+    `.planning/` cheio e nada mais.
+
+    O INVENTARIO E' CONTAGEM, NAO INTERPRETACAO. Conta fases, planos e
+    sumarios para dizer o TAMANHO do que ha para migrar. Nao le conteudo,
+    nao infere progresso, nao decide o que esta completo — isso e' trabalho
+    de `cairn-migrate.py plan`, que e' quem tem os parsers e o handshake de
+    plano. Aqui a pergunta e' so "ha um GSD aqui, e quao grande e' ele".
+    """
+    phases = sorted(p for p in (planning_dir / "phases").glob("*")
+                    if p.is_dir()) if (planning_dir / "phases").is_dir() else []
+    plans = sorted(planning_dir.rglob("*PLAN.md"))
+    summaries = sorted(planning_dir.rglob("*SUMMARY.md"))
+    docs = [name for name in ("ROADMAP.md", "REQUIREMENTS.md", "STATE.md",
+                              "PROJECT.md")
+            if (planning_dir / name).is_file()]
+
+    items = []
+    if phases:
+        items.append(f"{len(phases)} phase director"
+                     f"{'y' if len(phases) == 1 else 'ies'} under "
+                     f".planning/phases/")
+    if plans:
+        items.append(f"{len(plans)} PLAN document"
+                     f"{'' if len(plans) == 1 else 's'}")
+    if summaries:
+        items.append(f"{len(summaries)} SUMMARY document"
+                     f"{'' if len(summaries) == 1 else 's'}")
+    if docs:
+        items.append("planning documents: " + ", ".join(docs))
+    if not items:
+        items.append(".planning/ exists but carries no phase, plan or "
+                     "planning document yet")
+
+    state = migrate_detect_state(root)
+    return {
+        "id": "gsd-unmigrated",
+        "status": "warn",
+        "state": state,
+        "detail": (
+            "this repo carries a GSD that has not been migrated to cairn "
+            "(.planning/ present, .beads/ absent"
+            + (f"; cairn-migrate detect says state {state}" if state else "")
+            + "). Nothing here is broken — the work simply has not moved into "
+            "the tracker yet. Migrate it with `/cairn:migrate`, which reads "
+            "these documents ONCE and turns phases, plans, requirements and "
+            "summaries into bd records; after that .planning/ is neither read "
+            "nor written."),
+        "items": items,
+    }
+
+
 def emit(as_json, summary, human_lines):
     if as_json:
         print(json.dumps(summary))
@@ -3898,7 +4000,21 @@ def main():
         summary["note"] = (f"{present} exists but {absent} is absent — "
                            "doctor not applicable (it checks wired repos); "
                            "run /cairn:migrate to bootstrap the missing side")
-        emit(args.json, summary, [f"[cairn-doctor] note: {summary['note']}"])
+        human = [f"[cairn-doctor] note: {summary['note']}"]
+        # AS DUAS DIRECOES DESTE RAMO NAO SAO O MESMO FATO, e ate a v1.7 elas
+        # dividiam a frase acima. `.beads/` sem `.planning/` e' um bootstrap
+        # (o repo nunca teve GSD). `.planning/` sem `.beads/` e' um GSD POR
+        # MIGRAR — quem instala o cairn quase sempre chega assim — e merece
+        # achado proprio, com o que ha para migrar e a rota para migra-lo.
+        if has_planning:
+            finding = check_gsd_unmigrated(root, planning_dir)
+            summary["checks"].append(finding)
+            summary["counts"][finding["status"]] += 1
+            human.append(f"{SYMBOL[finding['status']]} {finding['id']}: "
+                         f"{finding['detail']}")
+            for item in finding["items"]:
+                human.append(f"    - {item}")
+        emit(args.json, summary, human)
         sys.exit(EXIT_OK)
 
     if shutil.which("bd") is None:

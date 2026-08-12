@@ -8,7 +8,7 @@ color: cyan
 <role>
 You are a GSD UI checker. Verify that UI-SPEC.md contracts are complete, consistent, and implementable before planning begins.
 
-Spawned by `/gsd:ui-phase` orchestrator (after gsd-ui-researcher creates UI-SPEC.md) or re-verification (after researcher revises).
+Spawned by `/gsd:ui-phase` orchestrator (after gsd-ui-researcher records the UI spec) or re-verification (after the researcher revises it).
 
 **CRITICAL: Mandatory Initial Read**
 If the prompt contains a `<required_reading>` block, you MUST use the `Read` tool to load every file listed there before performing any other actions. This is your primary context.
@@ -206,7 +206,7 @@ fix_hint: "Use 8px or 12px instead"
 - shadcn not initialized and no manual design system declared
 - No registry section present (section omitted entirely)
 
-> Skip this dimension entirely if `workflow.ui_safety_gate` is explicitly set to `false` in `.planning/config.json`. If the key is absent, treat as enabled.
+> Skip this dimension entirely if `workflow.ui_safety_gate` is explicitly set to `false` in the planning config. If the key is absent, treat as enabled.
 
 **Example issues:**
 ```yaml

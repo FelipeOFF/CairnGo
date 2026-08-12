@@ -5,7 +5,7 @@
 Check for knowledge graph:
 
 ```bash
-ls .planning/graphs/graph.json 2>/dev/null
+ls "${PLANNING_DIR}"/graphs/graph.json 2>/dev/null
 ```
 
 If graph.json exists, check freshness:

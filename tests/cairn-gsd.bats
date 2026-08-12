@@ -577,9 +577,18 @@ free_of_timestamp_keys() {
   # A inversao esta provada nas DUAS direcoes em
   # tests/cairn-doctor-lineage.bats (9 asserções, 9/9 vermelhas contra o
   # doctor do pin anterior).
+  # ATUALIZADO 2026-08-12 pela v1.7, e a razao e' uma CORRECAO DE ESCOPO: ler
+  # `.planning/` para MIGRAR nao e' o mesmo que ler `.planning/` como VERDADE.
+  # Quem instala o cairn quase sempre vem do GSD e chega com um `.planning/`
+  # cheio; o doctor era cego para esse diretorio e deixava essa pessoa sem
+  # rota nenhuma. Entrou o achado `gsd-unmigrated` (com `migrate_detect_state`),
+  # WARN e NUNCA fail — porque um GSD por migrar e' uma ROTA, nao um defeito.
+  # O ramo de um-lado-so ja existia, mas simetrico: as duas direcoes davam a
+  # mesma frase, e uma frase que nao distingue os dois casos nao orienta
+  # nenhum dos dois.
   local doctor="$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
-  local pinned_blob="1249752b6f9b93ea59079811869eee0a729d3c30"
-  local pinned_lines=4112
+  local pinned_blob="0d27d38af78690b0f23504cbce93b547cf067202"
+  local pinned_lines=4228
   [ -f "$doctor" ]
   local blob lines
   blob="$(git hash-object "$doctor")"

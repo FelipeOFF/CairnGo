@@ -44,7 +44,7 @@ Parse subcommands and flags from $ARGUMENTS BEFORE the active-session check:
 
 Check for active sessions (used for non-list/status/continue flows):
 ```bash
-ls .planning/debug/*.md 2>/dev/null | grep -v resolved | head -5
+bd list -l debug --status open --json | jq -r '.[] | "\(.id)\t\(.title)"' | head -5
 ```
 </context>
 

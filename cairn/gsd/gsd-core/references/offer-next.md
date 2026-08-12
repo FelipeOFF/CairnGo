@@ -60,7 +60,8 @@ Read and follow `~/.claude/gsd-core/workflows/transition.md`, passing through th
 Check whether CONTEXT.md already exists for the next phase:
 
 ```bash
-ls .planning/phases/*{next}*/{next}-CONTEXT.md 2>/dev/null || echo "no-context"
+bd list -l "phase-{next}" --all --limit 0 --json \
+  | jq -re '[.[] | select((.design // "") != "")] | length > 0' >/dev/null || echo "no-context"
 ```
 
 If CONTEXT.md does **not** exist for the next phase, present:

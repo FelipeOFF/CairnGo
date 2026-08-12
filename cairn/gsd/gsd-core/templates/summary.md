@@ -1,10 +1,10 @@
 # Summary Template
 
-Template for `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md` - phase completion documentation.
+Body structure for the summary that CLOSES a plan record (`cairn-record.sh summary --phase N --plan P`) - phase completion documentation. There is no summary file; this is the shape of the body sent on stdin.
 
 ---
 
-## File Template
+## Body Template
 
 ```markdown
 ---

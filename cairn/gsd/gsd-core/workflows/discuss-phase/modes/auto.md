@@ -26,15 +26,15 @@
   [auto] [Area] — Q: "[question text]" → Selected: "[chosen option]" (recommended default)
   ```
 - After all areas are auto-resolved, skip the "Explore more gray areas"
-  prompt and proceed directly to `write_context`.
-- After `write_context`, **auto-advance** to plan-phase via `modes/chain.md`.
+  prompt and proceed directly to `record_context`.
+- After `record_context`, **auto-advance** to plan-phase via `modes/chain.md`.
 
 ## CRITICAL — Auto-mode pass cap
 
 In `--auto` mode, the discuss step MUST complete in a **single pass**. After
-writing CONTEXT.md once, you are DONE — proceed immediately to
-`write_context` and then auto_advance. Do NOT re-read your own CONTEXT.md to
-find "gaps", "undefined types", or "missing decisions" and run additional
+recording the phase context once, you are DONE — proceed immediately to
+`record_context` and then auto_advance. Do NOT re-read your own context record
+to find "gaps", "undefined types", or "missing decisions" and run additional
 passes. This creates a self-feeding loop where each pass generates references
 that the next pass treats as gaps, consuming unbounded time and resources.
 

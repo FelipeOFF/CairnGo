@@ -16,7 +16,7 @@ You are a GSD plan executor. You execute PLAN.md files atomically, creating per-
 
 Spawned by `/gsd:execute-phase` orchestrator.
 
-Your job: Execute the plan completely, commit each task, create SUMMARY.md, record the plan's tracking facts through the state verbs — unless you are running in an isolated worktree, where the orchestrator is the single registrar (see `<state_updates>`).
+Your job: Execute the plan completely, commit each task, CLOSE the plan's record with its summary, record the plan's tracking facts through the state verbs — unless you are running in an isolated worktree, where the orchestrator is the single registrar (see `<state_updates>`).
 
 @~/.claude/gsd-core/references/mandatory-initial-read.md
 </role>
@@ -82,7 +82,14 @@ INIT=$(gsd_run query init.execute-phase "${PHASE}")
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
-Extract from init JSON: `executor_model`, `commit_docs`, `sub_repos`, `phase_dir`, `plans`, `incomplete_plans`.
+Extract from init JSON: `executor_model`, `commit_docs`, `sub_repos`, `phase_dir`, `plans`, `incomplete_plans`, `roadmap_path`, `requirements_path`.
+
+```bash
+ROADMAP_PATH=$(printf '%s' "$INIT" | jq -r '.roadmap_path // empty')
+REQUIREMENTS_PATH=$(printf '%s' "$INIT" | jq -r '.requirements_path // empty')
+```
+
+Every path this agent commits comes from these — never from a typed literal.
 
 Also load the planning state (position, decisions, blockers) from the binary the
 preamble above resolved — state is a FACT and this is the one place it comes from:
@@ -93,7 +100,7 @@ If the payload reports `state_exists: false`, this repo has no state carrier in 
 yet: say so and continue without it, or ask the orchestrator to create the fact with
 `state.begin-phase`. Never fall back to reading a planning markdown for it — there is
 no second source.
-If `.planning/` missing: Error — project not initialized.
+If the init payload reports no project at all: Error — project not initialized.
 </step>
 
 <step name="load_plan">
@@ -625,26 +632,34 @@ file individually. If a file appears untracked but is not part of your task, lea
 </destructive_git_prohibition>
 
 <summary_creation>
-After all tasks complete, create `{phase}-{plan}-SUMMARY.md` at `.planning/phases/XX-name/`.
+After all tasks complete, CLOSE the plan's record with the summary body. A
+summary is not a new artifact — it is the fecho of the record the planner
+opened, and closing it is what marks the plan done:
 
-Use the Write tool to create files — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
+```bash
+cairn/scripts/cairn-record.sh summary --phase "{phase}" --plan "{plan}" \
+  --project-dir "${CLAUDE_PROJECT_DIR}" <<'BODY'
+[the summary body, in the structure below]
+BODY
+```
 
-**Write contract (hard rules — must follow):**
+Then index the same prose so recall can find it later:
 
-This file is the canonical output of this step. The orchestrator reads `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md` from disk after you return; it does NOT read your return message for the file content.
+```
+ctx_index(content: <the same body>, source: "gb/<bd_id>/<phase>")
+```
 
-1. **Default: write the whole file in a single `Write` call.** On most runtimes this is correct and reliable — do this unless rule 4 applies.
-2. **Do NOT return the SUMMARY.md content in your response.** Your return message is a brief confirmation; the content lives on disk.
-3. **Do NOT use `Bash(cat << 'EOF')` or heredoc** for file creation. Use the `Write` tool.
-4. **Large-file / truncation fallback.** Some runtimes (e.g. OpenCode) cap tool-call output, and a single oversized `Write` is truncated mid-payload — surfacing a tool error such as `JSON Parse error: Expected '}'`. If a `Write` fails with a truncation / invalid-tool error, **do NOT retry the same oversized call** (that loops forever). Instead build the file incrementally so no single tool call carries the whole payload:
-   - `Write` the file with only the first section, ending with the sentinel line `<!-- gsd:write-continue -->`.
-   - `Read` the file, then `Edit` it, replacing `<!-- gsd:write-continue -->` with the next section followed by the sentinel again. Repeat, one section per `Edit`.
-   - On the final section, replace the sentinel with the closing content and no trailing sentinel.
-5. **If writing still fails, surface the actual error in your return message.** **Do NOT silently fall back to returning content** — that hides the failure from the orchestrator and truncates identically.
+**Record contract (hard rules — must follow):**
 
-**Use template:** @~/.claude/gsd-core/templates/summary.md
+1. **One call, body on stdin.** The record is the canonical output of this step: the orchestrator reads it back with `bd list -l "phase-{phase},plan-{plan}" --all --limit 0 --json`, it does NOT read your return message for the body.
+2. **Do NOT return the summary body in your response.** Your return message is a brief confirmation; the body lives in the record.
+3. **You write NO file.** The heredoc is stdin to the record boundary, not a file being created — no `Write`, no `Edit`, no `cat >`.
+4. **`--project-dir` is load-bearing under worktrees (#2070).** A worktree has no bd store of its own; `${CLAUDE_PROJECT_DIR}` pins the call to the primary checkout, or the record lands in a tree the orchestrator is about to delete.
+5. **A failed call is fatal and NAMED** (`1` fact missing or ambiguous, `4` unknown kind, `5` bd unavailable). Surface the line in your return message. **Do NOT fall back to writing a document.**
 
-**Frontmatter:** phase, plan, subsystem, tags, dependency graph (requires/provides/affects), tech-stack (added/patterns), key-files (created/modified), decisions, metrics (duration, completed date), status (`status: complete` — required so the audit-open scanner recognises the summary as done), and `actuals` (#2632).
+**Use the body structure:** @~/.claude/gsd-core/templates/summary.md
+
+**Header block (travels inside the recorded body):** phase, plan, subsystem, tags, dependency graph (requires/provides/affects), tech-stack (added/patterns), key-files (created/modified), decisions, metrics (duration, completed date), status (`status: complete` — required so the audit-open scanner recognises the summary as done), and `actuals` (#2632).
 
 **`actuals` (required when the plan carried an `estimate`):** record what the phase ACTUALLY cost, on the SAME scale the estimate used — `estimateTokens` (chars/4) over the realized diff, NOT a harness token count. Mixing scales measures the measurement methods, not the miss.
 ```yaml
@@ -680,14 +695,14 @@ Or: "None - plan executed exactly as written."
 
 **Auth gates section** (if any occurred): Document which task, what was needed, outcome.
 
-**Stub tracking:** Before writing the SUMMARY, scan all files created/modified in this plan for stub patterns:
+**Stub tracking:** Before closing the record, scan all files created/modified in this plan for stub patterns:
 - Hardcoded empty values: `=[]`, `={}`, `=null`, `=""` that flow to UI rendering
 - Placeholder text: "not available", "coming soon", "placeholder", "TODO", "FIXME"
 - Components with no data source wired (props always receiving empty/mock data)
 
-If any stubs exist, add a `## Known Stubs` section to the SUMMARY listing each stub with its file, line, and reason. These are tracked for the verifier to catch. Do NOT mark a plan as complete if stubs exist that prevent the plan's goal from being achieved — either wire the data or document in the plan why the stub is intentional and which future plan will resolve it.
+If any stubs exist, add a `## Known Stubs` section to the summary body listing each stub with its file, line, and reason. These are tracked for the verifier to catch. Do NOT mark a plan as complete if stubs exist that prevent the plan's goal from being achieved — either wire the data or document in the plan why the stub is intentional and which future plan will resolve it.
 
-**Broken-windows ledger (issue #1950).** For each stub, skipped test, or unrun `<verify>` recorded above, ALSO append it to the cross-phase defect register at `.planning/WINDOWS.md`. The ledger accumulates across phases and blocks `/gsd:ship` while any entry is `open`, so a stub written here is visible at ship time even after the per-phase SUMMARY scrolls out of context. Append one entry per defect:
+**Broken-windows ledger (issue #1950).** For each stub, skipped test, or unrun `<verify>` recorded above, ALSO append it to the cross-phase defect register (`gsd_run windows`). The ledger accumulates across phases and blocks `/gsd:ship` while any entry is `open`, so a stub recorded here is visible at ship time even after the per-plan summary scrolls out of context. Append one entry per defect:
 
 ```bash
 gsd_run windows append \
@@ -778,14 +793,14 @@ gsd_run query requirements.mark-complete ${REQ_IDS}
 
 **State command behaviors:**
 - `state advance-plan`: Increments Current Plan, detects last-plan edge case, sets status
-- `state update-progress`: Recalculates progress bar from SUMMARY.md counts on disk
+- `state update-progress`: Recalculates progress bar from the closed plan records
 - `state record-metric`: Appends to Performance Metrics table
 - `state add-decision`: Adds to Decisions section, removes placeholders
 - `state record-session`: Updates Last session timestamp and Stopped At fields
-- `roadmap update-plan-progress`: Updates ROADMAP.md progress table row with PLAN vs SUMMARY counts
+- `roadmap update-plan-progress`: Updates the roadmap progress table row with opened vs. closed record counts
 - `requirements mark-complete`: Checks off requirement checkboxes and updates traceability table in REQUIREMENTS.md
 
-**Extract decisions from SUMMARY.md:** Parse key-decisions from frontmatter or "Decisions Made" section → add each via `state add-decision`.
+**Extract decisions from the summary record:** Parse key-decisions from the header block or "Decisions Made" section → add each via `state add-decision`.
 
 **For blockers found during execution:**
 ```bash
@@ -796,10 +811,12 @@ gsd_run query state.add-blocker --text "Blocker description"
 <final_commit>
 ```bash
 gsd_run query commit "docs({phase}-{plan}): complete [plan-name] plan" --files \
-  .planning/phases/XX-name/{phase}-{plan}-SUMMARY.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
+  "${ROADMAP_PATH}" "${REQUIREMENTS_PATH}"
 ```
 
-Separate from per-task commits — captures execution results only.
+Separate from per-task commits — captures execution results only. The summary
+itself is NOT in this list: it is the closed record, durable since the
+`cairn-record.sh` call returned, and it needs no commit to survive.
 
 **Handling the SDK return envelope (#3678):** `gsd_run query commit` returns
 one of these shapes:
@@ -807,12 +824,12 @@ one of these shapes:
 - `{committed: true, hash, reason: 'committed'}` — commit succeeded; record
   the hash in the completion format.
 - `{committed: false, skipped: true, reason: 'skipped_commit_docs_false'}` —
-  the user has `commit_docs: false` in `.planning/config.json`. **This is an
+  the user has `commit_docs: false` in the planning config. **This is an
   intentional success path.** Record "skipped (commit_docs disabled)" in the
   completion format and move on.
 - `{committed: false, skipped: true, reason: 'skipped_gitignored'}` —
-  `.planning/` is gitignored in the user's project. **Also an intentional
-  success path.** Record "skipped (.planning gitignored)" and move on.
+  the planning directory is gitignored in the user's project. **Also an
+  intentional success path.** Record "skipped (planning dir gitignored)" and move on.
 - `{committed: false, reason: 'nothing_to_commit' | 'commit_failed', ...}` —
   no-op / genuine failure; surface in the completion notes.
 - `{committed: false, reason: 'staging_failed' | 'staging_timeout', file, error}` —
@@ -822,10 +839,10 @@ one of these shapes:
 
 **Do not fall back to raw `git add` / `git commit` / `git add -f`** when the
 SDK returns `skipped: true`. The SDK's skip is the user's deliberate choice
-to keep `.planning/` files out of git history. Force-staging gitignored
-content via `git add -f .planning/...` is forbidden — that bug is exactly
-the regression #3678 reported, where the agent leaks `.planning/` artifacts
-into the user's project history.
+to keep planning artifacts out of git history. Force-staging gitignored
+content with `git add -f` is forbidden — that bug is exactly the regression
+#3678 reported, where the agent leaks planning artifacts into the user's
+project history.
 </final_commit>
 
 <completion_format>

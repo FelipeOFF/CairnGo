@@ -3918,16 +3918,33 @@ PY
 
   # MEASURED 2026-08-07, and it is why this file carries no test asserting the
   # check's own `out-of-scope` rung: with .beads/ absent the doctor
-  # short-circuits before running ANY check — `applicable:false`, `checks:[]`,
-  # exit 0 — so that rung is unreachable through the CLI. It stays in the
-  # source as a defensive branch for a direct call, and it is documented as
-  # unreachable rather than guarded by an assertion that would pass over an
-  # empty list and prove nothing. Phase 25 shipped exactly that empty
-  # assertion once (G14) and had to delete it.
+  # short-circuits before running the cross-check suite, so that rung is
+  # unreachable through the CLI. It stays in the source as a defensive branch
+  # for a direct call, and it is documented as unreachable rather than guarded
+  # by an assertion that would pass over an empty list and prove nothing.
+  # Phase 25 shipped exactly that empty assertion once (G14) and had to delete
+  # it.
+  #
+  # A ASSERCAO MUDOU NA v1.7, E A RAZAO DO TESTE NAO. Ate aqui a prova de
+  # "nunca alcancado" era `checks | length == 0` — um PROXY: se nenhuma
+  # checagem roda, esta tambem nao rodou. A v1.7 deu a este ramo um achado
+  # proprio (`gsd-unmigrated`: ha um GSD aqui que ainda nao foi migrado, com a
+  # rota para migra-lo), entao a lista deixou de ser vazia e o proxy quebrou —
+  # sem que a afirmacao que ele servia deixasse de ser verdadeira.
+  #
+  # A correcao e' a assercao dizer o que sempre quis dizer: `issues-recoverable`
+  # NAO esta entre as checagens. Sobre uma lista nao-vazia isso e' MAIS FORTE
+  # que a forma antiga, e e' exatamente o que o comentario acima pedia — a
+  # ausencia de um id especifico prova algo, a vacuidade de uma lista vazia
+  # nao. O curto-circuito continua provado, agora pelo par
+  # `applicable:false` + a unica checagem presente ser a rota de migracao.
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.applicable' 'false'
-  assert_json_eq "$output" '.checks | length' '0'
+  assert_json_eq "$output" \
+    '[.checks[] | select(.id == "issues-recoverable")] | length' '0'
+  assert_json_eq "$output" '[.checks[] | .id] | unique | join(",")' \
+    'gsd-unmigrated'
 }
 
 # ─── check 23, export-identity (2026-08-11) ─────────────────────────────────

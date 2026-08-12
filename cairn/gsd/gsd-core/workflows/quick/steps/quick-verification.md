@@ -23,7 +23,7 @@ Task goal: ${DESCRIPTION}
 
 ${AGENT_SKILLS_VERIFIER}
 
-Check must_haves against actual codebase. Create VERIFICATION.md at ${QUICK_DIR}/${quick_id}-VERIFICATION.md.",
+Check must_haves against actual codebase. Record the verdict with `cairn/scripts/cairn-record.sh verification --issue \"${QUICK_ISSUE}\"` (body on stdin).",
   subagent_type="gsd-verifier",
   model="{verifier_model}",
   description="Verify: ${DESCRIPTION}"

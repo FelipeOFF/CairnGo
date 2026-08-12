@@ -2,8 +2,8 @@
 step: execute
 points: execute:pre, execute:wave:pre, execute:wave:post, execute:post
 agent-roles: executor, verifier
-produces: SUMMARY.md
-consumes: PLAN.md
+produces: summary records (the close of each plan record)
+consumes: plan records (kind `plan`)
 -->
 <purpose>
 Execute all plans in a phase using wave-based parallel execution. Orchestrator stays lean — delegates plan execution to subagents.
@@ -50,7 +50,7 @@ it is not a file in the list that follows, and there is no markdown fallback for
 These are the valid GSD subagent types registered in .claude/agents/ (or equivalent for your runtime).
 Always use the exact name from this list — do not fall back to 'general-purpose' or other built-in types:
 
-- gsd-executor — Executes plan tasks, commits, creates SUMMARY.md
+- gsd-executor — Executes plan tasks, commits, closes the plan record with its summary
 - gsd-verifier — Verifies phase completion, checks quality gates
 - gsd-planner — Creates detailed plans from phase scope
 - gsd-phase-researcher — Researches technical approaches for a phase
@@ -89,7 +89,18 @@ if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 AGENT_SKILLS=$(gsd_run query agent-skills gsd-executor)
 ```
 
-Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `response_language`, `requirements_path`, `section_manifest`.
+Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `response_language`, `requirements_path`, `roadmap_path`, `config_path`, `section_manifest`.
+
+Bind the document paths from that JSON and derive the planning root from one of
+them — every path below comes from the fact source, never from a literal typed
+into this workflow:
+
+```bash
+ROADMAP_PATH="{roadmap_path}"
+REQUIREMENTS_PATH="{requirements_path}"
+CONFIG_PATH="{config_path}"
+PLANNING_DIR="$(dirname "${ROADMAP_PATH}")"
+```
 
 `section_manifest` (#2932) gates the three `steps/*.md` reads below: read a step file only when its `id` is in `section_manifest.included` (equivalently, its path is in `section_manifest.read`); skip it — without reading — when its `id` is in `section_manifest.excluded`. When `section_manifest` is `null` (degraded: manifest artifact missing/unreadable), read all three unconditionally — the safe superset.
 
@@ -158,7 +169,7 @@ labelled `gsd-state`). Offer to create the fact with
 
 `state_exists` keeps its name — it is a field of the init bundle and the bundle is
 a pinned contract — but the question it answers has changed with the owner of the
-fact. It is no longer "does `.planning/STATE.md` exist on disk"; it is "does this
+fact. It is no longer "does the state markdown exist on disk"; it is "does this
 repo have a state carrier in the bd". So the remedy changed too: the old offer was
 to reconstruct a markdown file that nothing writes any more.
 
@@ -196,14 +207,16 @@ history. Git history is the source of truth for this gate precisely because it i
 independent of whoever recorded the fact:
 ```bash
 CURRENT_PLAN_ID="{phase_number}-{plan_padded}"
-SUMMARY_PATH="{phase_dir}/{plan_padded}-SUMMARY.md"
+PLAN_RECORD=$(bd list -l "phase-{phase_number},plan-{plan_number}" --all --limit 0 --json | jq -r '.[0].id // empty')
 PLAN_COMMITS=$(git log --oneline --grep="${CURRENT_PLAN_ID}" -30)
 ```
-If production commits exist and `SUMMARY.md is missing` (no `.planning/async-jobs/*.json` manifest matches it: a match is a legal `external_job_waiting` deferral - reconcile per `docs/reference/planning-artifacts.md`, never re-dispatch), stop before spawning a
+If production commits exist and the plan record is still open (no async-job manifest matches it: a match is a legal `external_job_waiting` deferral - reconcile per `docs/reference/planning-artifacts.md`, never re-dispatch), stop before spawning a
 new executor; continuing risks duplicate work, a recorded plan that lags the
 commits, and stale ROADMAP progress.
 Offer these recovery options:
-- `close out manually` — inspect commits, write SUMMARY.md, then advance the
+- `close out manually` — inspect commits, close the plan's record
+  (`cairn/scripts/cairn-record.sh summary --phase {phase_number} --plan {plan_number}`,
+  body on stdin), then advance the
   recorded plan (`gsd_run query state.advance-plan`) and the ROADMAP.
 - `re-execute from scratch` — revert or supersede partial commits before dispatch.
 - `mark-and-skip` — record the anomaly and move on only with explicit confirmation.
@@ -285,7 +298,7 @@ checkpoints between tasks. The user can review, modify, or redirect work at any 
    d. **After each task:** Pause briefly. If the user intervenes (types anything), stop and address
       their feedback before continuing. Otherwise proceed to next task.
 
-   e. **After plan complete:** Show results, commit, create SUMMARY.md, then present next plan.
+   e. **After plan complete:** Show results, commit, close the plan's record with its summary, then present next plan.
 
 3. After all plans: proceed to verification (same as normal mode).
 
@@ -358,7 +371,7 @@ Parse JSON for: `phase`, `plans[]` (each with `id`, `wave`, `autonomous`, `objec
 **If all filtered — do NOT exit unconditionally (#2868).** "No plan work left" and "phase fully
 done" are different conditions: a run can be interrupted between the final wave's SUMMARY and
 `verify_phase_goal` (most commonly by a checkpoint plan that is retired but still writes a SUMMARY),
-leaving a phase that looks complete from every index yet never produced `*-VERIFICATION.md`. A
+leaving a phase that looks complete from every index yet never recorded its `verification`. A
 third condition looks identical to the first two by plan_count alone but is neither: some filtered
 plans were filtered because they are **blocked** (non-empty `blocked_by`, #2830), not because they
 are done. Blocked-and-incomplete must never be reported as finished.
@@ -464,8 +477,12 @@ CROSS_AI_TIMEOUT=$(gsd_run query config-get workflow.cross_ai_timeout 2>/dev/nul
 
    **Success (exit 0 + valid summary):**
    - Read `$CANDIDATE_SUMMARY` and validate it contains meaningful content
-     (not empty, has at least a heading and description — a valid SUMMARY.md structure)
-   - Write it as the plan's SUMMARY.md file
+     (not empty, has at least a heading and description — a valid summary structure)
+   - Close the plan's record with it — a summary is not a new artifact, it is the
+     close of the record the plan opened:
+     ```bash
+     cairn/scripts/cairn-record.sh summary --phase "${PHASE_NUMBER}" --plan "${plan_number}" < "$CANDIDATE_SUMMARY"
+     ```
    - Advance the recorded plan with `gsd_run query state.advance-plan`
    - Update ROADMAP.md progress
    - Mark plan as handled — skip it in execute_waves
@@ -722,7 +739,7 @@ increases monotonically across waves. `{status}` is `complete` (success),
      prompt="
        <objective>
        Execute plan {plan_number} of phase {phase_number}-{phase_name}.
-       Commit each task atomically. Create SUMMARY.md.
+       Commit each task atomically. Close this plan's record with its summary.
        Do NOT record the wave's tracking facts and do NOT update ROADMAP.md — the orchestrator is the single registrar, once, after all worktree agents in the wave complete.
        </objective>
 
@@ -744,13 +761,23 @@ increases monotonically across waves. `{status}` is `complete` (success),
        merge cannot collapse two writes into one, so an agent that registers in
        parallel makes the wave count twice.
 
-       REQUIRED: SUMMARY.md MUST be committed before you return. In worktree mode the
-       git_commit_metadata step in execute-plan.md commits SUMMARY.md and REQUIREMENTS.md
-       only (ROADMAP.md is excluded automatically, and there is no state markdown to
-       commit — the fact is in the bd). Do NOT skip or defer
-       this commit — the orchestrator force-removes the worktree after you return, and
-       any uncommitted SUMMARY.md will be permanently lost (#2070).
-       REQUIRED ORDER: Write SUMMARY.md → commit → only then any narration. No text between Write and commit (truncation risk; #2070 rescue is not primary defense).
+       REQUIRED: the plan's record MUST be closed before you return:
+
+       \`\`\`bash
+       cairn/scripts/cairn-record.sh summary --phase {phase_number} --plan {plan_number} \\
+         --project-dir "${CLAUDE_PROJECT_DIR}" <<'BODY'
+       [the summary body]
+       BODY
+       \`\`\`
+
+       `--project-dir` is pinned to the primary checkout on purpose: a worktree has no
+       issue store of its own. This also retires #2070 — the record lands in the bd,
+       outside the worktree the orchestrator is about to force-remove, so there is no
+       uncommitted artifact left to lose. In worktree mode the git_commit_metadata step
+       in execute-plan.md commits REQUIREMENTS.md only (ROADMAP.md is excluded
+       automatically, and there is no state markdown and no summary document to commit
+       — both facts are in the bd).
+       REQUIRED ORDER: close the record → commit → only then any narration. No text between the record call and the commit.
 
        </parallel_execution>
 
@@ -768,9 +795,9 @@ increases monotonically across waves. `{status}` is `complete` (success),
        First resolve repo root so every path is anchored:
        \`PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)\`
        - ${PROJECT_ROOT}/{phase_dir}/{plan_file} (Plan)
-       - ${PROJECT_ROOT}/.planning/PROJECT.md (Project context — core value, requirements, evolution rules)
+       - ${PLANNING_DIR}/PROJECT.md (Project context — core value, requirements, evolution rules)
        - Project state is NOT in this list and is NOT a file to read: ask the binary for it with `gsd_run query state.load`, resolved by your own preamble.
-       - ${PROJECT_ROOT}/.planning/config.json (Config, if exists)
+       - ${CONFIG_PATH} (Config, if exists)
        ${CONTEXT_WINDOW >= 500000 ? `
        - ${PROJECT_ROOT}/${phase_dir}/*-CONTEXT.md (User decisions from discuss-phase — honors locked choices)
        - ${PROJECT_ROOT}/${phase_dir}/*-RESEARCH.md (Technical research — pitfalls and patterns to follow)
@@ -815,7 +842,7 @@ increases monotonically across waves. `{status}` is `complete` (success),
        <sequential_execution>
        You are running as a SEQUENTIAL executor agent on the main working tree.
        Use normal git commits (with hooks). Do NOT use --no-verify.
-       REQUIRED ORDER: Write SUMMARY.md → commit → only then any narration. No text between Write and commit (truncation risk; #2070 rescue is not primary defense).
+       REQUIRED ORDER: close the plan's record (`cairn/scripts/cairn-record.sh summary --phase {phase_number} --plan {plan_number}`, body on stdin) → commit → only then any narration. No text between the record call and the commit.
        </sequential_execution>
    ```
 
@@ -851,23 +878,25 @@ increases monotonically across waves. `{status}` is `complete` (success),
    its work, do NOT block indefinitely. Instead, verify completion via spot-checks:
 
    ```bash
-   # For each plan in this wave, check if the executor finished:
-   SUMMARY_EXISTS=$(test -f "{phase_dir}/{plan_number}-{plan_padded}-SUMMARY.md" && echo "true" || echo "false")
+   # For each plan in this wave, check if the executor finished — the predicate is
+   # the plan record being CLOSED, not a file appearing on disk:
+   RECORD_CLOSED=$(bd list -l "phase-{phase_number},plan-{plan_number}" --all --limit 0 --json \
+     | jq -r 'if (.[0].status // "") == "closed" then "true" else "false" end')
    COMMITS_FOUND=$(git log --oneline --all --grep="{phase_number}-{plan_padded}" --since="1 hour ago" | head -1)
    COMMITS_SINCE_DISPATCH=$(git log "${EXPECTED_BRANCH}" --since="${DISPATCH_TS}" --oneline | head -1)
    ```
 
-   **If SUMMARY.md exists AND commits are found:** The agent completed successfully —
+   **If the record is closed AND commits are found:** The agent completed successfully —
    treat as done and proceed to step 5. Log: `"✓ {Plan ID} completed (verified via spot-check — completion signal not received)"`
 
-   **If SUMMARY.md does NOT exist after a reasonable wait:** The agent may still be
+   **If the record is still open after a reasonable wait:** The agent may still be
    running or may have failed silently. Check `git log --oneline -5` for recent
    activity. If commits are still appearing, wait longer. If no activity, report
    the plan as failed and route to the failure handler in step 6.
 
    **Configurable stall surveillance (#3212):** Every `${EXECUTOR_STALL_INTERVAL_MINUTES}`
    minutes while waiting, inspect `git log "${EXPECTED_BRANCH}" --since="${DISPATCH_TS}"`
-   for activity. If no completion signal, no SUMMARY.md, and no expected-branch
+   for activity. If no completion signal, no closed record, and no expected-branch
    commits appear for `${EXECUTOR_STALL_THRESHOLD_MINUTES}` minutes, pause and
    ask for one recovery path: `continue waiting`, `kill and retry`, or
    `kill and switch to inline execution`.
@@ -1039,8 +1068,8 @@ increases monotonically across waves. `{status}` is `complete` (success),
      # list: `roadmap.update-plan-progress` above is the only writer this step has,
      # and it writes that one document. No state markdown is named here because the
      # loop above records no markdown — the fact went to the bd.
-     if ! git diff --quiet .planning/ROADMAP.md 2>/dev/null; then
-       gsd_run query commit "docs(phase-${PHASE_NUMBER}): update tracking after wave ${N}" --files .planning/ROADMAP.md
+     if ! git diff --quiet "${ROADMAP_PATH}" 2>/dev/null; then
+       gsd_run query commit "docs(phase-${PHASE_NUMBER}): update tracking after wave ${N}" --files "${ROADMAP_PATH}"
      fi
    elif [ "${TEST_EXIT}" -eq 124 ]; then
      echo "⚠ Skipping tracking update — test suite timed out. Plans remain in-progress. Run tests manually to confirm."
@@ -1350,7 +1379,15 @@ Phase goal: {goal from ROADMAP.md}
 Phase requirement IDs: {phase_req_ids}
 Check must_haves against actual codebase.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
-Create VERIFICATION.md.
+Record the verdict — there is no file:
+
+```bash
+cairn/scripts/cairn-record.sh verification --phase {phase_number} <<'BODY'
+[the verification body]
+BODY
+```
+
+Then index the prose: `ctx_index(content: <the same body>, source: "gb/<bd_id>/{phase_number}")`.
 
 <files_to_read>
 Read these files before verification:
@@ -1507,7 +1544,7 @@ These items are tracked and will appear in `/gsd:progress` and `/gsd:audit-uat`.
 ```
 
 ```bash
-gsd_run query commit "docs(phase-{X}): complete phase execution" --files .planning/ROADMAP.md .planning/REQUIREMENTS.md {phase_dir}/*-VERIFICATION.md
+gsd_run query commit "docs(phase-{X}): complete phase execution" --files "${ROADMAP_PATH}" "${REQUIREMENTS_PATH}"
 ```
 </step>
 
@@ -1542,8 +1579,8 @@ After `update_roadmap`, moves todos whose `resolves_phase` matches to `completed
 ```bash
 shopt -s nullglob 2>/dev/null; setopt NULL_GLOB 2>/dev/null
 PHASE_NUM="${PHASE_NUMBER}"
-PENDING_DIR=".planning/todos/pending"
-COMPLETED_DIR=".planning/todos/completed"
+PENDING_DIR="${PLANNING_DIR}/todos/pending"
+COMPLETED_DIR="${PLANNING_DIR}/todos/completed"
 mkdir -p "$COMPLETED_DIR"
 
 #2576
@@ -1564,7 +1601,7 @@ for TODO_FILE in "$PENDING_DIR"/*.md; do
 done
 
 if [ ${#CLOSED[@]} -gt 0 ]; then
-  gsd_run query commit "docs(phase-${PHASE_NUMBER}): close ${#CLOSED[@]} resolved todo(s)" --files .planning/todos/completed/ .planning/todos/pending/ || true
+  gsd_run query commit "docs(phase-${PHASE_NUMBER}): close ${#CLOSED[@]} resolved todo(s)" --files "$COMPLETED_DIR" "$PENDING_DIR" || true
   echo "◆ Closed ${#CLOSED[@]} todo(s) resolved by Phase ${PHASE_NUMBER}:"
   for f in "${CLOSED[@]}"; do echo "  ✓ $f"; done
 fi
@@ -1579,7 +1616,7 @@ fi
 PROJECT.md tracks validated requirements, decisions, and current state. Without this step,
 PROJECT.md falls behind silently over multiple phases.
 
-1. Read `.planning/PROJECT.md`
+1. Read `${PLANNING_DIR}/PROJECT.md`
 2. If the file exists and has a `## Validated Requirements` or `## Requirements` section:
    - Move any requirements validated by this phase from Active → Validated
    - Add a brief note: `Validated in Phase {X}: {Name}`
@@ -1589,10 +1626,10 @@ PROJECT.md falls behind silently over multiple phases.
 5. Commit the change:
 
 ```bash
-gsd_run query commit "docs(phase-{X}): evolve PROJECT.md after phase completion" --files .planning/PROJECT.md
+gsd_run query commit "docs(phase-{X}): evolve PROJECT.md after phase completion" --files "${PLANNING_DIR}/PROJECT.md"
 ```
 
-**Skip this step if** `.planning/PROJECT.md` does not exist.
+**Skip this step if** `${PLANNING_DIR}/PROJECT.md` does not exist.
 </step>
 
 <step name="offer_next">

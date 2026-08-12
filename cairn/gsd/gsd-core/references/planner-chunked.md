@@ -8,8 +8,7 @@ shorter-lived Tasks to bound the blast radius of Windows stdio hangs.
 
 ### outline-only
 
-Write **only** `{PHASE_DIR}/{PADDED_PHASE}-PLAN-OUTLINE.md`. Do not write any PLAN.md files.
-Return:
+Record NO plan and write no file. The outline IS the return:
 
 ```markdown
 ## OUTLINE COMPLETE
@@ -27,7 +26,7 @@ The orchestrator reads this table, then spawns one single-plan Task per row.
 
 ### single-plan
 
-Write **exactly one** `{PHASE_DIR}/{plan_id}-PLAN.md`. Do not write any other plan files.
+Record **exactly one** plan — `cairn/scripts/cairn-record.sh plan --phase {phase_number} --plan {plan_number}`. Record no other plan.
 Return:
 
 ```markdown

@@ -2,11 +2,11 @@
 step: plan
 points: plan:pre, plan:post
 agent-roles: researcher, planner, checker
-produces: PLAN.md
-consumes: CONTEXT.md
+produces: plan records (kind `plan`, one per wave)
+consumes: the phase's `context` record
 -->
 <purpose>
-Create executable phase prompts (PLAN.md files) for a roadmap phase with integrated research and verification. Default flow: Research (if needed) -> Plan -> Verify -> Done. Orchestrates gsd-phase-researcher, gsd-planner, and gsd-plan-checker agents with a revision loop (max 3 iterations).
+Open executable phase prompts as plan records (one per wave) for a roadmap phase with integrated research and verification. Default flow: Research (if needed) -> Plan -> Verify -> Done. Orchestrates gsd-phase-researcher, gsd-planner, and gsd-plan-checker agents with a revision loop (max 3 iterations).
 </purpose>
 
 <required_reading>
@@ -22,7 +22,7 @@ Read all files referenced by the invoking prompt's execution_context before star
 <available_agent_types>
 Valid GSD subagent types (use exact names — do not fall back to 'general-purpose'):
 - gsd-phase-researcher — Researches technical approaches for a phase
-- gsd-pattern-mapper — Analyzes codebase for existing patterns, produces PATTERNS.md
+- gsd-pattern-mapper — Analyzes codebase for existing patterns, records the phase's pattern map
 - gsd-planner — Creates detailed plans from phase scope
 - gsd-plan-checker — Reviews plan quality before execution
 </available_agent_types>
@@ -86,7 +86,7 @@ When the tdd capability's `workflow.tdd_mode` is active (resolved via the plan:p
 
 When `CONTEXT_WINDOW >= 500000`, the planner prompt includes the 3 most recent prior-phase CONTEXT.md/SUMMARY.md files plus any phases in the current phase's `Depends on:` field (explicit deps load regardless of recency).
 
-Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_enabled`, `plan_checker_enabled`, `nyquist_validation_enabled`, `commit_docs`, `text_mode`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_reviews`, `has_plans`, `plan_count`, `phase_status` (#3569), `planning_exists`, `roadmap_exists`, `phase_req_ids`, `response_language`, `granularity`.
+Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_enabled`, `plan_checker_enabled`, `nyquist_validation_enabled`, `commit_docs`, `roadmap_path` (into `ROADMAP_PATH`, used by step 13d), `text_mode`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_reviews`, `has_plans`, `plan_count`, `phase_status` (#3569), `planning_exists`, `roadmap_exists`, `phase_req_ids`, `response_language`, `granularity`.
 
 **#2517:** omit the `model=` param from an `Agent()` call when its `researcher`/`planner`/`checker`_model is `"inherit"` or empty — passing `model=""` 404s on non-Claude runtimes; omitting inherits the orchestrator model (mirrors execute-phase).
 
@@ -157,10 +157,10 @@ fi
 ```
 
 When `WALKING_SKELETON=true`:
-- Planner is instructed to produce `SKELETON.md` in the phase directory alongside `PLAN.md`. The template lives at `~/.claude/gsd-core/references/skeleton-template.md` — the planner reads it when producing SKELETON.md (lazy; not loaded on non-skeleton runs).
+- Planner is instructed to fold the Walking Skeleton into the plan record it opens, under a `## Walking Skeleton` heading. The template lives at `~/.claude/gsd-core/references/skeleton-template.md` — the planner reads it only on skeleton runs (lazy).
 - The plan must scaffold project + routing + one real DB read/write + one real UI interaction + dev deployment — the thinnest possible end-to-end working slice.
 
-**Interaction with `--prd <filepath>`.** `--mvp` and `--prd` compose. The PRD express path (Step 3.5) creates `CONTEXT.md` from the PRD file and continues to research; the Walking Skeleton gate fires independently from the conditions above. When both are active on Phase 1 of a new project, the planner receives `WALKING_SKELETON=true` and PRD-derived context simultaneously — the PRD informs *what the skeleton should prove*. No precedence is needed; the two signals are orthogonal. See [`references/mvp-concepts.md`](../references/mvp-concepts.md) for the broader interaction map.
+**Interaction with `--prd <filepath>`.** `--mvp` and `--prd` compose. The PRD express path (Step 3.5) records the phase's `context` from the PRD file and continues to research; the Walking Skeleton gate fires independently from the conditions above. When both are active on Phase 1 of a new project, the planner receives `WALKING_SKELETON=true` and PRD-derived context simultaneously — the PRD informs *what the skeleton should prove*. No precedence is needed; the two signals are orthogonal. See [`references/mvp-concepts.md`](../references/mvp-concepts.md) for the broader interaction map.
 
 Extract express-path args from $ARGUMENTS: `PRD_FILE` (`--prd <filepath>`), `INGEST_PATH` (`--ingest <path-or-glob>`), and optional `INGEST_FORMAT` (`--ingest-format <auto|nygard|madr|narrative>`, default `auto`).
 
@@ -379,7 +379,7 @@ If `section_manifest` is `null` or `"research-only-early-exit"` is in its `inclu
 
 Skip if `nyquist_validation_enabled` is false OR `research_enabled` is false.
 
-If `research_enabled` is false and `nyquist_validation_enabled` is true: warn "Nyquist validation enabled but research disabled — VALIDATION.md cannot be created without RESEARCH.md. Plans will lack validation requirements (Dimension 8)." Continue to step 6.
+If `research_enabled` is false and `nyquist_validation_enabled` is true: warn "Nyquist validation enabled but research disabled — the validation strategy cannot be derived without the phase's `research` record. Plans will lack validation requirements (Dimension 8)." Continue to step 6.
 
 **But Nyquist is not applicable for this run** when all of the following are true:
 - `research_enabled` is false
@@ -428,7 +428,7 @@ Display banner:
 
 Each PLAN.md must include a <threat_model> block.
 Block on: {SECURITY_BLOCK} severity threats.
-Opt out: set security_enforcement: false in .planning/config.json
+Opt out: set security_enforcement: false in the project config
 ```
 
 Continue to step 5.6. Security config is passed to the planner in step 8.
@@ -664,14 +664,18 @@ The binary always answers, and the answer is not always "regenerated":
 
 ```bash
 INTEL=$(gsd_run intel api-surface)
-if [ "$(printf '%s' "$INTEL" | jq -r '.available // false')" = "true" ]; then
-  API_SURFACE_PATH="${PROJECT_ROOT}/.planning/intel/API-SURFACE.md"
+API_SURFACE_PATH=$(printf '%s' "$INTEL" | jq -r 'select(.available == true) | .path // empty')
+if [ -n "$API_SURFACE_PATH" ]; then
   echo "✓ API surface regenerated: ${API_SURFACE_PATH}"  # injected into step 8 as HINT
 else
-  API_SURFACE_PATH=""
   echo "→ intel unavailable, planning without an API surface: $(printf '%s' "$INTEL" | jq -r '.reason // "no reason given"')"
 fi
 ```
+
+The path comes from the answer, never from a literal built here: a hardcoded
+path is an assumption about a subsystem that may not be installed, and the
+branch below exists precisely to avoid handing the planner a path nobody
+wrote.
 
 `API_SURFACE_PATH` empty means exactly what it already meant one paragraph above:
 the step-8 planner entry for API Surface is omitted, and the planner is never
@@ -773,7 +777,7 @@ Historical findings already incorporated, explicitly deferred/rejected in PLAN.m
 **TRACER_MODE:** ${TRACER_MODE} (false = horizontal layers instead of a leading `type="tracer"` slice; see `planner-mvp-mode.md`.)
 **REVERSIBILITY_GATES:** ${REVERSIBILITY_GATES} (false = rate but do not gate; see `planner-reversibility.md`.)
 **MVP_MODE:** ${MVP_MODE} (when true, follow vertical-slice rules from `~/.claude/gsd-core/references/planner-mvp-mode.md`; when false, ignore MVP guidance entirely.)
-**WALKING_SKELETON:** ${WALKING_SKELETON} (when true, the first deliverable must be a Walking Skeleton — Read the template at `~/.claude/gsd-core/references/skeleton-template.md` and produce SKELETON.md alongside PLAN.md.)
+**WALKING_SKELETON:** ${WALKING_SKELETON} (when true, the first deliverable must be a Walking Skeleton — read the template at `~/.claude/gsd-core/references/skeleton-template.md` and fold the skeleton into the plan record under a `## Walking Skeleton` heading; there is no separate skeleton document.)
 **Granularity:** {granularity}
 
 ${MVP_MODE === 'true' ? `
@@ -946,7 +950,7 @@ Use AskUserQuestion with these 3 options.
 
 **If "Split":** Use `/gsd:phase --insert` to create the sub-phases, then replan each.
 **If "Proceed":** Return to planner with instruction to attempt all items at full fidelity, accepting more plans/tasks.
-**If "Prioritize":** Use AskUserQuestion (multiSelect) to let user pick which items are "now" vs "later". Create CONTEXT.md for each sub-phase with the selected items.
+**If "Prioritize":** Use AskUserQuestion (multiSelect) to let user pick which items are "now" vs "later". Record the `context` for each sub-phase with the selected items (`cairn/scripts/cairn-record.sh context --phase <N>`, body on stdin).
 
 ## 9c. Handle Source Audit Gaps
 
@@ -1377,13 +1381,23 @@ This operation is idempotent: if wave headers or cross-cutting constraints alrea
 
 ## 13d. Commit Plans if commit_docs is true
 
-If `commit_docs` is true (from the init JSON parsed in step 1), commit the generated plan artifacts (including any ROADMAP.md annotations from step 13c):
+If `commit_docs` is true (from the init JSON parsed in step 1), commit whatever DOCUMENTS this phase left behind, plus the roadmap annotations from step 13c:
 
 ```bash
-gsd_run query commit "docs(${PADDED_PHASE}): create phase plan" --files "${PHASE_DIR}"/*-PLAN.md .planning/ROADMAP.md
+gsd_run query commit "docs(${PADDED_PHASE}): phase planning documents" --files "${PHASE_DIR}" "${ROADMAP_PATH}"
 ```
 
-This commits all PLAN.md files for the phase plus the ROADMAP.md annotations from step 13c — the planning DOCUMENTS. The project state is not in the list because nothing in step 13b writes a markdown file: `state.planned-phase` transitions the carrier in the bd, and the roadmap projection stays with the cairn bookkeep, which owns ROADMAP.md and REQUIREMENTS.md. Skip this step if `commit_docs` is false.
+`ROADMAP_PATH` is `roadmap_path` from the init JSON — the path comes from the
+fact source, not from a literal typed here. The plans themselves are NOT in this
+commit and cannot be: a plan is a record on the bd, opened by
+`cairn-record.sh plan --phase <N> --plan <P>`, and a record has no path to
+stage. The phase directory is staged as a directory for the documents that are
+still documents (CONTEXT, RESEARCH, UI-SPEC, and the like, each until its own
+wave converts it). The project state is not in the list either, because nothing
+in step 13b writes a markdown file: `state.planned-phase` transitions the
+carrier in the bd, and the roadmap projection stays with the cairn bookkeep,
+which owns ROADMAP.md and REQUIREMENTS.md. Skip this step if `commit_docs` is
+false.
 
 ## 13e. Post-Planning Gap Analysis (plan:post capability gate dispatch)
 
@@ -1525,7 +1539,7 @@ Verification: {Passed | Passed with override | Skipped}
 ───────────────────────────────────────────────────────────────
 
 **Also available:**
-- cat .planning/phases/{phase-dir}/*-PLAN.md — review plans
+- bd list -l phase-{X} --all — list the plan records (`bd show <id>` for a body)
 - /gsd:plan-phase {X} --research — re-research first
 - /gsd:review --phase {X} --all — peer review plans with external AIs
 - /gsd:plan-phase {X} --reviews — replan incorporating review feedback
@@ -1538,7 +1552,7 @@ Read `gsd-core/workflows/plan-phase/steps/windows-troubleshooting.md` if plan-ph
 </windows_troubleshooting>
 
 <success_criteria>
-- [ ] .planning/ directory validated
+- [ ] Planning root validated (`planning_exists` from init)
 - [ ] Phase validated against roadmap
 - [ ] Phase directory created if needed
 - [ ] CONTEXT.md loaded early (step 4) and passed to ALL agents
@@ -1546,7 +1560,7 @@ Read `gsd-core/workflows/plan-phase/steps/windows-troubleshooting.md` if plan-ph
 - [ ] gsd-phase-researcher spawned with CONTEXT.md
 - [ ] Existing plans checked
 - [ ] gsd-planner spawned with CONTEXT.md + RESEARCH.md
-- [ ] Plans created (PLANNING COMPLETE or CHECKPOINT handled)
+- [ ] Plan records opened (PLANNING COMPLETE or CHECKPOINT handled)
 - [ ] gsd-plan-checker spawned with CONTEXT.md
 - [ ] Verification passed OR user override OR max iterations with user decision
 - [ ] User sees status between agent spawns

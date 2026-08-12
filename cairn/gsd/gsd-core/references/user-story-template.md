@@ -55,4 +55,4 @@ The `gsd-planner` agent (with MVP_MODE=true) emits the user story as the first c
 ...
 ```
 
-Note the bold-keyword formatting (`**As a**`, `**I want to**`, `**so that**`) is for the PLAN.md emit only. The ROADMAP.md `**Goal:**` line uses prose form (the keywords are not bolded inside the goal line, since the goal is itself a single bolded label).
+Note the bold-keyword formatting (`**As a**`, `**I want to**`, `**so that**`) is for the recorded plan body only. The roadmap's `**Goal:**` line uses prose form (the keywords are not bolded inside the goal line, since the goal is itself a single bolded label).

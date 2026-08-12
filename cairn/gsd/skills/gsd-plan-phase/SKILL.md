@@ -1,6 +1,6 @@
 ---
 name: gsd-plan-phase
-description: "Create detailed phase plan (PLAN.md) with verification loop"
+description: "Record a detailed phase plan with verification loop"
 argument-hint: "[phase] [--auto] [--research] [--skip-research] [--research-phase <N>] [--view] [--gaps] [--skip-verify] [--skip-ui] [--prd <file>] [--ingest <path-or-glob>] [--ingest-format <auto|nygard|madr|narrative>] [--reviews] [--text] [--bounce] [--skip-bounce] [--chunked] [--tdd] [--mvp] [--granularity <coarse|standard|fine>] [--no-tracer] [--no-reversibility-gates]"
 effort: high
 allowed-tools:
@@ -16,11 +16,11 @@ allowed-tools:
 ---
 
 <objective>
-Create executable phase prompts (PLAN.md files) for a roadmap phase with integrated research and verification.
+Record executable phase prompts (one plan record per wave) for a roadmap phase with integrated research and verification.
 
 **Default flow:** Research (if needed) → Plan → Verify → Done
 
-**Research-only mode (`--research-phase <N>`):** Spawn `gsd-phase-researcher` for phase `N`, write `RESEARCH.md`, then exit before the planner runs. Useful for cross-phase research, doc review before committing to a planning approach, and correction-without-replanning loops where iterating on research alone is dramatically cheaper than re-spawning the planner. Replaces the deleted research-phase command (#3042).
+**Research-only mode (`--research-phase <N>`):** Spawn `gsd-phase-researcher` for phase `N`, record the phase's research (`cairn-record.sh research`), then exit before the planner runs. Useful for cross-phase research, doc review before committing to a planning approach, and correction-without-replanning loops where iterating on research alone is dramatically cheaper than re-spawning the planner. Replaces the deleted research-phase command (#3042).
 
 **Research-only modifiers:**
 - **No flag** — when `RESEARCH.md` already exists, auto-uses it: emits a one-line notice and exits cleanly, no prompt.

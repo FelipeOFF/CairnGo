@@ -20,7 +20,7 @@ MemPalace** (the semantic-memory capability already in this environment) —
 Zawinski: spend no new "innovation token" on a bespoke vector store the
 debugger would own).
 
-`.planning/debug/knowledge-base.md` remains the **durable plain-text source of
+`bd memories` remains the **durable source of
 truth**; semantic recall is an additive layer over it, not a replacement.
 
 ## Write — index resolved sessions at archive

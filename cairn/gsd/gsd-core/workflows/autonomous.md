@@ -105,7 +105,7 @@ Parse JSON for: `milestone_version`, `milestone_name`, `phase_count`, `completed
 
 `state_exists` keeps its name — it is a field of the init bundle and the bundle is
 a pinned contract — but the question it answers has changed with the owner of the
-fact. It is no longer "does `.planning/STATE.md` exist on disk"; it is "does this
+fact. It is no longer "does a state markdown exist on disk"; it is "does this
 repo have a state carrier in the bd". So the remedy changed too: the old message
 sent the user to a command that no longer creates that fact. The command named
 above is the one that does.
@@ -129,7 +129,7 @@ If `INTERACTIVE` is set, display: `Mode: Interactive (discuss inline, plan+execu
 If `section_manifest` is `null` or `"converge-banner"` is in its `included` list: read and execute `gsd-core/workflows/autonomous/steps/converge-banner.md`. Otherwise skip — do not read the file.
 <!-- /gsd:section -->
 
-**Agent skills (delegated agents self-load):** This workflow delegates plan/execute/review via flat `Skill()` invocations rather than resolving `agent_skills` itself. Each consumer agent (`gsd-planner`, `gsd-executor`, `gsd-plan-checker`, `gsd-verifier`, …) self-loads its configured `.planning/config.json` `agent_skills` in its own mandatory init step per `@~/.claude/gsd-core/references/agent-skills-bootstrap.md`. This is the durable path that works on every runtime — including Cursor, where `Skill()`-delegated workflow bash init does not reliably execute. No per-delegation injection is needed here. See open-gsd/gsd-core#1866.
+**Agent skills (delegated agents self-load):** This workflow delegates plan/execute/review via flat `Skill()` invocations rather than resolving `agent_skills` itself. Each consumer agent (`gsd-planner`, `gsd-executor`, `gsd-plan-checker`, `gsd-verifier`, …) self-loads its configured `agent_skills` from the planning config in its own mandatory init step per `@~/.claude/gsd-core/references/agent-skills-bootstrap.md`. This is the durable path that works on every runtime — including Cursor, where `Skill()`-delegated workflow bash init does not reliably execute. No per-delegation injection is needed here. See open-gsd/gsd-core#1866.
 
 </step>
 
@@ -263,13 +263,20 @@ SKIP_DISCUSS=$(gsd_run query config-get workflow.skip_discuss 2>/dev/null || ech
 Phase ${PHASE_NUM}: Discuss skipped (workflow.skip_discuss=true) — using ROADMAP phase goal as spec.
 ```
 
-Write a minimal CONTEXT.md so downstream plan-phase has valid input. Get phase details:
+Record a minimal context so downstream plan-phase has valid input. Get phase details:
 
 ```bash
 DETAIL=$(gsd_run query roadmap.get-phase ${PHASE_NUM})
 ```
 
-Extract `goal` and `requirements` from JSON. Write `${phase_dir}/${padded_phase}-CONTEXT.md` with:
+Extract `goal` and `requirements` from JSON, then record the body below:
+
+```bash
+cairn/scripts/cairn-record.sh context --phase "${PHASE_NUM}" <<'BODY'
+[the body below]
+BODY
+```
+
 
 ```markdown
 # Phase {PHASE_NUM}: {Phase Name} - Context
@@ -342,7 +349,7 @@ After discuss completes (either mode), verify context was written:
 PHASE_STATE=$(gsd_run query init.phase-op ${PHASE_NUM})
 ```
 
-Check `has_context`. If false → go to handle_blocker: "Discuss for phase ${PHASE_NUM} did not produce CONTEXT.md."
+Check `has_context`. If false → go to handle_blocker: "Discuss for phase ${PHASE_NUM} did not record the phase context."
 
 **3a.5. UI Design Contract (Frontend Phases)**
 
@@ -583,7 +590,7 @@ Display the review result summary and score from UI-REVIEW.md if produced. Conti
 
 > Full instructions are in `gsd-core/references/autonomous-smart-discuss.md`. Read that file now and follow it exactly.
 
-Smart discuss is an autonomous-optimized variant of `gsd-discuss-phase`. It proposes grey area answers in batch tables — the user accepts or overrides per area — and writes an identical CONTEXT.md to what discuss-phase produces.
+Smart discuss is an autonomous-optimized variant of `gsd-discuss-phase`. It proposes grey area answers in batch tables — the user accepts or overrides per area — and records the identical phase context that discuss-phase records.
 
 **Inputs:** `PHASE_NUM` from execute_phase.
 
@@ -690,7 +697,7 @@ Skill(skill="gsd-audit-milestone")
 After audit completes, detect the result:
 
 ```bash
-AUDIT_FILE=".planning/v${milestone_version}-MILESTONE-AUDIT.md"
+AUDIT_FILE="${PLANNING_DIR}/v${milestone_version}-MILESTONE-AUDIT.md"
 AUDIT_STATUS=$(grep "^status:" "${AUDIT_FILE}" 2>/dev/null | head -1 | cut -d: -f2 | tr -d ' ')
 ```
 
@@ -746,7 +753,7 @@ Skill(skill="gsd-complete-milestone", args="${milestone_version}")
 After complete-milestone returns, verify it produced output:
 
 ```bash
-ls .planning/milestones/v${milestone_version}-ROADMAP.md 2>/dev/null || true
+ls "${PLANNING_DIR}"/milestones/v${milestone_version}-ROADMAP.md 2>/dev/null || true
 ```
 
 If the archive file does not exist, go to handle_blocker: "Complete milestone did not produce expected archive files."

@@ -1,6 +1,6 @@
 # Discussion Log Template
 
-Template for `.planning/phases/XX-name/{phase_num}-DISCUSSION-LOG.md` — audit trail of discuss-phase Q&A sessions.
+Body structure for the discussion log appended to the phase record (`cairn-record.sh log --phase N`) — audit trail of discuss-phase Q&A sessions.
 
 **Purpose:** Software audit trail for decision-making. Captures all options considered, not just the selected one. Separate from CONTEXT.md which is the implementation artifact consumed by downstream agents.
 

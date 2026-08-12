@@ -95,7 +95,7 @@ When any applicable signal fails (and no technical-debt escape applies), do
 ```markdown
 ## FIX REJECTED BY GUARDRAIL
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** {DEBUG_BEAD}
 **Failing signal:** {signal 1–5 name}
 **Evidence:** {why the signal failed — e.g. "mutant at fix site survived",
   "diff is deletion-only with no RCA justification", "bug did not return on revert"}

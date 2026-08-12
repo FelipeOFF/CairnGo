@@ -1,4 +1,4 @@
-# PRD Express Path — generate CONTEXT.md from a PRD
+# PRD Express Path — record the phase context from a PRD
 
 Runs when `--prd <filepath>` is provided (§3.5 of `plan-phase.md`).
 
@@ -18,17 +18,22 @@ fi
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Using PRD: {PRD_FILE}
-Generating CONTEXT.md from requirements...
+Recording the phase context from requirements...
 ```
 
-3. Parse the PRD content and generate CONTEXT.md. The orchestrator should:
+3. Parse the PRD content and build the context body. The orchestrator should:
    - Extract all requirements, user stories, acceptance criteria, and constraints from the PRD
    - Map each to a locked decision (everything in the PRD is treated as a locked decision)
    - Identify any areas the PRD doesn't cover and mark as "Claude's Discretion"
-   - **Extract canonical refs** from ROADMAP.md for this phase, plus any specs/ADRs referenced in the PRD — expand to full file paths (MANDATORY)
-   - Create CONTEXT.md in the phase directory
+   - **Extract canonical refs** from the roadmap for this phase, plus any specs/ADRs referenced in the PRD — expand to full file paths (MANDATORY)
 
-4. Write CONTEXT.md:
+4. Record it on the phase — there is no file:
+```bash
+cairn/scripts/cairn-record.sh context --phase "${phase_number}" <<'BODY'
+[the body below]
+BODY
+```
+
 ```markdown
 # Phase [X]: [Name] - Context
 
@@ -91,12 +96,9 @@ Use full relative paths. Group by topic area.]
 *Context gathered: [date] via PRD Express Path*
 ```
 
-5. Commit:
-```bash
-CAIRN_GSD="${CAIRN_GSD:-}"; if [ ! -x "$CAIRN_GSD" ]; then _cg_try=""; for _cg_root in "${CLAUDE_PROJECT_DIR:-}" "$(git rev-parse --show-toplevel 2>/dev/null || true)" "$PWD"; do [ -n "$_cg_root" ] || continue; _cg_try="$_cg_root/cairn/scripts/cairn-gsd.sh"; if [ -x "$_cg_try" ]; then CAIRN_GSD="$_cg_try"; break; fi; done; fi; if [ ! -x "${CAIRN_GSD:-}" ]; then echo "ERROR: cairn-gsd.sh not found (last path tried: ${_cg_try:-<none>}) - this workflow speaks to the cairn dispatcher that lives in the repo. Run it from inside the CairnGo checkout, or export CAIRN_GSD=<checkout>/cairn/scripts/cairn-gsd.sh" >&2; exit 1; fi; export CAIRN_GSD; gsd_run() { "$CAIRN_GSD" "$@"; }
-gsd_run query commit "docs(${padded_phase}): generate context from PRD" --files "${phase_dir}/${padded_phase}-CONTEXT.md"
-```
+5. Nothing to commit — the record is durable the moment the call returns.
 
-6. Set `context_content` to the generated CONTEXT.md content and continue to step 5 (Handle Research).
 
-**Effect:** This completely bypasses step 4 (Load CONTEXT.md) since we just created it. The rest of the workflow (research, planning, verification) proceeds normally with the PRD-derived context.
+6. Set `context_content` to the recorded body and continue to step 5 (Handle Research).
+
+**Effect:** This completely bypasses step 4 (load the phase context) since we just recorded it. The rest of the workflow (research, planning, verification) proceeds normally with the PRD-derived context.

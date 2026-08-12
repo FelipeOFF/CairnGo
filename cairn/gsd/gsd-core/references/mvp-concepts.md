@@ -26,12 +26,12 @@ If you're looking for the canonical statement of a concept, this is where to fin
 - **Walking Skeleton gate condition** — `workflows/plan-phase.md` (Phase 1 + new project + `--mvp` + no prior summaries → emit `SKELETON.md`).
 - **MVP+TDD Gate** (RED→GREEN enforcement) — `references/execute-mvp-tdd.md`.
 - **MVP-mode UAT framing** (user-flow first, technical deferred) — `references/verify-mvp-mode.md`.
-- **Per-phase mode authoring** — `workflows/mvp-phase.md` (writes `**Mode:** mvp` to ROADMAP.md after collecting the user story).
+- **Per-phase mode authoring** — `workflows/mvp-phase.md` (sets `**Mode:** mvp` on the roadmap entry after collecting the user story).
 - **Project-wide mode prompt at init** — `workflows/new-project.md` (Vertical MVP vs Horizontal Layers question).
 
 ## Interactions worth knowing
 
-- **`--mvp` and `--prd <file>` together on Phase 1.** Both paths converge at the planner spawn. The PRD express path creates `CONTEXT.md` from the PRD file and continues to the research step; the Walking Skeleton gate fires independently when Phase 1 + new project + `--mvp`. The planner therefore receives both `WALKING_SKELETON=true` and PRD-derived context. This is intentional: the PRD informs what the skeleton should prove.
+- **`--mvp` and `--prd <file>` together on Phase 1.** Both paths converge at the planner spawn. The PRD express path records the phase context from the PRD file and continues to the research step; the Walking Skeleton gate fires independently when Phase 1 + new project + `--mvp`. The planner therefore receives both `WALKING_SKELETON=true` and PRD-derived context. This is intentional: the PRD informs what the skeleton should prove.
 - **`MVP_MODE` is all-or-nothing per phase, not per task.** A phase is either MVP-mode or standard. Mixed-mode phases are not supported (PRD #2826 Q1).
 - **`TDD_MODE` is independent of `MVP_MODE`.** TDD can be on without MVP, MVP can be on without TDD. Only the *intersection* (both true) activates the MVP+TDD Gate.
 - **The `gsd-roadmapper` agent makes the MVP/standard decision once at project init** based on `PROJECT_MODE`. Per-phase opt-in/out happens later via `/gsd:mvp-phase` or `/gsd-edit-phase`.

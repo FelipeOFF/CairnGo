@@ -102,12 +102,15 @@ point the user at producing COVERAGE.md before re-running verification.
 **First: Check for active UAT sessions**
 
 ```bash
-(find .planning/phases -name "*-UAT.md" -type f 2>/dev/null || true)
+# A UAT session is an appended record on the phase carrier bead; the session
+# header `## UAT — Phase N` is what marks one.
+bd list --all --limit 0 --json \
+  | jq -r '.[] | select((.notes // "") | test("^## UAT — Phase"; "m")) | "\(.id)\t\(.title)"'
 ```
 
 **If active sessions exist AND no $ARGUMENTS provided:**
 
-Read each file's frontmatter (status, phase) and Current Test section.
+Read each record's header block (status, phase) and Current Test section.
 
 Display inline:
 
@@ -286,7 +289,15 @@ skipped: 0
 [none yet]
 ```
 
-Write to `.planning/phases/XX-name/{phase_num}-UAT.md`
+Append it to the phase's record — the session accumulates by append, which is
+why the kind is `log` and not a fresh record per write:
+
+```bash
+cairn/scripts/cairn-record.sh log --phase "{phase_num}" <<'BODY'
+## UAT — Phase {phase_num}
+[the session body]
+BODY
+```
 
 Proceed to `present_test`.
 </step>
@@ -502,10 +513,7 @@ Clear Current Test section:
 [testing complete]
 ```
 
-Commit the UAT file:
-```bash
-gsd_run query commit "test({phase_num}): complete UAT - {passed} passed, {issues} issues" --files ".planning/phases/XX-name/{phase_num}-UAT.md"
-```
+Nothing to commit: the UAT session is a record, durable at each append.
 
 Present summary:
 ```
@@ -730,14 +738,14 @@ Plans must be executable prompts.
 
 > **Runtime-aware dispatch (#2508 Phase 4).** GSD workflows dispatch specialized subagents by role. Before dispatching on a built-in-only runtime (kimi-code — three built-ins only), resolve the role to a built-in via `gsd_run query resolve-dispatch-type --requested <role> --raw`. On named-dispatch runtimes (Claude/OpenCode/…) the role is returned unchanged; on kimi-code it maps to `coder`/`explore`/`plan` by role-suffix. The persona rides `${AGENT_SKILLS_<ROLE>}` (Phase 3) regardless. See @gsd-core/references/runtime-aware-dispatch.md.
 
-**Gap linkage (#1921):** each created `*-PLAN.md` MUST list the UAT gap ids it addresses in its frontmatter:
+**Gap linkage (#1921):** each recorded gap-closure plan MUST list the UAT gap ids it addresses in its header block:
 ```yaml
 ---
 gap_closure: true
 gap_ids: [G-{phase}-{N}, ...]   # the ## Gaps gap_id values this plan fixes
 ---
 ```
-This lets `/gsd:verify-work` reconcile resolved gaps on resume (a gap whose plan has a matching `*-SUMMARY.md` is marked `status: resolved`, not re-diagnosed as a fresh blocker).
+This lets `/gsd:verify-work` reconcile resolved gaps on resume (a gap whose plan record has been CLOSED with a summary is marked `status: resolved`, not re-diagnosed as a fresh blocker).
 </downstream_consumer>
 """,
   subagent_type="gsd-planner",
@@ -927,7 +935,7 @@ Default to **major** if unclear. User can correct if needed.
 </severity_inference>
 
 <success_criteria>
-- [ ] UAT file created with all tests from SUMMARY.md
+- [ ] UAT session opened on the phase record with all tests from the summary records
 - [ ] Tests presented one at a time with expected behavior
 - [ ] User responses processed as pass/issue/skip
 - [ ] Severity inferred from description (never asked)

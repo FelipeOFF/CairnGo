@@ -27,7 +27,7 @@ This doc describes what IS, not what should be. Casing inconsistencies are docum
 | gsd-security-auditor | Security audit | `## OPEN_THREATS`, `## ESCALATE` (non-standard) |
 | gsd-codebase-mapper | Codebase analysis | No marker (writes docs directly) |
 | gsd-assumptions-analyzer | Assumption extraction | No marker (returns `## Assumptions` sections) |
-| gsd-doc-verifier | Doc validation | No marker (writes JSON to `.planning/tmp/`) |
+| gsd-doc-verifier | Doc validation | No marker (writes JSON to the planning tmp dir) |
 | gsd-doc-writer | Doc generation | No marker (writes docs directly) |
 | gsd-advisor-researcher | Advisory research | No marker (utility agent) |
 | gsd-user-profiler | User profiling | No marker (returns JSON in analysis tags) |

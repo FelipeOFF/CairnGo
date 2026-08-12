@@ -14,7 +14,7 @@ Don't interrogate. Collaborate. Don't follow a script. Follow the thread.
 
 <the_goal>
 
-By the end of questioning, you need enough clarity to write a PROJECT.md that downstream phases can act on:
+By the end of questioning, you need enough clarity to record a project brief that downstream phases can act on:
 
 - **Research** needs: what domain to research, what the user already knows, what unknowns exist
 - **Requirements** needs: clear enough vision to scope v1 features
@@ -132,17 +132,17 @@ Four things. If they volunteer more, capture it.
 
 <decision_gate>
 
-When you could write a clear PROJECT.md, offer to proceed:
+When the project brief is clear enough, offer to proceed:
 
 - header: "Ready?"
-- question: "I think I understand what you're after. Ready to create PROJECT.md?"
+- question: "I think I understand what you're after. Ready to record the project brief?"
 - options:
-  - "Create PROJECT.md" — Let's move forward
+  - "Record the brief" — Let's move forward
   - "Keep exploring" — I want to share more / ask me more
 
 If "Keep exploring" — ask what they want to add or identify gaps and probe naturally.
 
-Loop until "Create PROJECT.md" selected.
+Loop until "Record the brief" is selected.
 
 </decision_gate>
 
