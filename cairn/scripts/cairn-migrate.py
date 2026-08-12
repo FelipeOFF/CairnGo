@@ -1026,7 +1026,7 @@ def build_plan_a(project, planning, milestone, index, notes):
     # (7) regenerate every phase map
     for n in phase_nums:
         if dirs.get(n) is not None:
-            steps.add("gen_map", {"phase": n, "milestone": milestone})
+            pass  # v1.7: o mapa e' vista impressa (cairn-map.sh <N>), nao arquivo gerado
         else:
             notes.append(f"phase {n} has no .planning/phases/ dir — "
                          "map generation skipped")
@@ -1184,115 +1184,21 @@ def build_plan_b(project, planning, milestone, force, notes):
                     deps.add(epic_phase[d["depends_on_id"]])
         ph["depends_on"] = sorted(deps - {ph["n"]})
 
-    closed_issues = [i for i in issues if i.get("status") == "closed"]
-    active = next((ph["n"] for ph in phases for i in ph["issues"]
-                   if i.get("status") == "in_progress"), 1)
-
-    name = project.name
-    today = now_utc().split("T")[0]
-    banner = f"_Bootstrapped from beads by cairn-migrate on {today}._"
-
-    def phase_done(ph):
-        allc = ph["issues"] + ([ph["epic"]] if ph["epic"] else [])
-        return bool(allc) and all(i.get("status") == "closed" for i in allc)
-
-    # --- REQUIREMENTS.md
-    lines = [f"# Requirements: {name}", "", banner, "",
-             f"**Defined:** {today}", "", "## Requirements", ""]
-    for ph in phases:
-        lines += [f"### Phase {ph['n']}: {ph['name']}", ""]
-        for req, iss in ph["reqs"]:
-            box = "x" if iss.get("status") == "closed" else " "
-            lines.append(f"- [{box}] **{req}**: {iss.get('title', '')} "
-                         f"(bd: {iss['id']})")
-        lines.append("")
-    lines += ["## Traceability", "",
-              "| Requirement | Phase | Issue | Status |",
-              "|-------------|-------|-------|--------|"]
-    for ph in phases:
-        for req, iss in ph["reqs"]:
-            status = ("Complete" if iss.get("status") == "closed"
-                      else "Pending")
-            lines.append(f"| {req} | Phase {ph['n']} | {iss['id']} "
-                         f"| {status} |")
-    requirements_doc = "\n".join(lines) + "\n"
-
-    # --- ROADMAP.md
-    lines = [f"# Roadmap: {name}", "", banner, "", "## Phases", ""]
-    for ph in phases:
-        box = "x" if phase_done(ph) else " "
-        lines.append(f"- [{box}] **Phase {ph['n']}: {ph['name']}**")
-    lines += ["", "## Phase Details", ""]
-    for ph in phases:
-        lines += [f"### Phase {ph['n']}: {ph['name']}"]
-        goal = ((ph["epic"] or {}).get("description") or "").strip()
-        goal = goal.splitlines()[0] if goal else ph["name"]
-        lines.append(f"**Goal**: {goal}")
-        if ph["depends_on"]:
-            dep_txt = ", ".join(f"Phase {d}" for d in ph["depends_on"])
-        else:
-            dep_txt = "Nothing"
-        lines.append(f"**Depends on**: {dep_txt}")
-        reqs = ", ".join(req for req, _ in ph["reqs"])
-        lines.append(f"**Requirements**: [{reqs}]")
-        lines.append("")
-    roadmap_doc = "\n".join(lines) + "\n"
-
-    # --- STATE.md
-    state_doc = "\n".join([
-        "---",
-        "gsd_state_version: '1.0'",
-        "status: executing",
-        f'active_phase: "{active}"',
-        f"milestone: {milestone}",
-        "next_action: plan-phase",
-        "---",
-        "",
-        "# Project State",
-        "",
-        banner,
-        "",
-        f"Phase: {active} of {len(phases)}",
-        "Status: bootstrapped from the beads backlog — run /cairn:plan "
-        "to produce the first PLAN.md",
-        ""])
-
-    # --- MILESTONES.md pre-cairn section
-    ml = ["## Completed pre-cairn", "",
-          f"Issues closed before cairn migration ({today}):", ""]
-    for iss in sorted(closed_issues, key=lambda i: i.get("id", "")):
-        reason = iss.get("close_reason") or ""
-        suffix = f" — {reason}" if reason else ""
-        ml.append(f"- {iss['id']} — {iss.get('title', '')}{suffix}")
-    ml.append("")
-    milestones_section = "\n".join(ml)
-    milestones_doc = f"# Milestones\n\n{milestones_section}"
-
-    def write_step(rel, content, append_marker=None):
-        path = project / rel
-        if append_marker is None and path.is_file() and not force:
-            notes.append(f"{rel} already exists — skipped (use --force on "
-                         "plan to overwrite)")
-            return
-        params = {"path": rel, "content": content, "overwrite": force}
-        if append_marker:
-            params["append_marker"] = append_marker
-        steps.add("write_file", params)
-
-    write_step(".planning/REQUIREMENTS.md", requirements_doc)
-    write_step(".planning/ROADMAP.md", roadmap_doc)
-    write_step(".planning/STATE.md", state_doc)
-    if closed_issues:
-        mfile = project / ".planning/MILESTONES.md"
-        if (not mfile.is_file()
-                or "## Completed pre-cairn" not in
-                mfile.read_text(encoding="utf-8", errors="replace")):
-            steps.add("write_file",
-                      {"path": ".planning/MILESTONES.md",
-                       "content": milestones_doc,
-                       "append_content": "\n" + milestones_section,
-                       "append_marker": "## Completed pre-cairn",
-                       "overwrite": False})
+    # v1.7 — O MODO B DEIXOU DE ESCREVER DOCUMENTO, E A DIRECAO E' A RAZAO.
+    #
+    # A migracao corre num sentido so: GSD -> cairn. Le-se `.planning/` UMA
+    # vez, como ENTRADA, e depois nunca mais. O modo B corria no sentido
+    # OPOSTO: partia de um repo que so tem `.beads/` e MANUFATURAVA um
+    # `.planning/` a partir dele — REQUIREMENTS.md, ROADMAP.md, STATE.md,
+    # MILESTONES.md e uma pasta por fase. Num mundo sem `.planning/` o modo B
+    # nao tinha destino: ele criava o problema que o modo A resolve.
+    #
+    # O que sobra e' o que ele sempre teve de util: estampar o par de labels
+    # e a metadata `gsd` em cada issue, para que um backlog de bd que nunca
+    # viu GSD passe a falar a convencao do cairn. O roteiro que aqueles
+    # documentos desenhavam — fases, requisitos, ordem, ciclo — ja estava
+    # inteiro nas labels e na metadata; escreve-lo tambem em markdown era
+    # publicar uma copia que envelhece.
 
     # --- label + stamp every phase-assigned issue
     for ph in phases:
@@ -1313,13 +1219,6 @@ def build_plan_b(project, planning, milestone, force, notes):
                       {"id": iss["id"], "req": req, "phase": n,
                        "labels": pair_labels(n, milestone), "gsd": gsd})
 
-    # --- maps (phase dirs are created by the gen_map handler; the dir with
-    #     only a generated map inside is NOT a fabricated PLAN.md)
-    for ph in phases:
-        fallback = "phase-%d" % ph["n"]
-        dirname = "%02d-%s" % (ph["n"], slugify(ph["name"], fallback))
-        steps.add("gen_map", {"phase": ph["n"], "milestone": milestone,
-                              "dir": dirname})
     return steps
 
 
@@ -1476,7 +1375,7 @@ def build_plan_c(project, planning, milestone, index, notes, plan_extra):
     add_frontmatter_steps(steps, planning, project, index, milestone, notes)
     for n in sorted(roadmap):
         if dirs.get(n) is not None:
-            steps.add("gen_map", {"phase": n, "milestone": milestone})
+            pass  # v1.7: o mapa e' vista impressa (cairn-map.sh <N>), nao arquivo gerado
     return steps
 
 
@@ -1514,7 +1413,8 @@ def step_summary_line(step):
     if k == "write_file":
         return f"write {p['path']}"
     if k == "gen_map":
-        return f"regenerate map for phase {p['phase']:02d}"
+        return (f"skip map generation for phase {p['phase']:02d} "
+                f"(v1.7: the map is a printed view, not a file)")
     return k
 
 
@@ -1882,18 +1782,18 @@ class Applier:
         return {}
 
     def do_gen_map(self, p):
-        if p.get("dir"):
-            (self.planning / "phases" / p["dir"]).mkdir(parents=True,
-                                                        exist_ok=True)
-        cmd = [sys.executable, str(SCRIPT_DIR / "cairn-map.py"),
-               str(p["phase"]), "--planning-dir", str(self.planning)]
-        if p.get("milestone"):
-            cmd += ["--milestone", p["milestone"]]
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              cwd=str(self.project))
-        if proc.returncode != 0:
-            raise StepError(f"cairn-map phase {p['phase']}: "
-                            f"{proc.stderr.strip() or proc.stdout.strip()}")
+        """v1.7: no-op NOMEADO, e ele existe por causa do resume.
+
+        Nenhum plano novo carrega `gen_map` — o mapa deixou de ser arquivo
+        gerado e virou vista impressa (`cairn-map.sh <N>`). Mas um plano
+        GRAVADO antes desta versao pode carregar, e o resume o encontraria:
+        remover o handler faria a retomada morrer com KeyError sobre um passo
+        que ela nao tem como entender. Entao ele aceita, nao escreve nada, e
+        DIZ que nao escreveu.
+        """
+        warn(f"phase {p['phase']}: gen_map is a no-op since v1.7 — the phase "
+             f"map is printed from bd on demand (cairn-map.sh {p['phase']}), "
+             f"not written to disk. Nothing was generated.")
         return {}
 
     def do_orphan(self, orphan):

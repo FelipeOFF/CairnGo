@@ -648,6 +648,9 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cairn_source  # noqa: E402
+
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_NO_BD = 5
@@ -771,25 +774,17 @@ def read_lines(path):
 # lenient .planning/ parsing (same shapes cairn-gate / cairn-map accept)
 # --------------------------------------------------------------------------- #
 def state_frontmatter(planning_dir):
-    """{'milestone': str|None, 'active_phase': int|None} from STATE.md."""
-    out = {"milestone": None, "active_phase": None}
-    lines = read_lines(planning_dir / "STATE.md")
-    if not lines or lines[0].strip() != "---":
-        return out
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        m = re.match(r"^(milestone|active_phase)\s*:\s*(.+?)\s*$", line)
-        if not m:
-            continue
-        val = m.group(2).split("#", 1)[0].strip().strip("'\"").strip()
-        if m.group(1) == "milestone" and val:
-            out["milestone"] = val
-        elif m.group(1) == "active_phase":
-            digits = re.search(r"\d+", val)
-            if digits:
-                out["active_phase"] = int(digits.group(0))
-    return out
+    """{'milestone', 'active_phase'} DERIVADOS DO BD (v1.7).
+
+    Vinham do frontmatter do STATE.md, e o defeito CairnGo-fp7 é exatamente
+    o que essa fonte produz: a linha MILESTONE continuava anunciando o ciclo
+    ARQUIVADO, porque ninguém tinha voltado ao documento para movê-la depois
+    do arquivamento. O trabalho aberto sabe em que ciclo está e em que fase
+    está; o documento só sabia o que a última pessoa escreveu nele.
+    """
+    root = planning_dir.parent
+    return {"milestone": cairn_source.milestone(root),
+            "active_phase": cairn_source.active_phase(root)}
 
 
 def state_plan_counters(planning_dir):
@@ -848,14 +843,19 @@ def state_phase_dialect(planning_dir):
 
 
 def roadmap_milestone(planning_dir):
-    """Milestone marked in progress in ROADMAP.md (🚧 / '(in progress)'
-    line carrying a vN[.N...] token), or None."""
-    for line in read_lines(planning_dir / "ROADMAP.md"):
-        if "🚧" in line or re.search(r"\(in progress\)", line, re.IGNORECASE):
-            m = VERSION_TOKEN.search(line)
-            if m:
-                return m.group(0)
-    return None
+    """O milestone corrente, DERIVADO DO BD (v1.7): o `m-*` com trabalho
+    ainda aberto.
+
+    Lia a linha 🚧 do ROADMAP.md. Duas coisas estavam erradas nisso, e a
+    segunda é a que o mantra da v1.7 mata: um emoji num documento é um
+    campo que alguém tem de lembrar de mover, e um repositório que não
+    escreve markdown não tem esse documento para consultar. Um ciclo
+    corrente é aquele que ainda tem issue aberta — isso o bd sabe sozinho.
+
+    A assinatura fica: `planning_dir` é a raiz + `.planning`, e o que este
+    leitor precisa é a raiz. Nenhum byte de `.planning/` é lido aqui.
+    """
+    return cairn_source.milestone(planning_dir.parent)
 
 
 def archived_milestones(planning_dir):
@@ -884,45 +884,36 @@ def archived_milestones(planning_dir):
     return keys
 
 
-def roadmap_phases_and_reqs(planning_dir):
-    """(set of phase numbers, {phase: [req ids]}) parsed leniently from
-    ROADMAP.md: 'Phase N' headings and checkbox lines enumerate phases;
-    a '**Requirements**:' line inside a phase heading's section maps it."""
-    phases, reqs = set(), {}
-    current = None
-    for line in read_lines(planning_dir / "ROADMAP.md"):
-        m = PHASE_HEAD.match(line)
-        if m:
-            current = int(m.group(1))
-            phases.add(current)
-            continue
-        if ANY_HEAD.match(line):
-            current = None
-        m = CHECKBOX_PHASE.match(line)
-        if m:
-            phases.add(int(m.group(2)))
-        if current is not None:
-            m = REQ_LINE.match(line.strip())
-            if m:
-                reqs[current] = REQ_ID.findall(m.group(1))
-    return phases, reqs
+def roadmap_phases_and_reqs(planning_dir, milestone_key=None):
+    """(fases, {fase: [req ids]}) DERIVADAS DO BD (v1.7).
+
+    A fase é o label `phase-N`; o requisito é o bead, e seu id é a metadata
+    `gsd.req`. Antes isto era uma gramática de markdown — cabeçalho
+    `### Phase N`, linha de checkbox, linha `**Requirements**:` — com uma
+    variante em cada um dos oito scripts que precisava da mesma resposta.
+    """
+    root = planning_dir.parent
+    key = milestone_key if milestone_key is not None else \
+        cairn_source.milestone(root)
+    return (cairn_source.phases(root, key),
+            cairn_source.phase_reqs(root, key))
 
 
-def roadmap_completed_phases(planning_dir):
-    """Phase numbers ROADMAP.md marks COMPLETE, with the same lenient
-    semantics as cairn-gate: checked '- [x] ... Phase N' checkbox lines
-    plus milestone progress-table rows ending '| Complete |'."""
-    done = set()
-    for line in read_lines(planning_dir / "ROADMAP.md"):
-        m = CHECKBOX_PHASE.match(line)
-        if m:
-            if m.group(1) in ("x", "X"):
-                done.add(int(m.group(2)))
-            continue
-        m = TABLE_PHASE.match(line)
-        if m:
-            done.add(int(m.group(1)))
-    return done
+def roadmap_completed_phases(planning_dir, milestone_key=None):
+    """Fases terminadas, DERIVADAS DO BD (v1.7): toda issue da fase fechada,
+    e ao menos uma issue existindo.
+
+    O checkbox `- [x]` era uma AFIRMAÇÃO sobre o trabalho, digitada à mão e
+    livre para discordar dele — a divergência que o próprio doctor mantinha
+    uma segunda checagem para pegar. O status dos beads não discorda do
+    trabalho: ele É o trabalho. E a fase vazia não conta como completa, que
+    é o `all([])` que faria um relatório dizer "pronto" sobre o que nunca
+    começou.
+    """
+    root = planning_dir.parent
+    key = milestone_key if milestone_key is not None else \
+        cairn_source.milestone(root)
+    return cairn_source.completed_phases(root, key)
 
 
 def disk_complete_phases(planning_dir):
@@ -1182,12 +1173,17 @@ def check_req_issue(issues, reqs_by_phase, milestone):
         # `out-of-scope`: the mapping requirement -> issue is a guarantee this
         # project WANTS, it has simply never been verified here, and writing
         # the line in ROADMAP.md is a concrete thing the operator can do.
+        # v1.7: a frase falava de uma linha `**Requirements**:` no
+        # ROADMAP.md, e mandava o operador escreve-la. Num repo que nao gera
+        # markdown esse conselho manda editar um arquivo que nao existe — pior
+        # que nao dizer nada, porque parece acionavel. O insumo agora e' o
+        # ciclo: sem fase no milestone corrente nao ha o que cruzar.
         return {"id": "req-issue", "status": NOT_APPLICABLE,
                 "scope": NA_NO_INPUT,
-                "detail": "nothing to compare — ROADMAP.md lists no phase "
-                          "with a '**Requirements**:' line, so no requirement "
-                          "was ever checked against an issue here; add the "
-                          "line to a phase's section in ROADMAP.md",
+                "detail": "nothing to compare — the current milestone carries "
+                          "no phase-labeled issue, so no requirement was ever "
+                          "checked against one here; open a phase with "
+                          "/cairn:phase add (or /cairn:milestone new)",
                 "items": []}
     if items:
         detail = f"{len(items)} of {total} requirement(s) unmapped"
@@ -1224,14 +1220,22 @@ def check_frontmatter_ids(plans, issues):
         #   - plans on disk carrying no `beads:` id: an unstamped plan is
         #     precisely the gap cairn exists to prevent, so this is the
         #     loudest no-input there is, not a vacuous pass.
+        # v1.7, E A FAMILIA MUDOU DE no-input PARA out-of-scope. Isto nao e'
+        # um insumo que falta: e' um insumo que a v1.7 aposentou. O `beads:`
+        # do frontmatter existia para AMARRAR um arquivo de plano aos ids que
+        # ele entrega; o plano agora E' o bead, e nao ha arquivo do lado de
+        # fora para amarrar. Um PLAN.md em disco so aparece num repo por
+        # migrar, e ai a checagem volta a ter o que cruzar.
         if not live_plans:
-            detail = ("nothing to compare — no non-superseded PLAN.md on "
-                      "disk, so no plan bead id has ever been checked here")
-        else:
-            detail = (f"nothing to compare — none of the {live_plans} "
-                      "non-superseded PLAN.md file(s) carries a 'beads:' "
-                      "frontmatter id, so no plan is stamped with the issues "
-                      "it delivers — run cairn-map.sh <N> after stamping")
+            detail = ("out of scope — a plan is a record on a bead, not a "
+                      "file with a 'beads:' frontmatter to be checked "
+                      "against; nothing to bind")
+            return {"id": "frontmatter-ids", "status": NOT_APPLICABLE,
+                    "scope": NA_OUT_OF_SCOPE, "detail": detail, "items": []}
+        detail = (f"nothing to compare — none of the {live_plans} "
+                  "non-superseded PLAN.md file(s) left by an unmigrated GSD "
+                  "carries a 'beads:' frontmatter id — run /cairn:migrate to "
+                  "import them")
         return {"id": "frontmatter-ids", "status": NOT_APPLICABLE,
                 "scope": NA_NO_INPUT, "detail": detail, "items": []}
     detail = (f"{len(items)} of {checked} plan bead id(s) broken" if items
@@ -1279,12 +1283,17 @@ def check_maps_fresh(root, planning_dir, issues):
         # running for real, and only an empty phases/ tree silences it.
         # `no-input`: a project with phases should have maps, and generating
         # them is one command away.
+        # v1.7, out-of-scope E NAO no-input: `NN-BEADS-MAP.md` era markdown
+        # GERADO — uma vista do bd escrita em disco — e cairn deixou de
+        # gerar markdown. A vista continua existindo, impressa por
+        # `cairn-map.sh <N>`; o que deixou de existir e' a copia em disco que
+        # podia envelhecer, e uma checagem de frescor sem copia nao tem
+        # objeto.
         return {"id": "maps-fresh", "status": NOT_APPLICABLE,
-                "scope": NA_NO_INPUT,
-                "detail": "nothing to compare — no phase directory under "
-                          f"{planning_dir.name}/phases/ carries either an "
-                          "issue or a generated map, so no map's freshness "
-                          "was ever checked here",
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "out of scope — the phase map is a view printed "
+                          "from bd on demand, not a generated file that can "
+                          "go stale",
                 "items": []}
     detail = (f"{len(items)} of {checked} phase map(s) need attention"
               if items else f"{checked} phase map(s) current")
@@ -1297,11 +1306,14 @@ def check_superseded_released(plans, issues):
         # Phase 23 / VOID-02. Same axis as check_frontmatter_ids and
         # therefore the same verdict: with no PLAN.md on disk this guarantee
         # has never been verified here, and writing a plan is the action.
+        # v1.7: mesmo eixo do frontmatter-ids e mesma reclassificacao. Um
+        # plano superseded e' um bead que se fecha, e o bd ja responde por ele
+        # — nao ha arquivo superseded para inspecionar.
         return {"id": "superseded-released", "status": NOT_APPLICABLE,
-                "scope": NA_NO_INPUT,
-                "detail": "nothing to compare — no PLAN.md on disk, so no "
-                          "superseded plan's beads have ever been checked "
-                          "here",
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "out of scope — superseding a plan closes its "
+                          "record; there is no superseded PLAN.md holding "
+                          "ids open",
                 "items": []}
     by_id = {i.get("id"): i for i in issues}
     items = []
@@ -1460,8 +1472,11 @@ def check_orphans(issues, roadmap_phases, archived=frozenset()):
     items = unplaced + unlabeled
 
     if not roadmap_phases:
-        blind = ("the phase-label axis could not run — ROADMAP.md lists no "
-                 "phase to compare labels against")
+        # v1.7: o eixo compara o label `phase-N` de uma issue contra as fases
+        # do CICLO, e essas vem do bd. Cego aqui significa ciclo sem fase
+        # nenhuma, nao documento sem secao.
+        blind = ("the phase-label axis could not run — the current milestone "
+                 "has no phase to compare labels against")
         if items:
             return {"id": "orphans", "status": "warn",
                     "detail": f"{len(items)} orphan issue(s), and {blind}",
@@ -1571,18 +1586,20 @@ def check_claims_stale(issues, milestone, active_phase):
     is written anywhere.
     """
     if active_phase is None:
+        # v1.7, E A DISCUSSAO SOBRE QUAL CHAVE O STATE.md DEVE CARREGAR
+        # MORREU JUNTO COM A PERGUNTA. A fase ativa vinha de um campo escrito
+        # a mao (`active_phase:` / `current_phase:`), e o desacordo entre as
+        # duas grafias era o que CairnGo-rq0 discutia. Ela agora e' DERIVADA:
+        # a menor fase com trabalho in_progress, senao a menor com trabalho
+        # aberto. Nenhuma grafia a define, e nao ha campo para esquecer de
+        # mover. Ausencia aqui quer dizer uma coisa so, e ela e' verdadeira:
+        # nao ha fase com trabalho aberto.
         return {"id": "claims-stale", "status": NOT_APPLICABLE,
                 "scope": NA_NO_INPUT,
-                "detail": "cannot check — STATE.md's frontmatter carries no "
-                          "'active_phase', so there is nothing to compare "
-                          "in_progress claims against (this check has never "
-                          "run here). "
-                          f"{len(ACTIVE_PHASE_READERS)} cairn surfaces read "
-                          f"that key ({', '.join(ACTIVE_PHASE_READERS)}); "
-                          f"which key STATE.md should carry is open in "
-                          f"{ACTIVE_PHASE_ISSUE}. Not a failure: a check "
-                          "with no input is friction, not a state "
-                          "inconsistency",
+                "detail": "cannot check — no phase carries open work, so "
+                          "there is no active phase to compare in_progress "
+                          "claims against. Not a failure: a check with no "
+                          "input is friction, not a state inconsistency",
                 "items": []}
     items = []
     for iss in issues:
@@ -3556,11 +3573,18 @@ def check_req_ledger(root, planning_dir):
     if absent:
         # Same family and same reason as the coverage-view branch below: a
         # repo that keeps no REQUIREMENTS.md keeps no ledger, on purpose.
+        # v1.7: a classificacao ja era out-of-scope e continua sendo — o que
+        # muda e' a frase. Este check confere a consistencia INTERNA de um
+        # ledger em markdown (a tabela de cobertura contra o rodape que diz
+        # quantas linhas ela tem, a linha `**Requirements**:` contra os ids
+        # que o ledger atribui). Sem documento nao ha inconsistencia interna
+        # possivel: o requisito e' o bead, e um bead nao discorda de si mesmo.
         return {"id": "req-ledger", "status": NOT_APPLICABLE,
                 "scope": NA_OUT_OF_SCOPE,
-                "detail": f"{planning_dir.name}/ carries no "
-                          f"{', '.join(absent)}, so there is no requirement "
-                          f"ledger to cross-check",
+                "detail": "out of scope — the requirement ledger was a "
+                          "markdown cross-reference; the requirement is the "
+                          "bead now, and a bead cannot disagree with itself "
+                          f"(no {', '.join(absent)} to cross-check)",
                 "items": []}
     try:
         proc = subprocess.run(
@@ -4030,8 +4054,9 @@ def main():
     summary["milestone"] = milestone
     summary["active_phase"] = active_phase
 
-    roadmap_phases, reqs_by_phase = roadmap_phases_and_reqs(planning_dir)
-    completed_set = roadmap_completed_phases(planning_dir)
+    roadmap_phases, reqs_by_phase = roadmap_phases_and_reqs(planning_dir,
+                                                            milestone)
+    completed_set = roadmap_completed_phases(planning_dir, milestone)
     disk_done = disk_complete_phases(planning_dir)
     disk_reasons = disk_incomplete_reasons(planning_dir)
     plans = plan_inventory(planning_dir)
