@@ -1170,8 +1170,10 @@ PY
   # Break: a silent skip. Half the bookkeeping done quietly is the state
   # this phase exists to remove; done ON PURPOSE and SAID is a choice.
   assert_json_eq "$output" '.tracker.skipped | contains("--no-tracker")' 'true'
+  # v1.7: a frase nomeia o que ficou de fora, e o mapa saiu da lista porque
+  # saiu do tracker — nao ha copia a regenerar.
   assert_json_eq "$output" \
-    '.tracker.skipped | contains("lease") and contains("map")' 'true'
+    '.tracker.skipped | contains("lease") and contains("worktree")' 'true'
   grep -qF -- "- [x] Phase 29" "$PWD/.planning/ROADMAP.md"
 }
 

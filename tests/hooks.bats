@@ -373,32 +373,45 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   refute_in_output "integration is active"
 }
 
-@test "session-start: both dirs but no NN-BEADS-MAP.md nudges the wire-up" {
+@test "session-start: um .planning/ ao lado do .beads/ e nomeado como material a IMPORTAR" {
   require_bd
   make_tmp_repo
   mkdir -p .planning/phases/01-auth .beads
 
+  # ATE A v1.6 o criterio deste nudge era a AUSENCIA DE `NN-BEADS-MAP.md`:
+  # sem mapa, a "fiacao" entre GSD e beads estava incompleta. O criterio
+  # pressupunha que cairn e' uma PONTE entre um GSD em disco e o bd, e que um
+  # arquivo gerado prova a ligacao.
+  #
+  # v1.7: cairn e' o sistema, `.beads/` basta, e o mapa nao e' arquivo. Um
+  # `.planning/` ao lado nao e' fiacao pela metade — e' um projeto GSD que
+  # pode nao ter sido importado, e o nudge diz isso e nomeia a rota.
   run env CLAUDE_PROJECT_DIR="$PWD" bash "$CAIRN_HOOKS_DIR/session-start.sh"
   [ "$status" -eq 0 ]
-  grep -qF "BEADS-MAP" <<<"$output"
+  grep -qF "GSD project to IMPORT" <<<"$output"
   grep -qF "/cairn:migrate" <<<"$output"
-  # The integration-active reminder still fires alongside the nudge, and it
-  # teaches the pair + stamp convention (not the old single-label one).
-  grep -qF "integration is active" <<<"$output"
+  refute_in_output "BEADS-MAP"
+  # e o lembrete de convencao segue firme: par de labels, carimbo e a chave
+  # de dedup continuam sendo o que o agente precisa saber de cor.
   grep -qF "m-<milestone>,phase-<N>" <<<"$output"
   grep -qF "dedup key" <<<"$output"
 }
 
-@test "session-start: dedup — no migrate nudge once a phase map exists" {
+@test "session-start: sem .planning/ nenhum, o nudge de importacao NAO aparece" {
   require_bd
   make_tmp_repo
-  mkdir -p .planning/phases/01-auth .beads
-  touch .planning/phases/01-auth/01-BEADS-MAP.md
+  mkdir -p .beads
 
+  # O dedup era feito pela presenca de um `NN-BEADS-MAP.md`: com mapa, a
+  # fiacao estava pronta e o nudge calava. Sem arquivo de mapa, o criterio
+  # passa a ser o unico que ainda significa alguma coisa — ha ou nao ha um
+  # `.planning/` para importar. Um repo cairn puro nao ve o nudge.
   run env CLAUDE_PROJECT_DIR="$PWD" bash "$CAIRN_HOOKS_DIR/session-start.sh"
   [ "$status" -eq 0 ]
   refute_in_output "/cairn:migrate"
-  grep -qF "integration is active" <<<"$output"
+  refute_in_output "GSD project to IMPORT"
+  # e o lembrete de convencao continua saindo, porque o repo E' cairn
+  grep -qF "cairn conventions apply" <<<"$output"
 }
 
 #-----------------------------------------------------------------------------
@@ -419,11 +432,15 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   grep -qxF "renew --project-dir $PWD" "$LEASE_LOG"
 }
 
-@test "session-start: missing .planning/ or .beads/ never invokes the lease seam" {
+@test "session-start: sem .beads/ o seam da lease NUNCA e invocado" {
   require_bd
   make_tmp_repo
   make_recorders
-  mkdir -p .planning   # .beads/ absent
+  # O titulo dizia "missing .planning/ OR .beads/", e o corpo so exercitava um
+  # dos dois. Com o gate agora em `.beads/`, o outro caso VIROU o oposto (a
+  # lease renova) e ganhou teste proprio logo abaixo — deixar o titulo antigo
+  # faria este parecer cobrir os dois lados enquanto cobre um.
+  mkdir -p .planning   # .beads/ ausente: nao ha tracker, nao ha lease
 
   run env CLAUDE_PROJECT_DIR="$PWD" CAIRN_LEASE="$LEASE_STUB" \
       bash "$CAIRN_HOOKS_DIR/session-start.sh"
@@ -432,17 +449,22 @@ wait_for_lines() {  # $1 = file, $2 = minimum line count
   [ ! -f "$LEASE_LOG" ]
 }
 
-@test "session-start: .beads/ present but .planning/ absent never invokes the lease seam" {
+@test "session-start: .beads/ SEM .planning/ AGORA renova a lease — o gate e o tracker" {
   require_bd
   make_tmp_repo
   make_recorders
-  mkdir -p .beads   # .planning/ absent
+  mkdir -p .beads   # sem .planning/, e e' o caso normal de um repo cairn
 
+  # A INVERSAO ESTA AQUI. O gate do seam era `.planning/` E `.beads/`: um repo
+  # sem os dois "nao era cairn-wired", e a lease nao era renovada. Isso
+  # descrevia a ponte, nao o sistema — e deixaria de fora exatamente o
+  # repositorio que a v1.7 torna normal, o que so tem tracker.
   run env CLAUDE_PROJECT_DIR="$PWD" CAIRN_LEASE="$LEASE_STUB" \
       bash "$CAIRN_HOOKS_DIR/session-start.sh"
   [ "$status" -eq 0 ]
   sleep 0.5
-  [ ! -f "$LEASE_LOG" ]
+  [ -f "$LEASE_LOG" ]
+  grep -qF "renew" "$LEASE_LOG"
 }
 
 @test "session-start: bd missing from PATH — lease seam never invoked, hook still exits 0" {

@@ -395,7 +395,7 @@ require_or_skip() {
   assert_output_contains "OK"
 }
 
-@test "bundle map shim resolves the dev-checkout generator and writes the phase map" {
+@test "bundle map shim resolves the dev-checkout generator and PRINTS the phase map" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -403,10 +403,13 @@ require_or_skip() {
   bd create "AUTH-01: signup flow" -t task -l phase-1,m-v1.0 \
     --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' --silent >/dev/null
 
+  # v1.7: o shim resolve o mesmo gerador, e o gerador IMPRIME — o que se
+  # prova aqui e' a resolucao do caminho, nao a escrita, que deixou de
+  # existir.
   run bash "$MAP_SHIM" 1
   [ "$status" -eq 0 ]
-  [ -f ".planning/phases/01-auth/01-BEADS-MAP.md" ]
-  grep -qF "AUTH-01" ".planning/phases/01-auth/01-BEADS-MAP.md"
+  grep -qF "AUTH-01" <<<"$output"
+  [ -z "$(find .planning -name '*BEADS-MAP.md' 2>/dev/null)" ]
 }
 
 @test "bundle map shim honors the .cairn/plugin-root pointer from an installed layout" {
@@ -430,7 +433,7 @@ require_or_skip() {
   run env CAIRN_PLUGIN_ROOT= CLAUDE_PLUGIN_ROOT= \
     bash ".gsd/capabilities/cairn/scripts/cairn-map.sh" 1
   [ "$status" -eq 0 ]
-  [ -f ".planning/phases/01-auth/01-BEADS-MAP.md" ]
+  grep -qF "AUTH-01" <<<"$output"
 }
 
 # ─── Lease bundle shim (15-02) ────────────────────────────────────────────────
