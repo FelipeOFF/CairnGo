@@ -1,6 +1,6 @@
 ---
 name: gsd-ui-auditor
-description: Retroactive 6-pillar visual audit of implemented frontend code. Produces scored UI-REVIEW.md. Spawned by /gsd:ui-review orchestrator.
+description: Retroactive 6-pillar visual audit of implemented frontend code. Records a scored UI review on the phase. Spawned by /gsd:ui-review orchestrator.
 tools: Read, Write, Bash, Grep, Glob, Skill
 color: pink
 # hooks:
@@ -24,7 +24,7 @@ If the prompt contains a `<required_reading>` block, you MUST use the `Read` too
 - Capture screenshots via CLI if dev server is running (code-only audit otherwise)
 - Audit implemented UI against UI-SPEC.md (if exists) or abstract 6-pillar standards
 - Score each pillar 1-4, identify top 3 priority fixes
-- Write UI-REVIEW.md with actionable findings
+- Record the UI review with actionable findings
 </role>
 
 <adversarial_stance>
@@ -81,12 +81,14 @@ If no UI-SPEC exists: audit against abstract 6-pillar standards.
 **MUST run before any screenshot capture.** Prevents binary files from reaching git history.
 
 ```bash
-# Ensure directory exists
-mkdir -p .planning/ui-reviews
+# Screenshots are binary artifacts, not records — they live in the cairn working
+# directory, which is where non-record artifacts belong now.
+UI_REVIEW_DIR=".cairn/ui-reviews"
+mkdir -p "$UI_REVIEW_DIR"
 
 # Write .gitignore if not present
-if [ ! -f .planning/ui-reviews/.gitignore ]; then
-  cat > .planning/ui-reviews/.gitignore << 'GITIGNORE'
+if [ ! -f "$UI_REVIEW_DIR/.gitignore" ]; then
+  cat > "$UI_REVIEW_DIR/.gitignore" << 'GITIGNORE'
 # Screenshot files — never commit binary assets
 *.png
 *.webp
@@ -96,7 +98,7 @@ if [ ! -f .planning/ui-reviews/.gitignore ]; then
 *.bmp
 *.tiff
 GITIGNORE
-  echo "Created .planning/ui-reviews/.gitignore"
+  echo "Created $UI_REVIEW_DIR/.gitignore"
 fi
 ```
 
@@ -113,7 +115,7 @@ This gate runs unconditionally on every audit. The .gitignore ensures screenshot
 DEV_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo "000")
 
 if [ "$DEV_STATUS" = "200" ]; then
-  SCREENSHOT_DIR=".planning/ui-reviews/${PADDED_PHASE}-$(date +%Y%m%d-%H%M%S)"
+  SCREENSHOT_DIR="${UI_REVIEW_DIR}/${PADDED_PHASE}-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$SCREENSHOT_DIR"
 
   # Desktop
@@ -288,11 +290,17 @@ npx shadcn diff {block} 2>/dev/null
 
 <output_format>
 
-## Output: UI-REVIEW.md
+## Output: the UI review record
 
-**ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation. Mandatory regardless of `commit_docs` setting.
+There is no file. Send the body to the record boundary, which appends it to the
+phase carrier bead — mandatory regardless of the `commit_docs` setting, because
+a record does not depend on a commit to survive:
 
-Write to: `$PHASE_DIR/$PADDED_PHASE-UI-REVIEW.md`
+```bash
+cairn/scripts/cairn-record.sh review --phase "$PHASE" <<'BODY'
+[the body below]
+BODY
+```
 
 ```markdown
 # Phase {N} — UI Review
@@ -387,11 +395,11 @@ For each of the 6 pillars:
 
 ## Step 6: Registry Safety Audit
 
-Run the registry audit from `<registry_audit>`. Only executes if `components.json` exists AND UI-SPEC.md lists third-party registries. Results feed into UI-REVIEW.md.
+Run the registry audit from `<registry_audit>`. Only executes if `components.json` exists AND the phase's UI spec record lists third-party registries. Results feed into the review body.
 
-## Step 7: Write UI-REVIEW.md
+## Step 7: Record the UI review
 
-Use output format from `<output_format>`. If registry audit produced flags, add a `## Registry Safety` section before `## Files Audited`. Write to `$PHASE_DIR/$PADDED_PHASE-UI-REVIEW.md`.
+Use output format from `<output_format>`. If registry audit produced flags, add a `## Registry Safety` section before `## Files Audited`. Send the body through `cairn-record.sh review --phase "$PHASE"`, then index the same prose with `ctx_index(content: <body>, source: "gb/<bd_id>/<phase>")`.
 
 ## Step 8: Return Structured Result
 

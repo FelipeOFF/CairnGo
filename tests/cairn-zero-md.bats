@@ -91,14 +91,9 @@ ZM_W2='\.planning/[A-Za-z0-9_./{}$-]*'
 
 # LEDGER — caminho relativo a cairn/gsd/ | sitios W1 | sitios W2
 ZM_LEDGER="\
-agents/gsd-code-reviewer.md|5|3
 agents/gsd-codebase-mapper.md|0|5
 agents/gsd-debug-session-manager.md|0|3
 agents/gsd-debugger.md|0|22
-agents/gsd-integration-checker.md|0|1
-agents/gsd-ui-auditor.md|5|5
-agents/gsd-ui-checker.md|1|1
-agents/gsd-verifier.md|3|4
 commands/gsd/autonomous.md|0|2
 commands/gsd/debug.md|0|1
 commands/gsd/discuss-phase.md|1|0
@@ -118,9 +113,7 @@ gsd-core/references/tdd.md|1|2
 gsd-core/references/thinking-partner.md|0|1
 gsd-core/references/universal-anti-patterns.md|1|2
 gsd-core/references/user-story-template.md|1|0
-gsd-core/references/verify-mvp-mode.md|1|0
 gsd-core/templates/DEBUG.md|0|2
-gsd-core/templates/UAT.md|0|3
 gsd-core/templates/context.md|0|2
 gsd-core/templates/discussion-log.md|0|1
 gsd-core/workflows/autonomous.md|4|4
@@ -132,7 +125,6 @@ gsd-core/workflows/fast.md|1|0
 gsd-core/workflows/quick/steps/discussion-phase.md|2|0
 gsd-core/workflows/quick/steps/quick-verification.md|1|0
 gsd-core/workflows/quick/steps/research-phase.md|1|0
-gsd-core/workflows/verify-work.md|2|3
 skills/gsd-autonomous/SKILL.md|0|2
 skills/gsd-debug/SKILL.md|0|1
 skills/gsd-discuss-phase/SKILL.md|1|0
@@ -140,8 +132,8 @@ skills/gsd-quick/SKILL.md|0|8
 "
 
 # O PLACAR. Some as colunas do ledger; e' o numero do milestone.
-ZM_DECLARED_W1=47
-ZM_DECLARED_W2=129
+ZM_DECLARED_W1=30
+ZM_DECLARED_W2=109
 
 # CONVERTIDOS — caminhos que ja passaram pelo protocolo de registro e que
 # DEVEM medir 0|0 nas duas familias. Uma linha aqui e uma linha no ledger com
@@ -154,12 +146,17 @@ ZM_DECLARED_W2=129
 # execute-phase) e o quick, cujo plano e sumario passam a ser o mesmo registro
 # aberto e fechado no bead da side-quest. O PLACAR caiu de 123|209 para 77|180.
 ZM_CONVERTED="\
+agents/gsd-code-reviewer.md
 agents/gsd-executor.md
+agents/gsd-integration-checker.md
 agents/gsd-pattern-mapper.md
 agents/gsd-phase-researcher.md
 agents/gsd-plan-checker.md
 agents/gsd-planner.md
+agents/gsd-ui-auditor.md
+agents/gsd-ui-checker.md
 agents/gsd-ui-researcher.md
+agents/gsd-verifier.md
 commands/gsd/plan-phase.md
 gsd-core/references/checkpoints.md
 gsd-core/references/execute-phase-context-guard.md
@@ -169,6 +166,8 @@ gsd-core/references/planner-chunked.md
 gsd-core/references/planner-gap-closure.md
 gsd-core/references/planner-load-graph-context.md
 gsd-core/references/planner-revision.md
+gsd-core/references/verify-mvp-mode.md
+gsd-core/templates/UAT.md
 gsd-core/templates/summary.md
 gsd-core/workflows/execute-phase.md
 gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md
@@ -183,6 +182,7 @@ gsd-core/workflows/plan-phase/steps/prd-express-path.md
 gsd-core/workflows/plan-phase/steps/research-only-modifiers.md
 gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md
 gsd-core/workflows/quick.md
+gsd-core/workflows/verify-work.md
 skills/gsd-plan-phase/SKILL.md
 "
 

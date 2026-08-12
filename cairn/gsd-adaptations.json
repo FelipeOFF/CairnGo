@@ -2,6 +2,14 @@
   "schema_version": 1,
   "adaptations": [
     {
+      "path": "agents/gsd-code-reviewer.md",
+      "phase": "38",
+      "waves": [
+        4
+      ],
+      "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
+    },
+    {
       "path": "agents/gsd-debug-session-manager.md",
       "phase": "36",
       "waves": [
@@ -26,6 +34,14 @@
         7
       ],
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7 (ADAPT-04/ADAPT-02): os SETE sítios de estado do agente — só um deles mordido pelo oráculo (:850, família C passiva, pendência declarada na onda 6) e os outros seis invisíveis às quatro famílias por grafia (verbo minúsculo, nome entre crases, predicado de ausência, lista de commit). Junto, as três menções ao runtime antigo (`node` para invocar a CLI, `gsd-tools query` duas vezes) num arquivo cujo preâmbulo já resolve o binário python. Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
+    },
+    {
+      "path": "agents/gsd-integration-checker.md",
+      "phase": "38",
+      "waves": [
+        4
+      ],
+      "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
     },
     {
       "path": "agents/gsd-pattern-mapper.md",
@@ -64,6 +80,22 @@
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
+      "path": "agents/gsd-ui-auditor.md",
+      "phase": "38",
+      "waves": [
+        4
+      ],
+      "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
+    },
+    {
+      "path": "agents/gsd-ui-checker.md",
+      "phase": "38",
+      "waves": [
+        4
+      ],
+      "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
+    },
+    {
       "path": "agents/gsd-ui-researcher.md",
       "phase": "36",
       "waves": [
@@ -76,9 +108,10 @@
       "phase": "36",
       "waves": [
         1,
+        4,
         7
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: as duas linhas de prosa que mandavam usar o runtime antigo (:241, :317) passam a nomear gsd_run — o bloco de código logo abaixo de cada uma já chamava o verbo certo."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: as duas linhas de prosa que mandavam usar o runtime antigo (:241, :317) passam a nomear gsd_run — o bloco de código logo abaixo de cada uma já chamava o verbo certo. Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
     },
     {
       "path": "commands/gsd/discuss-phase.md",
@@ -169,6 +202,22 @@
         2
       ],
       "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
+      "path": "gsd-core/references/verify-mvp-mode.md",
+      "phase": "38",
+      "waves": [
+        4
+      ],
+      "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
+    },
+    {
+      "path": "gsd-core/templates/UAT.md",
+      "phase": "38",
+      "waves": [
+        4
+      ],
+      "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
     },
     {
       "path": "gsd-core/templates/summary.md",
@@ -415,9 +464,10 @@
       "phase": "36",
       "waves": [
         1,
+        4,
         5
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 5 (ADAPT-03): a transição automática de conclusão de fase deixa de dizer que marca a fase completa no roadmap e no markdown de estado e passa a nomear o FATO — phase.complete é quem o registra, e o passo diz explicitamente que a projeção para ROADMAP.md é do bookkeep, porque a forma mais fácil de violar a regra de integração do CONTEXT seria \"melhorar\" essa linha para escrita direta; a injeção do caminho de estado no prompt do gsd-planner em modo gap_closure virou instrução de pedir o fato ao binário, e com ela morre a última injeção do corpus de workflows fora do execute-phase. Intocados por medição: o find dos artefatos de UAT (:105), o caminho de escrita (:289) e o commit deles (:507) — são DOCUMENTO, e as três menções a .planning/ do arquivo são exatamente essas."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 5 (ADAPT-03): a transição automática de conclusão de fase deixa de dizer que marca a fase completa no roadmap e no markdown de estado e passa a nomear o FATO — phase.complete é quem o registra, e o passo diz explicitamente que a projeção para ROADMAP.md é do bookkeep, porque a forma mais fácil de violar a regra de integração do CONTEXT seria \"melhorar\" essa linha para escrita direta; a injeção do caminho de estado no prompt do gsd-planner em modo gap_closure virou instrução de pedir o fato ao binário, e com ela morre a última injeção do corpus de workflows fora do execute-phase. Intocados por medição: o find dos artefatos de UAT (:105), o caminho de escrita (:289) e o commit deles (:507) — são DOCUMENTO, e as três menções a .planning/ do arquivo são exatamente essas. Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
     },
     {
       "path": "gsd-core/workflows/verify-work/steps/mvp-uat-framing.md",

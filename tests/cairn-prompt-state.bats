@@ -175,19 +175,19 @@ state_raw'
 # escreve qual é o caso e o teste de completude confere os dois sentidos.
 PS_ADAPTED="\
 agents/gsd-advisor-researcher.md|6|intocado
-agents/gsd-code-reviewer.md|6|intocado
+agents/gsd-code-reviewer.md|6|editado
 agents/gsd-codebase-mapper.md|6|intocado
 agents/gsd-debug-session-manager.md|6|editado
 agents/gsd-debugger.md|6|editado
 agents/gsd-executor.md|7|editado
-agents/gsd-integration-checker.md|6|intocado
+agents/gsd-integration-checker.md|6|editado
 agents/gsd-nyquist-auditor.md|6|intocado
 agents/gsd-pattern-mapper.md|6|editado
 agents/gsd-phase-researcher.md|6|editado
 agents/gsd-plan-checker.md|6|editado
 agents/gsd-planner.md|6|editado
-agents/gsd-ui-auditor.md|6|intocado
-agents/gsd-ui-checker.md|6|intocado
+agents/gsd-ui-auditor.md|6|editado
+agents/gsd-ui-checker.md|6|editado
 agents/gsd-ui-researcher.md|6|editado
 agents/gsd-verifier.md|6|editado
 gsd-core/workflows/autonomous.md|5|editado

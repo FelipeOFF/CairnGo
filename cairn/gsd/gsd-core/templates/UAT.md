@@ -1,6 +1,6 @@
 # UAT Template
 
-Template for `.planning/phases/XX-name/{phase_num}-UAT.md` — persistent UAT session tracking.
+Body structure for a UAT session appended to the phase record (`cairn-record.sh log --phase N`) — persistent UAT session tracking. There is no UAT file.
 
 ---
 
@@ -137,7 +137,7 @@ blocked: [N]
       issue: "useEffect missing dependency"
   missing:
     - "Add commentCount to useEffect dependency array"
-  debug_session: ".planning/debug/comment-not-refreshing.md"
+  debug_session: "comment-not-refreshing"   # the debug session slug
 ```
 
 </diagnosis_lifecycle>
@@ -260,6 +260,6 @@ skipped: 0
       issue: "useEffect missing dependency"
   missing:
     - "Add commentCount to useEffect dependency array"
-  debug_session: ".planning/debug/comment-not-refreshing.md"
+  debug_session: "comment-not-refreshing"   # the debug session slug
 ```
 </good_example>

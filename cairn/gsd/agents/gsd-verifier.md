@@ -1,6 +1,6 @@
 ---
 name: gsd-verifier
-description: Verifies phase goal achievement through goal-backward analysis. Checks codebase delivers what phase promised, not just that tasks completed. Creates VERIFICATION.md report.
+description: Verifies phase goal achievement through goal-backward analysis. Checks codebase delivers what phase promised, not just that tasks completed. Records the phase's verification.
 tools: Read, Write, Bash, Grep, Glob, Skill
 color: green
 # hooks:
@@ -102,13 +102,18 @@ Set `is_re_verification = false`, proceed with Step 1.
 
 ```bash
 CAIRN_GSD="${CAIRN_GSD:-}"; if [ ! -x "$CAIRN_GSD" ]; then _cg_try=""; for _cg_root in "${CLAUDE_PROJECT_DIR:-}" "$(git rev-parse --show-toplevel 2>/dev/null || true)" "$PWD"; do [ -n "$_cg_root" ] || continue; _cg_try="$_cg_root/cairn/scripts/cairn-gsd.sh"; if [ -x "$_cg_try" ]; then CAIRN_GSD="$_cg_try"; break; fi; done; fi; if [ ! -x "${CAIRN_GSD:-}" ]; then echo "ERROR: cairn-gsd.sh not found (last path tried: ${_cg_try:-<none>}) - this workflow speaks to the cairn dispatcher that lives in the repo. Run it from inside the CairnGo checkout, or export CAIRN_GSD=<checkout>/cairn/scripts/cairn-gsd.sh" >&2; exit 1; fi; export CAIRN_GSD; gsd_run() { "$CAIRN_GSD" "$@"; }
-ls "$PHASE_DIR"/*-PLAN.md 2>/dev/null
-ls "$PHASE_DIR"/*-SUMMARY.md 2>/dev/null
+# The phase's plans and their summaries are records, not files: description is
+# the plan as recorded, notes is the summary that closed it.
+bd list -l "phase-$PHASE_NUM" --all --limit 0 --json \
+  | jq -r '.[] | "=== \(.id) ===", (.description // ""), "--- summary ---", (.notes // "")'
 gsd_run query roadmap.get-phase "$PHASE_NUM"
-grep -E "^| $PHASE_NUM" .planning/REQUIREMENTS.md 2>/dev/null
+grep -E "^| $PHASE_NUM" "${REQUIREMENTS_PATH}" 2>/dev/null
 ```
 
-Extract phase goal from ROADMAP.md — this is the outcome to verify, not the tasks.
+`REQUIREMENTS_PATH` comes from the init payload (`requirements_path`), never
+from a typed literal.
+
+Extract the phase goal from the roadmap — this is the outcome to verify, not the tasks.
 
 ## Step 2: Establish Must-Haves (Initial Mode Only)
 
@@ -362,10 +367,10 @@ For each requirement ID from plans:
 **6c. Check for orphaned requirements:**
 
 ```bash
-grep -E "Phase $PHASE_NUM" .planning/REQUIREMENTS.md 2>/dev/null
+grep -E "Phase $PHASE_NUM" "${REQUIREMENTS_PATH}" 2>/dev/null
 ```
 
-If REQUIREMENTS.md maps additional IDs to this phase that don't appear in ANY plan's `requirements` field, flag as **ORPHANED** — these requirements were expected but no plan claimed them. ORPHANED requirements MUST appear in the verification report.
+If the requirements map additional IDs to this phase that don't appear in ANY plan's `requirements` field, flag as **ORPHANED** — these requirements were expected but no plan claimed them. ORPHANED requirements MUST appear in the verification report.
 
 ## Step 7: Scan for Anti-Patterns
 
@@ -661,11 +666,18 @@ If `valid != true`, refuse to verify. Surface the discrepancy and ask the user t
 
 <output>
 
-## Create VERIFICATION.md
+## Record the verification
 
-**ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
+There is no file. Send the body to the record boundary, which puts it on the
+phase carrier bead's acceptance criteria:
 
-Create `.planning/phases/{phase_dir}/{phase_num}-VERIFICATION.md`:
+```bash
+cairn/scripts/cairn-record.sh verification --phase "$PHASE_NUM" <<'BODY'
+[the body below]
+BODY
+```
+
+Then index the same prose: `ctx_index(content: <the same body>, source: "gb/<bd_id>/<phase>")`.
 
 ```markdown
 ---
@@ -800,7 +812,7 @@ Return with:
 
 **Status:** {passed | gaps_found | human_needed}
 **Score:** {N}/{M} must-haves verified
-**Report:** .planning/phases/{phase_dir}/{phase_num}-VERIFICATION.md
+**Report:** recorded on {phase_bead} (kind `verification`)
 
 {If passed:}
 All must-haves verified. Phase goal achieved. Ready to proceed.

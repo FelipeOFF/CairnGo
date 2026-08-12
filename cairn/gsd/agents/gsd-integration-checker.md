@@ -97,11 +97,11 @@ For each phase, extract what it provides and what it should consume.
 # #2962: zsh aborts the block on an unmatched for-list glob (nomatch); bash passes it through. nullglob both.
 shopt -s nullglob 2>/dev/null; setopt NULL_GLOB 2>/dev/null
 
-# Key exports from each phase
-for summary in .planning/phases/*/*-SUMMARY.md; do
-  echo "=== $summary ==="
-  grep -A 10 "Key Files\|Exports\|Provides" "$summary" 2>/dev/null
-done
+# Key exports from each phase — the summary is the `notes` of a closed plan
+# record, so this reads the bd store, not the disk.
+bd list --all --limit 0 --json \
+  | jq -r '.[] | select((.notes // "") != "") | "=== \(.id) ===", .notes' \
+  | grep -A 10 "Key Files\|Exports\|Provides" 2>/dev/null
 ```
 
 **Build provides/consumes map:**
