@@ -1,0 +1,260 @@
+#!/usr/bin/env bats
+# cairn-record.bats — a fronteira UNICA de escrita de registro (cairn-record.py
+# / cairn-record.sh). Exercita o contrato de CLI contra repos de fixture
+# descartaveis: exit codes, estado no bd via `bd show --json`, e a invariante
+# que da nome ao milestone — este script NUNCA escreve markdown.
+#
+# POR QUE ESTE SCRIPT EXISTE. Medido na arvore pre-mudanca: 123 sitios em 42
+# arquivos de cairn/gsd/ mandam o modelo escrever um <DOC>.md, e 209 literais
+# de caminho .planning/ dizem onde. Converter sitio a sitio para prosa
+# artesanal multiplicaria 123 formas de gravar a mesma coisa. Uma fronteira
+# unica troca as 123 por UMA chamada, e o oraculo tests/cairn-zero-md.bats
+# mede que a troca aconteceu.
+#
+# O DESENHO QUE A MEDICAO IMPOS (registrado em bd CairnGo-9c0h --design):
+# context-mode NAO tem CLI — `command -v ctx ctx-mode context-mode` devolve
+# vazio, os ctx_* sao tools MCP model-side. Logo um script python NAO indexa.
+# A fronteira e' partida: o SCRIPT grava o FATO estruturado no bd
+# (deterministico, testavel — e' o que esta suite mede); a CAMADA PROMPT chama
+# ctx_index para a PROSA. Nao e' acidente, e' o desenho, e a alternativa
+# (inventar um formato de arquivo) e' exatamente o que o milestone recusa.
+#
+# UM SUMMARY NAO E' ARQUIVO NOVO. E' o FECHO do mesmo registro que o PLAN
+# abriu. Por isso `summary` fecha o bead do plano com o corpo em notes, em vez
+# de criar um segundo registro — e ha caso de teste provando que a contagem de
+# beads NAO sobe quando um summary e' gravado.
+#
+# Estilo de assercao: um `[[ ]]` ou `! cmd` no meio do teste NAO reprova neste
+# bash, entao checagem de substring usa grep -qF e negativa usa refute_output.
+
+load 'helpers'
+
+refute_output_has() {
+  if grep -qF -- "$1" <<<"$output"; then
+    echo "unexpectedly found '$1' in output" >&2
+    return 1
+  fi
+}
+
+RECORD="$CAIRN_SCRIPTS_DIR/cairn-record.py"
+
+# Fixture: um bead portador de fase (phase-1) e nada mais. O portador e' o
+# alvo dos kinds que gravam na fase; os kinds de plano criam filhos dele.
+make_record_fixture() {
+  bd init -q --prefix rec --non-interactive >/dev/null 2>&1
+  REC_PHASE="$(bd create "Phase 1 carrier" -t epic -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"phase":1,"milestone":"v1.0"}}' --silent 2>/dev/null)"
+}
+
+# Conta arquivos markdown na arvore inteira do repo de fixture. A invariante
+# do milestone e' que este numero nao se mova por causa do cairn-record.
+count_md() {
+  find . -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' '
+}
+
+# Le um campo do bead pelo NOME DE CHAVE DO JSON do bd. MEDIDO (bd 1.1.0): os
+# campos longos so aparecem no JSON quando nao-vazios, e `acceptance` na CLI e'
+# `acceptance_criteria` no JSON — os testes usam a grafia do JSON.
+bd_field() {
+  bd show "$1" --json 2>/dev/null | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+d = d[0] if isinstance(d, list) else d
+print(d.get('$2') or '')
+"
+}
+
+# --- uso e contratos de falha -------------------------------------------------
+
+@test "record: sem kind e uso, exit 2" {
+  run python3 "$RECORD"
+  [ "$status" -eq 2 ]
+  grep -qF "usage:" <<<"$output$stderr" || grep -qi "usage" <<<"$output"
+}
+
+@test "record: kind desconhecido nomeia o kind e sai 4" {
+  run bash -c "echo corpo | python3 '$RECORD' banana --phase 1"
+  [ "$status" -eq 4 ]
+  grep -qF "banana" <<<"$output"
+}
+
+@test "record: kind valido lista os kinds conhecidos no erro de kind" {
+  run bash -c "echo corpo | python3 '$RECORD' banana --phase 1"
+  [ "$status" -eq 4 ]
+  grep -qF "summary" <<<"$output"
+  grep -qF "plan" <<<"$output"
+}
+
+@test "record: bd ausente do PATH e exit 5, nao stack trace" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  run env PATH="/usr/bin:/bin" bash -c "echo corpo | python3 '$RECORD' context --phase 1"
+  [ "$status" -eq 5 ]
+  refute_output_has "Traceback"
+}
+
+# --- os kinds, um a um --------------------------------------------------------
+
+@test "record: plan cria bead filho do portador com o corpo em description" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  run bash -c "printf 'corpo do plano\nsegunda linha\n' | python3 '$RECORD' plan --phase 1 --plan 01 --title 'Onda 1'"
+  [ "$status" -eq 0 ]
+  local child
+  child="$(bd list --parent "$REC_PHASE" --json 2>/dev/null | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+print(d[0]['id'] if d else '')
+")"
+  [ -n "$child" ]
+  run bd_field "$child" description
+  grep -qF "corpo do plano" <<<"$output"
+}
+
+@test "record: summary FECHA o registro do plano, nao cria um segundo" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  echo "corpo do plano" | python3 "$RECORD" plan --phase 1 --plan 01 --title "Onda 1"
+  local before
+  before="$(bd list --all --json 2>/dev/null | python3 -c "import json,sys;print(len(json.load(sys.stdin)))")"
+  run bash -c "echo 'o que a onda entregou' | python3 '$RECORD' summary --phase 1 --plan 01"
+  [ "$status" -eq 0 ]
+  local after
+  after="$(bd list --all --json 2>/dev/null | python3 -c "import json,sys;print(len(json.load(sys.stdin)))")"
+  [ "$before" -eq "$after" ]
+}
+
+@test "record: summary fecha o bead do plano com o corpo em notes" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  echo "corpo do plano" | python3 "$RECORD" plan --phase 1 --plan 01 --title "Onda 1"
+  echo "o que a onda entregou" | python3 "$RECORD" summary --phase 1 --plan 01
+  local child
+  child="$(bd list --parent "$REC_PHASE" --all --json 2>/dev/null | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+print(d[0]['id'] if d else '')
+")"
+  run bd_field "$child" notes
+  grep -qF "o que a onda entregou" <<<"$output"
+  run bd_field "$child" status
+  grep -qi "closed" <<<"$output"
+}
+
+@test "record: context grava design no portador da fase" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  run bash -c "echo 'o contexto medido' | python3 '$RECORD' context --phase 1"
+  [ "$status" -eq 0 ]
+  run bd_field "$REC_PHASE" design
+  grep -qF "o contexto medido" <<<"$output"
+}
+
+@test "record: verification grava acceptance no portador da fase" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  run bash -c "echo 'criterio verificado' | python3 '$RECORD' verification --phase 1"
+  [ "$status" -eq 0 ]
+  run bd_field "$REC_PHASE" acceptance_criteria
+  grep -qF "criterio verificado" <<<"$output"
+}
+
+@test "record: log ANEXA em notes, nao substitui" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  echo "primeira entrada" | python3 "$RECORD" log --phase 1
+  run bash -c "echo 'segunda entrada' | python3 '$RECORD' log --phase 1"
+  [ "$status" -eq 0 ]
+  run bd_field "$REC_PHASE" notes
+  grep -qF "primeira entrada" <<<"$output"
+  grep -qF "segunda entrada" <<<"$output"
+}
+
+# --- resolucao de alvo: fato ausente e' falha NOMEADA (doutrina CORE-04) -----
+
+@test "record: fase sem portador nomeia o fato E o comando que o cria" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix rec --non-interactive >/dev/null 2>&1
+  run bash -c "echo corpo | python3 '$RECORD' context --phase 9"
+  [ "$status" -eq 1 ]
+  grep -qF "phase-9" <<<"$output"
+  grep -qi "cairn" <<<"$output"
+}
+
+@test "record: portador ambiguo lista os candidatos e pede --issue" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  bd create "Segundo portador" -t epic -l phase-1,m-v1.0 --silent >/dev/null 2>&1
+  run bash -c "echo corpo | python3 '$RECORD' context --phase 1"
+  [ "$status" -eq 1 ]
+  grep -qF -- "--issue" <<<"$output"
+}
+
+@test "record: --issue explicito vence a resolucao por label" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  local other
+  other="$(bd create "Outro" -t task -l phase-1,m-v1.0 --silent 2>/dev/null)"
+  run bash -c "echo 'alvo explicito' | python3 '$RECORD' context --phase 1 --issue '$other'"
+  [ "$status" -eq 0 ]
+  run bd_field "$other" design
+  grep -qF "alvo explicito" <<<"$output"
+}
+
+# --- a invariante do milestone ------------------------------------------------
+
+@test "record: NENHUM kind escreve markdown em lugar nenhum" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  local before after
+  before="$(count_md)"
+  echo "corpo" | python3 "$RECORD" plan --phase 1 --plan 01 --title "Onda"
+  echo "corpo" | python3 "$RECORD" context --phase 1
+  echo "corpo" | python3 "$RECORD" verification --phase 1
+  echo "corpo" | python3 "$RECORD" log --phase 1
+  echo "corpo" | python3 "$RECORD" summary --phase 1 --plan 01
+  after="$(count_md)"
+  [ "$before" -eq "$after" ]
+}
+
+@test "record: controle negativo — a contagem de markdown SOBE quando algo escreve" {
+  make_tmp_repo
+  local before after
+  before="$(count_md)"
+  echo "sou um markdown" > INTRUSO.md
+  after="$(count_md)"
+  [ "$after" -gt "$before" ]
+}
+
+@test "record: --json emite resumo de maquina com kind, alvo e campo" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  run bash -c "echo corpo | python3 '$RECORD' context --phase 1 --json"
+  [ "$status" -eq 0 ]
+  run bash -c "echo corpo | python3 '$RECORD' log --phase 1 --json"
+  [ "$status" -eq 0 ]
+  python3 -c "
+import json,sys
+d = json.loads('''$output''')
+assert d['kind'] == 'log', d
+assert d['field'] == 'notes', d
+assert d['issue'], d
+"
+}
+
+@test "record: o wrapper .sh repassa o exit code do python sem traduzir" {
+  run bash -c "echo corpo | '$CAIRN_SCRIPTS_DIR/cairn-record.sh' banana --phase 1"
+  [ "$status" -eq 4 ]
+}
