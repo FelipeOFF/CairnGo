@@ -201,13 +201,13 @@ gsd-core/workflows/discuss-phase.md|4|editado
 gsd-core/workflows/discuss-phase/modes/advisor.md|4|editado
 gsd-core/workflows/discuss-phase/modes/all.md|7|intocado
 gsd-core/workflows/discuss-phase/modes/analyze.md|7|intocado
-gsd-core/workflows/discuss-phase/modes/auto.md|7|intocado
+gsd-core/workflows/discuss-phase/modes/auto.md|7|editado
 gsd-core/workflows/discuss-phase/modes/batch.md|7|intocado
 gsd-core/workflows/discuss-phase/modes/chain.md|4|editado
-gsd-core/workflows/discuss-phase/modes/default.md|7|intocado
-gsd-core/workflows/discuss-phase/modes/power.md|7|intocado
+gsd-core/workflows/discuss-phase/modes/default.md|7|editado
+gsd-core/workflows/discuss-phase/modes/power.md|7|editado
 gsd-core/workflows/discuss-phase/modes/text.md|7|editado
-gsd-core/workflows/discuss-phase/templates/context.md|7|intocado
+gsd-core/workflows/discuss-phase/templates/context.md|7|editado
 gsd-core/workflows/discuss-phase/templates/discussion-log.md|7|intocado
 gsd-core/workflows/execute-phase.md|7|editado
 gsd-core/workflows/execute-phase/steps/codebase-drift-gate.md|7|editado

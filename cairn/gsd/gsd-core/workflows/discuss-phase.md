@@ -2,7 +2,7 @@
 step: discuss
 points: discuss:pre, discuss:post
 agent-roles: orchestrator
-produces: CONTEXT.md
+produces: the phase's context record
 consumes:
 -->
 <purpose>
@@ -32,7 +32,7 @@ this file under the discuss-phase byte budget (32000 bytes, #717; mirrors the ag
 | `--analyze` in $ARGUMENTS | `workflows/discuss-phase/modes/analyze.md` overlay |
 | ADVISOR_MODE = true (USER-PROFILE.md exists) | `workflows/discuss-phase/modes/advisor.md` |
 | no flags above | `workflows/discuss-phase/modes/default.md` |
-| in `write_context` step | `workflows/discuss-phase/templates/context.md` |
+| in `record_context` step | `workflows/discuss-phase/templates/context.md` |
 | in `git_commit` step | `workflows/discuss-phase/templates/discussion-log.md` |
 | writing checkpoints | `workflows/discuss-phase/templates/checkpoint.json` |
 
@@ -120,7 +120,16 @@ INIT=$(gsd_run query init.phase-op "${PHASE}"); [[ "$INIT" == @file:* ]] && INIT
 AGENT_SKILLS_ADVISOR=$(gsd_run query agent-skills gsd-advisor-researcher)
 ```
 
-Parse JSON for: `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `has_verification`, `plan_count`, `roadmap_exists`, `planning_exists`, `response_language`.
+Parse JSON for: `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `has_verification`, `plan_count`, `roadmap_exists`, `planning_exists`, `response_language`, `roadmap_path`, `requirements_path`.
+
+```bash
+ROADMAP_PATH=$(printf '%s' "$INIT" | jq -r '.roadmap_path // empty')
+REQUIREMENTS_PATH=$(printf '%s' "$INIT" | jq -r '.requirements_path // empty')
+PLANNING_DIR="$(dirname "${ROADMAP_PATH}")"
+# The phase carrier: the phase-N bead with no parent (same rule cairn-record uses).
+PHASE_BEAD=$(bd list -l "phase-${PHASE}" --all --limit 0 --json \
+  | jq -r '[.[] | select((.parent // "") == "")] | .[0].id // empty')
+```
 
 **If `response_language` is set:** All user-facing questions, prompts, and explanations in this workflow MUST be presented in `{response_language}`. Technical terms, code, file paths, and subagent prompts stay in English — only user-facing output is translated.
 
@@ -235,8 +244,8 @@ Check `has_plans` and `plan_count` from init. **If `has_plans` is true:**
 Read project-level and prior phase context to avoid re-asking decided questions.
 
 ```bash
-cat .planning/PROJECT.md 2>/dev/null || true
-cat .planning/REQUIREMENTS.md 2>/dev/null || true
+cat "${PLANNING_DIR}/PROJECT.md" 2>/dev/null || true
+cat "${REQUIREMENTS_PATH}" 2>/dev/null || true
 gsd_run query state.load 2>/dev/null
 ```
 
@@ -244,20 +253,22 @@ The first two lines read DOCUMENTS from disk — that is what they are. The thir
 asks the binary for the project STATE, which is a FACT and has an owner; it is
 not a document to be `cat`-ed.
 
-Read at most **3** prior CONTEXT.md files (most recent 3 phases before current). If `.planning/DECISIONS-INDEX.md` exists, read that instead — it is a bounded rolling summary that supersedes per-phase reads.
+Read at most **3** prior context records (most recent 3 phases before current). If `${PLANNING_DIR}/DECISIONS-INDEX.md` exists, read that instead — it is a bounded rolling summary that supersedes per-phase reads.
 
 ```bash
-(find .planning/phases -name "*-CONTEXT.md" 2>/dev/null || true) | sort -r
+bd list --all --limit 0 --json \
+  | jq -r '.[] | select((.labels // []) | any(startswith("phase-"))) | select((.design // "") != "") | "=== \(.id) ===", .design' \
+  | tail -r
 ```
 
-For each CONTEXT.md read: extract `<decisions>` (locked preferences), `<specifics>` (particular references), and patterns (e.g., "user prefers minimal UI", "user rejected single-key shortcuts").
+For each context record read: extract `<decisions>` (locked preferences), `<specifics>` (particular references), and patterns (e.g., "user prefers minimal UI", "user rejected single-key shortcuts").
 
 **Spike/sketch findings:** Check for project-local skills:
 ```bash
 SPIKE_FINDINGS=$(ls ./.claude/skills/spike-findings-*/SKILL.md 2>/dev/null | head -1 || true)
 SKETCH_FINDINGS=$(ls ./.claude/skills/sketch-findings-*/SKILL.md 2>/dev/null | head -1 || true)
-RAW_SPIKES=$(ls .planning/spikes/MANIFEST.md 2>/dev/null)
-RAW_SKETCHES=$(ls .planning/sketches/MANIFEST.md 2>/dev/null)
+RAW_SPIKES=$(ls "${PLANNING_DIR}"/spikes/MANIFEST.md 2>/dev/null)
+RAW_SKETCHES=$(ls "${PLANNING_DIR}"/sketches/MANIFEST.md 2>/dev/null)
 ```
 
 If findings skills exist, read SKILL.md and reference files; extract validated patterns, landmines, constraints, design decisions. Add them to `<prior_decisions>`.
@@ -282,7 +293,7 @@ Parse JSON for: `todo_count`, `matches[]` (each with `file`, `title`, `area`, `s
 
 **If `todo_count` is 0 or `matches` is empty:** Skip silently.
 
-**If matches found:** Present each match (title, area, why it matched). AskUserQuestion (multiSelect) asking which to fold. Folded → `<folded_todos>` for CONTEXT.md `<decisions>`. Reviewed but not folded → `<reviewed_todos>` for CONTEXT.md `<deferred>`.
+**If matches found:** Present each match (title, area, why it matched). AskUserQuestion (multiSelect) asking which to fold. Folded → `<folded_todos>` for the context record's `<decisions>`. Reviewed but not folded → `<reviewed_todos>` for its `<deferred>`.
 
 **Auto mode (`--auto`):** Fold all todos with score >= 0.4 automatically. Log the selection.
 </step>
@@ -291,7 +302,7 @@ Parse JSON for: `todo_count`, `matches[]` (each with `file`, `title`, `area`, `s
 Lightweight scan of existing code to inform gray area identification (~10% context).
 
 Read `@~/.claude/gsd-core/references/scout-codebase.md` — it contains the phase-type→map selection table, single-read rule, no-maps fallback, and `<codebase_context>` output schema. Then execute:
-1. `ls .planning/codebase/*.md` to find existing maps
+1. `ls "${PLANNING_DIR}"/codebase/*.md` to find existing maps
 2. Select 2–3 maps via the reference's table; or grep fallback if none exist
 3. Build internal `<codebase_context>` per the reference's output schema
 </step>
@@ -379,14 +390,24 @@ All modes preserve the universal rules below.
 
 - **Canonical ref accumulation** — when the user references a doc/spec/ADR during any answer, immediately Read it (or confirm it exists) and add it to the canonical refs accumulator with full relative path. Use what you learned to inform subsequent questions. These docs are often MORE important than ROADMAP.md refs because the user specifically wants downstream agents to follow them.
 - **Scope creep** — if user mentions something outside the phase domain, capture as deferred idea and redirect.
-- **Incremental checkpoint** — after each area completes, write `${phase_dir}/${padded_phase}-DISCUSS-CHECKPOINT.json`. Read `workflows/discuss-phase/templates/checkpoint.json` for the schema. The checkpoint is structured state, not the canonical CONTEXT.md (`write_context` produces the canonical output). On session resume, the parent's `check_existing` step detects the checkpoint and offers to resume.
-- **Discussion log accumulation** — for each question asked, accumulate area name, options presented, user's selection, follow-up notes. Used by `git_commit` to write DISCUSSION-LOG.md.
+- **Incremental checkpoint** — after each area completes, write `${phase_dir}/${padded_phase}-DISCUSS-CHECKPOINT.json`. Read `workflows/discuss-phase/templates/checkpoint.json` for the schema. The checkpoint is structured state, not the canonical context record (`record_context` produces the canonical output). On session resume, the parent's `check_existing` step detects the checkpoint and offers to resume.
+- **Discussion log accumulation** — for each question asked, accumulate area name, options presented, user's selection, follow-up notes. Appended to the phase record by `git_commit`.
 </step>
 
-<step name="write_context">
-Create CONTEXT.md and DISCUSSION-LOG.md.
+<step name="record_context">
+Record the phase context, and append the discussion log to the same phase bead:
 
-DISCUSSION-LOG.md is for human reference only (audits, retrospectives) and is NOT consumed by downstream agents (researcher, planner, executor).
+```bash
+cairn/scripts/cairn-record.sh context --phase "${PHASE}" <<'BODY'
+[the context body — the structure in templates/context.md]
+BODY
+```
+
+Then index the same prose: `ctx_index(content: <body>, source: "gb/<bd_id>/<phase>")`.
+
+The discussion log is for human reference only (audits, retrospectives) and is
+NOT consumed by downstream agents (researcher, planner, executor) — which is
+why it goes to `log` (append) and never overwrites the context.
 
 **Find or create phase directory:**
 
@@ -426,7 +447,7 @@ Apply each entry in `activeHooks` per @~/.claude/gsd-core/references/loop-hook-d
 Present summary and next steps:
 
 ```
-Created: .planning/phases/${PADDED_PHASE}-${SLUG}/${PADDED_PHASE}-CONTEXT.md
+Recorded: phase ${PADDED_PHASE} context on ${PHASE_BEAD}
 
 ## Decisions Captured
 ### [Category]
@@ -440,7 +461,7 @@ Created: .planning/phases/${PADDED_PHASE}-${SLUG}/${PADDED_PHASE}-CONTEXT.md
 
 ## ▶ Next Up — [${PROJECT_CODE}] ${PROJECT_TITLE}
 
-**Phase ${PHASE}: [Name]** — [Goal from ROADMAP.md]
+**Phase ${PHASE}: [Name]** — [Goal from the roadmap]
 
 `/clear` then:
 
@@ -448,33 +469,36 @@ Created: .planning/phases/${PADDED_PHASE}-${SLUG}/${PADDED_PHASE}-CONTEXT.md
 
 ---
 
-**Also available:** `--chain` for auto plan+execute after; `/gsd:plan-phase ${PHASE} --skip-research ${GSD_WS}` to plan without research; `/gsd:ui-phase ${PHASE} ${GSD_WS}` for UI design contracts; review/edit CONTEXT.md before continuing.
+**Also available:** `--chain` for auto plan+execute after; `/gsd:plan-phase ${PHASE} --skip-research ${GSD_WS}` to plan without research; `/gsd:ui-phase ${PHASE} ${GSD_WS}` for UI design contracts; review the recorded context before continuing.
 ```
 </step>
 
 <step name="git_commit">
-**Write DISCUSSION-LOG.md before committing.**
+**Append the discussion log before finishing.**
 
-**File location:** `${phase_dir}/${padded_phase}-DISCUSSION-LOG.md`
-
-**Read the DISCUSSION-LOG.md template now (lazy-loaded):**
+**Read the discussion-log body structure now (lazy-loaded):**
 ```
 Read(workflows/discuss-phase/templates/discussion-log.md)
 ```
 
-Substitute live values from the discussion log accumulator (area names, options presented, user selections, notes, deferred ideas, Claude's discretion items). Write the file.
+Substitute live values from the discussion log accumulator (area names, options presented, user selections, notes, deferred ideas, Claude's discretion items), then append:
 
-**Clean up checkpoint file** — CONTEXT.md is now the canonical record:
+```bash
+cairn/scripts/cairn-record.sh log --phase "${PHASE}" <<'BODY'
+## Discussion log — Phase ${PADDED_PHASE}
+[the substituted body]
+BODY
+```
+
+**Clean up checkpoint file** — the context record is now canonical:
 ```bash
 rm -f "${phase_dir}/${padded_phase}-DISCUSS-CHECKPOINT.json"
 ```
 
-Commit phase context and discussion log:
-```bash
-gsd_run query commit "docs(${padded_phase}): capture phase context" --files "${phase_dir}/${padded_phase}-CONTEXT.md" "${phase_dir}/${padded_phase}-DISCUSSION-LOG.md"
-```
+Nothing to commit: both the context and the log are records, durable when each
+call returns.
 
-Confirm: "Committed: docs(${padded_phase}): capture phase context"
+Confirm: "Recorded: phase ${PADDED_PHASE} context and discussion log"
 </step>
 
 <step name="update_state">
@@ -484,7 +508,7 @@ a markdown file to say where the session stopped:
 ```bash
 gsd_run query state.record-session \
   --stopped-at "Phase ${PHASE} context gathered" \
-  --resume-file "${phase_dir}/${padded_phase}-CONTEXT.md"
+  --resume-file "${PHASE_BEAD}"
 ```
 </step>
 

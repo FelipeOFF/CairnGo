@@ -96,7 +96,6 @@ agents/gsd-debug-session-manager.md|0|3
 agents/gsd-debugger.md|0|22
 commands/gsd/autonomous.md|0|2
 commands/gsd/debug.md|0|1
-commands/gsd/discuss-phase.md|1|0
 commands/gsd/quick.md|0|8
 gsd-core/references/agent-contracts.md|0|1
 gsd-core/references/agent-skills-bootstrap.md|0|1
@@ -107,33 +106,25 @@ gsd-core/references/debugger-semantic-recall.md|0|1
 gsd-core/references/model-profiles.md|0|5
 gsd-core/references/mvp-concepts.md|2|0
 gsd-core/references/offer-next.md|0|1
-gsd-core/references/questioning.md|5|0
 gsd-core/references/scout-codebase.md|0|2
 gsd-core/references/tdd.md|1|2
-gsd-core/references/thinking-partner.md|0|1
 gsd-core/references/universal-anti-patterns.md|1|2
 gsd-core/references/user-story-template.md|1|0
 gsd-core/templates/DEBUG.md|0|2
-gsd-core/templates/context.md|0|2
-gsd-core/templates/discussion-log.md|0|1
 gsd-core/workflows/autonomous.md|4|4
 gsd-core/workflows/debug.md|0|14
-gsd-core/workflows/discuss-phase/modes/default.md|1|1
-gsd-core/workflows/discuss-phase/modes/power.md|1|0
-gsd-core/workflows/discuss-phase.md|4|8
 gsd-core/workflows/fast.md|1|0
 gsd-core/workflows/quick/steps/discussion-phase.md|2|0
 gsd-core/workflows/quick/steps/quick-verification.md|1|0
 gsd-core/workflows/quick/steps/research-phase.md|1|0
 skills/gsd-autonomous/SKILL.md|0|2
 skills/gsd-debug/SKILL.md|0|1
-skills/gsd-discuss-phase/SKILL.md|1|0
 skills/gsd-quick/SKILL.md|0|8
 "
 
 # O PLACAR. Some as colunas do ledger; e' o numero do milestone.
-ZM_DECLARED_W1=30
-ZM_DECLARED_W2=109
+ZM_DECLARED_W1=17
+ZM_DECLARED_W2=96
 
 # CONVERTIDOS — caminhos que ja passaram pelo protocolo de registro e que
 # DEVEM medir 0|0 nas duas familias. Uma linha aqui e uma linha no ledger com
@@ -157,6 +148,7 @@ agents/gsd-ui-auditor.md
 agents/gsd-ui-checker.md
 agents/gsd-ui-researcher.md
 agents/gsd-verifier.md
+commands/gsd/discuss-phase.md
 commands/gsd/plan-phase.md
 gsd-core/references/checkpoints.md
 gsd-core/references/execute-phase-context-guard.md
@@ -166,9 +158,16 @@ gsd-core/references/planner-chunked.md
 gsd-core/references/planner-gap-closure.md
 gsd-core/references/planner-load-graph-context.md
 gsd-core/references/planner-revision.md
+gsd-core/references/questioning.md
+gsd-core/references/thinking-partner.md
 gsd-core/references/verify-mvp-mode.md
 gsd-core/templates/UAT.md
+gsd-core/templates/context.md
+gsd-core/templates/discussion-log.md
 gsd-core/templates/summary.md
+gsd-core/workflows/discuss-phase.md
+gsd-core/workflows/discuss-phase/modes/default.md
+gsd-core/workflows/discuss-phase/modes/power.md
 gsd-core/workflows/execute-phase.md
 gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md
 gsd-core/workflows/execute-phase/steps/gap-closure-artifacts.md
@@ -183,6 +182,7 @@ gsd-core/workflows/plan-phase/steps/research-only-modifiers.md
 gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md
 gsd-core/workflows/quick.md
 gsd-core/workflows/verify-work.md
+skills/gsd-discuss-phase/SKILL.md
 skills/gsd-plan-phase/SKILL.md
 "
 

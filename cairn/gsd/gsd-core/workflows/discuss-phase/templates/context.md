@@ -1,6 +1,6 @@
-# CONTEXT.md template — for discuss-phase write_context step
+# Context body template — for the discuss-phase record_context step
 
-> **Lazy-loaded.** Read this file only inside the `write_context` step of
+> **Lazy-loaded.** Read this file only inside the `record_context` step of
 > `workflows/discuss-phase.md`, immediately before writing
 > `${phase_dir}/${padded_phase}-CONTEXT.md`. Do not put a reference to this
 > file in `<required_reading>` — that defeats the progressive-disclosure

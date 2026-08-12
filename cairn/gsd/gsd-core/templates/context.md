@@ -1,6 +1,6 @@
 # Phase Context Template
 
-Template for `.planning/phases/XX-name/{phase_num}-CONTEXT.md` - captures implementation decisions for a phase.
+Body structure for the phase context record (`cairn-record.sh context --phase N`) - captures implementation decisions for a phase. There is no context file.
 
 **Purpose:** Document decisions that downstream agents need. Researcher uses this to know WHAT to investigate. Planner uses this to know WHAT choices are locked vs flexible.
 
@@ -338,7 +338,7 @@ The output should answer: "What does the researcher need to investigate? What ch
 - "Easy to use"
 
 **After creation:**
-- File lives in phase directory: `.planning/phases/XX-name/{phase_num}-CONTEXT.md`
+- The body lives on the phase carrier bead's `design` field, not on disk
 - `gsd-phase-researcher` uses decisions to focus investigation AND reads canonical_refs to know WHAT docs to study
 - `gsd-planner` uses decisions + research to create executable tasks AND reads canonical_refs to verify alignment
 - Downstream agents should NOT need to ask the user again about captured decisions

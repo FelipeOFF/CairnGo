@@ -117,9 +117,10 @@
       "path": "commands/gsd/discuss-phase.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        5
       ],
-      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37."
+      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37. Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
     },
     {
       "path": "commands/gsd/plan-phase.md",
@@ -204,6 +205,22 @@
       "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
+      "path": "gsd-core/references/questioning.md",
+      "phase": "38",
+      "waves": [
+        5
+      ],
+      "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
+    },
+    {
+      "path": "gsd-core/references/thinking-partner.md",
+      "phase": "38",
+      "waves": [
+        5
+      ],
+      "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
+    },
+    {
       "path": "gsd-core/references/verify-mvp-mode.md",
       "phase": "38",
       "waves": [
@@ -218,6 +235,22 @@
         4
       ],
       "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
+    },
+    {
+      "path": "gsd-core/templates/context.md",
+      "phase": "38",
+      "waves": [
+        5
+      ],
+      "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
+    },
+    {
+      "path": "gsd-core/templates/discussion-log.md",
+      "phase": "38",
+      "waves": [
+        5
+      ],
+      "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
     },
     {
       "path": "gsd-core/templates/summary.md",
@@ -257,9 +290,10 @@
       "phase": "36",
       "waves": [
         1,
-        4
+        4,
+        5
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 4 (ADAPT-03): das TRÊS leituras consecutivas do mesmo fence (:238-240) só a terceira era fato — PROJECT.md e REQUIREMENTS.md continuam byte a byte e só o STATE virou state.load; a prosa imperativa do update_state saiu deixando o record-session que já convivia com ela no mesmo bloco; o commit dedicado do markdown de estado sumiu (o verbo é o dono da escrita) e os dois itens de checklist passaram a nomear o verbo em vez do arquivo."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 4 (ADAPT-03): das TRÊS leituras consecutivas do mesmo fence (:238-240) só a terceira era fato — PROJECT.md e REQUIREMENTS.md continuam byte a byte e só o STATE virou state.load; a prosa imperativa do update_state saiu deixando o record-session que já convivia com ela no mesmo bloco; o commit dedicado do markdown de estado sumiu (o verbo é o dono da escrita) e os dois itens de checklist passaram a nomear o verbo em vez do arquivo. Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
     },
     {
       "path": "gsd-core/workflows/discuss-phase/modes/advisor.md",
@@ -270,6 +304,14 @@
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
     },
     {
+      "path": "gsd-core/workflows/discuss-phase/modes/auto.md",
+      "phase": "38",
+      "waves": [
+        5
+      ],
+      "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
+    },
+    {
       "path": "gsd-core/workflows/discuss-phase/modes/chain.md",
       "phase": "36",
       "waves": [
@@ -278,12 +320,36 @@
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
     },
     {
+      "path": "gsd-core/workflows/discuss-phase/modes/default.md",
+      "phase": "38",
+      "waves": [
+        5
+      ],
+      "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
+    },
+    {
+      "path": "gsd-core/workflows/discuss-phase/modes/power.md",
+      "phase": "38",
+      "waves": [
+        5
+      ],
+      "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
+    },
+    {
       "path": "gsd-core/workflows/discuss-phase/modes/text.md",
       "phase": "36",
       "waves": [
         1
       ],
       "reason": "D-01, citação em instrução e não bloco de preâmbulo: a linha nomeava o runtime que a fase 37 mata e passa a chamar o binário por gsd_run na grafia contratada."
+    },
+    {
+      "path": "gsd-core/workflows/discuss-phase/templates/context.md",
+      "phase": "38",
+      "waves": [
+        5
+      ],
+      "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
     },
     {
       "path": "gsd-core/workflows/execute-phase.md",
@@ -481,9 +547,10 @@
       "path": "skills/gsd-discuss-phase/SKILL.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        5
       ],
-      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37."
+      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37. Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
     },
     {
       "path": "skills/gsd-plan-phase/SKILL.md",
