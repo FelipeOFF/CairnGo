@@ -7,6 +7,104 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-12
+
+The tracker became the source. cairn stopped generating markdown.
+
+The 1.1.0 release stopped the prompt layer from *writing* planning documents,
+and said plainly what it had not done: "`ROADMAP.md` and `PROJECT.md` are still
+files." They still are — but nothing reads them as truth any more. The roadmap
+a cairn repo runs on is derived from `bd`: the phases, their requirements,
+their names, what is finished, which milestone is current, which phase is
+active. A `.planning/` directory is what it always should have been — a GSD
+project waiting to be imported, read once by `/cairn:migrate` and never again.
+
+This is a major release because three contracts change shape, not because
+anything was deprecated politely. Read **Upgrading** before you pull it.
+
+### Changed
+
+- **The phase map is printed, not written.** `cairn-map.sh <N>` renders the
+  requirement↔issue table to stdout. `NN-BEADS-MAP.md` is not created,
+  refreshed or archived by anything. The generated markers, the splice that
+  preserved manual notes around them, the damaged-marker refusal and the
+  `--check` staleness mode all existed because of the on-disk copy, and the
+  copy existed because there was no other way to look at bd. There is: it is
+  the command.
+
+- **`cairn-migrate` mode B stopped fabricating a planning directory.** It used
+  to start from a repo that had only `.beads/` and manufacture
+  `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `MILESTONES.md` and a folder per
+  phase — running *against* the direction migration goes. What remains is what
+  it was always for: stamping the label pair and the `gsd` metadata onto a bd
+  backlog that has never seen GSD.
+
+- **The doctor asks bd.** Milestone, active phase, phases, requirements and
+  completeness are derived. Where a `.planning/ROADMAP.md` still exists, it is
+  read as the *input* of an import — that is what keeps `req-issue`,
+  `phase-complete-open` and `orphans` meaningful in a repo that has not
+  migrated yet, and it stops mattering the day the directory is gone.
+
+- **Two checks changed verdict on purpose.** `maps-fresh` is retired
+  (`out-of-scope`): it measured the distance between a copy and bd, and the
+  copy is gone. `claims-stale` with no open work now reads `ok` instead of
+  "no input": with the active phase derived, "no active phase" means "no
+  claim", which *answers* the question rather than preventing it.
+
+- **`active_phase` and the current milestone are no longer written down.**
+  They came from a hand-edited frontmatter key and from a 🚧 marker in a
+  document; both are derived now. This closes the defect where the status
+  board announced an archived milestone, and dissolves the open question of
+  which spelling `STATE.md` should carry — neither, it turns out.
+
+- **The prompt layer stopped describing cairn as a bridge.** The skill and the
+  session hook triggered on "`.planning/` **and** `.beads/`", said "GSD owns
+  the plan, beads owns the work items", and resolved conflicts in favour of
+  the document. The trigger is `.beads/`; there is one owner; and the document
+  wins only while it is still waiting to be imported.
+
+### Fixed
+
+- The session hook's lease heartbeat never fired in a repo that had `.beads/`
+  without `.planning/` — the ordinary shape of a cairn project. The gate
+  described the bridge, not the system.
+
+### Upgrading
+
+**Read this if you have automation, or a repo with a `.planning/` directory.**
+
+1. **Anything reading `NN-BEADS-MAP.md` breaks.** The file is no longer
+   written; existing copies are left on disk untouched and simply go stale.
+   Replace a read of the file with a call that prints the same table:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>          # human view
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N> --json   # rows + gaps
+   ```
+
+   `--check` now exits `2` and says why: there is no stored copy whose
+   freshness could be checked. The `--json` summary dropped `file` and
+   `changed` for the same reason.
+
+2. **`cairn-migrate --mode B` no longer creates planning documents.** If you
+   relied on it to bootstrap a `.planning/` tree from a bd backlog, that path
+   is gone; the labels and metadata it stamps are unchanged. Migration runs
+   GSD → cairn only.
+
+3. **`cairn-bookkeep close <N>` no longer refreshes a map.** Its JSON report
+   keeps the `tracker.map` key with a `null` value, so a consumer that reads
+   it keeps working and reads the truth (nothing was regenerated) instead of
+   failing on a missing key.
+
+4. **Your `.planning/` is still read — as an import, and only as one.** Nothing
+   in this release deletes, rewrites or archives it. If it has not been
+   migrated, run `/cairn:migrate`; after that it is history, and `cairn-doctor`
+   will tell you when a requirement in it has no bead.
+
+5. **`STATE.md` is no longer consulted for the active phase or the milestone,
+   and no longer written for them either.** Keep the file if something else in
+   your workflow reads it; cairn neither needs nor touches those keys.
+
 ## [1.1.0] - 2026-08-12
 
 The prompt layer stopped writing planning documents.
