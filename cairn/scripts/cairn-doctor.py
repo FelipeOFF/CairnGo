@@ -13,7 +13,10 @@ Usage:
                     [--apply-reconciliation N]
 
 Checks (each reported as {id, status: ok|not-applicable|warn|fail, detail,
-items[]}, plus `scope` when and only when the status is not-applicable):
+items[]}, plus `scope` when and only when the status is not-applicable, plus
+`state` when and only when the check is `gsd-unmigrated` — it carries the
+state letter of cairn-migrate.py's classifier, which that check reuses rather
+than re-deriving; see check_gsd_unmigrated for why the reuse is deliberate):
 
 THE FOURTH STATUS, `not-applicable` (phase 23, VOID-01). It says the check had
 nothing to check — as opposed to `ok`, which says it compared something and
