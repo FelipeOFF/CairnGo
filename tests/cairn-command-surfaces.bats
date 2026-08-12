@@ -316,6 +316,7 @@ EOF
       map) echo "the generated phase-beads map; invoked by /cairn:plan, /cairn:work and bookkeep" ;;
       parallel) echo "the parallel phase runner; invoked by /cairn:autonomous" ;;
       preamble) echo "the vendored-preamble rewriter (phase 36, D-01): the one script that WRITES under cairn/gsd/, and only on the runtime-resolution line of paths registered in cairn/gsd-adaptations.json — transplant maintenance, not a project verb" ;;
+      record) echo "the single write boundary of planning record (phase 38, v1.7): the prompt layer calls it instead of writing a planning document, and it writes the FACT to bd — a boundary the model crosses, never a verb a person runs" ;;
       relabel) echo "label maintenance; invoked by /cairn:phase and by the doctor's --fix-labels" ;;
       release) echo "release engineering for cairn's OWN repo; routed by the doctor's release-versions check" ;;
       test) echo "the bats suite runner for cairn's OWN repo; routed by the doctor's test-parallel check" ;;
