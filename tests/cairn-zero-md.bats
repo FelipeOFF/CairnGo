@@ -106,7 +106,6 @@ gsd-core/references/tdd.md|1|2
 gsd-core/references/universal-anti-patterns.md|1|2
 gsd-core/references/user-story-template.md|1|0
 gsd-core/workflows/autonomous.md|4|4
-gsd-core/workflows/debug.md|0|2
 gsd-core/workflows/fast.md|1|0
 gsd-core/workflows/quick/steps/discussion-phase.md|2|0
 gsd-core/workflows/quick/steps/quick-verification.md|1|0
@@ -117,7 +116,7 @@ skills/gsd-quick/SKILL.md|0|8
 
 # O PLACAR. Some as colunas do ledger; e' o numero do milestone.
 ZM_DECLARED_W1=17
-ZM_DECLARED_W2=53
+ZM_DECLARED_W2=51
 
 # CONVERTIDOS — caminhos que ja passaram pelo protocolo de registro e que
 # DEVEM medir 0|0 nas duas familias. Uma linha aqui e uma linha no ledger com
