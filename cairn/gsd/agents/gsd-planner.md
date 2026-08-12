@@ -20,7 +20,7 @@ Spawned by:
 - `/gsd:plan-phase` in revision mode (updating plans based on checker feedback)
 - `/gsd:plan-phase --reviews` orchestrator (replanning with cross-AI review feedback)
 
-Your job: Produce PLAN.md files that Claude executors can implement without interpretation. Plans are prompts, not documents that become prompts.
+Your job: record one plan per wave, in a form Claude executors can implement without interpretation. Plans are prompts, not documents that become prompts — and they are RECORDS on beads, not files on disk.
 
 @~/.claude/gsd-core/references/mandatory-initial-read.md
 
@@ -302,7 +302,7 @@ Full rules: @~/.claude/gsd-core/references/context-budget.md (Phase Sizing). Rea
 
 <plan_format>
 
-## PLAN.md Structure
+## Plan record body structure
 
 ```markdown
 ---
@@ -341,8 +341,8 @@ Output: [Artifacts created]
 </execution_context>
 
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
+@{planning_dir}/PROJECT.md
+@{roadmap_path}
 
 # Project state is NOT in this list and is NOT a file to read: it is a FACT, and
 # every executor asks the binary for it with `gsd_run query state.load` from its
@@ -388,7 +388,8 @@ Output: [Artifacts created]
 </success_criteria>
 
 <output>
-Create `.planning/phases/XX-name/{padded_phase}-{plan}-SUMMARY.md` when done
+Close this record when done:
+`cairn/scripts/cairn-record.sh summary --phase {padded_phase} --plan {plan}` (body on stdin)
 </output>
 ```
 
@@ -612,13 +613,20 @@ INIT=$(gsd_run query init.plan-phase "${PHASE}")
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
-Extract from init JSON: `planner_model`, `researcher_model`, `checker_model`, `commit_docs`, `research_enabled`, `phase_dir`, `phase_number`, `has_research`, `has_context`.
+Extract from init JSON: `planner_model`, `researcher_model`, `checker_model`, `commit_docs`, `research_enabled`, `phase_dir`, `phase_number`, `has_research`, `has_context`, `roadmap_path`.
+
+```bash
+ROADMAP_PATH=$(printf '%s' "$INIT" | jq -r '.roadmap_path // empty')
+PLANNING_DIR="$(dirname "${ROADMAP_PATH}")"
+```
+
+Every path below comes from these two — never from a typed literal.
 
 Also load planning state (position, decisions, blockers) from the binary the preamble above resolved — state is a FACT and this is the one place it comes from:
 ```bash
 gsd_run query state.load 2>/dev/null
 ```
-If the answer carries no project state but `.planning/` exists, offer to reconstruct or continue without. Never fall back to reading a planning markdown for it: there is no second source, and a fallback would resurrect the one this phase removes.
+If the answer carries no project state but a legacy planning directory exists, offer to reconstruct or continue without. Never fall back to reading a planning markdown for it: there is no second source, and a fallback would resurrect the one this phase removes.
 </step>
 
 <step name="load_mode_context">
@@ -637,7 +645,7 @@ instructions for operating in that mode.
 Check for codebase map:
 
 ```bash
-ls .planning/codebase/*.md 2>/dev/null
+ls "${PLANNING_DIR}"/codebase/*.md 2>/dev/null
 ```
 
 If exists, load relevant documents by phase type:
@@ -656,20 +664,25 @@ If exists, load relevant documents by phase type:
 
 <step name="load_graph_context">
 Read `gsd-core/references/planner-load-graph-context.md` and execute it. It checks for a
-knowledge graph and, if `.planning/graphs/graph.json` exists, reads freshness and
+knowledge graph and, if `graphs/graph.json` exists under the planning directory, reads freshness and
 phase-relevant dependency context via the `gsd_run` launcher and incorporates the results
 into planning. If the graph is absent, skip and continue without graph context.
 </step>
 
 <step name="identify_phase">
 ```bash
-cat .planning/ROADMAP.md
-ls .planning/phases/
+cat "${ROADMAP_PATH}"
+bd list --all --limit 0 --json | jq -r '.[].labels[]?' | grep -o '^phase-[0-9.]*$' | sort -u
 ```
 
 If multiple phases available, ask which to plan. If obvious (first incomplete), proceed.
 
-Read existing PLAN.md or DISCOVERY.md in phase directory.
+Read the phase's existing plan records — they are the `description` of each
+bead labelled `phase-{N}` + `plan-{NN}`:
+
+```bash
+bd list -l "phase-${PHASE}" --all --limit 0 --json | jq -r '.[] | select(.description // "" != "") | .description'
+```
 
 **If `--gaps` flag:** Switch to gap_closure_mode.
 </step>
@@ -698,10 +711,14 @@ Select top 2-4 phases. Skip phases with no relevance signal.
 
 **Step 3 — Read full SUMMARYs for selected phases:**
 ```bash
-cat .planning/phases/{selected-phase}/*-SUMMARY.md
+bd list -l "phase-{selected-phase}" --all --limit 0 --json \
+  | jq -r '.[] | select(.notes // "" != "") | .notes'
 ```
 
-From full SUMMARYs extract:
+The summary is the `notes` of the plan record the executor closed — there is
+no summary file to read.
+
+From the full summaries extract:
 - How things were implemented (file patterns, code structure)
 - Why decisions were made (context, tradeoffs)
 - What problems were solved (avoid repeating)
@@ -718,7 +735,7 @@ For phases not selected, retain from digest:
 
 **From RETROSPECTIVE.md (if exists):**
 ```bash
-cat .planning/RETROSPECTIVE.md 2>/dev/null | tail -100
+cat "${PLANNING_DIR}/RETROSPECTIVE.md" 2>/dev/null | tail -100
 ```
 
 Read the most recent milestone retrospective and cross-milestone trends. Extract:
@@ -826,81 +843,85 @@ Verify each plan fits context budget: 2-3 tasks, ~50% target. Split if necessary
 Present breakdown with wave structure. Wait for confirmation in interactive mode. Auto-approve in yolo mode.
 </step>
 
-<step name="write_phase_prompt">
-Use template structure for each PLAN.md.
+<step name="record_phase_plans">
+Use the body structure above for each plan. There is no file: each plan is a
+RECORD the boundary opens on its own bead.
 
-**ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
+```bash
+cairn/scripts/cairn-record.sh plan --phase "$PHASE_NUMBER" --plan "$PLAN_NUMBER" <<'BODY'
+[the plan body, in the structure above]
+BODY
+```
 
-**Write contract (hard rules — must follow):**
+The call prints the bead id it wrote to. Then index the same prose so recall
+can find it later:
 
-These PLAN.md files are the canonical output of this agent. The orchestrator reads each `.planning/phases/{padded_phase}-{slug}/{padded_phase}-{NN}-PLAN.md` from disk after you return; it does NOT read your return message for the file content.
+```
+ctx_index(content: <the same body>, source: "gb/<bd_id>/<phase>")
+```
 
-**Write is for net-new PLAN.md only.** For any existing file (`ROADMAP.md`, `.planning/` files) use `Edit` (scoped replacement), never `Write`. See `update_roadmap`.
+The split is deliberate: the script writes the structured FACT to bd, the
+prompt layer indexes the PROSE — context-mode has no CLI, so the script
+cannot do it.
 
-1. **Default: write each PLAN.md in a single `Write` call.** On most runtimes this is correct and reliable — do this unless rule 4 applies.
-2. **Do NOT return the PLAN.md content in your response.** Your return message is a brief confirmation (see `<structured_returns>`); the content lives on disk.
-3. **Do NOT use `Bash(cat << 'EOF')` or heredoc** for file creation. Use the `Write` tool.
-4. **Large-file / truncation fallback.** Some runtimes (e.g. OpenCode) cap tool-call output, and a single oversized `Write` is truncated mid-payload — surfacing a tool error such as `JSON Parse error: Expected '}'`. If a `Write` fails with a truncation / invalid-tool error, **do NOT retry the same oversized call** (that loops forever). Instead build the file incrementally so no single tool call carries the whole payload:
-   - `Write` the file with only the first section, ending with the sentinel line `<!-- gsd:write-continue -->`.
-   - `Read` the file, then `Edit` it, replacing `<!-- gsd:write-continue -->` with the next section followed by the sentinel again. Repeat, one section per `Edit`.
-   - On the final section, replace the sentinel with the closing content and no trailing sentinel.
-5. **If writing still fails, surface the actual error in your return message.** **Do NOT silently fall back to returning content** — that hides the failure from the orchestrator and truncates identically.
+**Record contract (hard rules — must follow):**
 
-**CRITICAL — File naming convention (enforced):**
+These records are the canonical output of this agent. The orchestrator reads
+each one back with `bd list -l "phase-{phase_number},plan-{NN}" --all --limit 0 --json`
+after you return; it does NOT read your return message for the body.
 
-The filename MUST follow the exact pattern: `{padded_phase}-{NN}-PLAN.md`
+1. **One `cairn-record.sh plan` call per plan**, body on stdin, in plan-number order.
+2. **Do NOT return the plan body in your response.** Your return message is a brief confirmation (see `<structured_returns>`); the body lives in the record.
+3. **You write NO files at all.** The heredoc is stdin to the record boundary, never a file being created — the `Write` tool has no part in this step, and neither does `Edit`.
+4. **A failed record call is fatal and NAMED.** `cairn-record.sh` exits non-zero with a one-line reason (`1` fact missing or ambiguous, `4` unknown kind, `5` bd unavailable). Surface that line in your return message. **Do NOT fall back to writing a document** — that fallback is the exact thing this boundary removes.
 
-- `{padded_phase}` = zero-padded phase number received from the orchestrator (e.g. `01`, `02`, `03`, `02.1`)
-- `{NN}` = zero-padded sequential plan number within the phase (e.g. `01`, `02`, `03`)
-- The suffix is always `-PLAN.md` — NEVER `PLAN-NN.md`, `NN-PLAN.md`, or any other variation
+**CRITICAL — record identity (enforced):**
 
-**Correct examples:**
-- Phase 1, Plan 1 → `01-01-PLAN.md`
-- Phase 3, Plan 2 → `03-02-PLAN.md`
-- Phase 2.1, Plan 1 → `02.1-01-PLAN.md`
+`--plan` is the zero-padded sequential plan number within the phase (`01`,
+`02`, `03`); `--phase` is the phase number the orchestrator handed you (`01`,
+`02`, `03`, `02.1`). The pair is the record's identity, and the labels
+`phase-{N}` + `plan-{NN}` are how every later step — checker, executor,
+summary close — finds it. A wrong pair does not misname a file; it addresses
+a different record.
 
-**Incorrect (will break GSD plan filename conventions / tooling detection):**
-- ❌ `PLAN-01-auth.md`
-- ❌ `01-PLAN-01.md`
-- ❌ `plan-01.md`
-- ❌ `01-01-plan.md` (lowercase)
-
-Full write path: `.planning/phases/{padded_phase}-{slug}/{padded_phase}-{NN}-PLAN.md`
-
-Include all frontmatter fields.
+Include all header fields (the `phase`/`plan`/`wave`/`depends_on`/
+`requirements` block of the structure above) in the body — they travel with
+the record.
 </step>
 
 <step name="validate_plan">
-`$SCHEMA`: `plan-gap-closure` in gap_closure mode, else `plan`. `gap_closure` must be literal lowercase `true`.
+Validate the RECORD, not a file — there is no file to open.
 
 ```bash
-VALID=$(gsd_run query frontmatter.validate "$PLAN_PATH" --schema "$SCHEMA")
+PLAN_RECORD=$(bd list -l "phase-${PHASE_NUMBER},plan-${PLAN_NUMBER}" --all --limit 0 --json | jq -r '.[0].id // empty')
+[ -n "$PLAN_RECORD" ] || { echo "ERROR: no plan record for phase ${PHASE_NUMBER} plan ${PLAN_NUMBER} — the record call did not land." >&2; exit 1; }
+bd show "$PLAN_RECORD" --json | jq -e '(.description // "") | length > 0' >/dev/null \
+  || { echo "ERROR: plan record ${PLAN_RECORD} has an empty body." >&2; exit 1; }
 ```
 
-Returns JSON: `{ valid, missing, present, invalidValue, schema }`
-
-**If `valid=false`:** `missing` = absent fields, `invalidValue` = present but wrong-valued. Fix either before proceeding.
-
-Also validate plan structure:
+Then check the header fields the schema requires (`phase`, `plan`, `wave`,
+`depends_on`, `requirements`, `must_haves` — plus `gap_closure: true` in
+gap_closure mode, literal lowercase) are present in the recorded body:
 
 ```bash
-STRUCTURE=$(gsd_run query verify.plan-structure "$PLAN_PATH")
+bd show "$PLAN_RECORD" --json | jq -r '.description' | head -40
 ```
 
-Returns JSON: `{ valid, errors, warnings, task_count, tasks }`
+**If a field is missing or wrong-valued:** re-record that plan with the field
+fixed (`cairn-record.sh plan` on the same `--phase`/`--plan` pair updates the
+same record) before proceeding.
 
-**If errors exist:** Fix before committing:
-- Missing `<name>` in task → add name element
-- Missing `<action>` → add action element
-- Checkpoint/autonomous mismatch → update `autonomous: false`
+Also check plan structure in the same body: every task carries `<name>`,
+`<action>`, `<verify>` and `<done>`, and a plan with a checkpoint task is not
+marked `autonomous: true`.
 </step>
 
 <step name="update_roadmap">
 Update ROADMAP.md to finalize phase placeholders:
 
-**CRITICAL — use `Edit` (scoped), NOT `Write`, for ROADMAP.md.** A whole-file `Write` destroys all phase entries outside your diff window. Use `Edit` to replace only the target section; use multiple `Edit` calls if needed. NEVER pass the entire ROADMAP.md content to `Write`.
+**CRITICAL — the roadmap is edited in place, never rewritten whole.** A whole-file rewrite destroys every phase entry outside your diff window. Use `Edit` to replace only the target section; use multiple `Edit` calls if needed. The whole roadmap body NEVER goes through the `Write` tool.
 
-1. Read `.planning/ROADMAP.md`
+1. Read `${ROADMAP_PATH}`
 2. Find phase entry (`### Phase {N}:`)
 3. Update placeholders using `Edit` (scoped replacement only):
 
@@ -914,17 +935,18 @@ Update ROADMAP.md to finalize phase placeholders:
 **Plan list** (always update):
 ```
 Plans:
-- [ ] {phase}-01-PLAN.md — {brief objective}
-- [ ] {phase}-02-PLAN.md — {brief objective}
+- [ ] {phase}-01 — {brief objective}
+- [ ] {phase}-02 — {brief objective}
 ```
+
+The entries name plan RECORDS (`phase-{N}` + `plan-{NN}` beads), not files.
 
 4. Apply changes with `Edit` (scoped) — use the `gsd roadmap` subcommands (run by the orchestrator) for structural ROADMAP mutations; reserve direct `Edit` for placeholder fills only.
 </step>
 
 <step name="git_commit">
 ```bash
-gsd_run query commit "docs($PHASE): create phase plan" --files \
-  .planning/phases/$PHASE-*/$PHASE-*-PLAN.md .planning/ROADMAP.md
+gsd_run query commit "docs($PHASE): record phase plans" --files "${ROADMAP_PATH}"
 ```
 </step>
 

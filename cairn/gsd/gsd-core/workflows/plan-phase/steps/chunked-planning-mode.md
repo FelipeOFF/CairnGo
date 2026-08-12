@@ -11,13 +11,16 @@ proceed to `/gsd:execute-phase` — don't start a fresh chunked run over them.
 
 ### 8.5.1 Outline Phase (outline-only mode, ~2 min)
 
-**Resume detection:** If `${PHASE_DIR}/${PADDED_PHASE}-PLAN-OUTLINE.md` exists and contains
-the `## OUTLINE COMPLETE` marker (written by the outline agent — #2762), skip to 8.5.2.
+**Resume detection:** the outline is not persisted — it is cheap (~2 min) and
+reproducible, and what a crash must not lose is the PLANS. So the resume signal
+is the plan records themselves: if the phase already has plan records, the
+outline ran, and 8.5.2 resumes from them.
 
 ```bash
-OUTLINE_FILE="${PHASE_DIR}/${PADDED_PHASE}-PLAN-OUTLINE.md"
-if [[ -f "$OUTLINE_FILE" ]] && grep -q "^## OUTLINE COMPLETE" "$OUTLINE_FILE"; then
-  # reuse existing outline — skip to 8.5.2
+EXISTING_PLANS=$(bd list -l "phase-${PHASE_NUMBER}" --all --limit 0 --json \
+  | jq -r '[.[] | select((.labels // []) | any(startswith("plan-")))] | length')
+if [ "${EXISTING_PLANS:-0}" -gt 0 ]; then
+  : # plan records exist — skip the outline run and resume in 8.5.2
 fi
 ```
 
@@ -26,22 +29,21 @@ Display:
 ◆ Chunked mode: spawning outline planner... (runs in a subagent — no output until it returns, ~1–5 min; expected, not a freeze)
 ```
 
-Spawn the planner in **outline-only** mode — it must write only the outline manifest, not any
-PLAN.md files:
+Spawn the planner in **outline-only** mode — it RETURNS the outline table and
+records nothing:
 
 ```javascript
 Agent(
   prompt="{same planning_context as step 8, plus:}
 
   **Chunked mode: outline-only.**
-  Do NOT write any PLAN.md files in this Task.
-  Write only: {PHASE_DIR}/{PADDED_PHASE}-PLAN-OUTLINE.md
+  Record NO plan in this Task, and write no file.
 
-  The outline must be a markdown table with columns:
+  Return a markdown table with columns:
   Plan ID | Objective | Wave | Depends On | Requirements
 
-  End the file with a final line `## OUTLINE COMPLETE` — §8.5.1's resume-check greps
-  the file for it, so it MUST be written here, not just returned.
+  End the return with a final line `## OUTLINE COMPLETE` — the orchestrator's
+  stall-watch greps the agent's own output for that marker.
   Return: ## OUTLINE COMPLETE with plan count.",
   subagent_type="gsd-planner",
   model="{planner_model}",
@@ -50,23 +52,24 @@ Agent(
 )
 ```
 
-**ORCHESTRATOR RULE — ALL RUNTIMES:** `TS=$(date +%s)`; repeat `PLANNER_STALL_RESULT=$(gsd_stall_watch "$TS" "{outputFile}" "$OUTLINE_FILE" "## OUTLINE COMPLETE")` while waiting/active.
+**ORCHESTRATOR RULE — ALL RUNTIMES:** `TS=$(date +%s)`; repeat `PLANNER_STALL_RESULT=$(gsd_stall_watch "$TS" "{outputFile}" ".beads" "## OUTLINE COMPLETE")` while waiting/active. The outline run touches no artifact, so `{outputFile}`'s marker is its ONLY completion signal — binding it is not optional here (see stall-detection-helpers.md).
 
 Handle return:
-- **`marker_received`:** Read `PLAN-OUTLINE.md`, extract plan list. Continue to 8.5.2.
+- **`marker_received`:** Read the plan list from the agent's returned table. Continue to 8.5.2.
 - **`stalled` / any other return or empty:** Display error. Offer: 1) Retry outline, 2) Stop.
 
 ### 8.5.2 Per-Plan Tasks (single-plan mode, ~3-5 min each)
 
-For each plan entry extracted from `PLAN-OUTLINE.md`:
+For each plan entry from the returned outline table:
 
-1. **Resume check:** Skip if `${PHASE_DIR}/{plan_id}-PLAN.md` exists with valid frontmatter
-   (resume safety) — UNLESS `--reviews` is set, whose purpose is to REPLAN with review
-   feedback (§6), so existing plans are overwritten, not skipped (#2762).
+1. **Resume check:** Skip if the plan's RECORD already carries a body (resume
+   safety) — UNLESS `--reviews` is set, whose purpose is to REPLAN with review
+   feedback (§6), so existing records are re-recorded, not skipped (#2762).
 
    ```bash
-   PLAN_FILE="${PHASE_DIR}/${plan_id}-PLAN.md"
-   if [[ -f "$PLAN_FILE" ]] && head -1 "$PLAN_FILE" | grep -q '^---' && [[ "$ARGUMENTS" != *"--reviews"* ]]; then
+   PLAN_BODY=$(bd list -l "phase-${PHASE_NUMBER},plan-${plan_id##*-}" --all --limit 0 --json \
+     | jq -r '.[0].description // ""')
+   if [ -n "$PLAN_BODY" ] && [[ "$ARGUMENTS" != *"--reviews"* ]]; then
      continue  # resume safety — NOT under --reviews (replan)
    fi
    ```
@@ -76,14 +79,14 @@ For each plan entry extracted from `PLAN-OUTLINE.md`:
    ◆ Chunked mode: planning {plan_id} ({k}/{N})... (runs in a subagent — no output until it returns, ~1–5 min; expected, not a freeze)
    ```
 
-3. Spawn the planner in **single-plan** mode — it must write exactly one PLAN.md file:
+3. Spawn the planner in **single-plan** mode — it records exactly one plan:
    ```javascript
    Agent(
      prompt="{same planning_context as step 8, plus:}
 
      **Chunked mode: single-plan.**
-     Write exactly ONE plan file: {PHASE_DIR}/{plan_id}-PLAN.md
-     Plan to write: {plan_id} — {objective}
+     Record exactly ONE plan: cairn/scripts/cairn-record.sh plan --phase {phase_number} --plan {plan_number}
+     Plan to record: {plan_id} — {objective}
      Wave: {wave} | Depends on: {depends_on}
      Phase requirement IDs to cover in this plan: {plan_requirements}
 
@@ -95,16 +98,21 @@ For each plan entry extracted from `PLAN-OUTLINE.md`:
    )
    ```
 
-   **ORCHESTRATOR RULE — ALL RUNTIMES:** `TS=$(date +%s)`; repeat `PLANNER_STALL_RESULT=$(gsd_stall_watch "$TS" "{outputFile}" "$PLAN_FILE" "## PLAN COMPLETE")` while waiting/active — `stalled` falls into step 4 (preserves prior committed chunks).
+   **ORCHESTRATOR RULE — ALL RUNTIMES:** `TS=$(date +%s)`; repeat `PLANNER_STALL_RESULT=$(gsd_stall_watch "$TS" "{outputFile}" ".beads" "## PLAN COMPLETE")` while waiting/active — `stalled` falls into step 4 (preserves prior records). The freshness glob is the bd store, because that is where a live planner's output now lands.
 
-4. **Verify disk:** Check `${PHASE_DIR}/{plan_id}-PLAN.md` exists. If missing: offer 1) Retry, 2) Stop.
+4. **Verify the record:** the plan record exists and its body is non-empty.
 
-5. **Commit per-plan:**
-```bash
-CAIRN_GSD="${CAIRN_GSD:-}"; if [ ! -x "$CAIRN_GSD" ]; then _cg_try=""; for _cg_root in "${CLAUDE_PROJECT_DIR:-}" "$(git rev-parse --show-toplevel 2>/dev/null || true)" "$PWD"; do [ -n "$_cg_root" ] || continue; _cg_try="$_cg_root/cairn/scripts/cairn-gsd.sh"; if [ -x "$_cg_try" ]; then CAIRN_GSD="$_cg_try"; break; fi; done; fi; if [ ! -x "${CAIRN_GSD:-}" ]; then echo "ERROR: cairn-gsd.sh not found (last path tried: ${_cg_try:-<none>}) - this workflow speaks to the cairn dispatcher that lives in the repo. Run it from inside the CairnGo checkout, or export CAIRN_GSD=<checkout>/cairn/scripts/cairn-gsd.sh" >&2; exit 1; fi; export CAIRN_GSD; gsd_run() { "$CAIRN_GSD" "$@"; }
-gsd_run query commit "docs(${PADDED_PHASE}): plan ${plan_id} (chunked)" --files "${PHASE_DIR}/${plan_id}-PLAN.md"
-```
+   ```bash
+   bd list -l "phase-${PHASE_NUMBER},plan-${plan_id##*-}" --all --limit 0 --json \
+     | jq -e '.[0].description // "" | length > 0' >/dev/null
+   ```
 
-After all N plans are written and committed, treat this as `## PLANNING COMPLETE` and continue
+   If missing: offer 1) Retry, 2) Stop.
+
+5. **Per-plan durability:** nothing to commit. The record is durable the moment
+   `cairn-record.sh` returns — that is what made the per-plan commit necessary
+   when the plan was a file, and what makes it redundant now.
+
+After all N plans are recorded, treat this as `## PLANNING COMPLETE` and continue
 to step 9.
 

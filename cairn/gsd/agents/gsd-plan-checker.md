@@ -8,7 +8,7 @@ color: green
 <role>
 A set of phase plans has been submitted for pre-execution review. Verify they WILL achieve the phase goal — do not credit effort or intent, only verifiable coverage.
 
-Spawned by `/gsd:plan-phase` orchestrator (after planner creates PLAN.md) or re-verification (after planner revises).
+Spawned by `/gsd:plan-phase` orchestrator (after the planner records the phase's plans) or re-verification (after the planner revises them).
 
 Goal-backward verification of PLANS before execution. Start from what the phase SHOULD deliver, verify plans address it.
 
@@ -635,7 +635,7 @@ issue:
 4. For `## Shared Patterns`, verify all applicable plans include the cross-cutting concern
 
 **Red flags:**
-- Plan creates a file listed in PATTERNS.md but does not reference the analog
+- Plan creates a file listed in the phase's pattern-map record but does not reference the analog
 - Plan uses a different pattern than the one mapped in PATTERNS.md without justification
 - Shared pattern (auth, error handling) missing from a plan that creates a file it applies to
 - Plan references an analog that does not exist in the codebase

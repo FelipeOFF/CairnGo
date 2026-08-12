@@ -224,10 +224,10 @@ gsd-core/workflows/plan-phase.md|5|editado
 gsd-core/workflows/plan-phase/steps/adr-ingest-express-path.md|7|editado
 gsd-core/workflows/plan-phase/steps/chunked-planning-mode.md|5|editado
 gsd-core/workflows/plan-phase/steps/closed-phase-gate.md|7|intocado
-gsd-core/workflows/plan-phase/steps/prd-express-gate.md|7|intocado
+gsd-core/workflows/plan-phase/steps/prd-express-gate.md|7|editado
 gsd-core/workflows/plan-phase/steps/prd-express-path.md|5|editado
 gsd-core/workflows/plan-phase/steps/research-only-early-exit.md|7|intocado
-gsd-core/workflows/plan-phase/steps/research-only-modifiers.md|7|intocado
+gsd-core/workflows/plan-phase/steps/research-only-modifiers.md|7|editado
 gsd-core/workflows/plan-phase/steps/reviews-prerequisite.md|7|intocado
 gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md|5|editado
 gsd-core/workflows/plan-phase/steps/windows-troubleshooting.md|7|intocado

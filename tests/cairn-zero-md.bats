@@ -97,15 +97,12 @@ agents/gsd-debug-session-manager.md|0|3
 agents/gsd-debugger.md|0|22
 agents/gsd-executor.md|2|12
 agents/gsd-integration-checker.md|0|1
-agents/gsd-plan-checker.md|2|0
-agents/gsd-planner.md|4|16
 agents/gsd-ui-auditor.md|5|5
 agents/gsd-ui-checker.md|1|1
 agents/gsd-verifier.md|3|4
 commands/gsd/autonomous.md|0|2
 commands/gsd/debug.md|0|1
 commands/gsd/discuss-phase.md|1|0
-commands/gsd/plan-phase.md|3|0
 commands/gsd/quick.md|0|8
 gsd-core/references/agent-contracts.md|0|1
 gsd-core/references/agent-skills-bootstrap.md|0|1
@@ -119,11 +116,6 @@ gsd-core/references/execute-phase-requirement-revert.md|0|1
 gsd-core/references/model-profiles.md|0|5
 gsd-core/references/mvp-concepts.md|2|0
 gsd-core/references/offer-next.md|0|1
-gsd-core/references/planner-antipatterns.md|0|6
-gsd-core/references/planner-chunked.md|2|0
-gsd-core/references/planner-gap-closure.md|1|0
-gsd-core/references/planner-load-graph-context.md|0|1
-gsd-core/references/planner-revision.md|0|4
 gsd-core/references/questioning.md|5|0
 gsd-core/references/scout-codebase.md|0|2
 gsd-core/references/tdd.md|1|2
@@ -146,12 +138,6 @@ gsd-core/workflows/execute-phase/steps/gap-closure-artifacts.md|0|5
 gsd-core/workflows/execute-phase/steps/post-merge-gate.md|0|1
 gsd-core/workflows/execute-phase/steps/regression-gate.md|1|1
 gsd-core/workflows/fast.md|1|0
-gsd-core/workflows/plan-phase/steps/adr-ingest-express-path.md|1|0
-gsd-core/workflows/plan-phase/steps/chunked-planning-mode.md|2|0
-gsd-core/workflows/plan-phase/steps/prd-express-gate.md|1|0
-gsd-core/workflows/plan-phase/steps/prd-express-path.md|5|0
-gsd-core/workflows/plan-phase/steps/research-only-modifiers.md|1|0
-gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md|0|1
 gsd-core/workflows/quick/steps/discussion-phase.md|2|0
 gsd-core/workflows/quick/steps/quick-verification.md|1|0
 gsd-core/workflows/quick/steps/research-phase.md|1|0
@@ -159,13 +145,12 @@ gsd-core/workflows/verify-work.md|2|3
 skills/gsd-autonomous/SKILL.md|0|2
 skills/gsd-debug/SKILL.md|0|1
 skills/gsd-discuss-phase/SKILL.md|1|0
-skills/gsd-plan-phase/SKILL.md|3|0
 skills/gsd-quick/SKILL.md|0|8
 "
 
 # O PLACAR. Some as colunas do ledger; e' o numero do milestone.
-ZM_DECLARED_W1=77
-ZM_DECLARED_W2=180
+ZM_DECLARED_W1=52
+ZM_DECLARED_W2=152
 
 # CONVERTIDOS — caminhos que ja passaram pelo protocolo de registro e que
 # DEVEM medir 0|0 nas duas familias. Uma linha aqui e uma linha no ledger com
@@ -180,10 +165,25 @@ ZM_DECLARED_W2=180
 ZM_CONVERTED="\
 agents/gsd-pattern-mapper.md
 agents/gsd-phase-researcher.md
+agents/gsd-plan-checker.md
+agents/gsd-planner.md
 agents/gsd-ui-researcher.md
+commands/gsd/plan-phase.md
+gsd-core/references/planner-antipatterns.md
+gsd-core/references/planner-chunked.md
+gsd-core/references/planner-gap-closure.md
+gsd-core/references/planner-load-graph-context.md
+gsd-core/references/planner-revision.md
 gsd-core/workflows/execute-phase.md
 gsd-core/workflows/plan-phase.md
+gsd-core/workflows/plan-phase/steps/adr-ingest-express-path.md
+gsd-core/workflows/plan-phase/steps/chunked-planning-mode.md
+gsd-core/workflows/plan-phase/steps/prd-express-gate.md
+gsd-core/workflows/plan-phase/steps/prd-express-path.md
+gsd-core/workflows/plan-phase/steps/research-only-modifiers.md
+gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md
 gsd-core/workflows/quick.md
+skills/gsd-plan-phase/SKILL.md
 "
 
 # --- o instrumento ------------------------------------------------------------

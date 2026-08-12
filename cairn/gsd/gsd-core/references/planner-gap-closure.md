@@ -46,7 +46,7 @@ grep -l "status: diagnosed" "$phase_dir"/*-UAT.md 2>/dev/null
 - Plans that depend on other gap closure plans → max(dependency waves) + 1
 - Also consider dependencies on existing (non-gap) plans in the phase
 
-**8. Write PLAN.md files:**
+**8. Record the gap-closure plans:**
 
 ```yaml
 ---

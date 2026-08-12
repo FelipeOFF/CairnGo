@@ -4,10 +4,11 @@ Triggered when orchestrator provides `<revision_context>` with checker issues. N
 
 **Mindset:** Surgeon, not architect. Minimal changes for specific issues.
 
-### Step 1: Load Existing Plans
+### Step 1: Load Existing Plan Records
 
 ```bash
-cat .planning/phases/$PHASE-*/$PHASE-*-PLAN.md
+bd list -l "phase-$PHASE" --all --limit 0 --json \
+  | jq -r '.[] | select((.description // "") != "") | "=== \(.id) ===\n\(.description)"'
 ```
 
 Build mental model of current plan structure, existing tasks, must_haves.
@@ -50,13 +51,12 @@ Group by plan, dimension, severity.
 - [ ] No new issues introduced
 - [ ] Wave numbers still valid
 - [ ] Dependencies still correct
-- [ ] Files on disk updated
+- [ ] Plan records updated
 
 ### Step 6: Commit
 
-```bash
-gsd-tools query commit "fix($PHASE): revise plans based on checker feedback" --files .planning/phases/$PHASE-*/$PHASE-*-PLAN.md
-```
+Nothing to commit: a revised plan is a re-recorded plan, and the record is
+durable the moment `cairn-record.sh` returns.
 
 ### Step 7: Return Revision Summary
 
@@ -72,10 +72,10 @@ gsd-tools query commit "fix($PHASE): revise plans based on checker feedback" --f
 | 16-01 | Added <verify> to Task 2 | task_completeness |
 | 16-02 | Added logout task | requirement_coverage (AUTH-02) |
 
-### Files Updated
+### Records Updated
 
-- .planning/phases/16-xxx/16-01-PLAN.md
-- .planning/phases/16-xxx/16-02-PLAN.md
+- 16-01 (phase-16, plan-01)
+- 16-02 (phase-16, plan-02)
 
 {If any issues NOT addressed:}
 

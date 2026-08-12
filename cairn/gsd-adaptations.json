@@ -48,17 +48,19 @@
       "phase": "36",
       "waves": [
         1,
+        2,
         7
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: as duas linhas de prosa que mandavam usar o runtime antigo (:738, :761) passam a nomear gsd_run — o bloco de código logo abaixo de cada uma já chamava o verbo certo desde a onda 1."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: as duas linhas de prosa que mandavam usar o runtime antigo (:738, :761) passam a nomear gsd_run — o bloco de código logo abaixo de cada uma já chamava o verbo certo desde a onda 1. Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
       "path": "agents/gsd-planner.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        2
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
       "path": "agents/gsd-ui-researcher.md",
@@ -86,6 +88,14 @@
       "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37."
     },
     {
+      "path": "commands/gsd/plan-phase.md",
+      "phase": "38",
+      "waves": [
+        2
+      ],
+      "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
       "path": "gsd-core/references/execute-phase-quota-recovery.md",
       "phase": "36",
       "waves": [
@@ -94,13 +104,46 @@
       "reason": "D-04, EXCEÇÃO NOMEADA a D-02: os 40 arquivos de references ficam fora desta fase por ESCOPO DE MASSA, e este entra sozinho porque o sítio não tolera falha — era o único do corpus que consumia um verbo fora do universo de 87 em cinco jq encadeados, sem || true e sem 2>/dev/null. O passo 7.1a de escalada automática de provider vira prosa de recuperação manual, apoiada no 7.1b que o próprio arquivo já trazia; zero código novo. Registrar a exceção com o motivo é o que a separa de uma abertura de escopo."
     },
     {
+      "path": "gsd-core/references/planner-antipatterns.md",
+      "phase": "38",
+      "waves": [
+        2
+      ],
+      "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
+      "path": "gsd-core/references/planner-chunked.md",
+      "phase": "38",
+      "waves": [
+        2
+      ],
+      "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
+      "path": "gsd-core/references/planner-gap-closure.md",
+      "phase": "38",
+      "waves": [
+        2
+      ],
+      "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
       "path": "gsd-core/references/planner-load-graph-context.md",
       "phase": "36",
       "waves": [
         1,
+        2,
         6
       ],
-      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37 — este é carregado pelo gsd-planner. Onda 6 (ADAPT-05, graphify): o passo de contexto de grafo passa a ler o {available:false, reason} que o binário responde com exit 0 e a seguir pelo ramo de 'sem contexto de grafo' que a prosa já tinha para grafo ausente."
+      "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37 — este é carregado pelo gsd-planner. Onda 6 (ADAPT-05, graphify): o passo de contexto de grafo passa a ler o {available:false, reason} que o binário responde com exit 0 e a seguir pelo ramo de 'sem contexto de grafo' que a prosa já tinha para grafo ausente. Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
+      "path": "gsd-core/references/planner-revision.md",
+      "phase": "38",
+      "waves": [
+        2
+      ],
+      "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
       "path": "gsd-core/workflows/autonomous.md",
@@ -249,33 +292,53 @@
       "path": "gsd-core/workflows/plan-phase/steps/adr-ingest-express-path.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        2
       ],
-      "reason": "D-01, citação em instrução e não bloco de preâmbulo: a linha nomeava o runtime que a fase 37 mata e passa a chamar o binário por gsd_run na grafia contratada."
+      "reason": "D-01, citação em instrução e não bloco de preâmbulo: a linha nomeava o runtime que a fase 37 mata e passa a chamar o binário por gsd_run na grafia contratada. Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
       "path": "gsd-core/workflows/plan-phase/steps/chunked-planning-mode.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        2
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
+      "path": "gsd-core/workflows/plan-phase/steps/prd-express-gate.md",
+      "phase": "38",
+      "waves": [
+        2
+      ],
+      "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
       "path": "gsd-core/workflows/plan-phase/steps/prd-express-path.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        2
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
+      "path": "gsd-core/workflows/plan-phase/steps/research-only-modifiers.md",
+      "phase": "38",
+      "waves": [
+        2
+      ],
+      "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
       "path": "gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md",
       "phase": "36",
       "waves": [
-        1
+        1,
+        2
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
       "path": "gsd-core/workflows/quick.md",
@@ -327,6 +390,14 @@
         1
       ],
       "reason": "D-01 (onda zero), fora de workflows/agents por PADRÃO e não por diretório: D-02 delimita sítio de ESTADO, e um preâmbulo não trocado vira exit 1 na fase 37."
+    },
+    {
+      "path": "skills/gsd-plan-phase/SKILL.md",
+      "phase": "38",
+      "waves": [
+        2
+      ],
+      "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     }
   ]
 }

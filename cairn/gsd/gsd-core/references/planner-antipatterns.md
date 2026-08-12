@@ -67,21 +67,22 @@ A plan should not interleave multiple checkpoint types with implementation tasks
 
 ```markdown
 <context>
-@.planning/phases/01-foundation/01-01-SUMMARY.md
-@.planning/phases/01-foundation/01-02-SUMMARY.md  <!-- Does Plan 02 actually need Plan 01's output? -->
-@.planning/phases/01-foundation/01-03-SUMMARY.md  <!-- Chain grows, context bloats -->
+# every prior plan's summary record, pulled in reflexively
+bd show <phase-01-plan-01> --json | jq -r .notes
+bd show <phase-01-plan-02> --json | jq -r .notes  <!-- Does Plan 02 actually need Plan 01's output? -->
+bd show <phase-01-plan-03> --json | jq -r .notes  <!-- Chain grows, context bloats -->
 </context>
 ```
 
-**Why bad:** Plans are often independent. Reflexive chaining (02 refs 01, 03 refs 02...) wastes context. Only reference prior SUMMARY files when the plan genuinely uses types/exports from that prior plan or a decision from it affects the current plan.
+**Why bad:** Plans are often independent. Reflexive chaining (02 refs 01, 03 refs 02...) wastes context. Only pull a prior plan's summary record when this plan genuinely uses types/exports from that prior plan, or a decision from it affects the current plan.
 
 ### Good — Selective context
 
 ```markdown
 <context>
-@.planning/PROJECT.md
-@.planning/STATE.md
-@.planning/phases/01-foundation/01-01-SUMMARY.md  <!-- Uses User type defined in Plan 01 -->
+@{planning_dir}/PROJECT.md
+# state is NOT here: it is a FACT, asked of the binary with `gsd_run query state.load`
+bd show <phase-01-plan-01> --json | jq -r .notes  <!-- Uses User type defined in Plan 01 -->
 </context>
 ```
 
