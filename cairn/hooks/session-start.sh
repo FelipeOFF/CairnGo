@@ -55,28 +55,35 @@ if [ -d "$PROJECT_DIR/.planning" ] && [ ! -d "$PROJECT_DIR/.beads" ] \
 fi
 
 #***************************************************************************
-# 3. integration-active reminder — both GSD and beads present in this repo
+# 3. cairn-active reminder — the repo is tracked by beads
+#
+#    v1.7: o gatilho era `.planning/` E `.beads/`, e o nudge do meio pedia um
+#    `NN-BEADS-MAP.md` para declarar a fiacao completa. Os dois pressupunham
+#    que cairn e' uma PONTE entre um GSD em disco e o bd. Cairn e' o sistema:
+#    `.beads/` basta, e `.planning/` e' material a importar — nunca destino.
 #***************************************************************************
-if [ -d "$PROJECT_DIR/.planning" ] && [ -d "$PROJECT_DIR/.beads" ]; then
-  # 2b. both present but no generated phase maps yet — wiring incomplete.
-  if ! find "$PROJECT_DIR/.planning/phases" -name '*-BEADS-MAP.md' -print -quit \
-       2>/dev/null | grep -q .; then
-    echo "[cairn] .planning/ and .beads/ are both present but no NN-BEADS-MAP.md exists under .planning/phases/ — run /cairn:migrate to wire phases to bd issues."
+if [ -d "$PROJECT_DIR/.beads" ]; then
+  # Um `.planning/` ao lado do `.beads/` e' conteudo do GSD que ainda pode nao
+  # ter sido importado. O nudge nomeia a rota, e nada aqui pede arquivo.
+  if [ -d "$PROJECT_DIR/.planning" ]; then
+    echo "[cairn] a .planning/ directory is present — that is a GSD project to IMPORT, not a source cairn writes to. If it has not been migrated yet, run /cairn:migrate; after that it is history."
   fi
-  # Always emit the cairn-specific glue — the part neither tool knows on its own.
+  # Always emit the cairn-specific glue — the part beads does not know on its own.
   cat <<'MSG'
-[cairn] This repo uses BOTH GSD (.planning/) and beads (.beads/).
-The cairn integration is active — use the `cairn` skill conventions:
-  • each phase NN maps requirements -> bd ids in .planning/phases/NN-*/NN-BEADS-MAP.md
-    (a GENERATED file — regenerate via cairn-map, never hand-edit between the markers)
+[cairn] This repo is tracked by beads, and cairn conventions apply:
   • every bd issue carries the label PAIR m-<milestone> + phase-<N> (unpadded);
     list a phase's work with: bd list -l m-<milestone>,phase-<N>
   • every issue carries the metadata stamp {"gsd": {"req", "phase", "milestone"}};
     (gsd.req, gsd.milestone) is the dedup key — never create a second issue for
     the same requirement in the same milestone
-  • every PLAN.md carries a `beads:` frontmatter list of the bd ids it advances
-  • execute-phase: claim -> in_progress -> close each plan's bd ids
-  • on conflict, GSD phase docs (CONTEXT/PLAN/ROADMAP) win over bd issue text
+  • planning prose is RECORDED on beads via cairn-record.sh (plan, summary,
+    context, research, verification, review, log) — cairn writes no markdown
+  • a summary is not a new artifact: it CLOSES the record the plan opened
+  • ask about a phase with `bd show`/`bd list` or cairn-map.sh <N> (a printed
+    view, never a file)
+  • execute: claim -> in_progress -> close each plan's bd ids
+  • the bead is the source; a `.planning/` document only wins while it is
+    still waiting to be imported
 MSG
 
   # beads installs its OWN Claude integration on `bd init` (a `bd prime`
@@ -110,10 +117,9 @@ skill conventions when the ctx_* tools are present:
 MSG
 
   # 4. lease heartbeat — best-effort, backgrounded renewal of any lease this
-  #    worktree already holds (D-03). No phase argument: renew's own
-  #    STATE.md active_phase resolution decides which phase, if any, to
-  #    renew. This line must never appear outside the .planning/ + .beads/
-  #    guard above — a repo without both is not cairn-wired. Backgrounded
+  #    worktree already holds (D-03). No phase argument: renew resolves the
+  #    active phase itself. This line must never appear outside the `.beads/`
+  #    guard above — a repo without it is not tracked by cairn. Backgrounded
   #    (nohup + &) so a slow/hanging bd call can never delay session start,
   #    matching post-bd-write.sh's fire-and-forget pattern (T-15-06).
   command -v bd >/dev/null 2>&1 && nohup bash "$CAIRN_LEASE" renew --project-dir "$PROJECT_DIR" >/dev/null 2>&1 &

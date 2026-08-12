@@ -149,11 +149,10 @@ Behavior:
                    heartbeat-only by contract, always (D-01). When this
                    worktree is NOT the recorded holder (including "nobody
                    holds it"), a SILENT no-op, exit 0, writes nothing. With
-                   no <N>, N is read from <project-dir>/.planning/STATE.md's
-                   `active_phase:` frontmatter key (lenient parse, same
-                   pattern as cairn-doctor.py's state_frontmatter); no
-                   STATE.md, or no active_phase key, is also a silent
-                   no-op, exit 0.
+                   no <N>, N is DERIVED from bd (v1.7): the lowest phase
+                   carrying in_progress work, else the lowest carrying open
+                   work. No phase with open work is also a silent no-op,
+                   exit 0.
     status  <N>    Read-only, NEVER creates the lease issue. Reports phase,
                    id (null if never created), held (true whenever a holder
                    is recorded, stale or not), holder, actor, host,
@@ -189,6 +188,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cairn_identity import collapse_home, machine_id  # noqa: E402
+import cairn_source  # noqa: E402
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -249,28 +249,16 @@ def resolve_holder(root):
 
 
 def resolve_active_phase(root):
-    """active_phase from <root>/.planning/STATE.md's YAML frontmatter,
-    parsed leniently (same pattern as cairn-doctor.py's state_frontmatter:
-    tolerates quotes and leading zeros). None when the file, its
-    frontmatter, or the key is absent — the caller (`renew` with no <N>)
-    treats that as a silent no-op, never a crash."""
-    try:
-        lines = (root / ".planning" / "STATE.md").read_text(
-            encoding="utf-8").splitlines()
-    except OSError:
-        return None
-    if not lines or lines[0].strip() != "---":
-        return None
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        m = re.match(r"^active_phase\s*:\s*(.+?)\s*$", line)
-        if m:
-            val = m.group(1).split("#", 1)[0].strip().strip("'\"").strip()
-            digits = re.search(r"\d+", val)
-            if digits:
-                return int(digits.group(0))
-    return None
+    """A fase ativa, DERIVADA DO BD (v1.7): a menor fase com trabalho
+    in_progress, senão a menor com trabalho aberto.
+
+    Vinha do `active_phase:` no frontmatter do STATE.md. Um lease renovado a
+    partir de um campo escrito à mão renova a fase que alguém digitou por
+    último, não aquela em que o trabalho está — e a divergência entre as
+    duas era invisível. None quando não há fase com trabalho aberto; o
+    chamador (`renew` sem <N>) trata isso como no-op silencioso, nunca como
+    erro."""
+    return cairn_source.active_phase(root)
 
 
 def resolve_actor(root):

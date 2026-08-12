@@ -1,31 +1,36 @@
 ---
 name: cairn
-description: Use when working in a repo that has BOTH GSD (.planning/) and beads (.beads/) — wires phase planning and execution to the bd issue tracker so /gsd:* commands create, claim, and close tracked work. Defines the per-phase map, plan frontmatter, label convention, lifecycle hooks, and precedence rules.
+description: Use when working in a repo that has `.beads/` — cairn plans and executes phases with the bd issue tracker as the single owner of state, so planning, execution and verification create, claim and close tracked work. Defines the label convention, the metadata stamp, the record kinds, lifecycle hooks and precedence rules. A `.planning/` directory, when present, is a GSD project waiting to be imported — never a source cairn writes to.
 ---
 
-# GSD ↔ beads integration
+# cairn — the tracker owns the state
 
-Wire the GSD planning workflow (`/gsd:*`, `.planning/`) to the beads issue
-tracker (`bd`, `.beads/`) so phase planning and execution close tracked work.
+Plan and execute phases with `bd` (beads) as the single owner of the project's
+state: the roadmap, the phases, the requirements, the plans, the summaries and
+the verdicts all live as tracked work, and nothing has to be kept in agreement
+with a document on disk.
 
 ## Activation gate
 
-Apply this skill **only when the repo contains BOTH**:
-- `.planning/` (GSD is in use), AND
-- `.beads/` (beads is initialized — confirm with `bd ready` or `ls .beads/`).
+Apply this skill when the repo contains **`.beads/`** (confirm with `bd ready`
+or `ls .beads/`). That is the whole gate. Never run `bd` in a repo without
+`.beads/` — `/cairn:init` creates it.
 
-If either is absent, this skill does not apply. Never run `bd` in a repo
-without `.beads/`, and never create `.planning/` just to satisfy this skill.
+**`.planning/` is not part of the gate, and this is the point.** A repo that
+carries one is a GSD project whose content has not been imported yet: read it
+once, with `/cairn:migrate`, and never again. cairn does not write markdown —
+not a roadmap, not a plan, not a summary, not a map. If you find yourself
+about to create `.planning/` to satisfy something here, the something is wrong.
 
-When both are present, **prefer `bd` for ALL task tracking** — do NOT use
-TodoWrite/TaskCreate or markdown TODO lists for project work. Run `bd prime`
-once per session for command reference and the session-close protocol.
+**Prefer `bd` for ALL task tracking** — never TodoWrite/TaskCreate or markdown
+TODO lists for project work. Run `bd prime` once per session for the command
+reference and the session-close protocol.
 
 ## The model
 
-GSD owns the *plan* (roadmap → phases → PLAN.md). beads owns the *work items*.
-They are linked by a metadata stamp on every issue, a label pair, a generated
-per-phase map file, and per-plan frontmatter.
+There is one owner. `bd` holds the work items AND the planning record; a
+phase, a requirement and a plan are all beads, distinguished by what they
+carry.
 
 - **Labels (the pair):** every cairn-managed issue carries BOTH
   `m-<milestone>` (e.g. `m-v1.0`) AND `phase-<N>` (unpadded — `phase-3`,
@@ -35,137 +40,135 @@ per-phase map file, and per-plan frontmatter.
   AND. *Legacy repos* whose issues carry only `phase-N`: pair them once with
   `${CLAUDE_PLUGIN_ROOT}/scripts/cairn-relabel.sh pair --milestone <m>`.
 - **Metadata stamp:** every cairn-managed issue carries
-  `{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y", "plan": "NN-PP"}}`
-  (`plan` optional), set via `bd create`/`bd update` `--metadata`. Updates are
-  **read-modify-write**: `--metadata` replaces the whole `gsd` object, so read
-  it from `bd show <id> --json`, change the one field, write the full object
-  back. The pair `(gsd.req, gsd.milestone)` is the **dedup key** — never
-  create a second issue for the same requirement in the same milestone.
-- **Phase ↔ issues:** each GSD phase `NN` has a **generated**
-  `{NN}-BEADS-MAP.md` inside the phase directory
-  (`.planning/phases/NN-<slug>/NN-BEADS-MAP.md`) — see below.
-- **Plan frontmatter:** every `PLAN.md` carries a `beads:` list of the bd IDs
-  it advances:
-  ```yaml
-  beads: [proj-7hp, proj-4qv]   # REQ-01/02 — provisioner; REQ-04 — registry
-  ```
+  `{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}`, set via
+  `bd create`/`bd update` `--metadata`. Updates are **read-modify-write**:
+  `--metadata` replaces the whole `gsd` object, so read it from
+  `bd show <id> --json`, change the one field, write the full object back.
+  The pair `(gsd.req, gsd.milestone)` is the **dedup key** — never create a
+  second issue for the same requirement in the same milestone.
+- **Who is who inside a phase.** Four kinds of bead wear the same `phase-N`
+  label, and telling them apart is the convention, not a heuristic:
 
-### Issue creation convention
+  | | carries | is |
+  |---|---|---|
+  | requirement | `gsd.req` | the requirement itself |
+  | plan record | label `plan-NN` | one wave of the phase |
+  | child | an id with the parent's suffix (`proj-9c0h.3`) | subordinate work |
+  | **phase carrier** | none of the above | the phase itself — its name is the title, its goal the description |
 
-One issue per requirement, stamped and labeled at creation:
+  The `bd` JSON carries no `parent` key (measured, bd 1.1.0), which is why
+  hierarchy is read off the id and never off a field.
 
-```bash
-bd create "CAT-NN: <requirement title>" \
-  -l m-<milestone>,phase-<N> \
-  --metadata '{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}'
-```
+## The records — what used to be documents
 
-Before creating, check the dedup key: if an issue with the same
-`(gsd.req, gsd.milestone)` already exists, update it instead.
-
-### `NN-BEADS-MAP.md` — a generated view
-
-The map is **generated from bd state** by `cairn-map` — it is not a
-hand-maintained table. Never hand-edit the content between the markers
-`<!-- cairn:generated:start -->` and `<!-- cairn:generated:end -->`; to update
-it, run:
+Planning prose is recorded on beads through one boundary,
+`${CLAUDE_PLUGIN_ROOT}/scripts/cairn-record.sh`, which writes the structured
+fact to bd and writes **no file at all**:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>           # regenerate
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N> --check   # exit 3 + diff when stale
+cairn-record.sh <kind> --phase <N> [--plan <P>] [--issue <ID>] <<'BODY'
+…the prose…
+BODY
 ```
 
-(`/cairn:plan`, `/cairn:work`, and `/cairn:verify` run this at the right
-moments.) The generated block contains:
+| kind | lands on | as |
+|---|---|---|
+| `plan` | a `phase-N` + `plan-NN` bead | `description` — opens the record |
+| `summary` | that same bead | `notes`, and **closes** it |
+| `context`, `research`, `patterns`, `spec`, `ui-spec`, `ai-spec` | the phase carrier | `design` |
+| `verification` | the phase carrier | `acceptance_criteria` |
+| `review`, `log` | the phase carrier | `notes`, appended |
 
-- the header line `Generated by cairn-map — do not edit between markers`;
-- a table `| Requirement | Issue | Status | Title |`, rows keyed from each
-  issue's `metadata.gsd.req` and sorted by (requirement, issue id);
-- `## Gaps — issues without a requirement` (only when non-empty);
-- `## Gaps — requirements without an issue`, cross-checked against
-  ROADMAP.md's `**Requirements**:` line for the phase.
+Two things about this table are load-bearing:
 
-Manual notes — the precedence caveat, divergence flags ⚠, dated
-reconciliation notes — live **outside** the markers and survive regeneration.
-Where a bd issue conflicts with the phase's CONTEXT.md, CONTEXT.md wins;
-divergent issues are flagged ⚠ and updated, not followed.
+- **A summary is not a new artifact.** It is the close of the record the plan
+  opened, which is why `summary` takes the same `--phase`/`--plan` pair and
+  why the bead count does not rise when one is recorded.
+- **`append` and `set` are not interchangeable.** `log` and `review` append
+  because UAT sessions and audit trails accumulate; a `set` would erase the
+  previous entry on every write.
 
-## Lifecycle (hook into GSD commands)
+The script writes the fact; the **prompt layer** indexes the prose with
+`ctx_index(content: …, source: "gb/<bd_id>/<phase>")`. The split is deliberate
+— context-mode has no CLI, so a script cannot index.
 
-- **`/gsd:new-project` / `/gsd:new-milestone`** — after the roadmap is written,
-  create one bd issue per requirement following the issue creation convention
-  above (label pair + metadata stamp, dedup on `(gsd.req, gsd.milestone)`), and
-  capture dependencies with bd's dependency support where the roadmap implies
-  ordering. **Do not generate the phase maps here**: a map is written into the
-  phase's own directory and the directories are created by `plan-phase`, so at
-  this point none of them exists — measured, `cairn-map` answers `no phase
-  directory matching phase N` and exits `4` for every phase. Each map is born
-  with its phase's plan, below.
-- **`/gsd:plan-phase N`** — regenerate the phase's `NN-BEADS-MAP.md` first
-  (`cairn-map.sh N`; if bd is unavailable — exit 5 — fall back to reading the
-  existing file), then read it. Reconcile any divergence between existing bd
-  issues and the phase `CONTEXT.md` (CONTEXT wins — flag ⚠ outside the markers
-  and update the issue). Create issues for unmapped requirements (same
-  convention), regenerate the map, and set the `beads:` frontmatter on each
-  generated `PLAN.md`.
-- **`/gsd:execute-phase N` / `/gsd:execute-plan`** — for each plan, on start:
-  `bd update <id> --claim` for every id in that plan's `beads:` frontmatter
-  (`--claim` atomically assigns the issue and sets its status to
-  `in_progress` — no separate `--status` call needed). On successful
-  completion + verification:
-  `bd close <id> --reason="<1-2 sentence summary>"`, then refresh the phase
-  map (`cairn-map.sh N`) so it reflects the closes.
-- **`/gsd:ship` / session close** — before pushing, confirm every bd issue for
-  completed plans is closed: `bd list -l m-<milestone>,phase-<N> --all` must
-  show nothing non-closed for finished phases (any status other than `closed`
-  — open, in_progress, blocked — blocks the ship). Then push.
+### Asking about a phase
+
+A question about a phase is a question to bd, and the answer is already there:
+
+```bash
+bd list -l "phase-<N>" --all --limit 0 --json | jq -r '.[].description'  # the plans
+bd list -l "phase-<N>" --all --limit 0 --json | jq -r '.[].notes'        # the summaries
+bd show <phase-carrier> --json | jq -r '.design, .acceptance_criteria'   # context, research, verdict
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>                    # the phase, as a table
+```
+
+`cairn-map` **prints** the requirement↔issue table; it does not write it.
+There is no `NN-BEADS-MAP.md`, no generated markers, and nothing that can go
+stale — the view is regenerated by the act of asking for it.
+
+## Lifecycle
+
+- **`/cairn:new` / `/cairn:milestone new`** — create one bd issue per
+  requirement following the convention above (label pair + metadata stamp,
+  dedup on `(gsd.req, gsd.milestone)`), plus a **phase carrier** per phase, and
+  capture ordering with bd dependencies.
+- **`/cairn:plan N`** — record the phase's context and research on the carrier,
+  then one `plan` record per wave. Where a bead conflicts with the phase's
+  recorded context, the context wins — update the bead with a dated
+  reconciliation note.
+- **`/cairn:work N` / execute** — on start, `bd update <id> --claim` for the
+  plan's beads (`--claim` assigns and sets `in_progress` atomically). On
+  success, close the plan's record with its summary
+  (`cairn-record.sh summary --phase N --plan P`, body on stdin) and
+  `bd close <id> --reason="<1-2 sentence summary>"` the requirements it
+  delivered.
+- **`/cairn:ship` / session close** — before pushing, confirm every bead of a
+  finished phase is closed: `bd list -l m-<milestone>,phase-<N> --all` must
+  show nothing non-closed (open, in_progress or blocked all block the ship).
 
 Work discovered mid-phase that belongs to no plan → `/cairn:quick`: a
 `quick`-labeled, unphased issue with a `discovered-from` dep on the active one.
 
 ### Pause / resume
 
-- **`/gsd:pause-work` / session end** — for each in_progress issue assigned to
-  you: resuming same-day → add a dated note
+- **Session end** — for each in_progress issue assigned to you: resuming
+  same-day → add a dated note
   (`bd comment <id> "paused YYYY-MM-DD: <where it stands, what's next>"`) and
-  **keep the claim**; pause is indefinite → release it
+  **keep the claim**; pausing indefinitely → release it
   (`bd update <id> --assignee "" --status open`) so it returns to the ready
   pool instead of looking owned. The session-stop hook warns about leftover
-  in_progress claims either way — don't ignore it silently.
-- **`/gsd:resume-work`** — re-claim what you're picking back up:
-  `bd update <id> --claim` (idempotent when it's already yours).
+  claims either way — don't ignore it silently.
+- **Resuming** — `bd update <id> --claim` (idempotent when already yours).
 
 ## Precedence
 
-When a bd issue description conflicts with GSD phase docs
-(`CONTEXT.md`, `PLAN.md`, `ROADMAP.md`), **the GSD doc wins** — it is the newer,
-human-locked source of truth. Update the bd issue to match (with a dated
-reconciliation note pointing at the GSD doc); do not silently follow the stale
-issue.
+**The bead is the source.** Its description, design, notes and acceptance
+criteria are what the phase says it is, and nothing on disk overrides them.
 
-## Bootstrap a new project
+The one exception is the import: while a `.planning/` directory is still
+waiting to be migrated, its documents are the INPUT and they win — that is
+what `/cairn:migrate` reads them for. Once imported, they are history; a
+"reconciliation" that copies a stale document back over a bead is the failure
+mode this rule exists to prevent.
 
-Run the `/cairn:init` command (or `cairn-init.sh`) to ensure `git` +
-`bd init` are done so this skill activates, then run `/gsd:new-project` to
-create `.planning/`.
+## Bootstrap and adoption
 
-## Migration & health
-
-Existing repos are adopted with `/cairn:migrate` (detect → plan → apply):
-GSD-only repos get their beads backfilled, beads-only repos get `.planning/`
-bootstrapped, and both-present-but-unwired repos get linked. When nudged about
-an unwired repo (session-start hook, a missing map, `.beads/` without
-`.planning/`), route to `/cairn:migrate` — **never** `/gsd:new-project` over
-an existing `.planning/`. Run `/cairn:doctor` periodically (and right after a
-migration) to audit req↔issue coverage, `beads:` frontmatter, map freshness,
-and label pairs. Never hand-create an issue for an existing requirement
-without the metadata stamp — an unstamped issue is invisible to the dedup key
-`(gsd.req, gsd.milestone)`, so a later migrate or plan run will duplicate it.
+- **New project** — `/cairn:init` (git + `bd init`), then `/cairn:new`.
+  Nothing creates `.planning/`.
+- **Existing GSD project** — `/cairn:migrate` (detect → plan → apply) imports
+  the roadmap, the requirements and the phase tree into bd. Route every
+  "unmigrated GSD" nudge there, and never run a project-creation command over
+  a `.planning/` that has not been imported.
+- **Health** — `/cairn:doctor` audits requirement↔issue coverage, label pairs,
+  claims and recoverability. Never hand-create an issue for an existing
+  requirement without the metadata stamp: an unstamped issue is invisible to
+  the dedup key, so a later migrate or plan run duplicates it.
 
 ## Mirror to external tools (optional)
 
-If the repo also has `.cairn/sync.json` with an enabled backend, bd issues
-are mirrored two-way (hub-and-spoke) to GitHub Issues / GitLab / Jira / Asana /
+If the repo also has `.cairn/sync.json` with an enabled backend, bd issues are
+mirrored two-way (hub-and-spoke) to GitHub Issues / GitLab / Jira / Asana /
 Azure Boards — see the **`cairn-sync`** skill. PUSH the matching mirror right
 after each bd lifecycle write (`create` / `--claim` / `close`); reconcile
 external edits back with `/cairn:sync-pull`. Configure via
@@ -173,7 +176,7 @@ external edits back with `/cairn:sync-pull`. Configure via
 
 ## Project-specific extensions
 
-A project's own `CLAUDE.md` may extend this with project-specific steps
-(e.g. mirroring issue status to a GitHub Project, custom completion-note
-templates, conventional-commit `Closes <id>` trailers). Project `CLAUDE.md`
-**overrides** this skill on any conflict.
+A project's own `CLAUDE.md` may extend this with project-specific steps (e.g.
+mirroring issue status to a GitHub Project, custom completion-note templates,
+conventional-commit `Closes <id>` trailers). Project `CLAUDE.md` **overrides**
+this skill on any conflict.
