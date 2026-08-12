@@ -50,8 +50,8 @@ Output: [Working, tested feature]
 </objective>
 
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
+@{planning_dir}/PROJECT.md
+@{roadmap_path}
 @relevant/source/files.ts
 </context>
 
@@ -77,7 +77,7 @@ Output: [Working, tested feature]
 </success_criteria>
 
 <output>
-After completion, create SUMMARY.md with:
+After completion, close the plan's record with a summary carrying:
 - RED: What test was written, why it failed
 - GREEN: What implementation made it pass
 - REFACTOR: What cleanup was done (if any)

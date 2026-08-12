@@ -95,7 +95,7 @@ No next-step suggestions. No workflow routing. Just done.
 
 <guardrails>
 - NEVER spawn a Task/subagent — this runs inline
-- NEVER create PLAN.md or SUMMARY.md files
+- NEVER write a plan or summary file — fast mode records neither
 - NEVER run research or plan-checking
 - If the task takes more than 3 file edits, STOP and redirect to /gsd:quick
 - If you're unsure how to implement it, STOP and redirect to /gsd:quick

@@ -69,9 +69,17 @@ Rules:
 
 Collect all decisions into `$DECISIONS`.
 
-**4.5d. Write CONTEXT.md**
+**4.5d. Record the context**
 
-Write `${QUICK_DIR}/${quick_id}-CONTEXT.md` using the standard context template structure:
+Record it on the quick bead — there is no context file:
+
+```bash
+cairn/scripts/cairn-record.sh context --issue "${QUICK_ISSUE}" <<'BODY'
+[the body, in the standard context structure]
+BODY
+```
+
+The body uses the standard context template structure:
 
 ```markdown
 # Quick Task ${quick_id}: ${DESCRIPTION} - Context

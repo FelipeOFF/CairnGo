@@ -1,6 +1,6 @@
 # Smart Discuss — Autonomous Mode
 
-Smart discuss is the autonomous-optimized variant of `gsd-discuss-phase`. It proposes grey area answers in batch tables — the user accepts or overrides per area — then writes an identical CONTEXT.md to what discuss-phase produces.
+Smart discuss is the autonomous-optimized variant of `gsd-discuss-phase`. It proposes grey area answers in batch tables — the user accepts or overrides per area — then records the identical phase context that discuss-phase records.
 
 **Inputs:** `PHASE_NUM` from execute_phase. Run init to get phase paths:
 
@@ -19,10 +19,13 @@ Read project-level and prior phase context to avoid re-asking decided questions.
 **Read project files:**
 
 ```bash
-cat .planning/PROJECT.md 2>/dev/null || true
-cat .planning/REQUIREMENTS.md 2>/dev/null || true
-cat .planning/STATE.md 2>/dev/null || true
+cat "${PLANNING_DIR}/PROJECT.md" 2>/dev/null || true
+cat "${REQUIREMENTS_PATH}" 2>/dev/null || true
+gsd_run query state.load 2>/dev/null
 ```
+
+The first two read DOCUMENTS. The third asks the binary for the project STATE,
+which is a FACT with an owner — it is not a document to `cat`.
 
 Extract from these:
 - **PROJECT.md** — Vision, principles, non-negotiables, user preferences
@@ -32,7 +35,8 @@ Extract from these:
 **Read all prior CONTEXT.md files:**
 
 ```bash
-(find .planning/phases -name "*-CONTEXT.md" 2>/dev/null || true) | sort
+bd list --all --limit 0 --json \
+  | jq -r '.[] | select((.labels // []) | any(startswith("phase-"))) | select((.design // "") != "") | "=== \(.id) ===", .design'
 ```
 
 For each CONTEXT.md where phase number < current phase:
@@ -66,7 +70,7 @@ Lightweight codebase scan to inform grey area identification and proposals. Keep
 **Check for existing codebase maps:**
 
 ```bash
-ls .planning/codebase/*.md 2>/dev/null || true
+ls "${PLANNING_DIR}"/codebase/*.md 2>/dev/null || true
 ```
 
 **If codebase maps exist:** Read the most relevant ones (CONVENTIONS.md, STRUCTURE.md, STACK.md based on phase type). Extract reusable components, established patterns, integration points. Skip to building context below.
@@ -190,9 +194,16 @@ Track deferred ideas internally for inclusion in CONTEXT.md.
 
 ---
 
-## Sub-step 5: Write CONTEXT.md
+## Sub-step 5: Record the context
 
-After all areas are resolved (or infrastructure skip), write the CONTEXT.md file.
+After all areas are resolved (or infrastructure skip), record the phase context:
+
+```bash
+cairn/scripts/cairn-record.sh context --phase "${PHASE_NUM}" <<'BODY'
+[the body]
+BODY
+```
+
 
 **File path:** `${phase_dir}/${padded_phase}-CONTEXT.md`
 

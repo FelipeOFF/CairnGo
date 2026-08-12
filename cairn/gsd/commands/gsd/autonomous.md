@@ -19,8 +19,8 @@ Execute all remaining milestone phases autonomously. For each phase: discuss →
 Uses ROADMAP.md phase discovery and Skill() flat invocations for each phase command. After all phases complete: milestone audit → complete → cleanup.
 
 **Creates/Updates:**
-- `.planning/STATE.md` — updated after each phase
-- `.planning/ROADMAP.md` — progress updated after each phase
+- the state fact in the bd — updated after each phase
+- the roadmap — progress updated after each phase
 - Phase artifacts — CONTEXT.md, PLANs, SUMMARYs per phase
 
 **After:** Milestone is complete and cleaned up.

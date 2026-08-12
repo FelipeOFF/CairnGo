@@ -52,7 +52,7 @@ Do NOT produce a full domain survey. Target 1-2 pages of actionable findings.
 </focus>
 
 <output>
-Write research to: ${QUICK_DIR}/${quick_id}-RESEARCH.md
+Record the research: `cairn/scripts/cairn-record.sh research --issue "${QUICK_ISSUE}"` (body on stdin)
 Use standard research format but keep it lean — skip sections that don't apply.
 Return: ## RESEARCH COMPLETE with file path
 </output>

@@ -10,6 +10,14 @@
       "reason": "Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
     },
     {
+      "path": "agents/gsd-codebase-mapper.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
       "path": "agents/gsd-debug-session-manager.md",
       "phase": "36",
       "waves": [
@@ -116,6 +124,14 @@
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. Onda 7: as duas linhas de prosa que mandavam usar o runtime antigo (:241, :317) passam a nomear gsd_run — o bloco de código logo abaixo de cada uma já chamava o verbo certo. Fase 38 (onda 4, v1.7 zero-markdown): VERIFICACAO e REVIEW. VERIFICATION.md, UI-REVIEW.md e REVIEW.md viram registro (kinds verification e review) no bead portador da fase; a sessao de UAT vira append (kind log) com cabecalho de sessao, porque UAT acumula e nao se sobrescreve; o integration-checker le exports dos sumarios no bd em vez de varrer arquivo; e os screenshots do ui-auditor, que sao binario e nao registro, saem de .planning/ui-reviews para .cairn/ui-reviews."
     },
     {
+      "path": "commands/gsd/autonomous.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
       "path": "commands/gsd/debug.md",
       "phase": "38",
       "waves": [
@@ -141,12 +157,52 @@
       "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
     },
     {
+      "path": "commands/gsd/quick.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
+      "path": "gsd-core/references/agent-contracts.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
+      "path": "gsd-core/references/agent-skills-bootstrap.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
+      "path": "gsd-core/references/autonomous-smart-discuss.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
       "path": "gsd-core/references/checkpoints.md",
       "phase": "38",
       "waves": [
         3
       ],
       "reason": "Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
+    },
+    {
+      "path": "gsd-core/references/context-budget.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
     },
     {
       "path": "gsd-core/references/debugger-fix-acceptance.md",
@@ -187,6 +243,30 @@
         3
       ],
       "reason": "Fase 38 (onda 3, v1.7 zero-markdown): o subsistema de EXECUCAO. O executor fecha o registro que o planner abriu em vez de escrever SUMMARY.md (--project-dir pinado no checkout primario, #2070), o commit final leva so roteiro e requisitos pelos caminhos do init, a porta de regressao le a verificacao das fases anteriores no acceptance_criteria dos beads portadores em vez de varrer VERIFICATION.md em disco, e o template de sumario passa a descrever o CORPO do registro."
+    },
+    {
+      "path": "gsd-core/references/model-profiles.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
+      "path": "gsd-core/references/mvp-concepts.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
+      "path": "gsd-core/references/offer-next.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
     },
     {
       "path": "gsd-core/references/planner-antipatterns.md",
@@ -239,12 +319,44 @@
       "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
     },
     {
+      "path": "gsd-core/references/scout-codebase.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
+      "path": "gsd-core/references/tdd.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
       "path": "gsd-core/references/thinking-partner.md",
       "phase": "38",
       "waves": [
         5
       ],
       "reason": "Fase 38 (onda 5, v1.7 zero-markdown): DISCUSSAO. CONTEXT.md vira registro kind context no bead portador e o DISCUSSION-LOG vira append (kind log) no mesmo bead — append e nao set, porque o log e' trilha de auditoria e um set apagaria a decisao anterior a cada gravacao; a leitura dos contextos anteriores sai do find em disco e vai para o design dos beads de fase; o step write_context passa a se chamar record_context em toda a arvore, porque o nome do passo tambem ensina o modelo mental."
+    },
+    {
+      "path": "gsd-core/references/universal-anti-patterns.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
+      "path": "gsd-core/references/user-story-template.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
     },
     {
       "path": "gsd-core/references/verify-mvp-mode.md",
@@ -299,9 +411,10 @@
       "phase": "36",
       "waves": [
         1,
-        5
+        5,
+        7
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 5 (ADAPT-03): as TRÊS leituras mecânicas do markdown de estado (duas idênticas a 476 linhas de distância, mais a instrução explícita de reler) viram consulta ao binário — state.load onde o que se quer é a posição, e `bd list -l gsd-blocker --limit 0 --json` onde o que se quer são os bloqueios, que são beads de coleção e não linhas de uma seção; o predicado de existência muda de SIGNIFICADO e não só de fonte: state_exists mantém o nome (é campo do bundle, contrato da fase 34) mas passa a perguntar se há PORTADOR de estado no bd, e a falha nomeia state.begin-phase, o comando que cria o fato — a mensagem antiga mandava rodar /gsd:new-milestone, que não cria mais nada. As duas seções que mandavam anexar uma tabela markdown de Deferred Verification viram dois verbos: state.update verification pending (a dimensão, com o único valor do vocabulário fechado que é verdadeiro) e state.add-blocker com a forma canônica que o passo 2 lê de volta. Intocados por medição: o caminho do audit de milestone (:693) e o do roadmap arquivado (:749) — documento."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 5 (ADAPT-03): as TRÊS leituras mecânicas do markdown de estado (duas idênticas a 476 linhas de distância, mais a instrução explícita de reler) viram consulta ao binário — state.load onde o que se quer é a posição, e `bd list -l gsd-blocker --limit 0 --json` onde o que se quer são os bloqueios, que são beads de coleção e não linhas de uma seção; o predicado de existência muda de SIGNIFICADO e não só de fonte: state_exists mantém o nome (é campo do bundle, contrato da fase 34) mas passa a perguntar se há PORTADOR de estado no bd, e a falha nomeia state.begin-phase, o comando que cria o fato — a mensagem antiga mandava rodar /gsd:new-milestone, que não cria mais nada. As duas seções que mandavam anexar uma tabela markdown de Deferred Verification viram dois verbos: state.update verification pending (a dimensão, com o único valor do vocabulário fechado que é verdadeiro) e state.add-blocker com a forma canônica que o passo 2 lê de volta. Intocados por medição: o caminho do audit de milestone (:693) e o do roadmap arquivado (:749) — documento. Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
     },
     {
       "path": "gsd-core/workflows/autonomous/steps/converge-fail-fast.md",
@@ -469,9 +582,10 @@
       "phase": "36",
       "waves": [
         1,
-        3
+        3,
+        7
       ],
-      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 3 (ADAPT-02): o bloco que perguntava ao markdown se a tabela de quick tasks existia sumiu — a chamada a quick-tasks-append e' incondicional e o exit code do verbo e' o predicado; a prosa e o item de checklist passaram a descrever o FATO registrado, nao o arquivo consultado."
+      "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 3 (ADAPT-02): o bloco que perguntava ao markdown se a tabela de quick tasks existia sumiu — a chamada a quick-tasks-append e' incondicional e o exit code do verbo e' o predicado; a prosa e o item de checklist passaram a descrever o FATO registrado, nao o arquivo consultado. Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
     },
     {
       "path": "gsd-core/workflows/plan-phase.md",
@@ -545,12 +659,29 @@
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove. | onda 4 (ADAPT-03): a derivação do caminho de estado por dirname saiu junto com a dívida do #2376 (init.quick não emite state_path e agora não precisa emitir); o Step 7 deixou de perguntar ao markdown se a tabela existe e chama quick-tasks-append incondicional, com a falha nomeada do verbo como predicado — a mesma doutrina do fast.md; as duas injeções do caminho em prompt de subagente viraram instrução de pedir o fato ao binário. Onda 7: a linha do arquivo de estado na lista de arquivos a commitar do Step 8 cai — MEDIDO no binário da casa que nenhum verbo do caminho do quick escreve o markdown (quick-tasks-append cria bead, state.record-session transiciona o portador, sha1 do arquivo inalterado). A justificativa da onda 4 citava readModifyWriteStateMd, que descreve o upstream. | Fase 38 (onda 1, v1.7 zero-markdown): os sitios de ESCRITA — a instrucao que manda produzir documento de planejamento (familia W1) e o literal `.planning/...` que lhe servia de destino (familia W2) — passam a chamar a fronteira unica `cairn/scripts/cairn-record.sh`, que grava FATO no bd e nao escreve arquivo nenhum. 7 W1 + 4 W2: o plano e o sumario da side-quest sao o MESMO registro, aberto e fechado no bead que `/cairn:quick` ja estampa; `QUICK_ISSUE` e' resolvido uma vez no Step 4 com falha NOMEADA e fatal quando nao ha bead (CORE-04: fato ausente nao cai para markdown); some o bloco que materializava o PLAN.md dentro do worktree via `git show` — um registro nao precisa ser materializado; o filtro de staging deixa de casar `^\\.planning/` e passa a ancorar em `${QUICK_DIR}/`, que e' o mesmo teste de prefixo para toda entrada de `file_list`."
     },
     {
+      "path": "gsd-core/workflows/quick/steps/discussion-phase.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
+      "path": "gsd-core/workflows/quick/steps/quick-verification.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
       "path": "gsd-core/workflows/quick/steps/research-phase.md",
       "phase": "36",
       "waves": [
-        4
+        4,
+        7
       ],
-      "reason": "onda 4 (ADAPT-03), entrada NOVA: o fragment não carrega bloco de preâmbulo e por isso não foi registrado na onda zero — entra pela regra do plano 01, no mesmo commit que o edita, e o `list` do cairn-preamble o reporta como `none` (registrado por adaptação de conteúdo). A injeção do caminho de estado no prompt do gsd-phase-researcher virou instrução de pedir o fato ao binário; medido: esse agente NÃO carrega state.load próprio, então a linha era a única porta e apagá-la sem substituir perderia o fato."
+      "reason": "onda 4 (ADAPT-03), entrada NOVA: o fragment não carrega bloco de preâmbulo e por isso não foi registrado na onda zero — entra pela regra do plano 01, no mesmo commit que o edita, e o `list` do cairn-preamble o reporta como `none` (registrado por adaptação de conteúdo). A injeção do caminho de estado no prompt do gsd-phase-researcher virou instrução de pedir o fato ao binário; medido: esse agente NÃO carrega state.load próprio, então a linha era a única porta e apagá-la sem substituir perderia o fato. Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
     },
     {
       "path": "gsd-core/workflows/quick/steps/worktree-pre-dispatch-commit.md",
@@ -579,6 +710,14 @@
       "reason": "D-01 (onda zero): a linha de preâmbulo passa a resolver cairn/scripts/cairn-gsd.sh, o binário python do repo; a forma antiga procurava um runtime node que a fase 37 remove."
     },
     {
+      "path": "skills/gsd-autonomous/SKILL.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
+    },
+    {
       "path": "skills/gsd-debug/SKILL.md",
       "phase": "38",
       "waves": [
@@ -602,6 +741,14 @@
         2
       ],
       "reason": "Fase 38 (onda 2, v1.7 zero-markdown): o subsistema de PLANEJAMENTO inteiro deixa de produzir arquivo. O plano vira registro aberto pela fronteira cairn-record.sh (kind plan) num bead phase-N + plan-NN; o outline do modo chunked deixa de ser manifesto em disco e volta como tabela de retorno, com o resume passando a olhar os registros ja gravados; a validacao troca frontmatter.validate sobre arquivo por conferencia do corpo do registro; o CONTEXT do caminho expresso de PRD e do ingest de ADR viram registro kind context; e os literais .planning/ que sobravam passam a vir de roadmap_path do init, com PLANNING_DIR derivado dele."
+    },
+    {
+      "path": "skills/gsd-quick/SKILL.md",
+      "phase": "38",
+      "waves": [
+        7
+      ],
+      "reason": "Fase 38 (onda 7, v1.7 zero-markdown): a onda que zera o placar. O quick passa a viver no bead com label quick (list/status/resume consultam o bd, e o plano e o sumario sao description e notes do mesmo registro); o autonomous grava o contexto minimo do skip_discuss como registro; e a cauda de referencias troca os literais de config, codebase, logs e tmp pelos caminhos derivados do init. W1 e W2 chegam a ZERO em cairn/gsd."
     }
   ]
 }

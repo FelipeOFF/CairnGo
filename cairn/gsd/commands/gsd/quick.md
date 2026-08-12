@@ -18,7 +18,7 @@ Execute small, ad-hoc tasks with GSD guarantees (atomic commits, STATE.md tracki
 
 Quick mode is the same system with a shorter path:
 - Spawns gsd-planner (quick mode) + gsd-executor(s)
-- Quick tasks live in `.planning/quick/` separate from planned phases
+- Quick tasks live as beads labelled `quick`, separate from planned phases
 - Updates STATE.md "Quick Tasks Completed" table (NOT ROADMAP.md)
 
 **Default:** Skips research, discussion, plan-checker, verifier. Use when you know exactly what to do.
@@ -65,19 +65,16 @@ Context files are resolved inside the workflow (`init quick`) and delegated via 
 When SUBCMD=list:
 
 ```bash
-ls -d .planning/quick/*/  2>/dev/null
+bd list -l quick --all --limit 0 --json
 ```
 
-For each directory found:
-- Check if PLAN.md exists
-- Check if SUMMARY.md exists; if so, read `status` from its frontmatter via:
-  ```bash
-  gsd-tools query frontmatter.get .planning/quick/{dir}/SUMMARY.md status
-  ```
-- Determine directory creation date: `stat -f "%SB" -t "%Y-%m-%d"` (macOS) or `stat -c "%w"` (Linux); fall back to the date prefix in the directory name (format: `YYYYMMDD-` prefix)
+For each quick bead found:
+- Its `description` is the plan (empty means the plan was never recorded)
+- Its `notes` is the summary that closed it (empty means still in flight)
+- Creation date comes from the bead's `created` field — no `stat` on a directory
 - Derive display status:
-  - SUMMARY.md exists, frontmatter status=complete → `complete ✓`
-  - SUMMARY.md exists, frontmatter status=incomplete OR status missing → `incomplete`
+  - status `closed` with non-empty notes → `complete ✓`
+  - status `open`/`in_progress` → `incomplete`
   - SUMMARY.md missing, dir created <7 days ago → `in-progress`
   - SUMMARY.md missing, dir created ≥7 days ago → `abandoned? (>7 days, no summary)`
 
@@ -103,21 +100,21 @@ STOP after displaying the list. Do NOT proceed to further steps.
 
 When SUBCMD=status and SLUG is set (already sanitized):
 
-Find directory matching `*-{SLUG}` pattern:
+Find the quick bead whose title carries the slug:
 ```bash
-dir=$(ls -d .planning/quick/*-{SLUG}/ 2>/dev/null | head -1)
+QUICK_ISSUE=$(bd list -l quick --all --limit 0 --json | jq -r --arg s "{SLUG}" '.[] | select(.title | contains($s)) | .id' | head -1)
 ```
 
-If no directory found, print `No quick task found with slug: {SLUG}` and stop.
+If none is found, print `No quick task found with slug: {SLUG}` and stop.
 
-Read PLAN.md and SUMMARY.md (if exists) for the given slug. Display:
+Read the bead (`bd show "$QUICK_ISSUE" --json`). Display:
 ```
 Quick Task: {slug}
 ─────────────────────────────────────
-Plan file: .planning/quick/{dir}/PLAN.md
-Status: {status from SUMMARY.md frontmatter, or "no summary yet"}
-Description: {first non-empty line from PLAN.md after frontmatter}
-Last action: {last meaningful line of SUMMARY.md, or "none"}
+Record: {QUICK_ISSUE}
+Status: {bead status, or "no summary yet" when notes are empty}
+Description: {first non-empty line of the recorded plan}
+Last action: {last meaningful line of the summary, or "none"}
 ─────────────────────────────────────
 Resume with: /gsd:quick resume {slug}
 ```
@@ -128,19 +125,19 @@ No agent spawn. STOP after printing.
 
 When SUBCMD=resume and SLUG is set (already sanitized):
 
-1. Find the directory matching `*-{SLUG}` pattern:
+1. Find the quick bead whose title carries the slug:
    ```bash
-   dir=$(ls -d .planning/quick/*-{SLUG}/ 2>/dev/null | head -1)
+   QUICK_ISSUE=$(bd list -l quick --all --limit 0 --json | jq -r --arg s "{SLUG}" '.[] | select(.title | contains($s)) | .id' | head -1)
    ```
-2. If no directory found, print `No quick task found with slug: {SLUG}` and stop.
+2. If none is found, print `No quick task found with slug: {SLUG}` and stop.
 
-3. Read PLAN.md to extract description and SUMMARY.md (if exists) to extract status.
+3. Read the bead: `description` is the plan, `notes` the summary (if closed).
 
 4. Print before spawning:
    ```
-   [quick] Resuming: .planning/quick/{dir}/
-   [quick] Plan: {description from PLAN.md}
-   [quick] Status: {status from SUMMARY.md, or "in-progress"}
+   [quick] Resuming: {QUICK_ISSUE}
+   [quick] Plan: {description from the recorded plan}
+   [quick] Status: {bead status, or "in-progress"}
    ```
 
 5. Load context via:
@@ -160,7 +157,7 @@ Preserve all workflow gates (validation, task description, planning, execution, 
 </process>
 
 <notes>
-- Quick tasks live in `.planning/quick/` — separate from phases, not tracked in ROADMAP.md
+- Quick tasks live as `quick`-labelled beads — separate from phases, not tracked in the roadmap
 - Each quick task gets a `YYYYMMDD-{slug}/` directory with PLAN.md and eventually SUMMARY.md
 - STATE.md "Quick Tasks Completed" table is updated on completion
 - Use `list` to audit accumulated tasks; use `resume` to continue in-progress work

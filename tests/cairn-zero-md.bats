@@ -91,32 +91,12 @@ ZM_W2='\.planning/[A-Za-z0-9_./{}$-]*'
 
 # LEDGER — caminho relativo a cairn/gsd/ | sitios W1 | sitios W2
 ZM_LEDGER="\
-agents/gsd-codebase-mapper.md|0|5
-commands/gsd/autonomous.md|0|2
-commands/gsd/quick.md|0|8
-gsd-core/references/agent-contracts.md|0|1
-gsd-core/references/agent-skills-bootstrap.md|0|1
-gsd-core/references/autonomous-smart-discuss.md|3|5
-gsd-core/references/context-budget.md|0|3
-gsd-core/references/model-profiles.md|0|5
-gsd-core/references/mvp-concepts.md|2|0
-gsd-core/references/offer-next.md|0|1
-gsd-core/references/scout-codebase.md|0|2
-gsd-core/references/tdd.md|1|2
-gsd-core/references/universal-anti-patterns.md|1|2
-gsd-core/references/user-story-template.md|1|0
-gsd-core/workflows/autonomous.md|4|4
-gsd-core/workflows/fast.md|1|0
-gsd-core/workflows/quick/steps/discussion-phase.md|2|0
-gsd-core/workflows/quick/steps/quick-verification.md|1|0
-gsd-core/workflows/quick/steps/research-phase.md|1|0
-skills/gsd-autonomous/SKILL.md|0|2
-skills/gsd-quick/SKILL.md|0|8
+
 "
 
 # O PLACAR. Some as colunas do ledger; e' o numero do milestone.
-ZM_DECLARED_W1=17
-ZM_DECLARED_W2=51
+ZM_DECLARED_W1=0
+ZM_DECLARED_W2=0
 
 # CONVERTIDOS — caminhos que ja passaram pelo protocolo de registro e que
 # DEVEM medir 0|0 nas duas familias. Uma linha aqui e uma linha no ledger com
@@ -130,6 +110,7 @@ ZM_DECLARED_W2=51
 # aberto e fechado no bead da side-quest. O PLACAR caiu de 123|209 para 77|180.
 ZM_CONVERTED="\
 agents/gsd-code-reviewer.md
+agents/gsd-codebase-mapper.md
 agents/gsd-debug-session-manager.md
 agents/gsd-debugger.md
 agents/gsd-executor.md
@@ -142,27 +123,41 @@ agents/gsd-ui-auditor.md
 agents/gsd-ui-checker.md
 agents/gsd-ui-researcher.md
 agents/gsd-verifier.md
+commands/gsd/autonomous.md
 commands/gsd/debug.md
 commands/gsd/discuss-phase.md
 commands/gsd/plan-phase.md
+commands/gsd/quick.md
+gsd-core/references/agent-contracts.md
+gsd-core/references/agent-skills-bootstrap.md
+gsd-core/references/autonomous-smart-discuss.md
 gsd-core/references/checkpoints.md
+gsd-core/references/context-budget.md
 gsd-core/references/debugger-fix-acceptance.md
 gsd-core/references/debugger-semantic-recall.md
 gsd-core/references/execute-phase-context-guard.md
 gsd-core/references/execute-phase-requirement-revert.md
+gsd-core/references/model-profiles.md
+gsd-core/references/mvp-concepts.md
+gsd-core/references/offer-next.md
 gsd-core/references/planner-antipatterns.md
 gsd-core/references/planner-chunked.md
 gsd-core/references/planner-gap-closure.md
 gsd-core/references/planner-load-graph-context.md
 gsd-core/references/planner-revision.md
 gsd-core/references/questioning.md
+gsd-core/references/scout-codebase.md
+gsd-core/references/tdd.md
 gsd-core/references/thinking-partner.md
+gsd-core/references/universal-anti-patterns.md
+gsd-core/references/user-story-template.md
 gsd-core/references/verify-mvp-mode.md
 gsd-core/templates/DEBUG.md
 gsd-core/templates/UAT.md
 gsd-core/templates/context.md
 gsd-core/templates/discussion-log.md
 gsd-core/templates/summary.md
+gsd-core/workflows/autonomous.md
 gsd-core/workflows/debug.md
 gsd-core/workflows/discuss-phase.md
 gsd-core/workflows/discuss-phase/modes/default.md
@@ -172,6 +167,7 @@ gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md
 gsd-core/workflows/execute-phase/steps/gap-closure-artifacts.md
 gsd-core/workflows/execute-phase/steps/post-merge-gate.md
 gsd-core/workflows/execute-phase/steps/regression-gate.md
+gsd-core/workflows/fast.md
 gsd-core/workflows/plan-phase.md
 gsd-core/workflows/plan-phase/steps/adr-ingest-express-path.md
 gsd-core/workflows/plan-phase/steps/chunked-planning-mode.md
@@ -180,10 +176,15 @@ gsd-core/workflows/plan-phase/steps/prd-express-path.md
 gsd-core/workflows/plan-phase/steps/research-only-modifiers.md
 gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md
 gsd-core/workflows/quick.md
+gsd-core/workflows/quick/steps/discussion-phase.md
+gsd-core/workflows/quick/steps/quick-verification.md
+gsd-core/workflows/quick/steps/research-phase.md
 gsd-core/workflows/verify-work.md
+skills/gsd-autonomous/SKILL.md
 skills/gsd-debug/SKILL.md
 skills/gsd-discuss-phase/SKILL.md
 skills/gsd-plan-phase/SKILL.md
+skills/gsd-quick/SKILL.md
 "
 
 # --- o instrumento ------------------------------------------------------------
