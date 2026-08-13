@@ -1697,3 +1697,160 @@ PY
   [ -d "$PWD-phase-29" ]
   [ "$(cat "$PWD-phase-29/wip.txt")" = "work nobody else has a copy of" ]
 }
+
+# ---------------------------------------------------------------------------
+# THE TWO SOURCES (v1.7, CairnGo-9c0h.6)
+#
+# This command exists to keep THREE DOCUMENTS in agreement. In a repo that
+# holds none of them, agreement between documents is not a problem that
+# exists — so the document half is `not-applicable` / `out-of-scope`, the
+# doctor's own vocabulary, and what survives is what was never a document:
+# the phase's lease and its worktree.
+#
+# CLAUDE_PROJECT_DIR is pinned in every case that does not pass
+# --planning-dir. Unset, the script falls back to cwd; leaked from the
+# surrounding session, it would point these runs at a `.planning/` that is
+# not the fixture's, and the mode under test is decided by exactly that path.
+#
+# Break for the whole section: put `nothing to change` back on the
+# not-applicable branch. Every assertion on `.documents` still passes and the
+# command goes back to claiming it compared three files it never opened.
+# ---------------------------------------------------------------------------
+
+@test "close: sem roteiro em disco o meio-documento e' not-applicable, nao ok" {
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 29 --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.documents.status' 'not-applicable'
+  assert_json_eq "$output" '.documents.scope' 'out-of-scope'
+  assert_json_eq "$output" '.planned | length' '0'
+  assert_json_eq "$output" '.changed' 'false'
+  # Nao ha contador porque nao ha STATE.md de onde tirar um. `null` e `{}`
+  # sao frases diferentes, e a segunda diria que a conta foi feita.
+  assert_json_eq "$output" '.counters' 'null'
+}
+
+@test "close: um passo que nao se aplica nunca se anuncia como nothing to change" {
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 29
+  [ "$status" -eq 0 ]
+  # `nothing to change` afirma que uma comparacao foi feita e deu igual.
+  # Nenhuma foi: nao havia arquivo para comparar.
+  refute_in_output "nothing to change"
+  refute_in_output "Traceback"
+  grep -qF "not-applicable" <<<"$output"
+  grep -qF "out-of-scope" <<<"$output"
+}
+
+# O ROADMAP.md decide, e nao o diretorio: um `.planning/` que sobreviveu a
+# importacao como casca — ou que carrega CONTEXT e nenhum roteiro — nao tem
+# afirmacao a conferir. Mesma pergunta que cairn-gate.py faz.
+@test "close: e' o ROADMAP.md que decide o modo, nunca o diretorio .planning/" {
+  mkdir -p "$PWD/.planning/phases"
+  echo "# leftovers, not a roadmap" > "$PWD/.planning/CONTEXT.md"
+  run bash "$BOOKKEEP" close 29 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.documents.status' 'not-applicable'
+  refute_in_output "ROADMAP.md not found"
+}
+
+# A metade que nao pode regredir: com roteiro em disco tudo segue como antes,
+# incluindo o exit 3 da leitura que achou o que escrever.
+@test "close: com roteiro em disco o meio-documento se aplica, e a leitura sai 3" {
+  write_mini_roadmap "$PWD"
+  run bash "$BOOKKEEP" close 29 --json --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  assert_json_eq "$output" '.documents.status' 'ok'
+  # `scope` so existe quando o status e' not-applicable — a regra do doctor.
+  assert_json_eq "$output" '.documents.scope' 'null'
+  assert_json_eq "$output" '.planned | length > 0' 'true'
+}
+
+@test "reconcile: sem os tres documentos nao ha acordo a manter — exit 0, nomeado" {
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" reconcile --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.documents.status' 'not-applicable'
+  assert_json_eq "$output" '.disagreements | length' '0'
+  # Break: deixar reconcile() morrer nos tres arquivos ausentes. Exit 2 diria
+  # "o leitor do ledger esta quebrado" para um repo que simplesmente nao tem
+  # ledger — e a lista vazia sem o campo diria que os documentos concordam.
+  refute_in_output "Traceback"
+  refute_in_output "not found in"
+}
+
+@test "reconcile --apply: sem documento nao ha o que resolver, e nada e' escrito" {
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" reconcile --apply --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.documents.status' 'not-applicable'
+  assert_json_eq "$output" '.changed' 'false'
+  assert_json_eq "$output" '.files_written | length' '0'
+  [ ! -e "$PWD/.planning" ]
+}
+
+@test "plan NN-MM: sem roteiro em disco nao ha checkbox a fechar, e isso e' dito" {
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" plan 20-01 --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.documents.status' 'not-applicable'
+  assert_json_eq "$output" '.planned | length' '0'
+  # Nao e' exit 4: `no such plan item` responde sobre um roteiro que existe e
+  # nao lista aquele plano. Aqui nao ha roteiro nenhum a consultar.
+  refute_in_output "no plan item named"
+}
+
+# O TESTE QUE PROVA O QUE SOBRA. As edicoes de documento sumiram; a lease e o
+# worktree nao eram documento, e continuam fechando com a fase. Break: tratar
+# "sem ROADMAP.md" como "nada a fazer" e pular run_tracker — a lease fica
+# presa, que e' exatamente o dano medido em 2026-08-07 sobre cinco fases.
+@test "close --apply: no modo bd a lease da fase ainda e' fechada no bd" {
+  require_bd
+  bd init -q --prefix bkt --non-interactive >/dev/null 2>&1
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 29 \
+    --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  local id
+  id="$(jq -r '.id' <<<"$output")"
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 29 --apply --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.documents.status' 'not-applicable'
+  assert_json_eq "$output" '.tracker.ran' 'true'
+  assert_json_eq "$output" '.tracker.skipped' 'null'
+
+  # O bd, depois. Nunca a linha que o proprio comando imprimiu.
+  run bd -C "$PWD" list -l lease --all --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    "[.[] | select(.id==\"$id\") | .status] | join(\",\")" 'closed'
+}
+
+@test "close --apply: no modo bd sem bd o exit 5 nao promete arquivo nenhum" {
+  local stub="$BATS_TEST_TMPDIR/nobd-bin"
+  mkdir -p "$stub"
+  ln -s "$(python3 -c 'import sys; print(sys.executable)')" "$stub/python3"
+  ln -s "$(command -v bash)" "$stub/bash"
+  ln -s "$(command -v dirname)" "$stub/dirname"
+  run env PATH="$stub" "$stub/bash" -c 'command -v bd'
+  [ "$status" -ne 0 ]
+
+  run env PATH="$stub" CLAUDE_PROJECT_DIR="$PWD" "$stub/bash" "$BOOKKEEP" \
+    close 29 --apply
+  [ "$status" -eq 5 ]
+  grep -qF "bd is not on PATH" <<<"$output"
+  # A recusa segue valendo — a lease precisa do bd — mas a razao muda com o
+  # modo: aqui nao ha planning file que ela esteja se recusando a escrever.
+  refute_in_output "refusing to write the planning files"
+  grep -qF "no other half to do" <<<"$output"
+}
+
+# O `map` saiu do tracker na v1.7 e ficou como chave nula de proposito. O laco
+# humano lia `ok` de um None e imprimia `FAILED (None)` sobre todo close bem
+# sucedido — um vermelho pela ausencia de uma copia que o cairn parou de
+# manter. Break: devolver "map" a tupla do laco.
+@test "close --apply: o passo que deixou de existir nao e' reportado como falha" {
+  require_bd
+  make_drift_fixture "$PWD"
+  bd init -q --prefix bku --non-interactive >/dev/null 2>&1
+  run bash "$BOOKKEEP" close 29 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  grep -qF "tracker :: lease ::" <<<"$output"
+  refute_in_output "tracker :: map ::"
+  refute_in_output "FAILED (None)"
+}
