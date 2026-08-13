@@ -241,7 +241,10 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   [ "$(tjq '[.cycles[].cycle] | join(",")')" = "v1.2,v1.9,v1.10,v1.11" ]
 }
 
-@test "no .planning at all exits 0 and says so instead of printing a table" {
+# O titulo mudou junto com o sentido: sem roteiro em disco quem responde e' o
+# bd, entao um repo sem ciclo nenhum e' agora um repo onde as DUAS fontes
+# calam — e a mensagem tem de nomear a que foi consultada.
+@test "sem roteiro e sem bd nenhum ciclo e' encontrado: exit 0, e a mensagem nomeia o bd" {
   local base
   base="$(mktemp -d "${BATS_TEST_TMPDIR:-/tmp}/trend-empty.XXXXXX")"
   mkdir -p "$base/.planning"
@@ -250,6 +253,86 @@ tjq() { printf '%s' "$output" | jq -r "$1"; }
   trend
   [ "$status" -eq 0 ]
   printf '%s' "$output" | grep -qF "nenhum ciclo encontrado"
+  printf '%s' "$output" | grep -qF "nenhum ciclo no bd"
+}
+
+# --- a segunda fonte: o repo que ja migrou ----------------------------------
+# A REGRA DAS DUAS FONTES. Ha roteiro em disco, ele e' a ENTRADA e ele manda;
+# nao ha, e quem sabe quais ciclos existiram e' o tracker. Um comando que
+# respondesse "nenhum ciclo encontrado" sobre um repo com seis milestones
+# entregues estaria lendo o silencio de um arquivo apagado como fato sobre o
+# projeto — verde e morto ao mesmo tempo.
+
+# Um repo git com bd e sem `.planning/`. O trend nao tem `--project-dir`, e um
+# repo migrado o invoca por CLAUDE_PROJECT_DIR, que e' o que isto exercita.
+new_bd_repo() {
+  make_tmp_repo
+  bd init -q --prefix trend --non-interactive >/dev/null 2>&1
+  TREND_ROOT="$PWD"
+}
+
+bd_trend() { run env CLAUDE_PROJECT_DIR="$TREND_ROOT" "$TREND" "$@"; }
+
+@test "repo migrado: os ciclos vem do bd, e o aberto e' o que ainda tem trabalho" {
+  require_bd
+  new_bd_repo
+  local shipped
+  shipped="$(bd create "Fase 1" -t task -l phase-1,m-v1.1 --silent)"
+  bd close "$shipped" >/dev/null
+  bd create "Fase 2" -t task -l phase-2,m-v1.2 --silent >/dev/null
+
+  bd_trend --json
+  # 4 e nao 0: os ciclos existem, e o que falta e' verdito comparavel neles.
+  [ "$status" -eq 4 ]
+  [ ! -d "$TREND_ROOT/.planning" ]
+  [ "$(tjq '.source')" = "bd" ]
+  [ "$(tjq '[.cycles[].cycle] | join(",")')" = "v1.1,v1.2" ]
+  # O ciclo aberto e' o que ainda tem trabalho — a mesma pergunta que o 🚧
+  # respondia a mao.
+  [ "$(tjq '.open_cycle')" = "v1.2" ]
+  # E o veredito de cada um e' o honesto: o ciclo existiu, e ninguem o
+  # verificou desse jeito. Nunca um zero.
+  [ "$(tjq '.cycles[0].state')" = "not-applicable" ]
+  [ "$(tjq '.cycles[0].scope')" = "no-input" ]
+}
+
+@test "repo migrado pela metade: os ciclos vem do bd e os vereditos em disco seguem lidos" {
+  require_bd
+  new_bd_repo
+  local shipped
+  shipped="$(bd create "Fase 1" -t task -l phase-1,m-v1.1 --silent)"
+  bd close "$shipped" >/dev/null
+  bd create "Fase 2" -t task -l phase-2,m-v1.2 --silent >/dev/null
+  # A arvore de fases do ciclo arquivado continua no lugar; o que sumiu foi o
+  # <key>-ROADMAP.md que a anunciava. A fonte muda, o veredito nao se perde.
+  local dir="$TREND_ROOT/.planning/milestones/v1.1-phases/01-phase"
+  mkdir -p "$dir"
+  printf -- '---\nphase: 01-phase\nstatus: passed\n---\n' \
+    > "$dir/01-VERIFICATION.md"
+
+  bd_trend --json
+  [ "$status" -eq 4 ]
+  [ "$(tjq '.source')" = "bd" ]
+  [ "$(tjq '.cycles[0].state')" = "comparable" ]
+  [ "$(tjq '.cycles[0].status_counts.passed')" -eq 1 ]
+}
+
+@test "com roteiro em disco a fonte segue sendo o roteiro, nao o bd" {
+  require_bd
+  new_bd_repo
+  # O bd conhece um ciclo que o roteiro nao menciona. Enquanto o arquivo
+  # existe, ele e' a ENTRADA por importar e o bd nao o contradiz.
+  bd create "Fase 9" -t task -l phase-9,m-v9.9 --silent >/dev/null
+  TREND_PLANNING="$TREND_ROOT/.planning"
+  mkdir -p "$TREND_PLANNING/milestones"
+  printf '# Roadmap\n\n## Milestones\n\n' > "$TREND_PLANNING/ROADMAP.md"
+  archive_cycle v1.1
+  add_verified v1.1 01 passed
+
+  bd_trend --json
+  [ "$status" -eq 4 ]
+  [ "$(tjq '.source')" = "roadmap" ]
+  [ "$(tjq '[.cycles[].cycle] | join(",")')" = "v1.1" ]
 }
 
 # --- the human table --------------------------------------------------------
