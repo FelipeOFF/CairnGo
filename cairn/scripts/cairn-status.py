@@ -956,15 +956,41 @@ def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
     reads: disk, bd, the roadmap checkbox, and STATE.md's active_phase
     pointer.
 
-    `disk_is_source` False means the phases on this board came from the
-    TRACKER and not from a roadmap (v1.7's two-source rule — see
-    roadmap_phase_rows()). The disk axis then casts no vote at all and reads
-    "unknown", exactly as the bd axis already does when bd cannot be read:
-    every rule below asks whether disk backs up a claim, and in a migrated
-    repo there is no claim on disk to back up. Firing them anyway would put
-    a `blocks` conflict on every phase of every migrated repo over the
-    absence of files cairn no longer writes — the same trap cairn-gate
-    disarmed in its own disk-artifact reason.
+    `disk_is_source` False means THIS PHASE HAS NO DIRECTORY ON DISK. The
+    disk axis then casts no vote at all and reads "unknown", exactly as the
+    bd axis already does when bd cannot be read: every rule below asks
+    whether disk backs up a claim, and where there are no artifacts there is
+    nothing to back anything up. Firing them anyway would put a `blocks`
+    conflict on every phase of every migrated repo over the absence of files
+    cairn no longer writes — the same trap cairn-gate disarmed in its own
+    disk-artifact reason.
+
+    THE CONDITION IS `.planning/` ITSELF, and getting here took ruling out
+    three narrower answers that each look right:
+
+    - Not "the rows came from a ROADMAP". That silenced disk for a repo
+      whose ROADMAP.md was gone but whose phase tree was still there — a
+      repo in the MIDDLE of migrating. Since all three rules below are
+      guarded by this flag, `conflicts` could never be non-empty there:
+      every phase answered "ok" and /cairn:reconcile had nothing left to
+      investigate anywhere. A check that cannot fail is not a check.
+    - Not "THIS PHASE has a directory". `disk_state == "none"` is an
+      ASSERTION — disk saying the phase got nowhere — not an absence of
+      vote, and R2 exists precisely to catch a box ticked over a phase with
+      no directory at all. That correction disarms R2 in the gravest case
+      it has.
+    - Not "`.planning/phases/` exists" either, for the same reason one step
+      out: a roadmap can tick a box in a repo where no phase directory was
+      ever created, and that is still R2's conflict.
+
+    So the question is only whether there is a `.planning/` to read at all.
+    If there is, disk speaks, and "none" is one of the things it can say.
+    If there is not, there is nothing to read and no vote — which is the
+    migrated repo, and the false `blocks` on every phase that this flag was
+    introduced to prevent.
+
+    (All three wrongs were measured, not reasoned: the first turned two
+    reconcile tests red, the second and third turned JOUR-03 red.)
 
     Two severities only (D-09), each rule carrying its own justification for
     the one it gets:
@@ -1654,6 +1680,10 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     """
     rows, source = roadmap_phase_rows(planning_dir)
     dirs = phase_dirs(planning_dir)
+    # Read once, for every phase: whether this repo still carries a
+    # `.planning/` at all. It is what decides if the disk axis of
+    # corroborate() gets a vote — see the call below.
+    planning_exists = planning_dir.is_dir()
     for n in dirs:
         # A directory is evidence that somebody started THINKING about a phase,
         # never evidence that the phase exists in the plan (CairnGo-4oq). These
@@ -1694,16 +1724,13 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
             issues or [], n)
         row["verify_status"] = verification_status(pdir)
         bd_val = bd_state(issues or [], n, roadmap_done_set)
-        # `disk_is_source` is the roadmap mode, and it is the same call
-        # cairn-gate makes about its own disk-artifact reason: the disk axis
-        # measures whether artifacts back up what the DOCUMENT claims, and
-        # in a migrated repo there is no document making the claim. Letting
-        # it vote anyway would raise a `blocks` conflict on every phase of
-        # every migrated repo — for the absence of files cairn no longer
-        # writes — and route the whole board to /cairn:doctor.
+        # The disk axis votes when there is a `.planning/` to read at all —
+        # not when the roadmap exists, not when the phase tree exists, and
+        # not when this one phase has a directory. See corroborate() for why
+        # each of those three is wrong, and in which direction.
         verdict, evidence, conflicts = corroborate(
             n, row["disk_state"], row["complete"], bd_val, bd_ok,
-            active_phase_n, disk_is_source=(source == "roadmap"))
+            active_phase_n, disk_is_source=planning_exists)
         row["evidence"] = evidence
         row["corroboration"] = verdict
         row["conflicts"] = conflicts

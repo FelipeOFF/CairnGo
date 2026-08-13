@@ -818,6 +818,51 @@ make_bd_phases_fixture() {
   grep -qF '2  API' <<<"$output"
 }
 
+# O ESTADO INTERMEDIARIO, que nao e' nem um nem outro e foi o que quebrou
+# quando as duas metades da conversao v1.7 se encontraram na mesma arvore:
+# ROADMAP.md apagado, `.planning/phases/` AINDA em disco. As fases vem do
+# tracker, mas os artefatos existem e podem corroborar ou contradizer.
+#
+# O eixo disco e' decidido POR FASE, pela existencia do diretorio dela — nao
+# pelo modo do board. Amarra-lo ao roteiro silenciava o disco aqui, e como
+# TODA regra de corroborate() e' guardada por essa bandeira, `conflicts`
+# ficava impossivel de preencher: o veredito era "ok" para toda fase de todo
+# repo, e o /cairn:reconcile nao tinha mais o que investigar em lugar nenhum.
+@test "repo no meio da migracao: sem roteiro mas com phases/ em disco, o disco ainda vota" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_phases_fixture
+  rm .planning/ROADMAP.md          # o roteiro se foi...
+  [ -d .planning/phases/01-auth ]  # ...a arvore de fases nao
+
+  # A fase 1 esta VERIFICADA em disco e o portador dela segue ABERTO: e' a
+  # divergencia que o eixo de disco existe para expor.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.phases[0].evidence.disk' 'verified'
+  assert_json_eq "$output" '.phases[0].corroboration' 'conflict'
+  assert_json_eq "$output" \
+    '.phases[0].conflicts | map(select(.sources == ["disk","bd"])) | length' '1'
+  assert_json_eq "$output" '.phases[0].needs_doctor' 'true'
+}
+
+# O CONTROLE do caso acima: com a arvore de fases removida TAMBEM, o disco
+# volta a nao votar. As duas metades da mesma regra, num par, para que
+# nenhuma passe por acidente.
+@test "repo migrado de verdade: sem phases/ em disco o eixo volta a nao votar" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_phases_fixture
+  rm -rf .planning
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.phases[0].evidence.disk' 'unknown'
+  assert_json_eq "$output" '[.phases[] | select(.needs_doctor)] | length' '0'
+}
+
 # A outra metade da regra: enquanto HA roteiro em disco nomeando fases, ele e'
 # a ENTRADA e ele manda. Um portador que discorde do checkbox nao pode
 # silenciar a divergencia que a importacao existe para expor.
