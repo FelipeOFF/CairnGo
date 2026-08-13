@@ -1939,9 +1939,11 @@ def parallelism(model):
     them would have blocked the later one.
 
     `declared` is the honesty flag. Independence is only as good as what is
-    written down: a roadmap where nobody registered a dependency reports every
-    phase as free, which is a statement about the records rather than about the
-    work. The note says so instead of implying the graph was checked.
+    written down: a project where nobody registered a dependency — neither on
+    a bead nor in the roadmap's own prose — reports every phase as free, which
+    is a statement about the records rather than about the work. The note says
+    so instead of implying the graph was checked, and it says "project" rather
+    than "roadmap" because since v1.7 a migrated repo has no roadmap at all.
 
     `inconsistent` is the set this function refuses to answer about: a phase
     that exists on disk and NOT in ROADMAP.md. MEASURED 2026-08-05
@@ -1988,7 +1990,11 @@ def parallelism(model):
                 f"can run at the same time rather than in sequence: {pair}"
                 f"{more}. One agent per phase, or one worktree each.")
     if not declared and pending:
-        note += (" No dependencies are declared anywhere in this roadmap, so "
+        # "in this project", not "in this roadmap": since v1.7 `declared`
+        # reads the tracker's own edges as well, and in a migrated repo there
+        # is no roadmap to name. cairn-parallel.py prints the twin of this
+        # sentence off the same flag — they move together or they desync.
+        note += (" No dependencies are declared anywhere in this project, so "
                  "this reflects what is recorded, not a verified ordering.")
     if inconsistent:
         # Named in the note as well as in the field: a caller reading only the

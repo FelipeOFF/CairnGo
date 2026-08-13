@@ -109,13 +109,19 @@ PY
 
 # ─── Where the name comes from ───────────────────────────────────────────────
 
-@test "the group key comes from the roadmap, not from STATE.md" {
+@test "neither the group key nor milestone comes from STATE.md — both read one list" {
   render_json
-  # The trap, asserted rather than assumed: STATE.md wins for `milestone`,
-  # and it names the archived cycle. If this stops being true the test below
-  # proves nothing, so it must fail loudly here first.
+  # The trap, asserted rather than assumed: STATE.md's pointer still names
+  # the ARCHIVED cycle on disk. If this stops being true the assertions below
+  # prove nothing, so it must fail loudly here first.
+  run grep -c '^milestone: v1.0$' .planning/STATE.md
+  [ "$output" = "1" ]
+  # `v1.0` until 2026-08-13 (CairnGo-fp7): the `milestone` key was STATE.md
+  # first and published that archived pointer, on --plain as well. It reads
+  # the SAME list the groups read now, so both name the OPEN cycle and the
+  # board can no longer spell two different answers on one screen.
   run jq -r '.milestone' "$BOARD_JSON"
-  [ "$output" = "v1.0" ]
+  [ "$output" = "v1.1" ]
 
   run jq -r '[.groups[] | select(.type=="milestone") | .key] | join(" ")' \
     "$BOARD_JSON"
