@@ -181,12 +181,96 @@ PY
   grep -qF "not applicable" <<<"$output"
 }
 
-@test "no .planning/ — gate not applicable, exit 0 with a note" {
+# O portador da fase: a issue com o par de labels e SEM gsd.req, sem plan-NN
+# e sem sufixo de filho. E' ele que herdou o papel do checkbox do roteiro.
+make_bd_only_fixture() {
+  bd init -q --prefix gate --non-interactive >/dev/null 2>&1
+  BD_CARRIER1="$(bd create "Fase 1: autenticacao" -t task -l phase-1,m-v1.0 --silent)"
+  BD_A1="$(bd create "Signup flow" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' --silent)"
+  BD_CARRIER2="$(bd create "Fase 2: API" -t task -l phase-2,m-v1.0 --silent)"
+  BD_P2="$(bd create "Rate limiting" -t task -l phase-2,m-v1.0 \
+    --metadata '{"gsd":{"req":"API-01","phase":2,"milestone":"v1.0"}}' --silent)"
+}
+
+@test "sem .planning/ e sem .beads/ o gate nao se aplica: exit 0 com nota" {
   make_tmp_repo
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
   [ "$status" -eq 0 ]
   grep -qF "not applicable" <<<"$output"
+  grep -qF ".beads" <<<"$output"
+}
+
+# O CASO QUE A v1.7 TROUXE, e que o teste anterior nunca exercitou: um repo
+# JA MIGRADO — .beads/ presente, .planning/ nenhum. Ate aqui o gate saia 0
+# dizendo "not applicable" e o pre-push passava qualquer coisa; o ship gate
+# estava morto exatamente no repo que o cairn existe para servir.
+@test "repo migrado: fase cujo portador fechou com trabalho aberto reprova, exit 6" {
+  require_bd
+  make_tmp_repo
+  make_bd_only_fixture
+  [ ! -d .planning ]
+  bd close "$BD_CARRIER1" >/dev/null
+  bd close "$BD_A1" >/dev/null
+  bd close "$BD_CARRIER2" >/dev/null   # fase 2 declarada pronta...
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
+  [ "$status" -eq 6 ]
+  grep -qF "$BD_P2" <<<"$output"       # ...mas o trabalho dela segue aberto
+  refute_in_output "$BD_A1"
+}
+
+@test "repo migrado: portador fechado com todo o trabalho fechado passa" {
+  require_bd
+  make_tmp_repo
+  make_bd_only_fixture
+  bd close "$BD_CARRIER1" >/dev/null
+  bd close "$BD_A1" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "ok — no open issues" <<<"$output"
+}
+
+# A razao de bloqueio por ARTEFATO EM DISCO mede se o disco sustenta o que o
+# DOCUMENTO afirma. Sem documento nao ha afirmacao a conferir, e roda-la
+# assim reprovaria toda fase de todo repo migrado pela ausencia de arquivos
+# que o cairn nao escreve mais.
+@test "repo migrado: a razao de artefato-em-disco nao se aplica" {
+  require_bd
+  make_tmp_repo
+  make_bd_only_fixture
+  bd close "$BD_CARRIER1" >/dev/null
+  bd close "$BD_A1" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.source' 'bd'
+  assert_json_eq "$output" '.offending | length' '0'
+}
+
+@test "repo migrado sem portador fechado: nada a barrar, exit 0" {
+  require_bd
+  make_tmp_repo
+  make_bd_only_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "no phase carrier is closed" <<<"$output"
+}
+
+# O roteiro em disco AINDA vence enquanto existe: um GSD por importar e' a
+# ENTRADA, e o portador nao pode contradizer o checkbox nesse estado.
+@test "com ROADMAP.md em disco a fonte segue sendo o roteiro, nao o portador" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_gate_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.source' 'roadmap'
 }
 
 @test "bd missing from PATH exits 5 with a warning" {
