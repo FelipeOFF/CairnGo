@@ -1767,13 +1767,16 @@ EOF
 #   1. PINO POR ARQUIVO, e o pino so DESCE. Nenhum arquivo cresce em silencio,
 #      inclusive os que ja estao acima do teto. Crescer exige mover o numero
 #      aqui, o que e um ato visivel em review.
-#   2. O TETO propriamente dito, com a divida NOMEADA. Os tres arquivos acima de
+#   2. O TETO propriamente dito, com a divida NOMEADA. Os arquivos acima de
 #      1500 estao numa lista declarada, cada um com a issue que os rastreia —
-#      declarar, nunca improvisar. Um quarto arquivo estourando 1500 reprova.
+#      declarar, nunca improvisar. Mais um arquivo estourando 1500 reprova.
 #
-# A particao do cairn_gsd_render.py (saida (a) do design da issue) e trabalho
-# proprio e esta filada para o proximo milestone; o que a fase 38 devia entregar
-# era a DECISAO, e a decisao esta escrita aqui e no SUMMARY.
+# CairnGo-2fyg executou a particao (saida (a) do design): o envelope ficou em
+# cairn_gsd_render.py com os 4 simbolos que 2+ irmaos usam, o substrato de
+# documento foi para cairn_gsd_parse.py e o de FATO (git, subprocess,
+# auditoria) para cairn_gsd_fact.py. O render caiu de 1536 para 91 linhas e
+# saiu da lista de excecao; os dois modulos novos entram no gate pelo glob
+# cairn_gsd_*.py, sem ninguem precisar lembrar de adiciona-los.
 
 @test "teto de linhas: cada arquivo do binario python fica no seu pino, e o pino so desce" {
   local file pin actual over=""
@@ -1787,9 +1790,11 @@ EOF
 2113 cairn-gsd.py
 1560 cairn-gsd-state.py
 1365 cairn-gsd-init.py
-1492 cairn-gsd-check.py
+1491 cairn-gsd-check.py
 378 cairn-gsd-record.py
-1536 cairn_gsd_render.py
+91 cairn_gsd_render.py
+656 cairn_gsd_parse.py
+837 cairn_gsd_fact.py
 PINS
   if [ -n "$over" ]; then
     printf 'arquivos do binario python acima do pino:\n%s' "$over" >&2
@@ -1797,10 +1802,11 @@ PINS
   fi
 }
 
-@test "teto de linhas: so os tres arquivos declarados passam de 1500, e cada um tem issue" {
+@test "teto de linhas: so os arquivos declarados passam de 1500, e cada um tem issue" {
   # A lista de excecao E a divida, e ela e fechada: qualquer outro arquivo do
   # binario acima de 1500 reprova aqui, em vez de virar mais uma excecao muda.
-  local declared="cairn-gsd.py cairn-gsd-state.py cairn_gsd_render.py"
+  # cairn_gsd_render.py saiu daqui em CairnGo-2fyg, ao ser particionado.
+  local declared="cairn-gsd.py cairn-gsd-state.py"
   local path name actual undeclared=""
   for path in "$CAIRN_SCRIPTS_DIR"/cairn-gsd*.py \
               "$CAIRN_SCRIPTS_DIR"/cairn_gsd_*.py; do

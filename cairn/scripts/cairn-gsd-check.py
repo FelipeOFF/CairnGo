@@ -12,9 +12,9 @@ avaliado, mesmo reprovando. Exits: 0 contrato; 1 erro de USO contratado
 deste script; 4 verbo ainda sem handler. Exceções contratadas:
 run-with-timeout é exit-only (tabela GNU-timeout) e review-lane fala texto.
 
-Teto D-01: wc -l ≤ 1500. Envelope E substrato de parsing de documento:
-cairn_gsd_render (fonte única — precedente 34-05 desvio 2 e discrição do
-CONTEXT da 35; nenhuma cópia local). Divergências conscientes:
+Teto D-01: wc -l ≤ 1500. Envelope em cairn_gsd_render, substrato de
+documento em cairn_gsd_parse, substrato de FATO em cairn_gsd_fact (fonte
+única, nenhuma cópia local — partição CairnGo-2fyg). Divergências:
 tests/fixtures/gsd-goldens/divergences.json. cairn/gsd/ é SOMENTE-LEITURA.
 """
 import datetime
@@ -27,19 +27,19 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cairn_gsd_render import (  # noqa: E402
-    _UNDEFINED, _classify_drift_file, _clean_commit_times,
-    _cov_entry_view, _cov_validate_entry, _find_phase_artifact,
-    _find_stale_summary, _is_path_mapped, _parse_predicate_flags,
-    _run_bounded_shell, _run_git, _trim_2000, AUDIT_SCANNERS,
-    REVIEWER_LANES, VERIFICATION_ROUTING_TABLE,
-    build_checkpoint, check_ui_presence, collect_heading_section,
-    extract_decisions, extract_plan_designated_sections,
-    extract_plan_task_infos, emit, find_project_root, format_audit_report,
-    js_string, normalize_phrase, output_like_binary, parse_coverage,
-    parse_frontmatter_lines, parse_must_haves_block, parse_verb_args,
-    plan_files_modified_from, read_text,
-    scan_file_wide_negative_gate_conflict, strip_fences, stringify)
+from cairn_gsd_render import (emit, js_string,  # noqa: E402
+                              output_like_binary, parse_verb_args)
+from cairn_gsd_parse import (  # noqa: E402
+    _cov_entry_view, _cov_validate_entry, check_ui_presence,
+    collect_heading_section, extract_decisions, extract_plan_designated_sections,
+    extract_plan_task_infos, find_project_root, normalize_phrase, parse_coverage,
+    parse_frontmatter_lines, parse_must_haves_block, plan_files_modified_from,
+    read_text)
+from cairn_gsd_fact import (  # noqa: E402
+    _classify_drift_file, _find_phase_artifact, _find_stale_summary,
+    _is_path_mapped, _parse_predicate_flags, _run_bounded_shell, _run_git,
+    _trim_2000, AUDIT_SCANNERS, REVIEWER_LANES, VERIFICATION_ROUTING_TABLE,
+    build_checkpoint, format_audit_report, scan_file_wide_negative_gate_conflict)
 
 EXIT_OK = 0
 EXIT_CONTRACT = 1
@@ -52,7 +52,6 @@ CONTRACTS_DIR = Path(__file__).resolve().parent.parent / "gsd" / "contracts"
 
 # Regexes de fase/plano — cópia de forma de cairn-gsd-state.py L93-95.
 PLAN_FILE = re.compile(r"^\d+-(\d+)-PLAN\.md$")
-SUMMARY_FILE = re.compile(r"^\d+-(\d+)-SUMMARY\.md$")
 PHASE_DIR_PREFIX = re.compile(r"^(?:[A-Za-z0-9]+-)?0*(\d+)-")
 
 
