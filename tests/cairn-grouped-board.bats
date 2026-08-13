@@ -79,7 +79,15 @@ ROW_NARROW = re.compile(r'^(  |      )(' + CLS + r') (\S+)\$')
 def rows(text, labels):
     out, stop = [], None
     lines = text.split('\n')
-    for line in lines[1:]:            # line 0 is the counts line
+    # The counts BLOCK, not 'line 0': since 2026-08-13 (CairnGo-7yw) it folds
+    # between label/number pairs when the width cannot hold all four, so at
+    # --width 30 and 38 it is two lines. A hard-coded 1 read the second one
+    # ('done N') as the line that ends the list, and the sweep lost every row.
+    start = 0
+    while start < len(lines) and lines[start].split(' ')[0] in (
+            'ready', 'doing', 'blocked', 'done'):
+        start += 1
+    for line in lines[start:]:
         if not line.strip():
             continue
         m = ROW.match(line) or ROW_NARROW.match(line)
