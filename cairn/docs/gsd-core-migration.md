@@ -203,12 +203,6 @@ of the cairn install, not of your machine, and no external plugin can supply it:
 namespace is the whole loop now: `/cairn:new`, `/cairn:plan N`, `/cairn:work N`,
 `/cairn:verify N`, `/cairn:ship`. `/cairn:help` lists them.
 
-**The gsd-core manifest defect below no longer applies to you** once gsd-core is
-uninstalled — cairn does not ship, load, or patch that plugin any more. The
-section is kept because it documents a real upstream defect and the reasoning
-that produced the repair, and `cairn-capability.sh repair-manifest` still exists
-for anyone running gsd-core on their own.
-
 ---
 
 ## What changed underneath
@@ -242,64 +236,3 @@ not that the capability is missing. Confirm GSD is installed with
 will block a third-party bundle. cairn still works through `/cairn:*` and the
 skill; the fusion stays off until the policy allows it, and doctor keeps saying
 so.
-
-**`claude plugin list` reports a hook error on gsd-core.** You will probably
-see this after installing gsd-core 1.8.0:
-
-```
-gsd-core@gsd-core
-  Error: Hook load failed: Duplicate hooks file detected:
-  ./hooks/hooks.json resolves to already-loaded file …/hooks/hooks.json.
-```
-
-**cairn repairs this for you, and you should not see it.** `/cairn:init` clears
-the defect before installing the capability, and `/cairn:doctor` re-checks it. If
-you do see it, run:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-capability.sh" repair-manifest
-```
-
-then `/reload-plugins` — Claude Code has already decided the plugin failed for
-this session, and only a reload changes that.
-
-### What the defect actually is
-
-gsd-core's `plugin.json` declares `"hooks": "./hooks/hooks.json"`, and Claude
-Code loads that standard path automatically. The declaration is therefore a
-duplicate, and the loader does not merely skip the hooks — it **refuses the whole
-plugin**:
-
-```
-Status: ✘ failed to load
-```
-
-So the severity is higher than the message suggests: **there are no `/gsd:*`
-commands at all**. What hides it is that the `gsd-tools` CLI keeps working, so
-cairn's capability still installs and registers happily against a plugin Claude
-Code will not load. Measured both ways on the same install: with the line,
-`✘ failed to load`; without it, `✔ enabled`.
-
-### Why cairn patches instead of forking
-
-The repair removes exactly one line from the copy already on your disk. You keep
-receiving genuine upstream code — cairn does not fork, vendor or re-publish
-gsd-core, and there is no 41 MB tree to rebase against a weekly release cadence.
-It is narrow by design: it only removes a declaration that names the *standard*
-path. A manifest pointing at *additional* hook files is using the field
-correctly and is never touched.
-
-A gsd-core update restores the original file, so the defect can come back; that
-is why `/cairn:doctor` checks it on every run rather than trusting a one-time
-fix.
-
-### Upstream
-
-The one-line fix already exists as
-[open-gsd/gsd-core#2077](https://github.com/open-gsd/gsd-core/pull/2077). It was
-closed twelve seconds after opening, by automation rather than on merit: the
-project requires a maintainer-approved issue before any PR, and no such issue
-exists. The declaration is still present on `main`, `next` and `v1.8.0`.
-
-When it lands, this repair becomes a no-op on its own — the field it looks for
-will not be there — and cairn can drop the code.

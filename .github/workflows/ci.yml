@@ -9,7 +9,7 @@ env:
   # The gsd-core release cairn's capability manifest is validated against.
   # Bumping it is a one-line, reviewable change — which is the point of pinning
   # rather than tracking the repo's default branch (which is 'next').
-  GSD_CORE_REF: v1.8.0
+  GSD_CORE_REF: v1.10.0
 
 jobs:
   test:
@@ -30,25 +30,6 @@ jobs:
           # Turn the local-dev "validator absent -> skip" into a hard failure.
           # A validation that silently skips in CI is not a validation.
           echo "CAIRN_REQUIRE_GSD_VALIDATOR=1" >> "$GITHUB_ENV"
-
-      - name: Has upstream fixed the manifest defect?
-        # cairn carries a repair for gsd-core declaring the standard hooks path
-        # in its own manifest (open-gsd/gsd-core#2077), which makes Claude Code
-        # refuse the whole plugin. This is the trigger to delete that code: when
-        # the pinned gsd-core stops declaring it, the workaround is dead weight.
-        # A notice, never a failure — upstream fixing their bug must not turn
-        # this repository red.
-        run: |
-          hooks=$(python3 -c "
-          import json
-          d = json.load(open('$RUNNER_TEMP/gsd-core/.claude-plugin/plugin.json'))
-          print(d.get('hooks', ''))
-          ")
-          if [ "$hooks" = "hooks/hooks.json" ] || [ "$hooks" = "./hooks/hooks.json" ]; then
-            echo "gsd-core $GSD_CORE_REF still declares the standard hooks path — repair still needed."
-          else
-            echo "::notice title=Remove the gsd-core manifest repair::gsd-core $GSD_CORE_REF no longer declares the standard hooks path (found: '${hooks:-none}'). The repair in cairn-capability.py, its doctor branch, its tests and its docs can be deleted."
-          fi
 
       - name: Install bd (beads)
         # The installer tracks beads' default branch, so this job's bd version
