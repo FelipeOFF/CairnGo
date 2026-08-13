@@ -1139,8 +1139,11 @@ def build_announcement(result):
     if result["note"]:
         lines.append(result["note"])
     if not result["declared"]:
-        lines.append("No dependencies are declared in this roadmap, so this "
-                     "split reflects what is recorded, not a verified "
+        # The twin of cairn-status.py's own sentence, off the SAME flag this
+        # script never recomputes. "in this project" since v1.7: `declared`
+        # reads tracker edges too, and a migrated repo has no roadmap to name.
+        lines.append("No dependencies are declared anywhere in this project, "
+                     "so this split reflects what is recorded, not a verified "
                      "ordering.")
     return "\n".join(lines)
 

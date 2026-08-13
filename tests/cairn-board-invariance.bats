@@ -167,15 +167,25 @@ assert_reference_intact() {
 # `--plain` is what scripts consume, and PIPE-01 says it stays byte-for-byte
 # what it was before Phase 22 split the non-TTY path off it. The reference is
 # tests/fixtures/machine-contract/nontty-pre-split.txt: the bytes a FLAGLESS
-# non-TTY run printed on 2026-08-06, captured before any code of this phase
+# non-TTY run printed on 2026-08-06, captured before any code of that phase
 # moved (md5 e98d3096656463236c2ed12a12be90e3, identical to plain.txt and to
 # both `--plain` spellings — four command lines, one md5).
+#
+# ONE BYTE OF IT MOVED ON PURPOSE, 2026-08-13 (v1.7, CairnGo-fp7), and it is
+# recorded here rather than absorbed: the `MILESTONE` row read `v1.0`, which
+# is STATE.md's pointer at the ARCHIVED cycle, while this fixture's roadmap
+# marks `v1.1 Surface` open. It now reads `v1.1`. New md5 for both files:
+# a50fa27c5124bc42d433e7b98186c010. PIPE-01 froze the SHAPE of the row — tag,
+# tab, position, and the set of rows — and the shape did not move; what it
+# never froze was the row's right to answer with a cycle that closed. Every
+# other byte of both references is the 2026-08-06 capture, untouched.
 #
 # If this test goes red, the machine contract moved. Regenerating the
 # reference is NOT an option and capture.sh refuses to do it: the code path
 # that produced those bytes no longer exists, so a fresh capture would record
 # the human board and this test would go green having proved nothing. It is
-# the change that has to come back, not the reference.
+# the change that has to come back, not the reference — and the one exception
+# above is a decided, single-value edit with a bead id on it, not a capture.
 @test "--plain still renders the pre-split machine bytes" {
   diff_machine_against_reference
   if [ "$status" -ne 0 ]; then
@@ -216,13 +226,22 @@ assert_reference_intact() {
 }
 
 # The same argument, for the machine reference. The perturbation has to reach
-# the MACHINE format, and --plain reads the roadmap differently from the board
-# — so it is STATE.md's `milestone:` that moves here, because render_plain()
-# prints it verbatim on its `MILESTONE\t...` row. That makes the perturbation
-# travel the whole path, from a file on disk to the compared bytes.
+# the MACHINE format, and render_plain() prints `data["milestone"]` verbatim
+# on its `MILESTONE\t...` row — so moving the cycle that row names makes the
+# perturbation travel the whole path, from a file on disk to the compared
+# bytes.
+#
+# IT USED TO MOVE STATE.md's `milestone: v1.0`, and that stopped working on
+# 2026-08-13: CairnGo-fp7 took --plain off STATE.md, so editing that line is
+# now a no-op and this liveness test would have failed for the right reason.
+# The perturbation moves to the roadmap's own open-cycle line, which is where
+# the answer comes from while a roadmap declares one. Same claim, same file,
+# new address — and the guard below still refuses a perturbation that turned
+# into a no-op.
 @test "perturbing the fixture breaks the machine-bytes comparison" {
-  sed -i.bak 's/^milestone: v1.0$/milestone: v9.9/' .planning/STATE.md
-  rm -f .planning/STATE.md.bak
+  sed -i.bak 's/^- 🚧 \*\*v1.1 Surface\*\*/- 🚧 **v9.9 Surface**/' \
+    .planning/ROADMAP.md
+  rm -f .planning/ROADMAP.md.bak
   diff_machine_against_reference
   # A sed that matched nothing would leave the render identical and fail the
   # check below — the perturbation cannot silently become a no-op.
@@ -264,11 +283,14 @@ assert_reference_intact() {
     "o brd-001  Read the roadmap into a phase model" \
     "blocked by brd-001"
   assert_reference_intact maxrows "+1 more" "PENDING PHASES" "v1.1 Surface"
+  # `v1.0` until 2026-08-13 (CairnGo-fp7): the row named STATE.md's pointer
+  # at the archived cycle while the roadmap above it marked v1.1 open. The
+  # anchor is the OPEN cycle now, on both files.
   assert_reference_intact plain "$(printf 'READY\tbrd-001')" \
-    "$(printf 'MILESTONE\tv1.0')"
+    "$(printf 'MILESTONE\tv1.1')"
   assert_reference_intact brief "[cairn-status] phase 3/4" "▶ next: "
   # Same anchors as plain, on the second axis: an emptied capture would match
   # a --plain that broke and printed nothing just as happily.
   assert_file_intact "$MACHINE_FIXTURES/nontty-pre-split.txt" \
-    "$(printf 'READY\tbrd-001')" "$(printf 'MILESTONE\tv1.0')"
+    "$(printf 'READY\tbrd-001')" "$(printf 'MILESTONE\tv1.1')"
 }

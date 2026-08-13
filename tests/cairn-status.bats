@@ -80,9 +80,12 @@ board_inside() {
 # the right lane with its own suffix, and the footer is untouched — are all
 # still guarded, in the grouped list's spelling. Nothing was dropped.
 #
-# This fixture's ROADMAP has no `## Milestones` section, so no milestone is
-# open, no milestone group is emitted (Phase 20, D-03) and every issue lands
-# in the loose group. The hierarchy itself is proved in
+# UPDATED 2026-08-13 (v1.7, CairnGo-9c0h.6). This fixture's ROADMAP has no
+# `## Milestones` section, so until now no cycle was open and every issue
+# landed in the loose group. The list is one of the readings that moved onto
+# the two-source rule: no list on disk means the TRACKER answers, and
+# make_status_fixture labels every issue `m-v1.0` — so the open cycle is
+# v1.0, and the group wears its name. The hierarchy itself is proved in
 # tests/cairn-grouped-board.bats, over a fixture that HAS an open cycle.
 @test "board at --width 100: counts, stage symbols, footer, next action" {
   require_bd
@@ -95,11 +98,13 @@ board_inside() {
 
   # The four numbers the lane headers used to carry.
   grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
-  # `No milestone` until 2026-08-06 (Phase 22, CairnGo-uz6): with no
-  # `## Milestones` section no cycle is open, and the group carrying the
-  # pending phases now says so by name. The phase line above the issues is
-  # part of the same fix and is asserted below.
-  grep -qF 'No open milestone' <<<"$output"
+  # `No milestone` until 2026-08-06 (Phase 22, CairnGo-uz6), then
+  # `No open milestone` until 2026-08-13 (v1.7): with no `## Milestones`
+  # list on disk the tracker answers, and the tracker has open work under
+  # `m-v1.0`. The phase line above the issues is part of the same fix and is
+  # asserted below.
+  grep -qF 'v1.0' <<<"$output"
+  refute_in_output 'No open milestone'
   grep -qF '◔ 2  API' <<<"$output"
   # And no grid: the kanban is gone, not hidden.
   refute_in_output '┌'
@@ -207,7 +212,11 @@ print("ok column %d" % cols.pop())
   assert_json_eq "$output" '.phase.active' '2'
   assert_json_eq "$output" '.phase.total' '2'
   assert_json_eq "$output" '.phase.completed' '1'
-  assert_json_eq "$output" '.milestone' 'null'
+  # `null` until 2026-08-13 (v1.7, CairnGo-fp7): the key used to be
+  # STATE.md's `milestone:` first, and this fixture's STATE.md has none. It
+  # is now the cycle that still holds open work, which the issues declare
+  # with their `m-v1.0` label.
+  assert_json_eq "$output" '.milestone' 'v1.0'
   assert_json_eq "$output" '.next.kind' 'continue'
   assert_json_eq "$output" '.next.id' "$ST_DOING"
   assert_json_eq "$output" '.ready[0].id' "$ST_READY1"
@@ -344,6 +353,55 @@ print("ok column %d" % cols.pop())
   refute_in_output '⧗'
 }
 
+# CairnGo-fp7, e a razao de ele ter ficado aberto desde a fase 22: a linha
+# MILESTONE do --plain era `fm["milestone"] or roadmap_milestone(...)`, o
+# STATE.md primeiro. O `milestone:` do STATE.md e' o ponteiro que ninguem
+# volta para mover no arquivamento — MEDIDO neste repositorio, o board dizia
+# `MILESTONE v1.6` com o v1.6 arquivado e o v1.7 correndo.
+#
+# O fixture arma exatamente isso: o STATE.md aponta o ciclo ARQUIVADO (cuja
+# unica issue esta fechada) enquanto o trabalho aberto vive no ciclo
+# seguinte. Afirmar que o STATE.md ainda diz v1.6 nao e' decoracao: sem isso
+# o teste nao distingue "a linha mudou de fonte" de "o fixture mudou de
+# ideia".
+#
+# PIPE-01 congelou a FORMA da linha, e ela nao se mexeu: mesma tag, mesma
+# tabulacao, mesmo lugar. O que o contrato de maquina nunca congelou foi o
+# direito de ela responder errado.
+@test "--plain nomeia o ciclo com trabalho aberto, nao o que o STATE.md aponta" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local archived
+  archived="$(bd create "O ciclo que ja fechou" -t task -l phase-1,m-v1.6 --silent)"
+  bd close "$archived" >/dev/null
+  bd create "O ciclo que esta correndo" -t task -l phase-2,m-v1.7 --silent >/dev/null
+  printf -- '---\nmilestone: v1.6\nactive_phase: "2"\n---\n\n# State\n' \
+    > .planning/STATE.md
+  run grep -c '^milestone: v1.6$' .planning/STATE.md
+  [ "$output" = "1" ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'MILESTONE\tv1.7')" <<<"$output"
+  refute_in_output "$(printf 'MILESTONE\tv1.6')"
+
+  # E a superficie humana diz o mesmo: desde a v1.7 as duas leem a MESMA
+  # lista, lida uma vez, entao o TSV e o rodape nao podem mais nomear ciclos
+  # diferentes na mesma arvore — que era o outro lado do defeito.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF 'v1.7' <<<"$output"
+  refute_in_output 'v1.6'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.milestone' 'v1.7'
+  assert_json_eq "$output" '.open_milestones[0].key' 'v1.7'
+  assert_json_eq "$output" '.open_milestones | length' '1'
+}
+
 @test "titles are never truncated in plain mode" {
   require_bd
   make_tmp_repo
@@ -430,6 +488,55 @@ assert not bad, "a row came back truncated: %r" % bad
 print("ok %d rows" % len(rows))
 ' "$ST_READY1" "$ST_DOING" "$ST_BLOCKED" <<<"$output"
   [ "$status" -eq 0 ]
+}
+
+# CairnGo-7yw. Depois da fase 22 esta era a UNICA linha do board que ainda
+# desenhava alem da largura pedida — o painel de fases inteiro ja tinha sido
+# consertado e varrido de 30 a 200 colunas, e esta ficou porque vive noutro
+# renderizador (render_groups) e porque os fixtures nao a expunham: com
+# contagens de UM digito ela mede 38 celulas e cabe. Com dois digitos passa
+# de 40, e MEDIDO neste repositorio a --width 30 ela saia com 44.
+#
+# Nao e' o transbordo que o BOARD-03 permite (token unico maior que a
+# coluna): ha tres separadores onde quebrar. Mas a quebra nao pode cair
+# dentro de um par — `blocked` numa linha e o seu numero na seguinte publica
+# um numero sem nome, que e' pior do que a linha larga.
+@test "a linha de contagens respeita --width em toda largura, com numeros de dois digitos" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local i id
+  for i in $(seq 1 12); do
+    bd create "Ready $i" -t task --silent >/dev/null
+  done
+  for i in $(seq 1 10); do
+    id="$(bd create "Done $i" -t task --silent)"
+    bd close "$id" >/dev/null
+  done
+
+  local w
+  for w in 30 38 44 50 64 80 100 140 200; do
+    run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width "$w"
+    [ "$status" -eq 0 ]
+    run python3 -c "
+import sys, unicodedata
+def cw(s):
+    return sum(2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1
+               for c in s)
+w = $w
+lines = [l.rstrip() for l in sys.stdin.read().split('\n')]
+counts = [l for l in lines
+          if l.split(' ')[0] in ('ready', 'doing', 'blocked', 'done')]
+assert counts, 'a linha de contagens nao apareceu em --width %d' % w
+bad = [(cw(l), l) for l in counts if cw(l) > w]
+assert not bad, (w, bad)
+# Os quatro pares chegam inteiros, cada numero ainda colado no seu rotulo.
+joined = ' | '.join(counts)
+for label, n in (('ready', 12), ('doing', 0), ('blocked', 0), ('done', 10)):
+    assert '%s %d' % (label, n) in joined, (w, label, joined)
+" <<<"$output"
+    [ "$status" -eq 0 ]
+  done
 }
 
 @test "color: --color=always emits SGR; NO_COLOR strips it; the flag wins" {
@@ -653,6 +760,85 @@ print("ok %d rows" % len(rows))
   assert_json_eq "$output" '.phase.total' 'null'
   assert_json_eq "$output" '.phase.active' 'null'
   assert_json_eq "$output" '.next.kind' 'ready'
+}
+
+# O portador da fase: a issue com o par de labels e SEM gsd.req, sem plan-NN e
+# sem sufixo de filho. E' ele que herdou o papel do checkbox do roteiro, a
+# mesma escolha que cairn-gate ja tinha feito para a completude.
+make_bd_phases_fixture() {
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  ST_CARRIER1="$(bd create "Auth" -t task -l phase-1,m-v2.0 --silent)"
+  ST_REQ1="$(bd create "Signup flow" -t task -l phase-1,m-v2.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v2.0"}}' --silent)"
+  ST_CARRIER2="$(bd create "API" -t task -l phase-2,m-v2.0 --silent)"
+  ST_REQ2="$(bd create "Rate limiting" -t task -l phase-2,m-v2.0 \
+    --metadata '{"gsd":{"req":"API-01","phase":2,"milestone":"v2.0"}}' --silent)"
+}
+
+# O CASO QUE A v1.7 TROUXE, e que o teste acima nao exercita: um repo JA
+# MIGRADO — .beads/ presente, .planning/ nenhum, e trabalho organizado em
+# fases. Ate aqui o board so sabia perguntar ao ROADMAP.md quais fases
+# existiam, entao neste repo ele nao mostrava fase nenhuma: `phase.total`
+# null com dois portadores no tracker. A ausencia da fonte virava a resposta
+# "nao ha fases", que e' diferente de "nao consegui ler".
+@test "repo migrado: as fases do board vem do tracker, com o portador no papel do checkbox" {
+  require_bd
+  make_tmp_repo
+  make_bd_phases_fixture
+  [ ! -e .planning ]
+  bd close "$ST_CARRIER1" >/dev/null
+  bd close "$ST_REQ1" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.phase.total' '2'
+  assert_json_eq "$output" '.phase.completed' '1'
+  assert_json_eq "$output" '.milestone' 'v2.0'
+  # O titulo da fase e' o do PORTADOR, e a completude e' o portador fechado —
+  # nao "toda issue da fase fechada", que tornaria vacua a pergunta seguinte.
+  assert_json_eq "$output" '.phases[0].title' 'Auth'
+  assert_json_eq "$output" '.phases[0].complete' 'true'
+  assert_json_eq "$output" '.phases[1].title' 'API'
+  assert_json_eq "$output" '.phases[1].complete' 'false'
+  # E os requisitos sao os `gsd.req` das issues da fase, nao um `(REQ-01)`
+  # entre parenteses numa linha de markdown.
+  assert_json_eq "$output" '.phases[1].requirements[0]' 'API-01'
+
+  # O eixo DISCO nao vota quando nao foi ele que pos estas fases no board: a
+  # regra R2 mede se o disco sustenta o que o DOCUMENTO afirma, e aqui nao ha
+  # documento afirmando nada. Sem esta guarda toda fase de todo repo migrado
+  # sairia com conflito `blocks` pela ausencia de arquivos que o cairn nao
+  # escreve mais, e o board inteiro seria desviado para o /cairn:doctor.
+  assert_json_eq "$output" '.phases[0].evidence.disk' 'unknown'
+  assert_json_eq "$output" '.phases[0].corroboration' 'ok'
+  assert_json_eq "$output" '[.phases[] | select(.needs_doctor)] | length' '0'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF '2  API' <<<"$output"
+}
+
+# A outra metade da regra: enquanto HA roteiro em disco nomeando fases, ele e'
+# a ENTRADA e ele manda. Um portador que discorde do checkbox nao pode
+# silenciar a divergencia que a importacao existe para expor.
+@test "com ROADMAP.md nomeando fases a fonte segue sendo o roteiro, nao o portador" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  # O tracker discorda do roteiro nas duas pontas: portador da 1 ABERTO (o
+  # roteiro marca `- [x]`), portador da 2 FECHADO (o roteiro marca `- [ ]`).
+  bd create "Outro nome para a fase 1" -t task -l phase-1,m-v1.0 --silent >/dev/null
+  local carrier2
+  carrier2="$(bd create "Outro nome para a fase 2" -t task -l phase-2,m-v1.0 --silent)"
+  bd close "$carrier2" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.phases[0].title' 'Auth'
+  assert_json_eq "$output" '.phases[0].complete' 'true'
+  assert_json_eq "$output" '.phases[1].title' 'API'
+  assert_json_eq "$output" '.phases[1].complete' 'false'
 }
 
 @test "GSD repo without .beads degrades to a GSD-only board with a note" {
@@ -1531,11 +1717,12 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   # anchors follow the grouped list, the claim ("the board above the footer
   # is exactly what the other test pinned") is identical.
   grep -qF 'ready 2 · doing 1 · blocked 1 · done 1' <<<"$output"
-  # `No milestone` until 2026-08-06: this fixture's roadmap has no
-  # `## Milestones` section, so before Phase 22 every issue fell into the
-  # loose group and the phase line vanished. It now groups under the unnamed
-  # group, with the phase line above the issues (CairnGo-uz6).
-  grep -qF 'No open milestone' <<<"$output"
+  # `No milestone` until 2026-08-06, `No open milestone` until 2026-08-13:
+  # this fixture's roadmap has no `## Milestones` section, so before Phase 22
+  # every issue fell into the loose group and the phase line vanished, and
+  # before v1.7 the group was the unnamed one. With no list on disk the
+  # tracker answers, and it names v1.0 — the cycle its open issues label.
+  grep -qF 'v1.0' <<<"$output"
   refute_in_output '┌'
   grep -qF "◔ $ST_READY1  Gate regex hardening" <<<"$output"
   grep -qF "◔ $ST_READY2  Timeout tuning" <<<"$output"

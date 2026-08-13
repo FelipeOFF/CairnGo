@@ -29,27 +29,33 @@ Behavior:
        a note naming the failure — and `phase_model()`'s `bd_ok` flag turns
        False, so every phase's corroboration `bd` evidence reads "unknown"
        rather than silently agreeing with disk (see 4c).
-    3. Read GSD position leniently (regex, no YAML lib — patterns shared
-       with cairn-gate, except TABLE_PHASE_ANY which is stricter, see its
-       comment): ROADMAP.md phase checkboxes / progress-table rows and the
-       🚧 milestone line; STATE.md frontmatter `milestone:`, `active_phase:`
-       and `next_action:`. All of it is optional — missing files degrade to
-       an issues-only board. `roadmap_phase_rows()` also reads each phase's
-       `### Phase N:` detail block for `**Card:**` (or, failing that, the
-       first sentence of `**Goal:**`) — per D-03, this is the phase's
-       `purpose`, and it is `null` only when the phase has no detail block
-       at all.
+    3. Read the roadmap position under the TWO-SOURCE RULE (v1.7). A
+       `.planning/ROADMAP.md` that still names phases is a GSD waiting to be
+       imported: it is the INPUT, it is read leniently (regex, no YAML lib —
+       patterns shared with cairn-gate, except TABLE_PHASE_ANY which is
+       stricter, see its comment), and what it declares is what the board
+       shows beside bd — checkboxes, progress-table rows, `## Milestones`
+       list, and each phase's `### Phase N:` detail block for `**Card:**`
+       (or, failing that, the first sentence of `**Goal:**`), which per D-03
+       is the phase's `purpose`. Once the import is done the file is gone,
+       and every one of those answers comes from the tracker instead:
+       bd_phase_rows() and bd_milestones(), both over cairn_source. STATE.md
+       frontmatter still supplies `active_phase:` and `next_action:`. All of
+       it is optional — a repo with neither degrades to an issues-only board.
 
-       Since Phase 22 (BOARD-04) STATE.md's `milestone:` no longer names the
-       milestone on any human surface. It is the pointer that keeps aiming at
-       the archived cycle (MEASURED 2026-08-03, ten minutes after v1.4 was
-       archived: the board still read `v1.4`), so the footer, --brief and the
-       HTML head all read `open_milestones` — the `🚧` marker on the
-       ROADMAP's own `## Milestones` line, the same source phase_groups()
-       has used since Phase 20 — through milestone_label(). `--plain` still
-       carries the STATE.md read on its `MILESTONE` row, because PIPE-01
-       freezes the machine contract; that asymmetry is deliberate, recorded,
-       and tracked as an issue rather than smuggled into a byte change here.
+       The MILESTONE is the one question with no two-source rule, and the
+       asymmetry is deliberate. A phase checkbox is a claim about work that
+       the import has to check against bd, so while the roadmap exists it
+       wins. The `🚧` marker and STATE.md's `milestone:` claim nothing —
+       they are pointers at the current cycle, and a stale pointer is not a
+       divergence worth measuring, just a wrong answer. Phase 22 (BOARD-04)
+       moved the footer, --brief and the HTML head onto `open_milestones`
+       for that reason (MEASURED 2026-08-03, ten minutes after v1.4 was
+       archived: the board still read `v1.4`) and left `--plain` behind
+       because PIPE-01 froze the TSV. v1.7 finishes it (CairnGo-fp7): every
+       surface, `--plain` included, reads the cycle that still holds open
+       work, from bd. The line's SHAPE is what PIPE-01 froze; its right to
+       be wrong was never part of the contract.
     4. Synthesize ONE next action. In order: an in_progress issue exists →
        continue it; else the highest-priority ready issue labeled
        m-<milestone>,phase-<active>; else STATE.md's next_action; else the
@@ -268,10 +274,11 @@ Behavior:
     --json      one machine line: {ready, doing, blocked, counts, milestone,
                 open_milestones, phase, phases, next_commands, parallelism,
                 groups, next, sync, stale_complete, note, lease} (+ html:
-                {file, changed} when --html also ran). `milestone` is the
-                STATE.md-first read it always was; `open_milestones` is what
-                the ROADMAP marks open, and is what every human surface
-                names (Phase 22, BOARD-04)
+                {file, changed} when --html also ran). `milestone` and
+                `open_milestones` are two views of ONE list since v1.7
+                (CairnGo-fp7) — the open cycle the roadmap marks, or, with
+                no such roadmap, the one the tracker still holds work in;
+                never STATE.md's stale pointer (Phase 22, BOARD-04)
     --plain     the machine contract, and ONLY the flag reaches it (Phase
                 22): tab-separated rows (LANE, ID, PRIORITY, TITLE, EXTRA)
                 plus PHASE/MILESTONE/DONE/NEXT/SYNC/NOTE meta rows; no color,
@@ -318,6 +325,9 @@ import textwrap
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cairn_source  # noqa: E402
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -408,9 +418,10 @@ MILESTONE_BOLD = re.compile(r"\*\*([^*]+)\*\*")
 # be mistaken for a range.
 MILESTONE_RANGE = re.compile(r"\bPhases?\s+0*(\d+)(?:\s*[-–—]\s*0*(\d+))?",
                              re.IGNORECASE)
-# The SAME two markers roadmap_milestone() accepts, deliberately: two readers
-# of "which cycle is open" that disagree would be the defect this phase exists
-# to avoid, wearing a different name.
+# The two markers a roadmap uses to say a cycle is running, and the ONLY
+# place either is read since v1.7 removed roadmap_milestone(): two readers of
+# "which cycle is open" that disagree would be the defect phase 22 exists to
+# avoid, wearing a different name.
 MILESTONE_IN_PROGRESS = re.compile(r"\(in progress\)", re.IGNORECASE)
 
 # Label of the group holding work that belongs to no emitted milestone group.
@@ -940,10 +951,20 @@ def bd_state(issues, n, roadmap_done_set):
 
 
 def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
-                state_md_active_phase):
+                state_md_active_phase, disk_is_source=True):
     """(verdict, evidence, conflicts) for phase n from four independent
     reads: disk, bd, the roadmap checkbox, and STATE.md's active_phase
     pointer.
+
+    `disk_is_source` False means the phases on this board came from the
+    TRACKER and not from a roadmap (v1.7's two-source rule — see
+    roadmap_phase_rows()). The disk axis then casts no vote at all and reads
+    "unknown", exactly as the bd axis already does when bd cannot be read:
+    every rule below asks whether disk backs up a claim, and in a migrated
+    repo there is no claim on disk to back up. Firing them anyway would put
+    a `blocks` conflict on every phase of every migrated repo over the
+    absence of files cairn no longer writes — the same trap cairn-gate
+    disarmed in its own disk-artifact reason.
 
     Two severities only (D-09), each rule carrying its own justification for
     the one it gets:
@@ -972,14 +993,14 @@ def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
     later offers the human options.
     """
     evidence = {
-        "disk": disk_state,
+        "disk": disk_state if disk_is_source else "unknown",
         "bd": bd_val if bd_ok else "unknown",
         "roadmap": "complete" if roadmap_complete else "incomplete",
         "state_md": "active" if state_md_active_phase == n else None,
     }
     conflicts = []
 
-    if bd_ok and bd_val != "none":
+    if disk_is_source and bd_ok and bd_val != "none":
         disk_done = disk_state in ("executed", "verified")
         bd_done = bd_val == "closed"
         if disk_done != bd_done:
@@ -989,14 +1010,16 @@ def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
                           f"reports its issues {bd_val}"),
             })
 
-    if roadmap_complete and disk_state not in ("executed", "verified"):
+    if (disk_is_source and roadmap_complete
+            and disk_state not in ("executed", "verified")):
         conflicts.append({
             "severity": "blocks", "sources": ["roadmap", "disk"],
             "detail": (f"roadmap marks phase {n} complete, disk reports "
                       f"{disk_state}"),
         })
 
-    if state_md_active_phase == n and disk_state in ("executed", "verified"):
+    if (disk_is_source and state_md_active_phase == n
+            and disk_state in ("executed", "verified")):
         conflicts.append({
             "severity": "informs", "sources": ["state_md", "disk"],
             "detail": (f"STATE.md still points at phase {n}, disk already "
@@ -1188,8 +1211,8 @@ def _split_roadmap_rest(rest):
     return title, plans_done, plans_total, reqs, completed_on
 
 
-def roadmap_phase_rows(planning_dir):
-    """{n: partial phase dict} from ROADMAP.md.
+def disk_roadmap_phase_rows(planning_dir):
+    """{n: partial phase dict} from ROADMAP.md, empty when there is none.
 
     Two sources, merged: the checkbox lines carry the title, the requirement
     ids and the completion date; the milestone progress table carries the
@@ -1369,6 +1392,92 @@ def roadmap_phase_rows(planning_dir):
     return rows
 
 
+def bd_tracked(root):
+    """Is this root's own bd database the one a query would answer from?
+
+    The SAME applicability decision main() makes before touching a lane, and
+    for the same reason: `bd` walks UP the tree looking for a database, so a
+    repo with no `.beads/` of its own would silently be answered by an
+    ancestor's — a board describing somebody else's project. Every bd-sourced
+    reading below goes through this first.
+    """
+    return (root / ".beads").is_dir()
+
+
+def bd_phase_rows(root):
+    """{n: partial phase dict} from the TRACKER — the same dict shape
+    disk_roadmap_phase_rows() returns, with every field derived instead of
+    parsed.
+
+    Field by field, and none of it invented: the phase CARRIER is the bead
+    that inherited the checkbox (cairn-gate made that choice explicit), so
+    its title is the phase's title, its description its purpose, its `closed`
+    status the completion and its `closed_at` the date. The requirement ids
+    are the `gsd.req` of the phase's own beads, and the plans are its
+    `plan-NN` records.
+
+    `roadmap_depends_on` stays empty on purpose. phase_model() already folds
+    the tracker's own dependency edges in through issue_phase_deps(); reading
+    them a second time here would put one source under two names and let the
+    board disagree with itself about which phase waits on which.
+
+    `tracker` stays None for the same reason it is None on a roadmap with no
+    `**Tracker:**` line — the datum is absent, and absence is said, never
+    filled in.
+    """
+    if not bd_tracked(root):
+        return {}
+    rows = {}
+    reqs = cairn_source.phase_reqs(root)
+    for n in cairn_source.phases(root):
+        carrier = cairn_source.phase_carrier(root, n)
+        closed_at = (carrier or {}).get("closed_at") or ""
+        goal = cairn_source.phase_goal(root, n)
+        # First sentence only, the same cut the roadmap's `**Goal:**` branch
+        # makes above — a description is prose, and the card is one line.
+        sm = re.search(r"^(.*?\.)(?:\s|$)", goal) if goal else None
+        purpose = (sm.group(1) if sm else goal) or None
+        plans = cairn_source.phase_plans(root, n)
+        ms = cairn_source.issue_milestones(carrier) if carrier else []
+        rows[n] = {
+            "number": n,
+            "title": clean(carrier["title"]) if carrier else None,
+            "milestone": ms[0] if ms else None,
+            "complete": bool(carrier and carrier.get("status") == "closed"),
+            "completed_on": closed_at[:10] or None,
+            "plans_done": sum(1 for _, done in plans if done) if plans else None,
+            "plans_total": len(plans) or None,
+            "requirements": reqs.get(n, []),
+            "purpose": clean(purpose) if purpose else None,
+            "tracker": None,
+            "in_roadmap": True,
+            "roadmap_depends_on": [],
+        }
+    return rows
+
+
+def roadmap_phase_rows(planning_dir):
+    """({n: partial phase dict}, source) — from the ROADMAP on disk when it
+    names any phase, from the tracker when it does not.
+
+    The same two-source rule cairn-doctor holds (roadmap_phases_and_reqs) and
+    cairn-gate applies to completion: a `.planning/ROADMAP.md` still waiting
+    to be imported is the INPUT, and what it declares is what the board has to
+    show next to bd. Once the import is done the file is gone — or, as in this
+    repository, still there with its phase list archived out of it — and the
+    tracker answers instead. A roadmap that names no phase at all is not an
+    input holding a claim; it is a roadmap with nothing left to say.
+
+    The source comes back with the rows because corroborate() has to know it:
+    the disk axis only gets a vote while the roadmap is what put these phases
+    on the board. See phase_model().
+    """
+    disk = disk_roadmap_phase_rows(planning_dir)
+    if disk:
+        return disk, "roadmap"
+    return bd_phase_rows(planning_dir.parent), "bd"
+
+
 def roadmap_dep_phases(text):
     """Phase numbers a `**Depends on:**` line DECLARES, never the ones its
     justification happens to mention.
@@ -1543,7 +1652,7 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     zero bytes of this function's return value, only a stderr warning
     (JOUR-03).
     """
-    rows = roadmap_phase_rows(planning_dir)
+    rows, source = roadmap_phase_rows(planning_dir)
     dirs = phase_dirs(planning_dir)
     for n in dirs:
         # A directory is evidence that somebody started THINKING about a phase,
@@ -1585,9 +1694,16 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
             issues or [], n)
         row["verify_status"] = verification_status(pdir)
         bd_val = bd_state(issues or [], n, roadmap_done_set)
+        # `disk_is_source` is the roadmap mode, and it is the same call
+        # cairn-gate makes about its own disk-artifact reason: the disk axis
+        # measures whether artifacts back up what the DOCUMENT claims, and
+        # in a migrated repo there is no document making the claim. Letting
+        # it vote anyway would raise a `blocks` conflict on every phase of
+        # every migrated repo — for the absence of files cairn no longer
+        # writes — and route the whole board to /cairn:doctor.
         verdict, evidence, conflicts = corroborate(
             n, row["disk_state"], row["complete"], bd_val, bd_ok,
-            active_phase_n)
+            active_phase_n, disk_is_source=(source == "roadmap"))
         row["evidence"] = evidence
         row["corroboration"] = verdict
         row["conflicts"] = conflicts
@@ -1823,9 +1939,11 @@ def parallelism(model):
     them would have blocked the later one.
 
     `declared` is the honesty flag. Independence is only as good as what is
-    written down: a roadmap where nobody registered a dependency reports every
-    phase as free, which is a statement about the records rather than about the
-    work. The note says so instead of implying the graph was checked.
+    written down: a project where nobody registered a dependency — neither on
+    a bead nor in the roadmap's own prose — reports every phase as free, which
+    is a statement about the records rather than about the work. The note says
+    so instead of implying the graph was checked, and it says "project" rather
+    than "roadmap" because since v1.7 a migrated repo has no roadmap at all.
 
     `inconsistent` is the set this function refuses to answer about: a phase
     that exists on disk and NOT in ROADMAP.md. MEASURED 2026-08-05
@@ -1872,7 +1990,11 @@ def parallelism(model):
                 f"can run at the same time rather than in sequence: {pair}"
                 f"{more}. One agent per phase, or one worktree each.")
     if not declared and pending:
-        note += (" No dependencies are declared anywhere in this roadmap, so "
+        # "in this project", not "in this roadmap": since v1.7 `declared`
+        # reads the tracker's own edges as well, and in a migrated repo there
+        # is no roadmap to name. cairn-parallel.py prints the twin of this
+        # sentence off the same flag — they move together or they desync.
+        note += (" No dependencies are declared anywhere in this project, so "
                  "this reflects what is recorded, not a verified ordering.")
     if inconsistent:
         # Named in the note as well as in the field: a caller reading only the
@@ -2113,18 +2235,58 @@ def state_frontmatter(planning_dir):
     return out
 
 
-def roadmap_milestone(planning_dir):
-    """Milestone marked in progress in ROADMAP.md (🚧 / '(in progress)' line
-    carrying a vN[.N...] token), or None."""
-    for line in read_lines(planning_dir / "ROADMAP.md"):
-        if "🚧" in line or MILESTONE_IN_PROGRESS.search(line):
-            m = VERSION_TOKEN.search(line)
-            if m:
-                return m.group(0)
-    return None
+# roadmap_milestone() vivia aqui: varria o ROADMAP.md atrás de uma linha 🚧
+# e main() punha o `milestone:` do STATE.md na frente dela. Esse par ERA o
+# defeito CairnGo-fp7, e a função some junto com ele — o ciclo aberto agora
+# sai da lista única que roadmap_milestones() monta, lida uma vez em main().
+# Dois leitores de "qual ciclo está aberto" que podem discordar era a
+# preocupação escrita em MILESTONE_IN_PROGRESS acima; agora há um.
+
+
+def bd_milestones(root):
+    """[{key, label, open, first, last}] do BD — a mesma forma que
+    disk_roadmap_milestones() devolve, derivada em vez de lida.
+
+    `label` é a própria chave: o roteiro escrevia um nome de vitrine
+    (`v1.5 Legible State`) que o label `m-v1.5` não carrega, e inventar um
+    seria escrever markdown de novo, do lado de dentro. `open` é o ciclo com
+    trabalho aberto — um só, pela mesma definição de milestone().
+    """
+    if not bd_tracked(root):
+        return []
+    current = cairn_source.milestone(root)
+    out = []
+    for key in cairn_source.milestones(root):
+        nums = sorted(n for n in cairn_source.milestone_phases(root, key)
+                      if isinstance(n, (int, float)))
+        out.append({"key": key, "label": key, "open": key == current,
+                    "first": nums[0] if nums else None,
+                    "last": nums[-1] if nums else None})
+    return out
 
 
 def roadmap_milestones(planning_dir):
+    """[{key, label, open, first, last}] — do `## Milestones` em disco
+    enquanto ELE declara um ciclo aberto, do bd quando não declara.
+
+    A regra das duas fontes, com o recorte que esta pergunta em particular
+    exige. Um roteiro por importar que diz `🚧 v1.1` é a ENTRADA e ele manda:
+    é a afirmação que a importação tem de honrar. Uma lista onde TODO ciclo
+    está ✅ não é uma entrada em desacordo com o bd — é um índice de
+    arquivo, e foi exatamente nisso que a lista deste repositório se
+    transformou quando o v1.7 passou a existir só no tracker. Perguntar a
+    ela qual ciclo está aberto é perguntar a quem já respondeu "nenhum meu".
+
+    O `or disk` do fim guarda o caso oposto: bd sem nenhum label `m-*` não
+    apaga os ciclos que o roteiro lista, ele apenas não tem o que dizer.
+    """
+    disk = disk_roadmap_milestones(planning_dir)
+    if any(ms["open"] for ms in disk):
+        return disk
+    return bd_milestones(planning_dir.parent) or disk
+
+
+def disk_roadmap_milestones(planning_dir):
     """[{key, label, open, first, last}] from the `## Milestones` list.
 
     The list, and only the list: the section opens at a `## Milestones`
@@ -2136,7 +2298,7 @@ def roadmap_milestones(planning_dir):
     A milestone whose line declares no range gets `first = last = None`.
 
     `open` is the marker on the milestone's OWN line — `🚧`, or
-    `(in progress)` in any case, the same two roadmap_milestone() accepts.
+    `(in progress)` in any case.
     Everything else (`✅`, `shipped`, an archive link, no marker at all) is
     closed. Deliberately conservative: nothing infers openness from position
     in the list, from recency, or from STATE.md, because a group announcing
@@ -2679,21 +2841,69 @@ def group_rows(data, max_rows):
     return rows
 
 
+def counts_segments(data):
+    """The four label/number pairs, each as its own span list.
+
+    The unit the two callers below share. A pair is ATOMIC: `blocked` and its
+    number are one fact, and a fold that puts them on different lines has
+    published a number with no name on it.
+    """
+    c = data["counts"]
+    return [[("ready ", None), (str(c["ready"]), None)],
+            [("doing ", None), (str(c["doing"]), SGR_YELLOW)],
+            [("blocked ", None), (str(c["blocked"]), SGR_RED)],
+            [("done ", None), (str(c["closed"]), SGR_GREEN)]]
+
+
 def counts_parts(data, style):
-    """`ready N · doing N · blocked N · done N` as spans.
+    """`ready N · doing N · blocked N · done N` as spans, on one line.
 
     ONE spelling, two surfaces: --brief has printed this line since Phase 10,
     and the grouped list needs it because the lane headers that used to carry
     the four numbers (`READY (3)`) are gone. Extracted rather than copied —
     a second copy is a second thing that can drift.
+
+    --brief keeps this one-line form whatever the width: it is contracted to
+    be exactly three lines, and a line that folds is not three lines any more.
+    The grouped list, which has no such contract, folds — see counts_lines().
     """
-    c = data["counts"]
-    return [("ready ", None), (str(c["ready"]), None), (style.sep, SGR_DIM),
-            ("doing ", None), (str(c["doing"]), SGR_YELLOW),
-            (style.sep, SGR_DIM),
-            ("blocked ", None), (str(c["blocked"]), SGR_RED),
-            (style.sep, SGR_DIM),
-            ("done ", None), (str(c["closed"]), SGR_GREEN)]
+    out = []
+    for seg in counts_segments(data):
+        if out:
+            out.append((style.sep, SGR_DIM))
+        out.extend(seg)
+    return out
+
+
+def counts_lines(data, width, style):
+    """counts_parts() folded to fit `width` — one line whenever it fits.
+
+    CairnGo-7yw: this was the last line of the board still drawn past the
+    width it was given. MEASURED at --width 30 in this repository,
+    `ready 23 · doing 2 · blocked 0 · done 94` came out at 40 cells; with the
+    single-digit counts of the fixtures it measures 38 and fits, which is
+    why the fixtures never caught it.
+
+    Not wrap_spans(), and the difference is the whole fix: that ruler breaks
+    on whitespace, and the whitespace here sits INSIDE `blocked 0`. The break
+    falls between two pairs, at the separator, or the line does not break —
+    which also means a wide terminal keeps the exact single line it had.
+    """
+    lines, cur, used = [], [], 0
+    sep_w = display_width(style.sep)
+    for seg in counts_segments(data):
+        w = sum(display_width(t) for t, _ in seg)
+        if cur and used + sep_w + w > width:
+            lines.append(cur)
+            cur, used = [], 0
+        if cur:
+            cur.append((style.sep, SGR_DIM))
+            used += sep_w
+        cur.extend(seg)
+        used += w
+    if cur:
+        lines.append(cur)
+    return lines
 
 
 def issue_body_spans(lane, iss, style):
@@ -2825,7 +3035,8 @@ def render_groups(data, width, max_rows, style):
     phase_groups() refused to store one in the first place.
     """
     rows = group_rows(data, max_rows)
-    lines = [render_spans(counts_parts(data, style), style)]
+    lines = [render_spans(c, style)
+             for c in counts_lines(data, width, style)]
     if not rows:
         lines.append("")
         lines.append(render_spans([(PHASE_INDENT + NO_WORK_TEXT, SGR_DIM)],
@@ -2904,7 +3115,7 @@ def meta_parts(data, style, include_done=True):
     where you are on a count and nothing about what you are doing.
 
     The milestone segment is milestone_label() since Phase 22 (BOARD-04): the
-    cycle the ROADMAP marks open, or `no open milestone` in words. It is
+    open cycle, or `no open milestone` in words. It is
     printed whenever there IS a roadmap position to speak of, and skipped
     entirely when there is not — announcing "no open milestone" about a repo
     with no roadmap at all answers a question nobody asked, and the
@@ -3339,10 +3550,12 @@ def milestone_label(data):
     """What the HUMAN surfaces call the current milestone (BOARD-04).
 
     The open cycles of `data["open_milestones"]`, which come from the marker
-    on the ROADMAP's own `## Milestones` line (`🚧` / `(in progress)`) and
-    never from STATE.md's `milestone:` — that pointer keeps naming the
-    archived cycle, which is the measured defect (2026-08-03, ten minutes
-    after v1.4 was archived, the board still read `v1.4`).
+    on the ROADMAP's own `## Milestones` line (`🚧` / `(in progress)`), or —
+    once that list has nothing open left to declare — from the cycle the
+    tracker still holds work in. Never from STATE.md's `milestone:`: that
+    pointer keeps naming the archived cycle, which is the measured defect
+    (2026-08-03, ten minutes after v1.4 was archived, the board still read
+    `v1.4`).
 
     One open cycle: its label, the SAME string the group row prints, so the
     header and the list cannot spell the same milestone two ways. More than
@@ -4376,18 +4589,24 @@ def main():
         note = (f"{len(stale_ids)} open issue(s) belong to roadmap-complete "
                 "phases. run /cairn:doctor --close-completed")
     fm = state_frontmatter(planning_dir)
-    # DELIBERATELY UNCHANGED (Phase 22, BOARD-04). This still reads STATE.md
-    # first, which is exactly the source that keeps pointing at the archived
-    # cycle — and render_plain() prints it verbatim on its `MILESTONE\t...`
-    # row. PIPE-01 forbids moving the TSV by one byte, so the machine contract
-    # keeps publishing what it always published. The human surfaces stopped
-    # following it: see open_milestones below and milestone_label(). The
-    # tension is real and is tracked as an issue, not fixed in silence here.
-    milestone = fm["milestone"] or roadmap_milestone(planning_dir)
-    milestone = clean(milestone) if milestone else None
     # ONE read of the milestone list, shared with phase_groups() below: two
-    # reads of the same file are two things that can disagree.
+    # reads of the same source are two things that can disagree.
     milestones = roadmap_milestones(planning_dir)
+    # CairnGo-fp7, fechado aqui. Até a v1.7 esta linha era
+    # `fm["milestone"] or roadmap_milestone(...)`: o STATE.md primeiro, o
+    # roteiro depois, e render_plain() publicando o resultado verbatim na
+    # linha `MILESTONE\t...`. A fase 22 moveu as três superfícies HUMANAS
+    # para open_milestones e deixou esta de propósito, porque PIPE-01
+    # congelava os bytes do TSV — o preço foi o board dizer `MILESTONE v1.6`
+    # com o v1.6 arquivado e o v1.7 correndo, MEDIDO neste repositório.
+    #
+    # Um contrato de máquina congela a FORMA da linha, não o direito de ela
+    # mentir. A forma não se mexeu: mesma tag, mesma tabulação, mesmo lugar.
+    # O que mudou foi o endereço da pergunta — e este era o último sítio do
+    # status que ia a um documento atrás do milestone. Sai da MESMA lista
+    # acima, então o TSV e o rodapé não podem mais nomear ciclos diferentes.
+    milestone = next((ms["key"] for ms in milestones if ms["open"]), None)
+    milestone = clean(milestone) if milestone else None
     active_phase = normalize_phase(fm["active_phase"])
     nxt = synthesize_next(ready, doing, milestone, active_phase,
                           fm["next_action"], done_phases)
@@ -4410,14 +4629,14 @@ def main():
         "counts": {"ready": len(ready), "doing": len(doing),
                    "blocked": len(blocked), "closed": n_closed},
         "milestone": milestone,
-        # Additive (Phase 22, BOARD-04): the cycles the ROADMAP itself marks
-        # open, in roadmap order — the same source phase_groups() reads, and
+        # Additive (Phase 22, BOARD-04): the open cycles of the ONE list read
+        # above — the same source phase_groups() and `milestone` read, and
         # never STATE.md. A LIST, not a scalar: a scalar would force this to
         # pick one in silence when a roadmap declares two open cycles, and
         # picking in silence is the family of defect BOARD-04 exists to end.
-        # Empty means the roadmap declares no open cycle, which is a fact the
-        # board states out loud rather than papering over — see
-        # milestone_label().
+        # Empty means neither the roadmap nor the tracker declares an open
+        # cycle, which is a fact the board states out loud rather than
+        # papering over — see milestone_label().
         "open_milestones": [{"key": ms["key"], "label": ms["label"]}
                             for ms in milestones if ms["open"]],
         "phase": {"active": active_phase,
