@@ -9,7 +9,7 @@ env:
   # The gsd-core release cairn's capability manifest is validated against.
   # Bumping it is a one-line, reviewable change — which is the point of pinning
   # rather than tracking the repo's default branch (which is 'next').
-  GSD_CORE_REF: v1.8.0
+  GSD_CORE_REF: v1.10.0
 
 jobs:
   test:
