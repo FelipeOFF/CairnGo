@@ -17,10 +17,11 @@ Identity (D-02): bd's own actor resolution (`BEADS_ACTOR`, else `git config
 user.name`, else `$USER`) is the SAME for two agents on one machine — no use
 for telling them apart. `git rev-parse --show-toplevel`, run against the
 project root this invocation was pointed at, IS distinct per worktree, so
-that absolute path is the lease's holder identity. KNOWN, ACCEPTED
-LIMITATION: two agents inside the SAME worktree remain indistinguishable by
-this scheme — a real scenario (two terminals in one directory), but outside
-this phase's target (one worktree per agent) and not solved here.
+that path — with $HOME collapsed to `~`, see the schema below — is the
+lease's holder identity. KNOWN, ACCEPTED LIMITATION: two agents inside the
+SAME worktree remain indistinguishable by this scheme — a real scenario (two
+terminals in one directory), but outside this phase's target (one worktree
+per agent) and not solved here.
 
 Staleness (D-03): a 4-hour heartbeat TTL, never a liveness check on a live
 process — every `/cairn:*` invocation is its own short-lived process, so
@@ -36,14 +37,21 @@ partial patch to just one lease field would silently erase its siblings:
     held:
         {"cairn": {"lease": {
             "phase": <int>,
-            "holder": "<acquiring worktree's git rev-parse --show-toplevel>",
+            "holder": "<acquiring worktree's toplevel, $HOME collapsed to ~>",
             "actor": "<display-only, BEADS_ACTOR/git user.name/$USER>",
-            "host": "<socket.gethostname()>",
+            "host": "<the hostname as a 12-hex digest, never the hostname>",
             "acquired_at": "<ISO8601 UTC, set once, preserved across renew>",
             "heartbeat_at": "<ISO8601 UTC, updated by every acquire/renew>"
         }}}
     vacant:
         {"cairn": {"lease": {"phase": <int>}}}
+
+Both identity fields go through cairn_identity (CairnGo-xclf) before they
+are written — `collapse_home()` on the holder path, `machine_id()` on the
+hostname — because bd metadata reaches the git-tracked `.beads/issues.jsonl`
+export, and an absolute path names the OS user while a personal machine's
+hostname often names its owner. What those fields are FOR is distinguishing
+holders, never naming them, and both conversions preserve that.
 
 The lease issue carries ONLY the `lease` label — NEVER `phase-<N>`. A
 `phase-<N>` label would make this bookkeeping issue look like real project
