@@ -14,6 +14,7 @@
 # Usage:  cairn-init.sh [target-dir]   (defaults to current dir)
 set -euo pipefail
 
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIR="${1:-$PWD}"
 cd "$DIR"
 echo "▸ bootstrapping GSD<->beads in: $DIR"
@@ -121,7 +122,11 @@ fi
 #    (bd unavailable) warns but never blocks. Idempotent: re-runs refresh the
 #    shim in place. Chainable beads-style: a pre-existing foreign pre-push
 #    hook is moved to pre-push.old and the shim runs it first.
-SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Tier 3 of the shim's gate resolution below, and the same pointer the
+# capability bundle shims already read. Rewritten on every init so an upgrade
+# refreshes it, and gitignored above so no tracked file names a home directory.
+mkdir -p .cairn
+printf '%s\n' "$PLUGIN_ROOT" > .cairn/plugin-root
 HOOKS_DIR="$(git rev-parse --git-path hooks 2>/dev/null || echo .git/hooks)"
 mkdir -p "$HOOKS_DIR"
 SHIM="$HOOKS_DIR/pre-push"
@@ -153,15 +158,35 @@ if [ -x "\$OLD" ]; then
   "\$OLD" "\$@" || exit \$?
 fi
 
-GATE="\${CAIRN_GATE:-$SCRIPTS_DIR/cairn-gate.sh}"
-if ! command -v "\$GATE" >/dev/null 2>&1 && [ ! -e "\$GATE" ]; then
-  echo "[cairn] pre-push: cairn-gate not found (\$GATE) — ship gate skipped" >&2
-  exit 0
-fi
 # Pin the gate to THIS repo: cairn-gate prefers \$CLAUDE_PROJECT_DIR over the
 # cwd, so a 'git -C /other/repo push' from a Claude session would otherwise
 # gate the session's project instead of the repo being pushed.
 REPO_ROOT="\$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+# The gate is RESOLVED at push time, never baked at install time. Measured
+# 2026-08-07 (CairnGo-pg9): this line used to carry the absolute path of the
+# scripts dir that ran the init — one machine's home directory, in a tracked
+# file, pointing at the plugin version installed THAT DAY. It never failed
+# loudly, because a plugin cache directory does not disappear; it just ran a
+# gate five releases old on every push of this repository, in silence.
+# Same tiers the capability bundle shims use, first hit wins:
+#   1. \$CAIRN_GATE                explicit override, or a deliberately pinned build
+#   2. <repo>/cairn/scripts        the repo being pushed IS a cairn checkout
+#   3. <repo>/.cairn/plugin-root   gitignored pointer, rewritten by every init
+#   4. \$CLAUDE_PLUGIN_ROOT        running inside a /cairn:* session
+GATE="\${CAIRN_GATE:-}"
+if [ -z "\$GATE" ]; then
+  for cand in \\
+    "\$REPO_ROOT/cairn/scripts/cairn-gate.sh" \\
+    "\$(head -1 "\$REPO_ROOT/.cairn/plugin-root" 2>/dev/null)/scripts/cairn-gate.sh" \\
+    "\${CLAUDE_PLUGIN_ROOT:-}/scripts/cairn-gate.sh"; do
+    if [ -f "\$cand" ]; then GATE="\$cand"; break; fi
+  done
+fi
+if ! command -v "\$GATE" >/dev/null 2>&1 && [ ! -e "\$GATE" ]; then
+  echo "[cairn] pre-push: cairn-gate not found (\$GATE) — ship gate skipped" >&2
+  exit 0
+fi
 rc=0
 if command -v "\$GATE" >/dev/null 2>&1; then
   "\$GATE" --planning-dir "\$REPO_ROOT/.planning" || rc=\$?

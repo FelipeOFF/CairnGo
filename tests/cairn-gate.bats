@@ -327,6 +327,36 @@ make_gate_stub() {
   fi
 }
 
+@test "the generated shim bakes no absolute path — the gate resolves at push time" {
+  require_bd
+  make_tmp_repo
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-init.sh" "$PWD"
+  [ "$status" -eq 0 ]
+  local hooks_dir shim
+  hooks_dir="$(git rev-parse --git-path hooks)"
+  shim="$hooks_dir/pre-push"
+
+  # CairnGo-pg9. The generator interpolated its own $SCRIPTS_DIR into the
+  # heredoc, so the installed hook carried the absolute path of whichever
+  # machine — and whichever plugin VERSION — happened to run the init. It
+  # never failed loudly, because a plugin cache directory does not disappear;
+  # it just ran a gate five releases old on every push, in silence.
+  ! grep -qF "$CAIRN_SCRIPTS_DIR" "$shim"
+  ! grep -qE '^GATE=.*:-/' "$shim"
+
+  # What replaces it: resolution at PUSH time, over tiers that are all either
+  # relative to the repo being pushed or read from the environment.
+  grep -qF 'GATE="${CAIRN_GATE:-}"' "$shim"
+  grep -qF '"$REPO_ROOT/cairn/scripts/cairn-gate.sh"' "$shim"
+  grep -qF '.cairn/plugin-root' "$shim"
+
+  # And the gate still resolves in a repo that is NOT a cairn checkout: tier 3
+  # is the pointer this same init writes, gitignored, never committed.
+  [ "$(head -1 .cairn/plugin-root)" = "$(cd "$CAIRN_SCRIPTS_DIR/.." && pwd)" ]
+  grep -qxF '.cairn/plugin-root' .gitignore
+}
+
 @test "shim chains a pre-existing foreign pre-push hook (runs it first)" {
   require_bd
   make_tmp_repo
