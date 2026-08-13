@@ -35,6 +35,43 @@ Reading is the default; writing needs the named --apply flag. That is the
 house pattern (cairn-doctor.py's --apply-reconciliation) and it is what keeps
 an autonomous loop from writing by accident.
 
+THE TWO SOURCES, AND WHY THIS COMMAND CAN HAVE NOTHING TO DO (v1.7)
+    This command exists to keep THREE DOCUMENTS in agreement. ROADMAP.md,
+    REQUIREMENTS.md and STATE.md hold numbers that are arithmetic over each
+    other and over the phase tree on disk, every one of them was maintained
+    by hand, and every one of them drifted.
+
+    IN A REPO WHERE THOSE THREE DO NOT EXIST, THAT PROBLEM DOES NOT EXIST.
+    There is no agreement between documents to keep. So the same two-source
+    rule cairn-doctor.py and cairn-gate.py already hold decides what a run is:
+
+      there is `.planning/ROADMAP.md`  ->  it is the INPUT, a GSD still
+                                           waiting to be imported, and every
+                                           edit below applies unchanged;
+      there is not                     ->  the source is the tracker, and the
+                                           document half is reported
+                                           `not-applicable` with scope
+                                           `out-of-scope` — the doctor's own
+                                           word (VOID-01) and its discipline:
+                                           a step that does not apply is
+                                           SAID, and counts as neither a
+                                           success nor a failure.
+
+    It is emphatically NOT `nothing to change`. That sentence claims a
+    comparison was made and came out equal, and it is the exact sentence
+    CairnGo-ozy caught being printed over a refusal.
+
+    What survives in the second mode is everything that was never a document:
+    step 7 below — the phase's lease and the worktree it was prepared in —
+    still runs, still needs bd, and still closes with the phase.
+
+    AND THE SECOND MODE WRITES NOTHING INTO THE TRACKER TO REPLACE WHAT IT
+    USED TO WRITE INTO THE FILES. The tempting move is to mark the phase
+    complete in bd the way the checkbox used to be marked. That is
+    `cairn-record`'s job. A bookkeeper that also recorded would be the second
+    writer of one fact, which is this milestone's disease wearing the costume
+    of a migration. `not applicable` means exactly that and nothing more.
+
 Behavior:
 
     close <N>   The whole end-of-phase bookkeeping, in one invocation:
@@ -450,7 +487,10 @@ MEASURED vs ASSUMED
         simply yields no state-narrative-stale finding, never a wrong one.
 
 Exit codes:
-    0  EXIT_OK — done, or nothing to change.
+    0  EXIT_OK — done, nothing to change, or (v1.7) no roadmap on disk, so
+       the document half did not apply. The three are one code and three
+       different reports: the third carries `documents.status =
+       not-applicable`, and never `nothing to change`.
     2  EXIT_USAGE — bad flags/arguments, or an ambiguous phase number.
     3  EXIT_DISAGREEMENT — read mode found something to change. Mirrors
        cairn-map.py's exit 3 ("stale") on purpose.
@@ -476,6 +516,19 @@ EXIT_NO_PHASE = 4
 EXIT_NO_BD = 5
 
 TAG = "[cairn-bookkeep]"
+
+# The doctor's fourth status and its two families, word for word from
+# cairn-doctor.py (NOT_APPLICABLE / NA_OUT_OF_SCOPE, phase 23 / VOID-01).
+# Copied rather than imported because this script imports nothing from its
+# siblings — but copied VERBATIM, because a second vocabulary for "this step
+# had nothing to do" is how one report says `⊘` and the next says `ok`.
+#
+# `out-of-scope` and not `no-input`: the three planning documents will never
+# exist in a tracker-sourced repo, nothing is missing, and nobody has a gap to
+# close. `no-input` would hand every migrated repo a permanent false red,
+# which is the false green mirrored rather than removed.
+NOT_APPLICABLE = "not-applicable"
+NA_OUT_OF_SCOPE = "out-of-scope"
 
 # Same family as cairn-migrate.py's CHECKBOX_PHASE_LENIENT: the phase NUMBER
 # is the anchor, everything around it is tolerated. Two dialects disagreeing
@@ -707,14 +760,52 @@ def emit(payload, as_json, human_lines):
 
 
 def resolve_planning_dir(arg):
+    """The planning dir, which may legitimately not be there (v1.7).
+
+    A dir NAMED with --planning-dir is an INPUT, and naming an input that is
+    not on disk stays a usage error: it is a typo, and answering a typo with
+    "not applicable, nothing to do here" is a green wearing the shape of an
+    answer. The DEFAULT `.planning/` is not an input at all in a
+    tracker-sourced repo — its absence is the ordinary state of every repo
+    that finished migrating, and document_source() is what reads it.
+    """
     if arg:
         planning = Path(arg)
-    else:
-        root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd())
-        planning = root / ".planning"
-    if not planning.is_dir():
-        die(f"planning dir not found: {planning}", EXIT_USAGE)
-    return planning
+        if not planning.is_dir():
+            die(f"planning dir not found: {planning}", EXIT_USAGE)
+        return planning
+    root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd())
+    return root / ".planning"
+
+
+def document_source(planning):
+    """Does the document half of this run apply? — the two-source rule, held
+    here the same way cairn-doctor.py and cairn-gate.py hold it.
+
+    THE FILE DECIDES, NOT THE DIRECTORY. `.planning/` can survive an import as
+    an empty shell, or carry CONTEXT files and no roadmap; what makes the
+    three-document arithmetic a real problem is the roadmap being on disk to
+    state it. So the question is `.planning/ROADMAP.md`, exactly the one
+    cairn-gate.py's completed_phases() asks.
+
+    Returns the doctor's shape: `status`, plus `scope` when and only when the
+    status is not-applicable, plus the sentence saying which it is and why.
+    """
+    if (planning / "ROADMAP.md").is_file():
+        return {
+            "status": "ok", "scope": None,
+            "detail": f"{planning / 'ROADMAP.md'} is on disk: this repo still "
+                      f"holds a GSD to import, so the three documents have "
+                      f"numbers that can disagree and this command keeps "
+                      f"them in agreement"}
+    return {
+        "status": NOT_APPLICABLE, "scope": NA_OUT_OF_SCOPE,
+        "detail": f"no {planning / 'ROADMAP.md'}: this project's source is "
+                  f"the tracker, and agreement between documents that do not "
+                  f"exist is not a problem that exists. Nothing is written "
+                  f"and nothing is compared — the phase's lease and its "
+                  f"worktree still close with the phase, and the bead is "
+                  f"cairn-record's to write, never this command's"}
 
 
 def sibling(name):
@@ -835,8 +926,19 @@ def run_bookkeeping(args, phase):
     planning = resolve_planning_dir(args.planning_dir)
     root = planning.parent
     date, stamp = now_stamp()
-    plan = build_plan(planning, phase, date, stamp,
-                      getattr(args, "plan_id", None))
+    documents = document_source(planning)
+    if documents["status"] == "ok":
+        plan = build_plan(planning, phase, date, stamp,
+                          getattr(args, "plan_id", None))
+    else:
+        # No roadmap on disk: there are no three documents to hold in
+        # agreement, so there is no plan — not an empty one that was computed,
+        # one that was never applicable. Every downstream key keeps its shape
+        # so a consumer reads the new truth instead of a KeyError; `counters`
+        # is null rather than {} because zero counters computed and counters
+        # that do not exist are different sentences.
+        plan = {"sources": {}, "edits": [], "unresolved": [], "skipped": [],
+                "counters": None}
     edits = plan["edits"]
 
     # The bd gate fires BEFORE the first byte is written. Bookkeeping that
@@ -846,10 +948,19 @@ def run_bookkeeping(args, phase):
     tracker_wanted = phase is not None and not getattr(args, "no_tracker",
                                                        False)
     if args.apply and tracker_wanted and shutil.which("bd") is None:
+        # The second clause is mode-dependent because it is a CLAIM: with no
+        # roadmap on disk there are no planning files to refuse to write, and
+        # a refusal that names a file that is not there is the same defect
+        # this script hunts, wearing an error message.
         die("bd is not on PATH, so the phase lease cannot be released — "
-            "refusing to write the planning files and leave the bookkeeping "
-            "half done. Install beads, or pass --no-tracker to do the file "
-            "half deliberately.", EXIT_NO_BD)
+            + ("refusing to write the planning files and leave the "
+               "bookkeeping half done. Install beads, or pass --no-tracker "
+               "to do the file half deliberately."
+               if documents["status"] == "ok" else
+               "and in this repo the lease and the worktree are the whole of "
+               "the bookkeeping, so there is no other half to do. Install "
+               "beads, or pass --no-tracker to say so on purpose."),
+            EXIT_NO_BD)
 
     changed = False
     written = []
@@ -887,7 +998,8 @@ def run_bookkeeping(args, phase):
                                        "after", "reason", "kind", "subject")}
                     for e in edits],
         "unresolved": plan["unresolved"], "skipped": plan["skipped"],
-        "counters": plan["counters"], "tracker": tracker, "commit": commit,
+        "counters": plan["counters"], "documents": documents,
+        "tracker": tracker, "commit": commit,
         "pr_scope": pr_scope,
         "pr_due": None if phase is None else (pr_scope == "phase")}
 
@@ -903,8 +1015,15 @@ def run_bookkeeping(args, phase):
     # to mean "zero edits", which is how this command printed it over a
     # disagreement it had just refused to write — three times on 2026-08-05,
     # each over a line written an hour earlier (CairnGo-ozy).
+    #
+    # And it means a COMPARISON was made. With no roadmap on disk none was, so
+    # the line that goes here is the not-applicable one — the same distinction
+    # in the other direction, and the reason the honest sentence sits exactly
+    # where the reassuring one used to.
     if not edits and not plan["unresolved"]:
-        human.append("nothing to change")
+        human.append("nothing to change" if documents["status"] == "ok"
+                     else f"documents :: {documents['status']} "
+                          f"({documents['scope']}) :: {documents['detail']}")
     for f in plan["unresolved"]:
         line = (f"NOT written :: {f['kind']} :: {f['subject']} :: "
                 f"found {f['found']!r} ({f['source']})")
@@ -919,7 +1038,13 @@ def run_bookkeeping(args, phase):
     if tracker["skipped"]:
         human.append(f"tracker :: not run :: {tracker['skipped']}")
     elif tracker["ran"]:
-        for name in ("map", "lease", "worktree"):
+        # The two steps that RUN, and `map` is no longer one of them (v1.7).
+        # It stays a null key in the JSON on purpose — see run_tracker — but
+        # reporting a step that no longer exists through a loop that reads
+        # `ok` off a None printed `tracker :: map :: FAILED (None)` over every
+        # successful close: a red for the absence of a copy cairn stopped
+        # keeping.
+        for name in ("lease", "worktree"):
             got = tracker[name] or {}
             state = "ok" if got.get("ok") else f"FAILED ({got.get('error')})"
             # `ok` used to mean nothing but "the subprocess exited 0", and
@@ -1393,6 +1518,12 @@ def build_plan(planning, phase, date, stamp, only_plan=None):
 
     Nothing here writes. It returns the plan; apply_edits() is the only
     thing that touches a file, and only with this list in hand.
+
+    A ROADMAP on disk is this function's PRECONDITION, not its question:
+    document_source() decides whether the document half applies at all, and
+    only calls here when it does. The die() below is what remains — the guard
+    against a future caller that skips that decision, never the answer a
+    tracker-sourced repo gets.
     """
     roadmap_path = planning / "ROADMAP.md"
     if not roadmap_path.is_file():
@@ -1713,6 +1844,11 @@ def reconcile(planning):
     """Read the three files and the phase tree; name every disagreement.
 
     Not one byte is written anywhere in this function or anything it calls.
+
+    The three files are this function's PRECONDITION (see build_plan): a repo
+    that keeps none of them is answered by document_source() before anything
+    gets here, so the die() below never means "you keep no ledger" — it means
+    a partial tree, which is a real disagreement of its own.
     """
     roadmap_path = planning / "ROADMAP.md"
     reqs_path = planning / "REQUIREMENTS.md"
@@ -1940,7 +2076,23 @@ def cmd_reconcile(args):
         emit(payload, args.json, human)
         sys.exit(EXIT_OK)
     planning = resolve_planning_dir(args.planning_dir)
+    documents = document_source(planning)
+    if documents["status"] != "ok":
+        # No roadmap on disk: reconcile() below would die() on the three
+        # absent files, and "the ledger reader is broken" is the wrong answer
+        # to "this project keeps no ledger". Zero disagreements NAMED as
+        # not-applicable, never as agreement — the report carries the reason
+        # in the field, so a reader can tell an empty list that was computed
+        # from one that never could be.
+        emit({"documents": documents, "disagreements": [],
+              "requirements": None, "coverage": None, "phases": None,
+              "state": None},
+             args.json,
+             [f"documents :: {documents['status']} ({documents['scope']}) "
+              f":: {documents['detail']}"])
+        sys.exit(EXIT_OK)
     result = reconcile(planning)
+    result["documents"] = documents
     found = result["disagreements"]
     human = [f"{f['kind']} :: {f['subject']} :: found {f['found']!r}, "
              f"expected {f['expected']!r} ({f['source']})" for f in found]
