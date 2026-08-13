@@ -16,15 +16,26 @@ fi
 # gate the session's project instead of the repo being pushed.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
-# The default is the gate IN THIS REPO, not an installed plugin copy. Measured
-# 2026-08-07: the generated default was an absolute path into the plugin cache
-# at cairn/1.0.0 — the version installed the day the hook was written. It still
-# resolved, so it never failed loudly; it just gated every push of this
-# repository with a gate five releases old. A checkout of cairn carries the
-# current gate at this path by construction, so it cannot go stale, and it
-# names no machine's home directory.
-# Elsewhere, or to pin a specific build, set CAIRN_GATE.
-GATE="${CAIRN_GATE:-$REPO_ROOT/cairn/scripts/cairn-gate.sh}"
+# The gate is RESOLVED at push time, never baked at install time. Measured
+# 2026-08-07 (CairnGo-pg9): this line used to carry the absolute path of the
+# scripts dir that ran the init — one machine's home directory, in a tracked
+# file, pointing at the plugin version installed THAT DAY. It never failed
+# loudly, because a plugin cache directory does not disappear; it just ran a
+# gate five releases old on every push of this repository, in silence.
+# Same tiers the capability bundle shims use, first hit wins:
+#   1. $CAIRN_GATE                explicit override, or a deliberately pinned build
+#   2. <repo>/cairn/scripts        the repo being pushed IS a cairn checkout
+#   3. <repo>/.cairn/plugin-root   gitignored pointer, rewritten by every init
+#   4. $CLAUDE_PLUGIN_ROOT        running inside a /cairn:* session
+GATE="${CAIRN_GATE:-}"
+if [ -z "$GATE" ]; then
+  for cand in \
+    "$REPO_ROOT/cairn/scripts/cairn-gate.sh" \
+    "$(head -1 "$REPO_ROOT/.cairn/plugin-root" 2>/dev/null)/scripts/cairn-gate.sh" \
+    "${CLAUDE_PLUGIN_ROOT:-}/scripts/cairn-gate.sh"; do
+    if [ -f "$cand" ]; then GATE="$cand"; break; fi
+  done
+fi
 if ! command -v "$GATE" >/dev/null 2>&1 && [ ! -e "$GATE" ]; then
   echo "[cairn] pre-push: cairn-gate not found ($GATE) — ship gate skipped" >&2
   exit 0
