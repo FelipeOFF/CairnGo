@@ -7,6 +7,138 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-14
+
+Três guardas voltaram a poder reprovar.
+
+A 2.0.0 tirou o roteiro do markdown na camada prompt. Esta tira nos scripts — e
+o que ela encontrou no caminho vale mais que a conversão. Quando a fonte muda
+por baixo de uma checagem, o modo de falha não é ela reprovar: é ela **passar a
+não poder reprovar**. Três guardas deste repositório estavam verdes e inúteis
+ao mesmo tempo, e nenhuma suíte disse isso sozinha.
+
+É major porque o `pre-push` passa a bloquear onde liberava e um comando público
+sumiu, não por cerimônia. Leia **Upgrading** antes de puxar.
+
+### Fixed
+
+- **O ship gate estava morto em todo repositório já migrado.** `cairn-gate`
+  exigia `.planning/` para se aplicar, então no instante em que um repo
+  terminava de migrar — o instante em que ele vira o repositório que o cairn
+  existe para servir — o gate saía `0 not applicable` e o `pre-push` liberava
+  qualquer coisa. O teste que dizia cobrir "sem `.planning/`" montava um repo
+  sem `.beads/` também, e por isso media o outro ramo e nunca tocou neste.
+
+- **A corroboração não podia produzir conflito num repositório migrado.** As
+  três regras de `corroborate()` estavam guardadas por uma única condição
+  amarrada ao roteiro; sem roteiro, a lista de conflitos ficava impossível de
+  preencher. Veredito `ok` para toda fase, e `/cairn:reconcile` sem nada a
+  investigar em lugar nenhum. As regras não perguntam a mesma coisa: R1 (disco
+  × bd) e R3 (disco × `STATE.md`) comparam disco com outro **observador** e
+  precisam do diretório da fase; R2 (roteiro × disco) compara **documento** com
+  realidade e é a única que faz sentido justamente quando o diretório falta.
+
+- **`cairn-bookkeep` imprimia `tracker :: map :: FAILED (None)` sobre todo
+  close bem-sucedido**, iterando sobre uma chave que a 2.0.0 fixou em `None` de
+  propósito.
+
+- **A linha `MILESTONE` do `--plain` mentia.** Vinha do `STATE.md` e dizia
+  `v1.6` enquanto o ciclo aberto era outro. Agora deriva do tracker, como o
+  rodapé. A forma da linha não mudou.
+
+- **A linha de contagens do board estourava larguras estreitas** — 44 caracteres
+  sob `--width 30`. Dobra entre pares, nunca dentro de um: `blocked` numa linha
+  e o número na outra publicaria número sem nome.
+
+- **`cairn-init` assava o caminho absoluto do plugin** no hook `pre-push` que
+  gera. O hook rodava um gate da versão instalada naquele dia, na máquina de
+  quem rodou o init, em silêncio — o arquivo é rastreado, então o caminho ia
+  para o repositório. O gate passa a ser resolvido em tempo de push.
+
+- Duas condições sempre-falsas de parentesco em `cairn-migrate`
+  (`iss.get("parent") == eid`): o bd não emite essa chave, e o `or` do id fazia
+  o trabalho ao lado. Mesma armadilha que quebrou o `cairn-record` com a suíte
+  verde.
+
+### Changed
+
+- **O roteiro sai do bd, sob a regra das duas fontes.** Enquanto existe
+  `.planning/ROADMAP.md` em disco, ele é a ENTRADA de um GSD por importar e ele
+  manda; quando não existe, responde o `bd` via `cairn_source`. Vale para
+  `gate`, `status`, `bookkeep`, `reconcile` e `trend`. Quem herdou o papel do
+  checkbox é o **portador da fase** — perguntar ao tracker "quais fases
+  terminaram?" pelo critério de toda-issue-fechada tornaria a pergunta seguinte
+  vazia, porque uma fase onde tudo fechou nunca tem issue aberta.
+
+- **`cairn-bookkeep` diz que não se aplica em vez de fingir acordo.** Ele existe
+  para manter em acordo os números de três documentos; onde eles não existem,
+  não há acordo a manter. `close`/`plan`/`reconcile` saem 0 com
+  `documents: {status: "not-applicable", scope: "out-of-scope"}`, vocabulário
+  do `cairn-doctor`. A lease e o worktree seguem valendo nos dois modos.
+
+- **`gsd-core` v1.8.0 → v1.10.0.** O upstream corrigiu o defeito do manifest, e
+  o reparo que o cairn carregava foi removido inteiro. O bump alinhou uma
+  divergência que já existia: `cairn-gsd.py`, o `CACHE_RELPATH` e os goldens já
+  eram v1.10.0, e só a CI seguia clonando v1.8.0.
+
+- **`cairn_gsd_render.py` particionado**, 1536 → 91 linhas, mais
+  `cairn_gsd_parse.py` (documento) e `cairn_gsd_fact.py` (git, subprocess,
+  auditoria). Fatias movidas byte a byte; a paridade contra os goldens não se
+  moveu.
+
+### Removed
+
+- **`cairn-capability.sh repair-manifest`**, com todo o reparo do manifest do
+  gsd-core: `STANDARD_HOOKS_PATHS`, `find_plugin_manifest`, `manifest_defect`,
+  `repair_manifest`, as chaves `plugin_manifest`/`manifest_loadable`/
+  `manifest_detail` do `inspect()`, a linha `plugin load` do relatório, e o
+  passo de CI que vigiava o upstream.
+
+### Added
+
+- **`tests/cairn-roadmap-source.bats`** — o oráculo da fonte do roteiro. Ele
+  mede **leitura**, não menção: prosa que explica a regra cita `ROADMAP.md` sem
+  abrir nada, e contá-la puniria a documentação da mudança. Lista fechada, cada
+  leitura sobrevivente declarada com a razão de sobreviver, mais um controle
+  negativo que exercita o detector contra uma leitura forjada — um teste de
+  ausência que nunca viu presença não prova nada.
+
+### Upgrading
+
+**O `pre-push` passa a bloquear onde liberava.** Se o seu repositório já
+migrou — tem `.beads/` e não tem `.planning/` — o ship gate estava desligado
+sem avisar, e agora funciona. Ele reprova quando uma fase cujo **portador está
+fechado** ainda tem trabalho não fechado. Antes de puxar, rode
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-gate.sh"
+```
+
+e feche o que ele listar. Para passar uma vez sem corrigir: `git push
+--no-verify`.
+
+**Reinstale o hook `pre-push`.** O hook que você tem no disco carrega o caminho
+absoluto do plugin da máquina e da versão que rodaram o `cairn-init`. Rode
+`/cairn:init` de novo para reescrevê-lo; o novo resolve o gate em tempo de
+push, nesta ordem: `$CAIRN_GATE`, `<repo>/cairn/scripts`,
+`<repo>/.cairn/plugin-root`, `$CLAUDE_PLUGIN_ROOT`.
+
+**`repair-manifest` não existe mais.** Se algum script seu o chama, remova a
+chamada: o defeito que ele consertava foi corrigido no `gsd-core` v1.10.0. As
+chaves `plugin_manifest`, `manifest_loadable` e `manifest_detail` sumiram do
+`--json` do `cairn-capability`, e a linha `plugin load` sumiu do relatório.
+
+**O `--json` do `cairn-bookkeep` ganhou `documents`.** Num repositório sem os
+documentos de planejamento, `close`/`plan`/`reconcile` agora saem **0** com
+`documents.status = "not-applicable"` onde antes morriam com erro de uso. Um
+script que dependia do exit code diferente de zero para detectar "não há
+roteiro" precisa passar a ler essa chave.
+
+**O `--json` do `cairn-status` pode trazer `evidence.disk = "unknown"`.** Isso
+significa que o eixo de disco não votou naquela fase — não que ela esteja sem
+artefato, que continua sendo `"none"`.
+
+
 ## [2.0.0] - 2026-08-12
 
 The tracker became the source. cairn stopped generating markdown.
