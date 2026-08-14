@@ -60,6 +60,15 @@ make_phase1_conflict() {
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
 }
 
+# O PORTADOR da fase 1: o bead que carrega `phase-1` e NAO e' requisito (sem
+# `gsd.req`), nem plano, nem filho. E' ele que herdou o papel da secao
+# `### Phase 1` do roteiro — o titulo e' o nome da fase, a description e' o
+# que ela promete.
+make_phase1_carrier() {
+  REC_C1="$(bd create "Auth foundation" -t task -l phase-1,m-v1.0 \
+    -d "Signup, login e a sessao que os dois compartilham." --silent)"
+}
+
 #-----------------------------------------------------------------------------
 # Task 1 — static: zero bd write verbs, zero journal-append calls (ESC-02)
 #-----------------------------------------------------------------------------
@@ -224,6 +233,65 @@ make_phase1_conflict() {
   assert_json_eq "$output" '.journal.history | length > 0' 'true'
   assert_json_eq "$output" '.git_shallow' 'false'
   assert_json_eq "$output" '.git_log | type' 'array'
+}
+
+# A REGRA DAS DUAS FONTES, aplicada a' evidencia de TEXTO. O `### Phase N` era
+# o que a fase dizia de si mesma; num repo ja migrado esse texto mora na issue
+# PORTADORA, e a alternativa — devolver null — mandaria o investigador
+# raciocinar sobre um conflito sem nunca ler o que a fase prometeu.
+@test "collect: sem ROADMAP.md em disco a evidencia de texto vem do portador da fase" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_corroboration_fixture
+  make_phase1_carrier
+  make_phase1_conflict
+  rm .planning/ROADMAP.md
+
+  run bash "$RECONCILE" collect 1 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.roadmap_excerpt | startswith("Phase 1: Auth foundation")' 'true'
+  # A promessa da fase chega inteira, nao so' o nome dela.
+  assert_json_eq "$output" '.roadmap_excerpt | contains("Signup, login")' 'true'
+  # E o texto NAO se disfarca de secao de markdown: quem le este pacote
+  # responde citando arquivo e linha, e um `###` aqui convidaria a citar um
+  # arquivo que nao existe neste repositorio.
+  assert_json_eq "$output" '.roadmap_excerpt | startswith("###")' 'false'
+  assert_json_eq "$output" ".roadmap_excerpt | contains(\"[bd $REC_C1]\")" 'true'
+}
+
+# A ausencia e' dita, nunca preenchida: sem portador nao ha nome de fase, e o
+# titulo de um REQUISITO ("AUTH-01: Signup flow") emprestado no lugar seria uma
+# promessa que ninguem fez.
+@test "collect: sem ROADMAP.md e sem portador a evidencia de texto e' null" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_corroboration_fixture
+  make_phase1_conflict
+  rm .planning/ROADMAP.md
+
+  run bash "$RECONCILE" collect 1 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.roadmap_excerpt' 'null'
+}
+
+# Enquanto o roteiro existe em disco ele e' a ENTRADA e o portador nao o
+# contradiz — um GSD por importar e' tudo o que `.planning/` existe para ser.
+@test "collect: com ROADMAP.md em disco o roteiro vence o portador" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_corroboration_fixture
+  make_phase1_carrier
+  make_phase1_conflict
+
+  run bash "$RECONCILE" collect 1 --project-dir "$PWD" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.roadmap_excerpt | startswith("### Phase 1: Auth")' 'true'
+  assert_json_eq "$output" '.roadmap_excerpt | contains("[bd ")' 'false'
 }
 
 @test "DJOUR-03: with the whole journal surface deleted the bundle still collects, history empty" {

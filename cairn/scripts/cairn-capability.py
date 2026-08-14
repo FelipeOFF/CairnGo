@@ -73,7 +73,7 @@ EXIT_NO_GSD = 5
 EXIT_FAILED = 7
 
 USAGE = (
-    "usage: cairn-capability.py detect|install|repair-manifest\n"
+    "usage: cairn-capability.py detect|install\n"
     "       [--project-dir <dir>] [--gsd-bin <path>] [--capability-dir <dir>]\n"
     "       [--json]"
 )
@@ -84,39 +84,6 @@ CAPABILITY_ID = "cairn"
 # cairn-loop-gate.sh is load-bearing: the ship gate predicate no-ops when it
 # is absent, so a bundle missing it yields a gate that can never block.
 REQUIRED_STAGED = ("capability.json", "scripts/cairn-loop-gate.sh")
-
-# --------------------------------------------------------------------------- #
-# The gsd-core manifest defect (upstream open-gsd/gsd-core, 1.7.0 and 1.8.0)
-#
-# gsd-core's .claude-plugin/plugin.json declares
-#
-#     "hooks": "./hooks/hooks.json"
-#
-# but Claude Code loads that standard path automatically. The declaration is
-# therefore a duplicate, and the loader does not merely skip the hooks — it
-# refuses the WHOLE plugin:
-#
-#     Status: ✘ failed to load
-#     Error: Hook load failed: Duplicate hooks file detected: ./hooks/hooks.json
-#
-# So a user who follows cairn's own migration guide installs gsd-core and gets
-# no /gsd:* commands at all. The gsd-tools CLI still works, which is why the
-# capability install succeeds and hides how bad this is.
-#
-# Upstream has the one-line fix already written (open-gsd/gsd-core#2077); it was
-# auto-closed twelve seconds after opening because the project requires a
-# maintainer-approved issue before any PR, and no such issue exists. The line is
-# still present on main, next and v1.8.0.
-#
-# cairn removes that one line from the INSTALLED copy rather than forking
-# gsd-core: users keep receiving genuine upstream code, there is no 41 MB vendored
-# tree to rebase against a weekly release cadence, and the repair becomes a no-op
-# the moment upstream drops the field.
-# --------------------------------------------------------------------------- #
-
-# Only the STANDARD path is redundant. A manifest pointing at ADDITIONAL hook
-# files is using the field correctly and must never be touched.
-STANDARD_HOOKS_PATHS = ("hooks/hooks.json", "./hooks/hooks.json")
 
 # What the 4.x line prints when asked for a subcommand it does not have.
 LEGACY_MARKER = "unknown command: capability"
@@ -148,7 +115,7 @@ def parse_args(argv):
     if not argv:
         die(f"a command is required\n{USAGE}", EXIT_USAGE)
     opts["command"] = argv[0]
-    if opts["command"] not in ("detect", "install", "repair-manifest"):
+    if opts["command"] not in ("detect", "install"):
         die(f"unknown command '{opts['command']}'\n{USAGE}", EXIT_USAGE)
     i = 1
     while i < len(argv):
@@ -269,10 +236,9 @@ def installed_plugin_roots():
 
     Globbing the plugin cache is not enough on its own: the same gsd-core
     version can sit there twice, once per marketplace it was installed from,
-    and only one of them is the plugin Claude Code loads. For the capability
-    that makes no difference — either CLI behaves the same — but the manifest
-    repair must land on the copy that is live, or it silently fixes a file
-    nobody reads and leaves the loaded plugin broken.
+    and only one of them is the plugin Claude Code loads. Ordering by the
+    installed-plugins state puts the live copy first, so discovery does not
+    answer with a binary from an install nobody loads.
     """
     state = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
     try:
@@ -393,70 +359,6 @@ def list_capabilities(gsd_bin, project_dir):
     return "gsd-core", parsed, f"{len(parsed)} capabilities registered"
 
 
-def find_plugin_manifest(gsd_bin):
-    """The .claude-plugin/plugin.json of the install that owns this binary.
-
-    Walked up from the entry point rather than assumed, because the layout
-    differs between the npm package, a git checkout and the plugin cache.
-    """
-    if not gsd_bin:
-        return None
-    for anc in list(Path(gsd_bin).resolve().parents)[:6]:
-        cand = anc / ".claude-plugin" / "plugin.json"
-        if cand.is_file():
-            return cand
-    return None
-
-
-def manifest_defect(manifest_path):
-    """(defective, detail) for the duplicate-standard-hooks defect.
-
-    Narrow on purpose. The field is only redundant when it names the standard
-    path AND that file exists; a manifest listing additional hook files is
-    using it correctly and is left alone.
-    """
-    if manifest_path is None or not manifest_path.is_file():
-        return False, "no plugin manifest found"
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        return False, f"manifest unreadable ({exc})"
-    if not isinstance(data, dict):
-        return False, "manifest is not an object"
-    declared = data.get("hooks")
-    if not isinstance(declared, str):
-        return False, "declares no hooks path"
-    if declared.strip() not in STANDARD_HOOKS_PATHS:
-        return False, f"declares additional hooks ({declared}) — left alone"
-    if not (manifest_path.parent.parent / "hooks" / "hooks.json").is_file():
-        return False, f"declares {declared}, which does not exist"
-    return True, (f"declares the standard {declared}, which Claude Code loads "
-                  "automatically — the plugin is refused as a duplicate")
-
-
-def repair_manifest(manifest_path):
-    """Drop the redundant hooks declaration. (changed, detail).
-
-    Idempotent, and never touches anything else in the file: the manifest is
-    re-serialised from the object it parsed, with one key removed.
-    """
-    defective, detail = manifest_defect(manifest_path)
-    if not defective:
-        return False, detail
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        data.pop("hooks", None)
-        keep_mode = manifest_path.stat().st_mode & 0o777
-        tmp = manifest_path.with_name(manifest_path.name + ".cairn-tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-                       encoding="utf-8")
-        os.chmod(str(tmp), keep_mode)
-        os.replace(str(tmp), str(manifest_path))
-    except OSError as exc:
-        return False, f"could not rewrite the manifest: {exc}"
-    return True, "removed the redundant hooks declaration"
-
-
 def staged_dir(project_dir):
     return project_dir / ".gsd" / "capabilities" / CAPABILITY_ID
 
@@ -479,8 +381,6 @@ def inspect(gsd_bin, project_dir):
                 entry = cap
                 break
     missing = missing_staged_files(project_dir)
-    manifest = find_plugin_manifest(gsd_bin)
-    defective, manifest_detail = manifest_defect(manifest)
     installed = installed_gsd_plugins()
     return {
         "gsd_bin": gsd_bin,
@@ -492,13 +392,6 @@ def inspect(gsd_bin, project_dir):
         "staged_dir": str(staged_dir(project_dir)),
         "staged_complete": not missing,
         "missing_staged": missing,
-        # The installed GSD's own manifest. A plugin that will not load is a
-        # bigger problem than a capability that will not register, and it is
-        # invisible from inside the capability checks — the gsd-tools CLI keeps
-        # working while Claude Code refuses the plugin.
-        "plugin_manifest": str(manifest) if manifest else None,
-        "manifest_loadable": not defective,
-        "manifest_detail": manifest_detail,
         # Both GSD lineages installed at once. cairn's own discovery prefers
         # gsd-core, so every check here can pass while the operator's /gsd:*
         # commands come from the 4.x plugin that cannot host the capability —
@@ -525,9 +418,6 @@ def report_lines(info):
             f"{info['lineage']} — {info['lineage_detail']}",
         )
     ]
-    if info["plugin_manifest"] and not info["manifest_loadable"]:
-        lines.append(_row(False, "plugin load",
-                          "gsd-core will NOT load — " + info["manifest_detail"]))
     if info["both_lineages"]:
         lines.append(_row(
             False, "one GSD",
@@ -562,13 +452,12 @@ def report_lines(info):
 def verdict_ok(info):
     """One definition of 'the fusion is really active', shared by every caller.
 
-    Registration alone is not enough. The bundle has to be staged completely,
-    the plugin has to be one Claude Code will load, and there has to be exactly
-    one GSD — otherwise the checks can all pass against a plugin that is not
-    the one answering /gsd:*.
+    Registration alone is not enough. The bundle has to be staged completely
+    and there has to be exactly one GSD — otherwise the checks can all pass
+    against a plugin that is not the one answering /gsd:*.
     """
     return (info["registered"] and info["staged_complete"]
-            and info["manifest_loadable"] and not info["both_lineages"])
+            and not info["both_lineages"])
 
 
 def failure_remedy(info):
@@ -636,37 +525,7 @@ def cmd_detect(opts, gsd_bin, project_dir):
     return EXIT_OK if ok else EXIT_FAILED
 
 
-def cmd_repair_manifest(opts, gsd_bin, project_dir):
-    """Make the installed gsd-core loadable again by dropping one line.
-
-    Deliberately narrow: it removes a declaration that names the standard
-    hooks path and nothing else. Runs before the capability install, because a
-    plugin Claude Code refuses has no /gsd:* commands for the fusion to hook.
-    """
-    manifest = find_plugin_manifest(gsd_bin)
-    changed, detail = repair_manifest(manifest)
-    info = inspect(gsd_bin, project_dir)
-    payload = dict(info)
-    payload["repaired"] = changed
-    payload["repair_detail"] = detail
-    if opts["json"]:
-        payload["ok"] = info["manifest_loadable"]
-        print(json.dumps(payload))
-    else:
-        print(f"[cairn-capability] repair-manifest — {manifest or '(none)'}")
-        if changed:
-            print(f" ✓ repaired      {detail}")
-            print(" ! run /reload-plugins for Claude Code to pick it up")
-        else:
-            mark = "✓" if info["manifest_loadable"] else "✗"
-            print(f" {mark} manifest      {detail}")
-    return EXIT_OK if info["manifest_loadable"] else EXIT_FAILED
-
-
 def cmd_install(opts, gsd_bin, project_dir):
-    # A plugin Claude Code refuses to load exposes no /gsd:* commands, so the
-    # fusion has nothing to fuse. Clear that before installing the capability.
-    repair_manifest(find_plugin_manifest(gsd_bin))
     lineage, _, detail = list_capabilities(gsd_bin, project_dir)
     if lineage != "gsd-core":
         info = inspect(gsd_bin, project_dir)
@@ -734,8 +593,6 @@ def main():
 
     if opts["command"] == "detect":
         sys.exit(cmd_detect(opts, gsd_bin, project_dir))
-    if opts["command"] == "repair-manifest":
-        sys.exit(cmd_repair_manifest(opts, gsd_bin, project_dir))
     sys.exit(cmd_install(opts, gsd_bin, project_dir))
 
 

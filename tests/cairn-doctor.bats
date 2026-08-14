@@ -1221,11 +1221,11 @@ PY
 # tornou irrelevantes por completo:
 #
 #   "an unloadable gsd-core manifest fails and outranks registration" — o
-#     defeito de manifesto é do plugin gsd-core UPSTREAM (open-gsd/gsd-core
-#     #2077). cairn não instala mais esse plugin, então não há manifesto alheio
-#     para reparar; e se um gsd-core estiver instalado, o check já falha antes,
-#     pedindo uninstall. `repair-manifest` continua existindo em
-#     cairn-capability.py para quem o tenha por conta própria.
+#     defeito de manifesto era do plugin gsd-core UPSTREAM, e o upstream o
+#     corrigiu: v1.10.0 (2026-08-08) não declara mais o campo `hooks`. cairn
+#     também não instala mais esse plugin, então não há manifesto alheio para
+#     reparar; se um gsd-core estiver instalado, o check já falha antes,
+#     pedindo uninstall.
 #   "two GSD lineages installed at once fails the doctor" — a única mudança é
 #     que agora UMA linhagem já basta para falhar. O caso das duas juntas
 #     virou A2c em tests/cairn-doctor-lineage.bats, e a asserção de que as

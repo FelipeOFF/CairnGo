@@ -30,17 +30,24 @@ Usage:
     cairn-trend.py [--planning-dir <dir>] [--json]
 
 What it reads:
-    Archived cycles      .planning/milestones/<key>-ROADMAP.md is the
-                         evidence a cycle closed (the same anchor
-                         cairn-doctor.py's archived_milestones() uses, and
-                         for the reason recorded there: the archived roadmap
-                         is the most direct proof, a REQUIREMENTS file or a
-                         phases/ directory is not). Its phases live in
-                         .planning/milestones/<key>-phases/.
-    The open cycle       the ROADMAP.md line carrying 🚧 (or "in progress"),
-                         whose phases live in .planning/phases/.
+    Which cycles ran     two sources, never mixed, and `source` in --json
+                         says which one answered. While there is a roadmap
+                         on disk it is the input and it decides: archived
+                         cycles are .planning/milestones/<key>-ROADMAP.md
+                         (the same anchor cairn-doctor.py's
+                         archived_milestones() uses, and for the reason
+                         recorded there: the archived roadmap is the most
+                         direct proof, a REQUIREMENTS file or a phases/
+                         directory is not), and the open one is the
+                         ROADMAP.md line carrying 🚧 (or "in progress").
+                         With no roadmap on disk the tracker answers: every
+                         `m-vX.Y` label the bd knows, and the cycle still
+                         holding open work is the open one.
     Verdicts             every *VERIFICATION.md under a cycle's phase dirs,
-                         read for its top-level frontmatter only.
+                         read for its top-level frontmatter only —
+                         .planning/milestones/<key>-phases/ for an archived
+                         cycle, .planning/phases/ for the open one, under
+                         either source.
 
     No milestone key is written in this file. A repository with none of the
     above is not an error — it is a repository that has not closed a cycle.
@@ -124,6 +131,9 @@ import os
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cairn_source  # noqa: E402
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -271,7 +281,7 @@ def open_cycle_key(planning_dir):
     return None
 
 
-def discover_cycles(planning_dir):
+def disk_cycles(planning_dir):
     """Cycles found on disk, in version order, open one last.
 
     Archived cycles come from <key>-ROADMAP.md under .planning/milestones/;
@@ -302,6 +312,56 @@ def discover_cycles(planning_dir):
             "phases_dir": planning_dir / "phases",
         })
     return cycles
+
+
+def bd_cycles(planning_dir):
+    """Cycles the TRACKER knows, in the same shape and the same order.
+
+    A cycle is a `m-vX.Y` label; the open one is the cycle that still holds
+    unclosed work (cairn_source.milestone), which is the same question the
+    🚧 marker answered by hand and the one place the two sources can be made
+    to agree without either quoting the other.
+
+    The phase trees stay where they always were. A repository half through
+    its migration — the roadmaps deleted, the phase directories still on
+    disk — keeps every verdict it had, and one fully migrated reads zero
+    verification files and says so as `not-applicable / no-input`, which is
+    the whole difference between "this cycle proved nothing" and "this
+    repository never closed a cycle".
+    """
+    root = planning_dir.parent
+    current = cairn_source.milestone(root)
+    keys = [k for k in cairn_source.milestones(root) if k != current]
+    keys.sort(key=version_sort_key)
+    cycles = [{
+        "cycle": key,
+        "open": False,
+        "phases_dir": planning_dir / "milestones" / f"{key}-phases",
+    } for key in keys]
+    if current:
+        cycles.append({
+            "cycle": current,
+            "open": True,
+            "phases_dir": planning_dir / "phases",
+        })
+    return cycles
+
+
+def discover_cycles(planning_dir):
+    """(cycles, source) — from the roadmaps on disk when there are any, from
+    the tracker when there are none.
+
+    The two-source rule cairn-doctor.py and cairn-gate.py already hold: a
+    `.planning/ROADMAP.md` still waiting to be imported IS the input, and
+    while it exists it is what says which cycles ran and which one is open.
+    Once imported the file is gone — and a command that then reported
+    "nenhum ciclo encontrado" over a repository with six shipped milestones
+    would be reading a deleted file's silence as a fact about the project.
+    """
+    disk = disk_cycles(planning_dir)
+    if disk or (planning_dir / "ROADMAP.md").is_file():
+        return disk, "roadmap"
+    return bd_cycles(planning_dir), "bd"
 
 
 def scan_cycle(cycle):
@@ -689,7 +749,8 @@ def build_model(planning_dir):
     TREND-02 is the reason this phase exists, and an unprovable claim about
     it would be the fourth hand-typed count in this repository's history.
     """
-    cycles = [classify(scan_cycle(c)) for c in discover_cycles(planning_dir)]
+    found, source = discover_cycles(planning_dir)
+    cycles = [classify(scan_cycle(c)) for c in found]
     for c in cycles:
         c["status_counts"] = status_counts(c)
         c["coverage"] = f"{c['with_verdict']}/{c['phase_dirs']}"
@@ -701,6 +762,17 @@ def build_model(planning_dir):
     series = build_series(cycles, survey, score)
     return {
         "planning_dir": str(planning_dir),
+        "source": source,
+        # Where the answer came from and what its absence means, composed
+        # here and not in render(): the renderer positions strings, it does
+        # not choose them, and naming the wrong source in the one line a
+        # reader always sees is the cheapest way to lie about the rest.
+        "where": (str(planning_dir) if source == "roadmap"
+                  else f"o bd em {planning_dir.parent}"),
+        "nothing_found": (
+            "nem milestone arquivado nem ciclo corrente no ROADMAP"
+            if source == "roadmap"
+            else "nenhum ciclo no bd (nenhuma issue carrega label `m-*`)"),
         "cycles": cycles,
         "comparable": [c["cycle"] for c in cycles if c["state"] == COMPARABLE],
         "open_cycle": next((c["cycle"] for c in cycles if c["open"]), None),
@@ -734,11 +806,10 @@ def main():
 def render(model):
     """Position strings the model already produced. Widths are layout, not
     data — no value printed here is computed here."""
-    lines = [f"{TAG} discordância entre ciclos — {model['planning_dir']}"]
+    lines = [f"{TAG} discordância entre ciclos — {model['where']}"]
     if not model["cycles"]:
         lines.append(f"{TAG} {SYMBOL[NOT_APPLICABLE]} nenhum ciclo "
-                     f"encontrado — nem milestone arquivado nem ciclo "
-                     f"corrente no ROADMAP")
+                     f"encontrado — {model['nothing_found']}")
         return lines
     width = max(len(c["cycle"]) for c in model["cycles"])
     lines.append(TAG)

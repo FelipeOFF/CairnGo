@@ -52,8 +52,10 @@ Behavior:
               commits touching the phase's own files, from its PLAN.md
               frontmatter `files_modified:` lists, falling back to the
               phase directory path — D-01's "código", capped per T-17-03,
-              never unbounded), and text (the phase's own ROADMAP.md
-              section and its NN-CONTEXT.md, when one exists). A failure
+              never unbounded), and text (what the phase says it is —
+              its own ROADMAP.md section while a roadmap is still on disk,
+              its bd phase carrier's title and description once there is
+              not — plus its NN-CONTEXT.md, when one exists). A failure
               gathering ANY one of these degrades that piece to null/empty
               — collect never aborts partway for a soft-read failure; the
               only hard refusal is the corroboration gate itself.
@@ -103,7 +105,7 @@ Evidence bundle schema (written to .cairn/reconcile-evidence.json, or
       "journal": {"last_moved": {...} | null, "history": [...]},
       "git_log": [{"hash":..., "date":..., "author":..., "subject":...}],
       "git_shallow": <bool>,
-      "roadmap_excerpt": <str> | null,
+      "roadmap_excerpt": <str> | null,   # roadmap section, or carrier
       "context_excerpt": <str> | null
     }
 
@@ -148,6 +150,9 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cairn_source  # noqa: E402
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -366,7 +371,7 @@ def journal_history(root, phase):
 
 
 # --------------------------------------------------------------------------- #
-# text evidence — the phase's own ROADMAP.md section and NN-CONTEXT.md
+# text evidence — what the phase SAYS it is, plus its NN-CONTEXT.md
 # --------------------------------------------------------------------------- #
 def roadmap_excerpt(planning_dir, n):
     """The phase's own '### Phase N: ...' section from ROADMAP.md, from its
@@ -389,6 +394,42 @@ def roadmap_excerpt(planning_dir, n):
             end = j
             break
     return "\n".join(lines[start:end]).strip()
+
+
+def carrier_excerpt(root, n):
+    """The phase as its CARRIER declares it: the bead's title, and the
+    description that says what the phase promises. None when the phase has
+    no carrier — an absence is reported, never filled in with a
+    requirement's title.
+
+    Deliberately NOT shaped like a `### Phase N` heading. The reader of this
+    bundle answers in citations of file and line, and text that looked like
+    a roadmap section would invite a citation of a file that does not exist
+    in this repository — which `verify` would then reject wholesale, for a
+    fabrication this function had handed it.
+    """
+    name = cairn_source.phase_name(root, n)
+    if name is None:
+        return None
+    carrier = cairn_source.phase_carrier(root, n)
+    head = f"Phase {n}: {name} [bd {carrier.get('id')}]"
+    goal = (cairn_source.phase_goal(root, n) or "").strip()
+    return f"{head}\n\n{goal}" if goal else head
+
+
+def phase_excerpt(planning_dir, root, n):
+    """The phase's own text evidence, from the ROADMAP on disk when there is
+    one and from the tracker when there is not.
+
+    Same two-source rule cairn-doctor.py and cairn-gate.py already hold: a
+    `.planning/ROADMAP.md` still waiting to be imported IS the input, and
+    while it exists it is what the phase says about itself — including when
+    it says nothing, which is a `None` this must not paper over with the
+    tracker. Once imported the file is gone, and the carrier answers.
+    """
+    if (planning_dir / "ROADMAP.md").is_file():
+        return roadmap_excerpt(planning_dir, n)
+    return carrier_excerpt(root, n)
 
 
 def context_excerpt(pdir):
@@ -518,7 +559,7 @@ def cmd_collect(args, root):
         },
         "git_log": git_log_evidence(root, pathspec) if pathspec else [],
         "git_shallow": git_is_shallow(root),
-        "roadmap_excerpt": roadmap_excerpt(planning_dir, n),
+        "roadmap_excerpt": phase_excerpt(planning_dir, root, n),
         "context_excerpt": context_excerpt(pdir),
     }
     # D-04: hash computed over exactly the dict above — BEFORE

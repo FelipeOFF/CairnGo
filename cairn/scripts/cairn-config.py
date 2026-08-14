@@ -24,13 +24,14 @@ THE ENTRY RULE: NO KEY WITHOUT A READER
 ---------------------------------------
 Every key in SCHEMA names the executable that reads it, and `set` of a key
 that is not in SCHEMA is a usage error rather than a write. This is not
-tidiness. `cairn.sync_push` is declared in `capability.json:43`, documented in
-three prompt fragments and asserted in `tests/capability.bats:97`, and it is
-read by no executable code at all — the push is decided solely by the
-existence of `.cairn/sync.json` with an enabled backend
-(`cairn/hooks/post-bd-write.sh:126-152`). A config that offers that button
-would write a value the hook ignores. A closed schema with a named reader per
-key is the mechanism that stops this file from becoming a second such promise.
+tidiness. `cairn.sync_push` WAS declared in the capability bundle, documented
+in three prompt fragments and asserted by the capability test, and it was read
+by no executable code at all — the push is decided solely by the existence of
+`.cairn/sync.json` with an enabled backend (`cairn/hooks/post-bd-write.sh`). A
+config that offers that button would write a value the hook ignores. Phase 25
+deleted the declaration (`CairnGo-gbu`); the capability test that once asserted
+the key now asserts its ABSENCE. A closed schema with a named reader per key is
+the mechanism that stops this file from becoming a second such promise.
 
 `bookkeep.*`, `ship.pr_scope` and `test.jobs` are in the schema before their
 readers ship (plans 29-02 and 29-06 of this same phase). That is a different
@@ -42,11 +43,12 @@ unread, the key is the thing to delete — not the rule.
 AND WHAT IS DELIBERATELY MISSING
 --------------------------------
 `cairn.sync_push` is NOT here, and its absence is a decision rather than an
-oversight. Making it real changes behavior for everyone who already has a
-`sync.json`: today the push happens because that file exists with an enabled
-backend, so wiring the flag would silently stop pushes that currently happen.
-That is a product decision — grooming — and this phase automates mechanics.
-Until the grooming decides, the key does not appear in this config, and
+oversight. Making it real would have changed behavior for everyone who already
+has a `sync.json`: the push happens because that file exists with an enabled
+backend, so wiring the flag would have silently stopped pushes that happen
+today. That is a product decision — grooming — and this phase automates
+mechanics. The grooming (`CairnGo-gbu`) chose to delete the declaration rather
+than implement the reader, so the key does not appear in this config, and
 `tests/cairn-config.bats` asserts the exact key SET so that adding the button
 turns a test red instead of slipping in.
 

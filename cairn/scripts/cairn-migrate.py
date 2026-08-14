@@ -970,9 +970,15 @@ def build_plan_a(project, planning, milestone, index, notes):
                 # number, so phase-01 counts exactly like phase-1.
                 label_ns = issue_phase_ns(iss)
                 in_phase = (n in label_ns and label_ns <= complete_ns)
-                is_child = epic_id is not None and (
-                    iss.get("parent") == epic_id
-                    or iid.startswith(epic_id + "."))
+                # A hierarquia sai do ID, e so' dele. O bd 1.1.0 nao emite a
+                # chave `parent` em saida JSON nenhuma — nem `list`, nem
+                # `show`, nem o export — entao um `iss.get("parent") == eid`
+                # e' uma condicao sempre-falsa disfarcada de teste. Aqui ela
+                # convivia com o `or` que fazia o trabalho de verdade, o que
+                # e' pior que quebrar: o codigo funcionava e ensinava errado.
+                # (Foi assim que o cairn-record ficou quebrado com a suite
+                # verde. Medido 2026-08-12.)
+                is_child = epic_id is not None and iid.startswith(epic_id + ".")
                 if not (in_phase or is_child):
                     continue
                 # a phase-N label stamped for ANOTHER milestone is not ours
@@ -1112,10 +1118,12 @@ def build_plan_b(project, planning, milestone, force, notes):
     epics = [i for i in issues if i.get("issue_type") == "epic"]
 
     def children_of(epic):
+        # Filho e' quem carrega o id do pai como prefixo (CairnGo-9c0h ->
+        # CairnGo-9c0h.3). Ver a nota em close_completed_phase_issues: o bd
+        # nao emite `parent`, entao consultar o campo e' testar o vazio.
         eid = epic["id"]
         return [i for i in issues if i is not epic
-                and (i.get("parent") == eid
-                     or str(i.get("id", "")).startswith(eid + "."))]
+                and str(i.get("id", "")).startswith(eid + ".")]
 
     phases = []   # [{"n", "name", "epic": iss|None, "issues": [iss]}]
     if epics:

@@ -61,6 +61,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cairn_source  # noqa: E402
+
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_NO_BD = 5
@@ -105,8 +108,9 @@ def read_lines(path):
         return []
 
 
-def completed_phases(planning_dir):
-    """Phase numbers ROADMAP.md marks complete (checkbox or progress table)."""
+def disk_completed_phases(planning_dir):
+    """Phase numbers ROADMAP.md marks complete (checkbox or progress table).
+    Empty when there is no roadmap on disk — this repo has no GSD to import."""
     done = set()
     for line in read_lines(planning_dir / "ROADMAP.md"):
         m = CHECKED_PHASE.match(line)
@@ -117,6 +121,40 @@ def completed_phases(planning_dir):
         if m:
             done.add(int(m.group(1)))
     return sorted(done)
+
+
+def bd_completed_phases(root):
+    """Phases the TRACKER marks complete: those whose phase CARRIER is closed.
+
+    THE CARRIER IS WHAT INHERITED THE CHECKBOX. A gate that asked the tracker
+    "which phases are done?" the way cairn_source.completed_phases() answers
+    it — every issue closed — would be asking a question whose answer makes
+    the next one vacuous: a phase where everything is closed can never hold
+    an open issue. The carrier is a SINGLE bead, closed by a human act, and
+    "the phase was declared done while its work is still open" is exactly the
+    divergence the checkbox used to expose.
+    """
+    done = []
+    for n in sorted(cairn_source.phases(root, cairn_source.milestone(root))):
+        carrier = cairn_source.phase_carrier(root, n)
+        if carrier is not None and carrier.get("status") == "closed":
+            done.append(n)
+    return done
+
+
+def completed_phases(planning_dir, root):
+    """(phases, source) — from the ROADMAP on disk when there is one, from
+    the tracker when there is not.
+
+    Same two-source rule cairn-doctor holds: a `.planning/ROADMAP.md` that is
+    still waiting to be imported is the INPUT, and comparing what it claims
+    against what bd holds is the coverage the migration has to prove. Once
+    imported the file is gone, and the carrier answers instead.
+    """
+    disk = disk_completed_phases(planning_dir)
+    if disk or (planning_dir / "ROADMAP.md").is_file():
+        return disk, "roadmap"
+    return bd_completed_phases(root), "bd"
 
 
 def phase_dir_for(planning_dir, n):
@@ -173,6 +211,15 @@ def roadmap_milestone(planning_dir):
     return None
 
 
+def resolve_milestone(planning_dir, root):
+    """STATE.md first, then the roadmap in progress, then the tracker. The
+    last one is what makes the gate work in a repo that has no `.planning/`
+    at all."""
+    return (state_milestone(planning_dir)
+            or roadmap_milestone(planning_dir)
+            or cairn_source.milestone(root))
+
+
 def bd_open_issues(root, phase):
     """Non-closed issues carrying the bare phase-<N> label.
 
@@ -226,23 +273,16 @@ def main():
         planning_dir = root / ".planning"
 
     summary = {"applicable": False, "ok": True, "milestone": None,
-               "completed_phases": [], "offending": [], "note": None}
+               "completed_phases": [], "offending": [], "note": None,
+               "source": None}
 
-    if not planning_dir.is_dir():
-        summary["note"] = f"no .planning/ at {planning_dir} — gate not applicable"
-        emit(opts, summary, [f"[cairn-gate] note: {summary['note']}"])
-        sys.exit(EXIT_OK)
+    # `.beads/` IS THE GATE, and `.planning/` no longer is. Requiring the
+    # planning directory meant that the moment a repo finished migrating —
+    # the moment it became the tracker-owned repo cairn is for — the ship
+    # gate silently stopped running and reported "not applicable" forever.
     if not (root / ".beads").is_dir():
         summary["note"] = "no .beads/ — gate not applicable (nothing tracked)"
         emit(opts, summary, [f"[cairn-gate] note: {summary['note']}"])
-        sys.exit(EXIT_OK)
-
-    summary["applicable"] = True
-    phases = completed_phases(planning_dir)
-    summary["completed_phases"] = phases
-    if not phases:
-        summary["note"] = "no completed phases in ROADMAP.md — nothing to gate"
-        emit(opts, summary, [f"[cairn-gate] ok: {summary['note']}"])
         sys.exit(EXIT_OK)
 
     if shutil.which("bd") is None:
@@ -251,7 +291,18 @@ def main():
               "pre-push shim does not block on this.", file=sys.stderr)
         sys.exit(EXIT_NO_BD)
 
-    milestone = state_milestone(planning_dir) or roadmap_milestone(planning_dir)
+    summary["applicable"] = True
+    phases, source = completed_phases(planning_dir, root)
+    summary["completed_phases"] = phases
+    summary["source"] = source
+    if not phases:
+        where = ("ROADMAP.md" if source == "roadmap"
+                 else "the tracker (no phase carrier is closed)")
+        summary["note"] = f"no completed phases in {where} — nothing to gate"
+        emit(opts, summary, [f"[cairn-gate] ok: {summary['note']}"])
+        sys.exit(EXIT_OK)
+
+    milestone = resolve_milestone(planning_dir, root)
     summary["milestone"] = milestone
 
     offending = []
@@ -266,14 +317,19 @@ def main():
     # — blocks even when bd reports zero open issues for it. `id` is None
     # (there is no bd issue behind this reason); the human-readable line
     # branches on that below.
-    for n in phases:
-        if not disk_reached_executed(phase_dir_for(planning_dir, n)):
-            offending.append({
-                "id": None, "phase": n, "status": "no-artifacts",
-                "title": f"phase {n} is checked off in ROADMAP.md but disk "
-                         "never reached executed (no SUMMARY or "
-                         "VERIFICATION)",
-            })
+    # It only applies while the roadmap IS the source: it asks whether disk
+    # backs up what the document claims. With no document there is no claim
+    # to check, and running it anyway would fail every phase of every
+    # migrated repo for the absence of files cairn no longer writes.
+    if source == "roadmap":
+        for n in phases:
+            if not disk_reached_executed(phase_dir_for(planning_dir, n)):
+                offending.append({
+                    "id": None, "phase": n, "status": "no-artifacts",
+                    "title": f"phase {n} is checked off in ROADMAP.md but disk "
+                             "never reached executed (no SUMMARY or "
+                             "VERIFICATION)",
+                })
 
     if offending:
         summary["ok"] = False
