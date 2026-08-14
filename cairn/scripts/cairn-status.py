@@ -951,46 +951,46 @@ def bd_state(issues, n, roadmap_done_set):
 
 
 def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
-                state_md_active_phase, disk_is_source=True):
+                state_md_active_phase, disk_present=True,
+                roadmap_is_source=True):
     """(verdict, evidence, conflicts) for phase n from four independent
     reads: disk, bd, the roadmap checkbox, and STATE.md's active_phase
     pointer.
 
-    `disk_is_source` False means THIS PHASE HAS NO DIRECTORY ON DISK. The
-    disk axis then casts no vote at all and reads "unknown", exactly as the
-    bd axis already does when bd cannot be read: every rule below asks
-    whether disk backs up a claim, and where there are no artifacts there is
-    nothing to back anything up. Firing them anyway would put a `blocks`
-    conflict on every phase of every migrated repo over the absence of files
-    cairn no longer writes — the same trap cairn-gate disarmed in its own
-    disk-artifact reason.
+    TWO FLAGS, BECAUSE THE THREE RULES BELOW ASK THREE DIFFERENT QUESTIONS.
+    A single "does disk count?" flag guarding all of them was the v1.7 bug,
+    and it failed in both directions before this shape settled.
 
-    THE CONDITION IS `.planning/` ITSELF, and getting here took ruling out
-    three narrower answers that each look right:
+    `disk_present` — does THIS phase have a directory. It guards the rules
+    that compare disk against another OBSERVER (R1 against bd, R3 against
+    STATE.md's pointer): with no directory there is no second reading to
+    compare, and firing anyway puts a `blocks` conflict on every phase of
+    every migrated repo over the absence of files cairn no longer writes.
 
-    - Not "the rows came from a ROADMAP". That silenced disk for a repo
-      whose ROADMAP.md was gone but whose phase tree was still there — a
-      repo in the MIDDLE of migrating. Since all three rules below are
-      guarded by this flag, `conflicts` could never be non-empty there:
-      every phase answered "ok" and /cairn:reconcile had nothing left to
-      investigate anywhere. A check that cannot fail is not a check.
-    - Not "THIS PHASE has a directory". `disk_state == "none"` is an
-      ASSERTION — disk saying the phase got nowhere — not an absence of
-      vote, and R2 exists precisely to catch a box ticked over a phase with
-      no directory at all. That correction disarms R2 in the gravest case
-      it has.
-    - Not "`.planning/phases/` exists" either, for the same reason one step
-      out: a roadmap can tick a box in a repo where no phase directory was
-      ever created, and that is still R2's conflict.
+    `roadmap_is_source` — did `roadmap_complete` come from a roadmap on disk
+    rather than from the phase carrier in bd. It guards R2 alone, and R2 is
+    the only rule that needs no disk directory at all: "a document claims
+    this phase is done and there is nothing on disk to show for it" is a
+    conflict precisely WHEN the directory is missing. Guarding R2 by
+    `disk_present` would disarm it in the gravest case it has. Guarding it
+    by nothing turns a migrated repo's closed carrier into a permanent
+    accusation against a document that no longer exists.
 
-    So the question is only whether there is a `.planning/` to read at all.
-    If there is, disk speaks, and "none" is one of the things it can say.
-    If there is not, there is nothing to read and no vote — which is the
-    migrated repo, and the false `blocks` on every phase that this flag was
-    introduced to prevent.
-
-    (All three wrongs were measured, not reasoned: the first turned two
-    reconcile tests red, the second and third turned JOUR-03 red.)
+    THE THREE WRONG SHAPES, each measured rather than reasoned, because each
+    still looks right:
+      - one flag = `source == "roadmap"` -> in a repo whose ROADMAP.md is
+        gone but whose phase tree remains, ALL THREE rules go silent, so
+        `conflicts` can never be non-empty: every phase reads "ok" and
+        /cairn:reconcile has nothing to investigate anywhere. A check that
+        cannot fail is not a check. (Two reconcile tests red.)
+      - one flag = `pdir is not None` -> disarms R2 over a ticked box with
+        no directory. (JOUR-03 red.)
+      - one flag = `.planning/` exists -> R2 then fires on a migrated repo's
+        own carrier, blaming a roadmap that never made the claim, and the
+        detail line says "roadmap marks phase N complete" about a document
+        that is not there. (doctor's phase-corroboration red, exit 7, and
+        only on CI — the local run that would have caught it was made before
+        the change.)
 
     Two severities only (D-09), each rule carrying its own justification for
     the one it gets:
@@ -1019,14 +1019,14 @@ def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
     later offers the human options.
     """
     evidence = {
-        "disk": disk_state if disk_is_source else "unknown",
+        "disk": disk_state if disk_present else "unknown",
         "bd": bd_val if bd_ok else "unknown",
         "roadmap": "complete" if roadmap_complete else "incomplete",
         "state_md": "active" if state_md_active_phase == n else None,
     }
     conflicts = []
 
-    if disk_is_source and bd_ok and bd_val != "none":
+    if disk_present and bd_ok and bd_val != "none":
         disk_done = disk_state in ("executed", "verified")
         bd_done = bd_val == "closed"
         if disk_done != bd_done:
@@ -1036,7 +1036,7 @@ def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
                           f"reports its issues {bd_val}"),
             })
 
-    if (disk_is_source and roadmap_complete
+    if (roadmap_is_source and roadmap_complete
             and disk_state not in ("executed", "verified")):
         conflicts.append({
             "severity": "blocks", "sources": ["roadmap", "disk"],
@@ -1044,7 +1044,7 @@ def corroborate(n, disk_state, roadmap_complete, bd_val, bd_ok,
                       f"{disk_state}"),
         })
 
-    if (disk_is_source and state_md_active_phase == n
+    if (disk_present and state_md_active_phase == n
             and disk_state in ("executed", "verified")):
         conflicts.append({
             "severity": "informs", "sources": ["state_md", "disk"],
@@ -1680,10 +1680,6 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     """
     rows, source = roadmap_phase_rows(planning_dir)
     dirs = phase_dirs(planning_dir)
-    # Read once, for every phase: whether this repo still carries a
-    # `.planning/` at all. It is what decides if the disk axis of
-    # corroborate() gets a vote — see the call below.
-    planning_exists = planning_dir.is_dir()
     for n in dirs:
         # A directory is evidence that somebody started THINKING about a phase,
         # never evidence that the phase exists in the plan (CairnGo-4oq). These
@@ -1724,13 +1720,13 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
             issues or [], n)
         row["verify_status"] = verification_status(pdir)
         bd_val = bd_state(issues or [], n, roadmap_done_set)
-        # The disk axis votes when there is a `.planning/` to read at all —
-        # not when the roadmap exists, not when the phase tree exists, and
-        # not when this one phase has a directory. See corroborate() for why
-        # each of those three is wrong, and in which direction.
+        # Two conditions, not one: disk compares against another observer
+        # only where this phase HAS a directory, and R2 fires only where the
+        # completeness claim came from a document. See corroborate().
         verdict, evidence, conflicts = corroborate(
             n, row["disk_state"], row["complete"], bd_val, bd_ok,
-            active_phase_n, disk_is_source=planning_exists)
+            active_phase_n, disk_present=(pdir is not None),
+            roadmap_is_source=(source == "roadmap"))
         row["evidence"] = evidence
         row["corroboration"] = verdict
         row["conflicts"] = conflicts
