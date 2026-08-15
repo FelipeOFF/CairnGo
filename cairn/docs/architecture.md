@@ -188,6 +188,11 @@ disposable fixture repos (real `bd`, skipped when absent). Prose commands are
 thin wrappers over those scripts and are not tested directly. See
 `tests/README.md`.
 
+The vendored GSD runtime is the one seam with a second, stricter layer: its
+Python dispatcher is compared byte-for-byte against the pinned upstream binary
+by a golden harness, with every deliberate difference declared. See
+[the vendored GSD runtime](./gsd-runtime.md).
+
 ## Version compatibility
 
 - **beads:** all access goes through the `bd` CLI with `--json`; `.beads/`

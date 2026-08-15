@@ -465,3 +465,169 @@ EOF
   [[ "$output" == *"created=1 skipped=2 failed=0"* ]]
   [ "$(jq 'length' .cairn/id-map.json)" -eq 3 ]
 }
+
+# ─── GUARD-01: every adapter's network call is bounded ───────────────────────
+#
+# _contract.md states it as a MUST: a request with no timeout hangs the whole
+# dispatcher on one dead socket, and a traceback is a contract violation.
+# jira.py obeyed it; asana, azure-boards, github and gitlab did not.
+#
+# The behavioural tests below run the adapter DIRECTLY against something that
+# really hangs. That distinction is the whole point: every stub adapter and
+# stub `gh` elsewhere in this suite answers instantly, and an instant answer
+# cannot tell a bounded call from an unbounded one. The structural test at the
+# end is the negative control — it fails the moment any `timeout=` is dropped.
+
+adapter_path() { echo "$CAIRN_REPO_ROOT/cairn/adapters/$1"; }
+
+@test "gitlab adapter: a hung endpoint times out cleanly, bounded, no traceback" {
+  make_tmp_repo
+  start_hung_server
+  [ -n "$HUNG_PORT" ]
+
+  local t0=$SECONDS
+  run env GITLAB_TOKEN=dummy-not-a-real-token CAIRN_GITLAB_TIMEOUT=1 \
+      python3 "$(adapter_path gitlab.py)" <<EOF
+{"action":"create","bd_id":"tst-1","title":"t","body":"b","status":"open",
+ "labels":[],"external_id":null,
+ "config":{"base_url":"http://127.0.0.1:$HUNG_PORT","project":"ns/proj"}}
+EOF
+  kill "$HUNG_PID" 2>/dev/null || true
+  wait "$HUNG_PID" 2>/dev/null || true
+
+  [ "$status" -eq 1 ]
+  [ $((SECONDS - t0)) -lt 20 ]             # bounded: it did not hang
+  grep -qF "timed out after 1s" <<<"$output"
+  if grep -qF "Traceback" <<<"$output"; then
+    echo "gitlab leaked a traceback instead of failing clean" >&2
+    return 1
+  fi
+}
+
+@test "gitlab adapter: an unreachable endpoint fails clean, no traceback" {
+  make_tmp_repo
+  local port
+  port="$(free_port)"                      # nothing is listening there
+  run env GITLAB_TOKEN=dummy-not-a-real-token \
+      python3 "$(adapter_path gitlab.py)" <<EOF
+{"action":"create","bd_id":"tst-1","title":"t","body":"b","status":"open",
+ "labels":[],"external_id":null,
+ "config":{"base_url":"http://127.0.0.1:$port","project":"ns/proj"}}
+EOF
+  [ "$status" -eq 1 ]
+  grep -qF "connection failed" <<<"$output"
+  if grep -qF "Traceback" <<<"$output"; then
+    echo "gitlab leaked a traceback instead of failing clean" >&2
+    return 1
+  fi
+}
+
+@test "azure-boards adapter: a hung endpoint times out cleanly, no traceback" {
+  make_tmp_repo
+  start_hung_server
+  [ -n "$HUNG_PORT" ]
+
+  local t0=$SECONDS
+  run env AZURE_DEVOPS_PAT=dummy-not-a-real-token CAIRN_AZURE_TIMEOUT=1 \
+      python3 "$(adapter_path azure-boards.py)" <<EOF
+{"action":"create","bd_id":"tst-1","title":"t","body":"b","status":"open",
+ "labels":[],"external_id":null,
+ "config":{"org_url":"http://127.0.0.1:$HUNG_PORT","project":"Fixture"}}
+EOF
+  kill "$HUNG_PID" 2>/dev/null || true
+  wait "$HUNG_PID" 2>/dev/null || true
+
+  [ "$status" -eq 1 ]
+  [ $((SECONDS - t0)) -lt 20 ]
+  grep -qF "timed out after 1s" <<<"$output"
+  if grep -qF "Traceback" <<<"$output"; then
+    echo "azure-boards leaked a traceback instead of failing clean" >&2
+    return 1
+  fi
+}
+
+@test "github adapter: a hung gh times out cleanly, bounded, no traceback" {
+  make_tmp_repo
+  # github.py shells out to `gh`, so what hangs is the CLI, not a socket — a
+  # stub that sleeps is the same dead-socket shape seen from the adapter.
+  mkdir -p "$BATS_TEST_TMPDIR/hang-bin"
+  printf '#!/bin/sh\nsleep 120\n' > "$BATS_TEST_TMPDIR/hang-bin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/hang-bin/gh"
+
+  local t0=$SECONDS
+  run env PATH="$BATS_TEST_TMPDIR/hang-bin:$PATH" CAIRN_GITHUB_TIMEOUT=1 \
+      python3 "$(adapter_path github.py)" <<'EOF'
+{"action":"create","bd_id":"tst-1","title":"t","body":"b","status":"open",
+ "labels":[],"external_id":null,"config":{"repo":"example/fixture"}}
+EOF
+  [ "$status" -eq 1 ]
+  [ $((SECONDS - t0)) -lt 20 ]
+  grep -qF "timed out after 1s" <<<"$output"
+  if grep -qF "Traceback" <<<"$output"; then
+    echo "github leaked a traceback instead of failing clean" >&2
+    return 1
+  fi
+}
+
+@test "github adapter: a missing gh fails clean, no traceback" {
+  make_tmp_repo
+  mkdir -p "$BATS_TEST_TMPDIR/empty-bin"
+  # An empty PATH hides `gh` — and python3 with it, which would make the shell
+  # exit 127 and prove nothing. The interpreter is named absolutely so the
+  # only thing missing is the tool under test.
+  local py
+  py="$(command -v python3)"
+  run env PATH="$BATS_TEST_TMPDIR/empty-bin" \
+      "$py" "$(adapter_path github.py)" <<'EOF'
+{"action":"create","bd_id":"tst-1","title":"t","body":"b","status":"open",
+ "labels":[],"external_id":null,"config":{"repo":"example/fixture"}}
+EOF
+  [ "$status" -eq 1 ]
+  grep -qF "could not run gh" <<<"$output"
+  if grep -qF "Traceback" <<<"$output"; then
+    echo "github leaked a traceback when gh was absent" >&2
+    return 1
+  fi
+}
+
+@test "every adapter network call carries an explicit timeout (negative control)" {
+  # THE NEGATIVE CONTROL. An AST scan of every adapter asserting each
+  # urlopen()/subprocess.run() site passes `timeout=`. Breaks by: deleting one
+  # `timeout=` — which is the exact state four of these five files shipped in,
+  # and which no test driving an instant stub could ever have noticed.
+  # asana.py's endpoint is a hardcoded constant with no local address to point
+  # at, so this scan is the ONLY thing standing under it; the behavioural
+  # proof above covers the same api() shape in gitlab and azure-boards.
+  run python3 - "$CAIRN_REPO_ROOT/cairn/adapters" <<'PY'
+import ast, pathlib, sys
+
+bad, seen = [], 0
+for path in sorted(pathlib.Path(sys.argv[1]).glob("*.py")):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        f = node.func if isinstance(node, ast.Call) else None
+        if not isinstance(f, ast.Attribute) or f.attr not in ("urlopen", "run"):
+            continue
+        root = f.value                    # subprocess.run / urllib.request.urlopen
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not (isinstance(root, ast.Name)
+                and root.id in ("subprocess", "urllib")):
+            continue
+        seen += 1
+        if not any(kw.arg == "timeout" for kw in node.keywords):
+            bad.append(f"{path.name}:{node.lineno} {f.attr}() has no timeout=")
+if seen < 5:
+    print(f"the scan found only {seen} network call sites across the five "
+          "adapters — the scan is broken, not the code", file=sys.stderr)
+    sys.exit(2)
+if bad:
+    print("\n".join(bad), file=sys.stderr)
+    sys.exit(1)
+print(f"ok: {seen} adapter network call sites, all bounded")
+PY
+  if [ "$status" -ne 0 ]; then
+    printf '%s\n' "$output" >&2
+  fi
+  [ "$status" -eq 0 ]
+}

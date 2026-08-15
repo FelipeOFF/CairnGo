@@ -80,22 +80,65 @@ ZM_SCOPE="$CAIRN_REPO_ROOT/cairn/gsd"
 # v1.6), e a janela de 45 caracteres foi medida: cobre "Write the phase's
 # SUMMARY.md" sem casar um verbo e um nome de documento que so coabitam um
 # paragrafo longo.
-ZM_W1='(^|[^a-zA-Z])(Write|Create|Generate|Produce|Emit|Save|write|create|generate|produce|emit|save)[^|]{0,45}\b(SUMMARY|PLAN|CONTEXT|MAP|LOG|PATTERNS|VERIFICATION|RESEARCH|REVIEW|UI-SPEC|AI-SPEC|SPEC|STATE|ROADMAP|PROJECT|REQUIREMENTS)\.md'
+# O VOCABULARIO CRESCEU EM 2026-08-15, e a razao e' um defeito que passou por
+# ele. `/cairn:milestone new` mandava "Update PROJECT.md, REQUIREMENTS.md and
+# ROADMAP.md for the new cycle" e `/cairn:phase` abria com "Edit the ROADMAP.
+# The deliverable is the edited .planning/ROADMAP.md" — as duas sao instrucao
+# de escrita pela definicao desta familia, e as duas atravessaram o placar
+# ate 0|0 porque a lista de verbos tinha seis e nenhum deles era `Update` ou
+# `Edit`. A guarda existia; o vocabulario dela e' que nao alcancava a frase.
+#
+# Medido ao acrescentar os cinco: 2 sitios acenderam no repo inteiro — um
+# defeito real (phase.md) e uma prosa NEGATIVA ("never auto-edits ROADMAP.md")
+# que o ledger declara, como declara as outras.
+ZM_W1='(^|[^a-zA-Z])(Write|Create|Generate|Produce|Emit|Save|Update|Edit|Append|Modify|Move|write|create|generate|produce|emit|save|update|edit|append|modify|move)[^|]{0,45}\b(SUMMARY|PLAN|CONTEXT|MAP|LOG|PATTERNS|VERIFICATION|RESEARCH|REVIEW|UI-SPEC|AI-SPEC|SPEC|STATE|ROADMAP|PROJECT|REQUIREMENTS)\.md'
 
 # Familia W2 — o DESTINO. Conta OCORRENCIAS, nao linhas: uma linha que cita
 # dois caminhos .planning/ tem dois sitios para converter, e contar linhas
 # esconderia o segundo.
 ZM_W2='\.planning/[A-Za-z0-9_./{}$-]*'
 
+# A NEGACAO NAO E' INSTRUCAO, e ate 2026-08-15 a familia W1 nao sabia disso.
+# Ao ganhar `Update|Edit|Append|Modify|Move`, ela passou a acusar seis linhas
+# que dizem o CONTRARIO do que a familia procura: "Do NOT update ROADMAP.md",
+# "never modify UI-SPEC.md", "Updates STATE.md ... (NOT ROADMAP.md)".
+#
+# Isso nao e' ruido tolerable. Uma guarda que acusa a PROIBICAO de escrever
+# de ser instrucao de escrita treina quem a le a ignorar achados — e uma
+# guarda ignorada e' uma guarda desligada, que e' o defeito que esta sessao
+# perseguiu quatro vezes por outros nomes.
+ZM_NEG='(^|[^a-zA-Z])([Dd]o [Nn][Oo][Tt]|[Dd]on.t|[Nn]ever|NOT )'
+
 # --- as tabelas ---------------------------------------------------------------
 
 # LEDGER — caminho relativo a cairn/gsd/ | sitios W1 | sitios W2
+#
+# REABERTO EM 2026-08-15, e o numero voltou a subir por uma razao que vale
+# registrar: NENHUM sitio novo entrou na arvore. O que mudou foi o
+# VOCABULARIO da familia W1, que ganhou Update|Edit|Append|Modify|Move — os
+# dez arquivos abaixo sempre disseram o que dizem, e o placar chegou a 0|0
+# sem os enxergar, porque a lista de verbos tinha seis e nenhum deles era
+# `Update`.
+#
+# E' a mesma licao que a v3.1 aprendeu tres vezes: uma guarda que nao pode
+# reprovar uma forma nao esta protegendo contra ela. 0|0 significava "zero
+# sitios das formas que eu sei ver".
+#
+# Dos 16 casamentos, ~8 sao instrucao de escrita de verdade e ~6 sao prosa
+# NEGATIVA — "Do NOT update ROADMAP.md", "never modify UI-SPEC.md" — que a
+# familia morde por nao distinguir o imperativo da sua negacao. A separacao
+# entre os dois grupos, e a conversao dos primeiros, e' CairnGo-<OPEN-05>.
 ZM_LEDGER="\
-
+agents/gsd-executor.md|3|0
+agents/gsd-planner.md|1|0
+agents/gsd-ui-checker.md|1|0
+gsd-core/references/execute-mvp-tdd.md|1|0
+gsd-core/workflows/execute-phase.md|2|0
+gsd-core/workflows/plan-phase.md|1|0
 "
 
 # O PLACAR. Some as colunas do ledger; e' o numero do milestone.
-ZM_DECLARED_W1=0
+ZM_DECLARED_W1=9
 ZM_DECLARED_W2=0
 
 # CONVERTIDOS — caminhos que ja passaram pelo protocolo de registro e que
@@ -108,26 +151,37 @@ ZM_DECLARED_W2=0
 # dois workflows que abriam e fechavam o registro de plano (plan-phase,
 # execute-phase) e o quick, cujo plano e sumario passam a ser o mesmo registro
 # aberto e fechado no bead da side-quest. O PLACAR caiu de 123|209 para 77|180.
+# NOVE CAMINHOS SAIRAM DAQUI EM 2026-08-15 e voltaram ao ledger. Nao houve
+# regressao na arvore: o vocabulario de W1 cresceu e passou a enxergar
+# instrucoes que estes arquivos sempre carregaram. "Convertido" quer dizer
+# "mede zero nas duas familias", e a medida mudou de instrumento — entao a
+# afirmacao deixou de ser verdadeira sem que uma linha do GSD se mexesse.
+#
+# (O decimo do ledger, gsd-core/references/execute-mvp-tdd.md, nunca esteve
+# aqui: ele nao media zero antes nem depois, so' nao era contado.)
+#
+# Devolve-los e' o registro honesto disso. Eles voltam quando forem
+# convertidos de fato — CairnGo-OPEN-05.
 ZM_CONVERTED="\
+commands/gsd/quick.md
+gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md
+gsd-core/workflows/quick.md
+skills/gsd-quick/SKILL.md
 agents/gsd-code-reviewer.md
 agents/gsd-codebase-mapper.md
 agents/gsd-debug-session-manager.md
 agents/gsd-debugger.md
-agents/gsd-executor.md
 agents/gsd-integration-checker.md
 agents/gsd-pattern-mapper.md
 agents/gsd-phase-researcher.md
 agents/gsd-plan-checker.md
-agents/gsd-planner.md
 agents/gsd-ui-auditor.md
-agents/gsd-ui-checker.md
 agents/gsd-ui-researcher.md
 agents/gsd-verifier.md
 commands/gsd/autonomous.md
 commands/gsd/debug.md
 commands/gsd/discuss-phase.md
 commands/gsd/plan-phase.md
-commands/gsd/quick.md
 gsd-core/references/agent-contracts.md
 gsd-core/references/agent-skills-bootstrap.md
 gsd-core/references/autonomous-smart-discuss.md
@@ -162,20 +216,16 @@ gsd-core/workflows/debug.md
 gsd-core/workflows/discuss-phase.md
 gsd-core/workflows/discuss-phase/modes/default.md
 gsd-core/workflows/discuss-phase/modes/power.md
-gsd-core/workflows/execute-phase.md
-gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md
 gsd-core/workflows/execute-phase/steps/gap-closure-artifacts.md
 gsd-core/workflows/execute-phase/steps/post-merge-gate.md
 gsd-core/workflows/execute-phase/steps/regression-gate.md
 gsd-core/workflows/fast.md
-gsd-core/workflows/plan-phase.md
 gsd-core/workflows/plan-phase/steps/adr-ingest-express-path.md
 gsd-core/workflows/plan-phase/steps/chunked-planning-mode.md
 gsd-core/workflows/plan-phase/steps/prd-express-gate.md
 gsd-core/workflows/plan-phase/steps/prd-express-path.md
 gsd-core/workflows/plan-phase/steps/research-only-modifiers.md
 gsd-core/workflows/plan-phase/steps/stall-detection-helpers.md
-gsd-core/workflows/quick.md
 gsd-core/workflows/quick/steps/discussion-phase.md
 gsd-core/workflows/quick/steps/quick-verification.md
 gsd-core/workflows/quick/steps/research-phase.md
@@ -184,7 +234,6 @@ skills/gsd-autonomous/SKILL.md
 skills/gsd-debug/SKILL.md
 skills/gsd-discuss-phase/SKILL.md
 skills/gsd-plan-phase/SKILL.md
-skills/gsd-quick/SKILL.md
 "
 
 # --- o instrumento ------------------------------------------------------------
@@ -193,15 +242,18 @@ skills/gsd-quick/SKILL.md
 # Recebe a RAIZ por argumento — e' o que permite apontar o MESMO laco para uma
 # arvore forjada nos controles negativos.
 zm_measure() {
-  ZM_ROOT="$1" ZM_RE1="$ZM_W1" ZM_RE2="$ZM_W2" python3 - <<'ZMPY'
+  ZM_ROOT="$1" ZM_RE1="$ZM_W1" ZM_RE2="$ZM_W2" ZM_NEG="$ZM_NEG" \
+    python3 - <<'ZMPY'
 import os, re
 from pathlib import Path
 root = Path(os.environ["ZM_ROOT"])
 r1 = re.compile(os.environ["ZM_RE1"])
 r2 = re.compile(os.environ["ZM_RE2"])
+rneg = re.compile(os.environ["ZM_NEG"])
 for f in sorted(root.rglob("*.md")):
     txt = f.read_text(encoding="utf-8", errors="replace")
-    a = sum(1 for ln in txt.splitlines() if r1.search(ln))
+    a = sum(1 for ln in txt.splitlines()
+            if r1.search(ln) and not rneg.search(ln))
     b = len(r2.findall(txt))
     if a or b:
         print("%s|%d|%d" % (f.relative_to(root), a, b))
@@ -269,6 +321,35 @@ zm_ledger_sorted() {
   run zm_measure "$forged"
   [ "$status" -eq 0 ]
   grep -qF -- "a.md|1|0" <<<"$output"
+}
+
+# O PAR DA REGRA DE NEGACAO, e ele tem de ser um par. Uma regra que so'
+# DESCONTA pode desarmar a familia inteira sem nada reprovar: bastaria a
+# palavra "not" cair numa linha para ela deixar de ser contada. Os dois casos
+# abaixo prendem os dois lados — a negacao desconta, e a ausencia dela conta.
+@test "zero-md: a NEGACAO nao e contada como instrucao de escrita" {
+  local forged="$BATS_TEST_TMPDIR/forged-neg"
+  mkdir -p "$forged"
+  printf 'Do NOT update ROADMAP.md here.\n' > "$forged/n1.md"
+  printf 'You are read-only — never modify UI-SPEC.md.\n' > "$forged/n2.md"
+  printf 'Updates STATE.md table (NOT ROADMAP.md).\n' > "$forged/n3.md"
+
+  run zm_measure "$forged"
+  [ "$status" -eq 0 ]
+  # nenhuma das tres aparece: zm_measure so' imprime quem tem contagem
+  [ -z "$output" ]
+}
+
+@test "zero-md: a MESMA frase sem a negacao volta a ser contada" {
+  local forged="$BATS_TEST_TMPDIR/forged-pos"
+  mkdir -p "$forged"
+  # a linha de n1.md acima, sem o "Do NOT" — e' o controle que prova que o
+  # desconto vem da negacao e nao de o verbo ter parado de casar
+  printf 'Update ROADMAP.md here.\n' > "$forged/p1.md"
+
+  run zm_measure "$forged"
+  [ "$status" -eq 0 ]
+  grep -qF -- "p1.md|1|0" <<<"$output"
 }
 
 @test "zero-md: controle negativo — W2 e DETECTADA em arvore forjada" {

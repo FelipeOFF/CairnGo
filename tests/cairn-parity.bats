@@ -12,7 +12,13 @@
 #      sai limpo no doctor e verde no gate.
 #
 # Medido em 2026-08-12, ANTES de qualquer edição de produção desta fase:
-#   1 cobertura por verbo             -> 87/87, JÁ VERDE (o oráculo é o controle
+#   1 cobertura por verbo             -> TODOS, JÁ VERDE (o oráculo é o controle
+#     O NUMERO SAIA DAQUI EM 2026-08-15, e a razao e' que ele ja tinha
+#     mentido uma vez: o comentario dizia 87/87 enquanto contracts.json
+#     carregava 89 (os dois do references_extension da fase 38). O teste
+#     sempre DERIVOU o universo do proprio contracts.json e por isso seguiu
+#     verde e correto — quem envelheceu foi a prosa ao lado dele. Um numero
+#     cravado em comentario nao tem quem o revalide, entao nao se crava.
 #     negativo: handler forjado sem cobertura tem que vazar pela MESMA função)
 #   2 scan de `gsd_run` no vendor     -> vermelho, 2 rotas mortas em references/
 #   3 mencoes /gsd: em cairn/commands -> vermelho, 10 passos e nenhum registro

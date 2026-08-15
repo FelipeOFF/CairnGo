@@ -827,6 +827,44 @@ CHECK_SIB="$CAIRN_SCRIPTS_DIR/cairn-gsd-check.py"
   [ "$status" -eq 1 ]
 }
 
+# --- o dedup de drift, que so existia como NameError (DEBT-01) -------------
+#
+# verify codebase-drift junta as entradas do diff no mapa `seen`, e quando o
+# MESMO path chega duas vezes consulta DRIFT_PRIORITY para decidir qual
+# categoria fica. O simbolo mora em cairn_gsd_fact e nao estava na lista de
+# import do irmao de checagem: a linha era NameError em runtime, nao
+# KeyError. Nunca reprovou porque nenhum fixture entregava path repetido.
+#
+# Este teste entrega. O stub de git emite o MESMO destino em duas entradas
+# (um A e um R100) — a forma que o parser aceita e que a linha existe para
+# tratar — e com o import ausente o handler morre em NameError antes de
+# imprimir envelope. Com ele, dedup'a para um elemento.
+@test "verify codebase-drift (irmao direto): path repetido no diff dedup'a em vez de NameError" {
+  make_tmp_repo
+  mkdir -p .planning/codebase
+  printf '# Codebase Structure\n\n- `src/lib/` — helpers\n' \
+    > .planning/codebase/STRUCTURE.md
+  local bindir="$BATS_TEST_TMPDIR/dup-diff-bin"
+  mkdir -p "$bindir"
+  # Sem last_mapped_commit no STRUCTURE.md o handler diffa contra a empty
+  # tree e nunca chama cat-file, entao dois subcomandos bastam.
+  cat > "$bindir/git" <<'STUB'
+#!/bin/sh
+case "$1" in
+  rev-parse) echo 1111111111111111111111111111111111111111 ;;
+  diff) printf 'A\tmigrations/0001_init.sql\n'
+        printf 'R100\tdb/old.sql\tmigrations/0001_init.sql\n' ;;
+  *) exit 0 ;;
+esac
+STUB
+  chmod +x "$bindir/git"
+  run env PATH="$bindir:$PATH" python3 "$CHECK_SIB" verify codebase-drift
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.elements | length' '1'
+  assert_json_eq "$output" '.elements[0].category' 'migration'
+  assert_json_eq "$output" '.elements[0].path' 'migrations/0001_init.sql'
+}
+
 @test "fantasmas da fase 31 respondem falha nomeada, nunca resposta inventada" {
   # phase.list-artifacts, plan.task-structure e is existem no contrato mas
   # nao no binario da tag (descoberta da fase 31). Desde os planos 34-03/05
@@ -1795,6 +1833,13 @@ EOF
 # auditoria) para cairn_gsd_fact.py. O render caiu de 1536 para 91 linhas e
 # saiu da lista de excecao; os dois modulos novos entram no gate pelo glob
 # cairn_gsd_*.py, sem ninguem precisar lembrar de adiciona-los.
+#
+# Fase 41 (DEBT-01): o pino do irmao de checagem SOBE de 1491 para 1492. A
+# razao e uma so — a lista de import de cairn_gsd_fact ganhou DRIFT_PRIORITY
+# e, reflowada em 79 colunas, passou de 5 para 6 linhas. O simbolo estava em
+# uso na linha 519 sem estar importado: NameError latente no dedup de
+# verify codebase-drift. Uma linha de import para matar um crash e o unico
+# crescimento aqui; nenhuma logica nova entrou no arquivo.
 
 @test "teto de linhas: cada arquivo do binario python fica no seu pino, e o pino so desce" {
   local file pin actual over=""
@@ -1808,7 +1853,7 @@ EOF
 2113 cairn-gsd.py
 1560 cairn-gsd-state.py
 1365 cairn-gsd-init.py
-1491 cairn-gsd-check.py
+1492 cairn-gsd-check.py
 378 cairn-gsd-record.py
 91 cairn_gsd_render.py
 656 cairn_gsd_parse.py

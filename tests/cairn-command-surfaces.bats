@@ -297,6 +297,15 @@ EOF
   # commands — but an unexamined one is exactly how land and review shipped
   # with no door. So every script is either a command or carries a reason
   # here, and a new script forces that decision instead of inheriting silence.
+  #
+  # MEASURED 2026-08-15 (GUARD-02): the sweep below globbed `cairn-*.py` and
+  # six files walked past it — five carrying an underscore
+  # (cairn_gsd_fact, cairn_gsd_parse, cairn_gsd_render, cairn_identity,
+  # cairn_source) and one not starting with `cairn-` at all (gbsync). A
+  # guard whose glob is narrower than the directory it guards is a guard
+  # that a filename decides. So the glob is `*.py`: every python file under
+  # cairn/scripts/ answers, and the naming style stops being an exemption.
+  #
   # bash 3.2 (the macOS default) has no associative arrays — a case, then.
   # The reason is the payload: an entry with no sentence is not an entry.
   script_has_written_reason() {
@@ -322,12 +331,25 @@ EOF
       test) echo "the bats suite runner for cairn's OWN repo; routed by the doctor's test-parallel check" ;;
       trend) echo "first-pass verdict history across cycles; a maintainer report, not a project verb" ;;
       wrap) echo "the derivation tool itself; invoked by /cairn:help and by the docs regeneration" ;;
+
+      # The six the `cairn-*.py` glob used to miss (GUARD-02). Five are
+      # library modules — imported, never exec'd, no .sh wrapper by a
+      # decision each one records in its own docstring — and the sixth has
+      # a door under another name. The key keeps the filename's own shape:
+      # `${name#cairn-}` does not strip an underscore, and it should not.
+      cairn_gsd_render) echo "the MEASURED output envelope of the gsd binary, in ONE source (phase 34, D-01); imported by the three siblings cairn-gsd-state.py, cairn-gsd-init.py and cairn-gsd-check.py so they do not carry copies that can drift — a module, never a CLI, and its docstring says so" ;;
+      cairn_gsd_parse) echo "the DOCUMENT substrate of the gsd binary (phase 38, CairnGo-2fyg): frontmatter, must_haves, PLAN tasks, CONTEXT decisions, the SUMMARY coverage block; imported by cairn-gsd-check.py and by cairn_gsd_fact.py, and it reaches no verdict — a module, no .sh" ;;
+      cairn_gsd_fact) echo "the FACT substrate of the gsd binary (phase 38, CairnGo-2fyg): read-only git, bounded subprocess, drift classification, artifact audit; imported by cairn-gsd-check.py alone, split out because parse READS a document and this INTERROGATES the repo — a module, no .sh" ;;
+      cairn_identity) echo "the two narrow identity conversions (collapse_home, machine_id) that cairn-journal.py and cairn-lease.py apply BEFORE writing a git-tracked file (CairnGo-xclf): the journal needs to tell two machines apart and never to name one; a library with no verb of its own, exercised through its two callers in tests/cairn-journal.bats and routed to by the doctor's identity finding" ;;
+      cairn_source) echo "the project roadmap derived from bd (v1.7), replacing the ~25 markdown parsers that read ROADMAP.md; imported by cairn-map.py, cairn-gate.py, cairn-trend.py, cairn-doctor.py and cairn-status.py, and asserted directly by tests/cairn-roadmap-source.bats — the question about a phase arrives through those doors, never through a verb of its own" ;;
+      gbsync) echo "the hub-and-spoke sync dispatcher (bd is the hub; push on bd lifecycle events, pull on demand, import for pre-existing external items); it HAS a door, under another name — /cairn:sync-pull runs gbsync.sh pull and /cairn:sync-config runs gbsync.sh import/update — plus the gbsync.sh wrapper, tests/gbsync.bats and cairn/docs/sync.md" ;;
+
       *) return 1 ;;
     esac
   }
 
   local path name undoored=""
-  for path in "$CAIRN_REPO_ROOT"/cairn/scripts/cairn-*.py; do
+  for path in "$CAIRN_REPO_ROOT"/cairn/scripts/*.py; do
     name="$(basename "$path" .py)"
     name="${name#cairn-}"
     [ -f "$CAIRN_REPO_ROOT/cairn/commands/$name.md" ] && continue
@@ -354,6 +376,70 @@ EOF
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.undocumented | length' '0'
   assert_json_eq "$output" '.missing_pages | length' '0'
+}
+
+# ---------------------------------------------------------------------------
+# CairnGo-z320 (GUARD-03) — a cobertura estrutural E' o contrato pretendido
+# ---------------------------------------------------------------------------
+#
+# POR QUE TREZE COMANDOS NAO TEM TESTE DE COMPORTAMENTO PROPRIO, e por que
+# isso e' decisao e nao esquecimento.
+#
+# MEDIDO 2026-08-15: dos 40 comandos, 20 nao tem oraculo comportamental, e
+# treze deles sao INDISTINGUIVEIS do ponto de vista de script — o unico
+# executavel que o prompt manda rodar e' cairn-map.sh, o mesmo nos treze. O
+# que separa /cairn:spec-phase de /cairn:ui-phase nao e' codigo: e' o texto
+# que o modelo le. E prosa nao tem oraculo. Um teste que afirmasse o texto
+# viraria assercao sobre redacao — quebra quando alguem melhora uma frase,
+# e continua verde quando o comando para de fazer o que promete. Isso nao
+# mede comportamento; mede que ninguem editou o arquivo.
+#
+# O QUE GARANTE NO LUGAR. Tres testes enumeram cairn/commands/*.md inteiro e
+# portanto valem para os 40, estes treze inclusive:
+#
+#   - todo comando declara o `group` sob o qual imprime          (acima)
+#   - o help e a referencia listam todo comando, com pagina atras do link
+#     (acima; e o par completo em tests/cairn-wrap.bats)
+#   - nenhum comando `inline` delega para fora, e todo `implementation:
+#     vendored` aponta um arquivo que existe (tests/cairn-standalone.bats)
+#
+# Um comando destes nao pode, entao: sumir da superficie derivada, cair no
+# monte OTHER, apontar para um arquivo que nao existe, nem delegar para um
+# /gsd: que o standalone proibiu. Essa e' a cobertura, e ela e' o contrato
+# PRETENDIDO — nao um degrau a caminho de um teste por comando.
+#
+# O QUE TERIA DE MUDAR para um deles merecer oraculo proprio: deixar de ser
+# indistinguivel. No instante em que um destes prompts passa a mandar rodar
+# qualquer coisa alem de cairn-map.sh, ele adquiriu comportamento observavel
+# — exit code, saida, efeito — e passa a caber teste. O teste abaixo e'
+# exatamente essa vigia: ele nao mede prosa, mede a indistincao, e reprova
+# quando ela acaba.
+
+@test "os comandos que so invocam cairn-map.sh sao exatamente os treze declarados" {
+  # Nao e' uma lista de comandos "sem teste" — e' a lista dos que nao tem o
+  # que testar. Sair dela e' o sinal, nos dois sentidos: quem entra herda a
+  # decisao acima e precisa ser escrito aqui; quem sai ganhou um executavel
+  # proprio e a pergunta "isto ja merece oraculo?" volta a valer.
+  local expected="ai-integration-phase cleanup mvp-phase new plan plan-review-convergence review-backlog secure-phase spec-phase ui-phase ultraplan-phase validate-phase verify"
+
+  local file refs actual=""
+  for file in "$CAIRN_REPO_ROOT"/cairn/commands/*.md; do
+    refs="$(grep -oE '(cairn[-_][a-z_-]+|gbsync)\.(sh|py)' "$file" \
+            | sort -u | tr '\n' ' ')"
+    [ "$refs" = "cairn-map.sh " ] || continue
+    actual="$actual $(basename "$file" .md)"
+  done
+  actual="$(printf '%s\n' $actual | LC_ALL=C sort | tr '\n' ' ')"
+  actual="${actual# }"; actual="${actual% }"
+
+  if [ "$actual" != "$expected" ]; then
+    echo "the roster of map-only commands moved." >&2
+    echo "  declared: $expected" >&2
+    echo "  measured: $actual" >&2
+    echo "a command that LEFT now runs something besides cairn-map.sh: it has observable behaviour, so ask whether it earns its own oracle, then update this list." >&2
+    echo "a command that JOINED is newly indistinguishable: add it here, and read the block above for why it gets no test of its own." >&2
+    return 1
+  fi
 }
 
 # ---------------------------------------------------------------------------

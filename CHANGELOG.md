@@ -7,6 +7,108 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-15
+
+As portas do ciclo, e o instrumento que as media.
+
+Este ciclo começou com um board recém-consertado e uma pergunta simples: abrir
+o próximo milestone. O comando que abre um milestone mandava escrever os três
+documentos que a v1.7 aposentou — e tinha atravessado o milestone inteiro que
+existia para eliminá-los.
+
+A razão é o achado que organiza o resto. O placar zero-markdown chegou a `0|0`
+com uma família de seis verbos — `Write|Create|Generate|Produce|Emit|Save` — e
+nenhum deles era `Update` ou `Edit`. A guarda existia; o vocabulário dela é que
+não alcançava a frase. **`0|0` significava "zero sítios das formas que eu sei
+ver".**
+
+### Fixed
+
+- **`/cairn:milestone new` parou de mandar editar `PROJECT.md`,
+  `REQUIREMENTS.md` e `ROADMAP.md`.** Agora acorda o ciclo com o usuário e o
+  escreve no tracker, com a numeração contínua lida do bd e a instrução do
+  **portador** — o bead sem `gsd.req` que herdou o checkbox e dá nome à fase.
+  O `complete` parou de mandar arquivar documentos: os beads fechados **são** o
+  arquivo, consultáveis por `bd list -l m-<X.Y> --all` para sempre.
+
+- **`/cairn:phase` era CRUD sobre o `ROADMAP.md`** — o comando inteiro. As
+  quatro operações viraram operações de tracker: `add` cria o portador, `edit`
+  muda título e arestas, `remove` fecha e decide o destino das issues,
+  `insert` cria e renumera.
+
+- **A fase ativa do board vinha do `STATE.md`.** Medido no instante em que este
+  ciclo abriu: o rodapé imprimiu `phase 38/3`, a fase de um ciclo encerrado ao
+  lado do total do ciclo novo. `cairn_source.active_phase()` respondia certo, e
+  a docstring dela dizia desde que nasceu que existia para substituir aquele
+  campo. Nenhum fixture pegava porque todos escrevem `STATE.md` e bd em acordo.
+
+- **Toda chamada de rede ganhou timeout.** `_contract.md:17` exigia por escrito
+  ("um request sem timeout pendura o dispatcher inteiro") e **quatro dos cinco
+  adapters não cumpriam** — `github.py` não tinha sequer um `except`. Medido
+  contra um socket que pendura de verdade: antes, os três testáveis morriam aos
+  8s pelo timeout externo; depois, saem em 1–2s com a falha nomeada. E a suíte
+  desses arquivos **travava indefinidamente** contra o código defeituoso — não
+  era teste lento, era teste que nunca termina.
+
+- **`cairn-gsd-check.py` usava `DRIFT_PRIORITY` sem importar** — `NameError` num
+  ramo que nenhum fixture alcançava, confirmado com traceback real antes da
+  correção. A linha que ele escondia é inalcançável por construção: a
+  classificação é pura do path, então o "desempate por prioridade" é um dedup
+  first-wins. Mantida por fidelidade ao binário.
+
+### Changed
+
+- **A família W1 do oráculo zero-markdown aprendeu cinco verbos e uma regra.**
+  Com `Update|Edit|Append|Modify|Move`, 16 sítios acenderam em 10 arquivos do
+  GSD adaptado — nenhum novo, todos sempre lá. E aprendeu que **negação não é
+  instrução**: seis diziam o contrário do que a família procura (`Do NOT update
+  ROADMAP.md`, `never modify UI-SPEC.md`). Uma guarda que acusa a proibição de
+  escrever treina quem a lê a ignorar achados. Placar 16 → 10, nove no ledger.
+
+- **A guarda de alcançabilidade varre `*.py`, não `cairn-*.py`.** Seis scripts
+  escapavam do glob — incluindo `cairn_source.py`, o coração da v1.7. Nenhum
+  virou porta `/cairn:`: cinco são módulos de biblioteca e o sexto já tinha
+  porta sob outro nome. Cada um agora carrega a razão de não ter porta.
+
+- **A espera de CI virou estado rastreado.** Todo push prende o bead seguinte a
+  um gate `gh:run`; com o gate aberto ele não aparece em `bd ready`. Medido:
+  `bd ready` foi de uma issue para nenhuma. **Atenção ao `--await-id`:** um
+  valor não-numérico dispara `gh run list` **sem filtro de branch** — medido, o
+  gate casou com a run de outra branch e teria fechado com o verde alheio.
+
+- **O teste do SIGKILL em `cairn-parallel` esperava um orçamento de polls.** Ele
+  perguntava "o marcador apareceu em 100 polls?" para responder "a morte de um
+  lado levou o outro junto?" — perguntas que só coincidem na máquina ociosa. Em
+  57 corridas medidas, o processo sobrevivente terminou **57 vezes**; o que
+  varia é a cauda dele, de 1,25s ocioso a 8,66s sob carga, contra um orçamento
+  de 10s. Agora o teste espera o **processo**, com `kill -0`.
+
+### Added
+
+- **`cairn/docs/gsd-runtime.md`** — a página de arquitetura do runtime GSD
+  vendorizado. 15 scripts e **10.239 linhas** não apareciam em documentação
+  alguma, incluindo o dispatcher inteiro. Uma página do mecanismo, não quinze
+  de API: os 89 verbos e como escolhem o irmão, o contrato de paridade com suas
+  67 divergências declaradas, o teto D-01 e os três módulos compartilhados.
+
+- **O roster dos wrappers GSD virou contrato vigiado.** Treze comandos invocam
+  exclusivamente `cairn-map.sh` e por isso são indistinguíveis por script; a
+  cobertura estrutural É o contrato pretendido, e agora isso está escrito num
+  teste que reprova quando o roster se move — em vez de uma dúvida que cada
+  sessão redescobre.
+
+### Upgrading
+
+Nada a fazer. Este ciclo não muda contrato de saída nem assinatura pública: as
+correções são de comandos que instruíam errado, de guardas que não alcançavam a
+forma, e de chamadas de rede que não tinham limite.
+
+Se você automatiza em cima de `/cairn:milestone new` ou `/cairn:phase`
+esperando que eles editem `.planning/*.md`, eles não editam mais — e num
+repositório com `.planning/` ainda por importar, o caminho continua sendo
+`/cairn:migrate` primeiro.
+
+
 ## [3.1.0] - 2026-08-14
 
 O board voltou a saber o que não sabe.

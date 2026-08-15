@@ -314,3 +314,70 @@ print("ok: the network lives in %s and nowhere else" % sys.argv[3])
   [ "$status" -eq 0 ]
   assert_output_has "the network lives in"
 }
+
+# ─── GUARD-01: the one network call in cairn is bounded ──────────────────────
+#
+# Owning the only network call in the project means owning the only way this
+# project can hang on a dead forge. `stub_gh` above answers instantly and
+# therefore proves nothing about that; these two do.
+
+# A `gh` on PATH that never answers. The dead-forge shape, locally.
+stub_gh_hangs() {
+  STUB_BIN="$BATS_TEST_TMPDIR/hang-bin"
+  mkdir -p "$STUB_BIN"
+  printf '#!/bin/sh\nsleep 120\n' > "$STUB_BIN/gh"
+  chmod +x "$STUB_BIN/gh"
+  PATH="$STUB_BIN:$PATH"
+  export PATH
+}
+
+@test "a forge that never answers times out by name, bounded, no traceback" {
+  make_review_repo
+  stub_gh_hangs
+  bash "$CONFIG_SH" set git.review_state gh --project-dir "$PWD" >/dev/null
+
+  local t0=$SECONDS
+  run env CAIRN_REVIEW_TIMEOUT=1 bash "$REVIEW_SH" fetch \
+      --project-dir "$PWD" --json
+  # Same shape as any other unanswered fetch: exit 5, nothing written, the
+  # reason named per pull request. A hang is a per-item failure like the
+  # others, not a new failure mode callers have to learn.
+  [ "$status" -eq 5 ]
+  [ $((SECONDS - t0)) -lt 30 ]             # bounded: it did not hang
+  assert_json_eq "$output" '.written' 'false'
+  assert_json_eq "$output" '.reason' 'no-answer'
+  assert_output_has "timed out after 1s"
+  if printf '%s\n' "$output" | grep -qF "Traceback"; then
+    echo "the fetch leaked a traceback instead of failing clean" >&2
+    return 1
+  fi
+  [ ! -f .cairn/pr-cache.json ]
+}
+
+@test "the forge call carries an explicit timeout (negative control)" {
+  # THE NEGATIVE CONTROL for the test above: an AST scan asserting the
+  # subprocess.run that runs `gh`/`glab` passes `timeout=`. Breaks by:
+  # deleting that keyword — the exact state this file shipped in, and a state
+  # every existing test in this suite passes happily because its stub answers
+  # before a timeout could ever matter.
+  run python3 -c '
+import ast, sys
+
+src = open(sys.argv[1], encoding="utf-8").read()
+tree = ast.parse(src, filename=sys.argv[1])
+sites = [n for n in ast.walk(tree)
+         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+         and n.func.attr == "run" and isinstance(n.func.value, ast.Name)
+         and n.func.value.id == "subprocess"]
+assert sites, "found no subprocess.run at all — the scan is broken"
+bare = [n.lineno for n in sites
+        if not any(kw.arg == "timeout" for kw in n.keywords)]
+assert not bare, "subprocess.run with no timeout= at line(s) %r" % bare
+print("ok: %d subprocess.run site(s), all bounded" % len(sites))
+' "$REVIEW_PY"
+  if [ "$status" -ne 0 ]; then
+    printf '%s\n' "$output" >&2
+  fi
+  [ "$status" -eq 0 ]
+  assert_output_has "all bounded"
+}

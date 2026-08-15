@@ -484,7 +484,6 @@ CROSS_AI_TIMEOUT=$(gsd_run query config-get workflow.cross_ai_timeout 2>/dev/nul
      cairn/scripts/cairn-record.sh summary --phase "${PHASE_NUMBER}" --plan "${plan_number}" < "$CANDIDATE_SUMMARY"
      ```
    - Advance the recorded plan with `gsd_run query state.advance-plan`
-   - Update ROADMAP.md progress
    - Mark plan as handled — skip it in execute_waves
 
    **Failure (non-zero exit or invalid summary):**

@@ -9,14 +9,33 @@ the mode; with neither `new` nor `complete`, ask which one.
 
 ## `new` — start the next milestone
 
-1. Update PROJECT.md, REQUIREMENTS.md and ROADMAP.md for the new cycle.
-   **cairn does not vendor `new-milestone`** — v1.6 vendored the four cycle
-   verbs and nothing else. With a GSD plugin installed alongside cairn, the
-   declared passthrough runs it: `/cairn:gsd new-milestone`. Without one, do
-   the edit yourself, with the user: the new milestone's requirements in
-   REQUIREMENTS.md, its phases appended to ROADMAP.md, and PROJECT.md's current
-   focus moved. Phase numbering is **continuous across milestones** (v1.0 ended
-   at phase 5 → v1.1 starts at phase 6) — never restart at 1.
+1. **Agree the cycle with the user, and write it to the tracker — not to a
+   document.** A milestone is its requirements, its phases and their order;
+   all three are bd issues, and none of them is a file. Ask what the cycle is
+   for, what it must deliver, and how the work splits into phases. Then go
+   straight to step 2 — there is no document to edit first.
+
+   Phase numbering is **continuous across milestones** (v1.0 ended at phase 5
+   → v1.1 starts at phase 6) — never restart at 1. Read the last number used
+   from the tracker, not from a roadmap:
+
+   ```bash
+   bd list --all --limit 0 --json \
+     | jq -r '[.[].labels[]? | select(startswith("phase-")) | ltrimstr("phase-") | tonumber] | max'
+   ```
+
+   Give each phase a **carrier**: one bead with the label pair and NO
+   `gsd.req`, no `plan-NN`, no parent suffix. Its title is the phase's name
+   and its description is what the phase promises — that bead is what
+   inherited the roadmap checkbox, and `/cairn:status`, `cairn-gate` and the
+   corroboration all read it. A phase without a carrier has no name, and the
+   board says so rather than borrowing a requirement's title.
+
+   **A `.planning/` still waiting to be imported is the exception, and the
+   only one.** If this repo has one, it is the INPUT of a GSD that has not
+   been migrated yet: run `/cairn:migrate` first, and open the cycle after —
+   never edit those documents to open a milestone, because the import is what
+   makes them history.
 2. Apply the issue creation convention to the new milestone's requirements —
    **dedup key check first**: an issue with the same `(gsd.req, gsd.milestone)`
    already exists (e.g. carried over during `complete`) → update it, never
@@ -57,12 +76,18 @@ the mode; with neither `new` nor `complete`, ask which one.
      Until `new` re-adds a phase label, `/cairn:doctor` shows the carried
      issue as a transient orphan warn — expected; it clears when the next
      milestone's roadmap places it.
-3. Archive the cycle. **cairn does not vendor `complete-milestone`**; the
-   deterministic half is `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh"`
-   plus moving ROADMAP/REQUIREMENTS and the phase dirs to
-   `.planning/milestones/v<X.Y>-phases/`. With a GSD plugin installed
-   alongside cairn, `/cairn:gsd complete-milestone` runs the upstream workflow
-   instead. Phase dirs are archived whole — that is correct history.
+3. **Close the cycle. In a tracker-owned repo there is nothing to archive** —
+   the closed beads ARE the archive, queryable by `bd list -l m-<X.Y> --all`
+   forever. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh"`; where
+   the planning documents do not exist it reports `documents:
+   not-applicable / out-of-scope` and exits 0, which is the correct answer and
+   not a skipped step.
+
+   **Only a repo that still carries an unimported `.planning/` has anything to
+   move**: its `ROADMAP`/`REQUIREMENTS` and phase dirs go to
+   `.planning/milestones/v<X.Y>-phases/`, whole — that is correct history for
+   documents that were the input. With a GSD plugin installed alongside cairn,
+   `/cairn:gsd complete-milestone` runs the upstream workflow for that case.
 4. Offer semantic compaction of aged closed issues:
    `bd admin compact --analyze --json` lists candidates (~30 days closed) with
    full content. Present the findings; only on explicit user confirmation
