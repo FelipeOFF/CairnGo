@@ -4199,26 +4199,52 @@ def main():
                            "applicable (it checks wired repos)")
         emit(args.json, summary, [f"[cairn-doctor] note: {summary['note']}"])
         sys.exit(EXIT_OK)
-    if has_planning != has_beads:
-        present = ".planning/" if has_planning else ".beads/"
-        absent = ".beads/" if has_planning else ".planning/"
-        summary["note"] = (f"{present} exists but {absent} is absent — "
-                           "doctor not applicable (it checks wired repos); "
-                           "run /cairn:migrate to bootstrap the missing side")
+    # `.beads/` E' O GATE, e `.planning/` deixou de ser exigido (v3.3).
+    #
+    # Ate aqui bastava a AUSENCIA do `.planning/` para o doctor recusar o
+    # repositorio inteiro — e o repositorio sem `.planning/` e' o REPO
+    # MIGRADO, que e' o destino da migracao e o que o cairn existe para
+    # servir. Um repo tracker-owned nao tinha auditoria nenhuma: nem
+    # cobertura requisito-issue, nem integridade do par de labels, nem
+    # claims velhas, nem recuperabilidade do export. Todas essas perguntas
+    # sao sobre o BD, e nenhuma precisa de um documento para ser respondida.
+    #
+    # MESMA FAMILIA DO SHIP GATE, corrigido uma release antes: cairn-gate
+    # exigia `.planning/` e por isso saia 0 "not applicable" em todo repo
+    # migrado — morto e verde ao mesmo tempo. O gate foi corrigido e este
+    # ficou, com a mesma forma, no arquivo ao lado.
+    #
+    # As checagens que dependem de documento NAO precisaram mudar: cada uma
+    # ja sabe se declarar `not-applicable` com scope `out-of-scope` (ver
+    # check_plan_counters). O defeito era o gate GLOBAL, sobra de um tempo
+    # em que o doctor so' sabia auditar documento.
+    #
+    # A DIRECAO INVERSA CONTINUA NAO-APLICAVEL, e por outra razao: sem
+    # `.beads/` nao ha tracker para auditar, e esse caso ja tem achado
+    # proprio desde a v1.7 (check_gsd_unmigrated, com a rota).
+    if has_planning and not has_beads:
+        summary["note"] = (".planning/ exists but .beads/ is absent — "
+                           "doctor not applicable (there is no tracker to "
+                           "audit); run /cairn:migrate to import this GSD "
+                           "into bd")
         human = [f"[cairn-doctor] note: {summary['note']}"]
-        # AS DUAS DIRECOES DESTE RAMO NAO SAO O MESMO FATO, e ate a v1.7 elas
-        # dividiam a frase acima. `.beads/` sem `.planning/` e' um bootstrap
-        # (o repo nunca teve GSD). `.planning/` sem `.beads/` e' um GSD POR
-        # MIGRAR — quem instala o cairn quase sempre chega assim — e merece
-        # achado proprio, com o que ha para migrar e a rota para migra-lo.
-        if has_planning:
-            finding = check_gsd_unmigrated(root, planning_dir)
-            summary["checks"].append(finding)
-            summary["counts"][finding["status"]] += 1
-            human.append(f"{SYMBOL[finding['status']]} {finding['id']}: "
-                         f"{finding['detail']}")
-            for item in finding["items"]:
-                human.append(f"    - {item}")
+        # O ACHADO DO GSD POR MIGRAR, que e' o valor deste ramo: quem instala
+        # o cairn quase sempre chega com um `.planning/` cheio, e dizer so'
+        # "nao aplicavel" o deixaria sem rota nenhuma. O finding nomeia o que
+        # ha para migrar e o comando que migra.
+        #
+        # O `if has_planning:` que envolvia isto saiu na v3.3: dentro deste
+        # ramo ele e' sempre verdadeiro — a condicao acima ja exige
+        # `has_planning` — e uma condicao sempre-verdadeira com forma de
+        # teste e' a armadilha que este repositorio ja documentou duas vezes
+        # (bd nao emite `parent`; o `or` do id fazendo o trabalho ao lado).
+        finding = check_gsd_unmigrated(root, planning_dir)
+        summary["checks"].append(finding)
+        summary["counts"][finding["status"]] += 1
+        human.append(f"{SYMBOL[finding['status']]} {finding['id']}: "
+                     f"{finding['detail']}")
+        for item in finding["items"]:
+            human.append(f"    - {item}")
         emit(args.json, summary, human)
         sys.exit(EXIT_OK)
 

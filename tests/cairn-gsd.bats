@@ -621,9 +621,29 @@ free_of_timestamp_keys() {
   #     carregava — as cinco superficies que leem active_phase — foi
   #     preservada na docstring de check_claims_stale, que e' onde ela
   #     informa quem le.
+  # ATUALIZADO 2026-08-15 pela v3.3, e a razao e' o GATE GLOBAL que caiu.
+  #
+  # O doctor recusava todo repositorio com `.beads/` e sem `.planning/` — o
+  # DESTINO da migracao, que e' o que o cairn existe para servir. Saia exit 0
+  # com um note e ZERO checagens, e a mensagem ainda mandava rodar
+  # /cairn:migrate "to bootstrap the missing side": recriar o diretorio que a
+  # v1.7 aposentou. Medido depois: 24 checagens avaliadas onde havia um note.
+  #
+  # Mesma familia do ship gate corrigido na v3.1.0 — o gate foi consertado e
+  # este ficou, com a mesma forma, no arquivo ao lado.
+  #
+  # O defeito foi reportado de FORA, por um agente usando o cairn 3.2.0 noutro
+  # repositorio. Nenhum teste daqui o pegaria: havia um pinando o
+  # comportamento errado como contrato, com uma nota que explicava a vacuidade
+  # e culpava a coisa errada. Substituido por um par — o repo migrado e'
+  # auditado, e a direcao inversa (.planning sem .beads) segue nao-aplicavel
+  # com o achado gsd-unmigrated e a rota.
+  #
+  # Junto, um `if has_planning:` aninhado numa condicao que ja o exigia:
+  # sempre-verdadeiro com forma de teste, a armadilha do `parent` do bd.
   local doctor="$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
-  local pinned_blob="281e7e1cfc2099de600a4824a07cab418abdb9c3"
-  local pinned_lines=4434
+  local pinned_blob="31b85665b8dd3220c8335ca6668a819cfe62c77e"
+  local pinned_lines=4460
   [ -f "$doctor" ]
   local blob lines
   blob="$(git hash-object "$doctor")"

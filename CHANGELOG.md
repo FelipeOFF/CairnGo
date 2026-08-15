@@ -7,6 +7,83 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-08-15
+
+O doctor volta a auditar o repositório que o cairn existe para servir.
+
+Dois defeitos de comportamento, sem mudança de contrato — o doctor recusava o
+repo migrado, e uma docstring descrevia o que o código deixou de fazer três
+releases atrás.
+
+O primeiro foi encontrado **de fora**. Um agente trabalhando em outro
+repositório com a 3.2.0 mediu em vez de assumir e reportou a discordância:
+*"a `SKILL.md` diz que o cairn não precisa mais do `.planning/`, mas a
+implementação discorda"*. Estava certo. Nenhum teste daqui o pegaria —
+havia um pinando o comportamento errado como contrato.
+
+### Fixed
+
+- **O doctor recusava todo repositório já migrado.** Um gate global exigia
+  `.planning/`: sem o diretório, exit 0 com um `note` e **zero checagens**. A
+  mensagem ainda mandava rodar `/cairn:migrate` *"to bootstrap the missing
+  side"* — recriar o que a v1.7 aposentou. Um repositório tracker-owned não
+  tinha auditoria nenhuma: nem cobertura requisito↔issue, nem integridade do
+  par de labels, nem claims velhas, nem recuperabilidade do export. Todas
+  essas perguntas são sobre o bd.
+
+  Medido depois da correção: **24 checagens avaliadas** onde havia um `note`.
+  As checagens que dependem de documento não precisaram mudar — cada uma já
+  sabia se declarar `not-applicable` / `out-of-scope`. O defeito era o gate.
+
+  É a mesma família do ship gate corrigido na 3.1.0, no arquivo ao lado: o
+  gate foi consertado e este ficou, com a mesma forma.
+
+- **A docstring do `migrate` modo B prometia gerar os três documentos.** O
+  corpo parou de fabricá-los na 2.0.0; a docstring ficou. Foi ela que o agente
+  leu para concluir que *"o modo B existe justamente para recriar o
+  `.planning/`"*, e foi essa conclusão que o levou a versionar o diretório em
+  vez de aposentá-lo. Prosa desatualizada aqui não envelheceu em silêncio:
+  **mudou a decisão de um usuário** na direção contrária à doutrina.
+
+- Um `if has_planning:` aninhado numa condição que já o exigia —
+  sempre-verdadeiro, com forma de teste. Mesma armadilha do `parent` do bd
+  que este repositório já documentou duas vezes.
+
+### Changed
+
+- **O teste que pinava o defeito foi substituído por um par.** O caso antigo
+  afirmava `no .planning/ — not applicable, exit 0`, com uma nota explicando
+  que zero checagens rodavam e que qualquer asserção ali passaria contra
+  qualquer implementação. A nota estava certa sobre a vacuidade e errada
+  sobre a causa: o problema não era o que assertar, era o curto-circuito
+  existir. Agora um caso prova que o repo migrado é auditado, e o outro que a
+  direção inversa — `.planning/` sem `.beads/` — segue não-aplicável, com o
+  achado `gsd-unmigrated` e a rota.
+
+### Upgrading
+
+Nada a fazer, e nada a adaptar: nenhum contrato de saída muda, nenhuma
+assinatura pública se mexe. O doctor volta a fazer o que sempre deveria — é
+correção, não capacidade nova.
+
+**O que esperar na primeira execução.** Se o seu repositório já migrou — tem
+`.beads/` e não tem `.planning/` — ele estava sem auditoria nenhuma e agora
+tem 24 checagens. Findings que aparecerem descrevem estado que **já existia**
+e estava invisível; não são regressão desta versão. Rode
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh"
+```
+
+e trate o que aparecer. O exit 7 continua reservado a falha real; `warn` e
+`not-applicable` não bloqueiam nada.
+
+**Se você versionou `.planning/` por causa deste defeito, pode aposentá-lo.**
+O diretório tem um papel e ele acaba: ser a entrada de onde `/cairn:migrate`
+extrai o roteiro para dentro do bd. Feita a importação, é história — e agora
+o doctor concorda com a `SKILL.md`.
+
+
 ## [3.2.0] - 2026-08-15
 
 As portas do ciclo, e o instrumento que as media.
