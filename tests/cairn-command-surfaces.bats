@@ -297,6 +297,15 @@ EOF
   # commands — but an unexamined one is exactly how land and review shipped
   # with no door. So every script is either a command or carries a reason
   # here, and a new script forces that decision instead of inheriting silence.
+  #
+  # MEASURED 2026-08-15 (GUARD-02): the sweep below globbed `cairn-*.py` and
+  # six files walked past it — five carrying an underscore
+  # (cairn_gsd_fact, cairn_gsd_parse, cairn_gsd_render, cairn_identity,
+  # cairn_source) and one not starting with `cairn-` at all (gbsync). A
+  # guard whose glob is narrower than the directory it guards is a guard
+  # that a filename decides. So the glob is `*.py`: every python file under
+  # cairn/scripts/ answers, and the naming style stops being an exemption.
+  #
   # bash 3.2 (the macOS default) has no associative arrays — a case, then.
   # The reason is the payload: an entry with no sentence is not an entry.
   script_has_written_reason() {
@@ -322,12 +331,25 @@ EOF
       test) echo "the bats suite runner for cairn's OWN repo; routed by the doctor's test-parallel check" ;;
       trend) echo "first-pass verdict history across cycles; a maintainer report, not a project verb" ;;
       wrap) echo "the derivation tool itself; invoked by /cairn:help and by the docs regeneration" ;;
+
+      # The six the `cairn-*.py` glob used to miss (GUARD-02). Five are
+      # library modules — imported, never exec'd, no .sh wrapper by a
+      # decision each one records in its own docstring — and the sixth has
+      # a door under another name. The key keeps the filename's own shape:
+      # `${name#cairn-}` does not strip an underscore, and it should not.
+      cairn_gsd_render) echo "the MEASURED output envelope of the gsd binary, in ONE source (phase 34, D-01); imported by the three siblings cairn-gsd-state.py, cairn-gsd-init.py and cairn-gsd-check.py so they do not carry copies that can drift — a module, never a CLI, and its docstring says so" ;;
+      cairn_gsd_parse) echo "the DOCUMENT substrate of the gsd binary (phase 38, CairnGo-2fyg): frontmatter, must_haves, PLAN tasks, CONTEXT decisions, the SUMMARY coverage block; imported by cairn-gsd-check.py and by cairn_gsd_fact.py, and it reaches no verdict — a module, no .sh" ;;
+      cairn_gsd_fact) echo "the FACT substrate of the gsd binary (phase 38, CairnGo-2fyg): read-only git, bounded subprocess, drift classification, artifact audit; imported by cairn-gsd-check.py alone, split out because parse READS a document and this INTERROGATES the repo — a module, no .sh" ;;
+      cairn_identity) echo "the two narrow identity conversions (collapse_home, machine_id) that cairn-journal.py and cairn-lease.py apply BEFORE writing a git-tracked file (CairnGo-xclf): the journal needs to tell two machines apart and never to name one; a library with no verb of its own, exercised through its two callers in tests/cairn-journal.bats and routed to by the doctor's identity finding" ;;
+      cairn_source) echo "the project roadmap derived from bd (v1.7), replacing the ~25 markdown parsers that read ROADMAP.md; imported by cairn-map.py, cairn-gate.py, cairn-trend.py, cairn-doctor.py and cairn-status.py, and asserted directly by tests/cairn-roadmap-source.bats — the question about a phase arrives through those doors, never through a verb of its own" ;;
+      gbsync) echo "the hub-and-spoke sync dispatcher (bd is the hub; push on bd lifecycle events, pull on demand, import for pre-existing external items); it HAS a door, under another name — /cairn:sync-pull runs gbsync.sh pull and /cairn:sync-config runs gbsync.sh import/update — plus the gbsync.sh wrapper, tests/gbsync.bats and cairn/docs/sync.md" ;;
+
       *) return 1 ;;
     esac
   }
 
   local path name undoored=""
-  for path in "$CAIRN_REPO_ROOT"/cairn/scripts/cairn-*.py; do
+  for path in "$CAIRN_REPO_ROOT"/cairn/scripts/*.py; do
     name="$(basename "$path" .py)"
     name="${name#cairn-}"
     [ -f "$CAIRN_REPO_ROOT/cairn/commands/$name.md" ] && continue
