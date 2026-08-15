@@ -13,18 +13,52 @@ GitHub Issues have only open/closed natively, so push maps in_progress->open
 project-specific CLAUDE.md if needed.)
 
 Requires: `gh` authenticated (`gh auth status`).
+
+Every `gh` invocation carries an explicit TIMEOUT (30s) and every transport
+failure (the CLI missing, the CLI hanging on a dead forge, a non-JSON answer)
+exits 1 with a one-line reason on stderr — never a traceback, and never a
+hang. `gh` reaches the network on our behalf, so an unbounded call here is an
+unbounded network call: it hangs gbsync and the prose command that called it.
 """
 import json
+import os
 import subprocess
 import sys
 
+# Seconds per `gh` invocation. Test seam (house CAIRN_* env-var pattern):
+# CAIRN_GITHUB_TIMEOUT shortens it so a bats test can prove the hang is
+# bounded without waiting 30s.
+try:
+    TIMEOUT = float(os.environ.get("CAIRN_GITHUB_TIMEOUT") or 30)
+except ValueError:
+    TIMEOUT = 30
+
 
 def gh(args, check=True, want_json=False):
-    p = subprocess.run(["gh", *args], capture_output=True, text=True)
+    # `check` governs only the CLI's exit code — a transport failure exits
+    # regardless, because "gh never came back" is not an answer any caller can
+    # treat as "no such issue".
+    try:
+        p = subprocess.run(["gh", *args], capture_output=True, text=True,
+                           timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        print(f"github gh {' '.join(args[:2])} -> timed out after "
+              f"{TIMEOUT:g}s", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"github: could not run gh: {e}", file=sys.stderr)
+        sys.exit(1)
     if check and p.returncode != 0:
         print(p.stderr.strip(), file=sys.stderr)
         sys.exit(1)
-    return json.loads(p.stdout) if want_json and p.stdout.strip() else p.stdout.strip()
+    if not (want_json and p.stdout.strip()):
+        return p.stdout.strip()
+    try:
+        return json.loads(p.stdout)
+    except json.JSONDecodeError as e:
+        print(f"github gh {' '.join(args[:2])} -> response is not JSON: {e}",
+              file=sys.stderr)
+        sys.exit(1)
 
 
 def labels_for(event, cfg):

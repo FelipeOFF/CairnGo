@@ -14,11 +14,20 @@ The dispatcher passes one JSON object on **stdin** and reads the result from
 **stdout**. Exit `0` on success; any nonzero exit is logged by the dispatcher,
 which then continues with the other backends.
 
-Every network call MUST carry an explicit timeout (jira: 30s) and MUST turn
-every transport failure — HTTP status, DNS/refused, timeout, unparseable body
-— into a nonzero exit with a one-line reason on stderr. A traceback is a
-contract violation, and a request with no timeout hangs the whole dispatcher
-(and the prose command that called it) on one dead socket.
+Every network call MUST carry an explicit timeout (30s in all five bundled
+adapters) and MUST turn every transport failure — HTTP status, DNS/refused,
+timeout, unparseable body — into a nonzero exit with a one-line reason on
+stderr. A traceback is a contract violation, and a request with no timeout
+hangs the whole dispatcher (and the prose command that called it) on one dead
+socket. An adapter that shells out to a CLI (github: `gh`) is bound the same
+way: the CLI reaches the network on the adapter's behalf, so an unbounded
+`subprocess.run` is an unbounded network call.
+
+The bundled adapters expose the value through a `CAIRN_<TOOL>_TIMEOUT` env
+var (`CAIRN_JIRA_TIMEOUT`, `CAIRN_GITLAB_TIMEOUT`, …) — a test seam first,
+and an escape hatch for a slow self-hosted instance second. `tests/gbsync.bats`
+proves the bound against a socket that really hangs, and an AST scan there
+fails if any call site loses its `timeout=`.
 
 Both directions accept `--dry-run` at the dispatcher level: the would-be
 operations are printed as `DRY-RUN:` lines and the adapter is **never

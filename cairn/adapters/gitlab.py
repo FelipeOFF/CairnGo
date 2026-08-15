@@ -14,13 +14,26 @@ https://gitlab.com/-/user_settings/personal_access_tokens (or a Project Access
 Token). GitLab issues are open/closed natively, so push maps in_progress->open
 and pull maps opened->open / closed->closed. The external id stored is the
 issue `iid` (project-internal number).
+
+Every request carries an explicit TIMEOUT (30s) and every transport failure
+(HTTP status, DNS/refused, timeout, non-JSON body) exits 1 with a one-line
+reason on stderr — never a traceback, and never a hang.
 """
 import json
 import os
+import socket
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# Seconds per request; a hung socket must not hang gbsync forever. Test seam
+# (house CAIRN_* env-var pattern): CAIRN_GITLAB_TIMEOUT shortens it so a bats
+# test can prove the hang is bounded without waiting 30s.
+try:
+    TIMEOUT = float(os.environ.get("CAIRN_GITLAB_TIMEOUT") or 30)
+except ValueError:
+    TIMEOUT = 30
 
 
 def token(cfg):
@@ -42,12 +55,32 @@ def api(cfg, method, path, params=None):
     data = urllib.parse.urlencode(params, doseq=True).encode() if params else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("PRIVATE-TOKEN", token(cfg))
+    # Every failure mode exits 1 with a one-line reason (the adapter
+    # contract's fail-loud): a bare traceback here would surface as garbage on
+    # the dispatcher's stderr, and no timeout at all hangs gbsync — and the
+    # prose command that called it — forever on a dead socket.
     try:
-        with urllib.request.urlopen(req) as r:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             raw = r.read().decode()
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
         print(f"gitlab {method} {path} -> {e.code}: {e.read().decode()[:300]}",
+              file=sys.stderr)
+        sys.exit(1)
+    except (socket.timeout, TimeoutError):
+        print(f"gitlab {method} {path} -> timed out after {TIMEOUT:g}s",
+              file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        reason = e.reason
+        detail = (f"timed out after {TIMEOUT:g}s"
+                  if isinstance(reason, (socket.timeout, TimeoutError))
+                  else reason)
+        print(f"gitlab {method} {path} -> connection failed: {detail}",
+              file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"gitlab {method} {path} -> response is not JSON: {e}",
               file=sys.stderr)
         sys.exit(1)
 
