@@ -78,6 +78,16 @@ SWITCH_KEY = "git.review_state"
 SWITCH_OFF = "off"
 CACHE_RELPATH = ".cairn/pr-cache.json"
 
+# Seconds per subprocess. Owning the only network call in cairn means owning
+# the only way cairn can hang on a dead forge: `gh`/`glab` are given a bound,
+# and so are the sibling scripts, which shell out to git. Test seam (house
+# CAIRN_* env-var pattern, same as the adapters' CAIRN_JIRA_TIMEOUT): a bats
+# test shortens it to prove the bound is real without waiting 30s.
+try:
+    TIMEOUT = float(os.environ.get("CAIRN_REVIEW_TIMEOUT") or 30)
+except ValueError:
+    TIMEOUT = 30
+
 # What each tool is asked for, and nothing more. No token is read, written or
 # printed anywhere in this file; `gh`/`glab` carry their own auth and this
 # script never sees it.
@@ -101,10 +111,16 @@ def now_stamp():
 
 
 def run_helper(argv):
-    """(returncode, stdout) for a sibling cairn script, or (None, "")."""
+    """(returncode, stdout) for a sibling cairn script, or (None, "").
+
+    Bounded like the forge call: these scripts shell out to git, and a git
+    that never returns would hang this one just as surely as a dead forge
+    would. TimeoutExpired is a SubprocessError, so it lands in the same
+    (None, "") that every caller already turns into a named exit.
+    """
     try:
         proc = subprocess.run([sys.executable] + [str(a) for a in argv],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, timeout=TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         return None, ""
     return proc.returncode, proc.stdout
@@ -160,13 +176,26 @@ def fetch_one(tool, number):
     """(entry, error) for one pull request. THE ONLY NETWORK CALL IN CAIRN.
 
     A failure is per-item and never fatal: a forge that is down, a number that
-    does not exist, an unauthenticated CLI — each becomes an error string
-    beside the others and leaves every entry that DID answer in the cache. Same
-    aggregate-and-continue shape gbsync.py's do_push/do_pull already use.
+    does not exist, an unauthenticated CLI, a forge that never answers — each
+    becomes an error string beside the others and leaves every entry that DID
+    answer in the cache. Same aggregate-and-continue shape gbsync.py's
+    do_push/do_pull already use.
+
+    The TIMEOUT is what makes "a forge that is down" a member of that list
+    rather than an exception to it. A `gh` that accepts the connection and
+    then says nothing is the failure mode a live-but-wedged forge produces,
+    and without a bound it is not a slow fetch — it is a fetch that never
+    ends, holding this command and whatever invoked it open on one socket.
+    Named separately from the OSError branch so the report says which of the
+    two happened; "could not run gh" and "gh never answered" send a reader to
+    different places.
     """
     argv = TOOL_ARGV[tool](number)
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True)
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None, f"#{number}: {tool} timed out after {TIMEOUT:g}s"
     except (OSError, subprocess.SubprocessError) as e:
         return None, f"#{number}: could not run {tool}: {e}"
     if proc.returncode != 0:

@@ -11,14 +11,26 @@ Auth: Bearer Personal Access Token. Create one at
 https://app.asana.com/0/my-apps and export it. Asana tasks have no native
 "in progress", so push maps in_progress->open (incomplete) and pull maps
 completed->closed / incomplete->open.
+
+Every request carries an explicit TIMEOUT (30s) and every transport failure
+(HTTP status, DNS/refused, timeout, non-JSON body) exits 1 with a one-line
+reason on stderr — never a traceback, and never a hang.
 """
 import json
 import os
+import socket
 import sys
 import urllib.error
 import urllib.request
 
 BASE = "https://app.asana.com/api/1.0"
+# Seconds per request; a hung socket must not hang gbsync forever. Test seam
+# (house CAIRN_* env-var pattern): CAIRN_ASANA_TIMEOUT shortens it so a bats
+# test can prove the hang is bounded without waiting 30s.
+try:
+    TIMEOUT = float(os.environ.get("CAIRN_ASANA_TIMEOUT") or 30)
+except ValueError:
+    TIMEOUT = 30
 
 
 def token(cfg):
@@ -35,12 +47,32 @@ def api(cfg, method, path, body=None):
     req = urllib.request.Request(BASE + path, data=data, method=method)
     req.add_header("Authorization", "Bearer " + token(cfg))
     req.add_header("Content-Type", "application/json")
+    # Every failure mode exits 1 with a one-line reason (the adapter
+    # contract's fail-loud): a bare traceback here would surface as garbage on
+    # the dispatcher's stderr, and no timeout at all hangs gbsync — and the
+    # prose command that called it — forever on a dead socket.
     try:
-        with urllib.request.urlopen(req) as r:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             raw = r.read().decode()
             return json.loads(raw).get("data", {}) if raw else {}
     except urllib.error.HTTPError as e:
         print(f"asana {method} {path} -> {e.code}: {e.read().decode()[:300]}",
+              file=sys.stderr)
+        sys.exit(1)
+    except (socket.timeout, TimeoutError):
+        print(f"asana {method} {path} -> timed out after {TIMEOUT:g}s",
+              file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        reason = e.reason
+        detail = (f"timed out after {TIMEOUT:g}s"
+                  if isinstance(reason, (socket.timeout, TimeoutError))
+                  else reason)
+        print(f"asana {method} {path} -> connection failed: {detail}",
+              file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"asana {method} {path} -> response is not JSON: {e}",
               file=sys.stderr)
         sys.exit(1)
 
