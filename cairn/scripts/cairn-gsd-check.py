@@ -38,8 +38,9 @@ from cairn_gsd_parse import (  # noqa: E402
 from cairn_gsd_fact import (  # noqa: E402
     _classify_drift_file, _find_phase_artifact, _find_stale_summary,
     _is_path_mapped, _parse_predicate_flags, _run_bounded_shell, _run_git,
-    _trim_2000, AUDIT_SCANNERS, REVIEWER_LANES, VERIFICATION_ROUTING_TABLE,
-    build_checkpoint, format_audit_report, scan_file_wide_negative_gate_conflict)
+    _trim_2000, AUDIT_SCANNERS, DRIFT_PRIORITY, REVIEWER_LANES,
+    VERIFICATION_ROUTING_TABLE, build_checkpoint, format_audit_report,
+    scan_file_wide_negative_gate_conflict)
 
 EXIT_OK = 0
 EXIT_CONTRACT = 1
