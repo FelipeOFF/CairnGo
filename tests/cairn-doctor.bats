@@ -1058,6 +1058,52 @@ PY
   assert_json_eq "$output" '.failed' 'false'
 }
 
+# O DEFEITO QUE SOBREVIVEU A UM MILESTONE INTEIRO. Medido 2026-08-13: o
+# epico CairnGo-dhl carregava o label `v1.6` em vez do par `m-v1.6`, e por
+# isso nao aparecia em listagem nenhuma do ciclo. As 72 issues do v1.6
+# fecharam, a release saiu, e ele ficou aberto — encontrado a mao meses
+# depois. Um label de versao CRU nao filtra, nao agrupa e nao aparece em
+# `bd list -l m-v1.6`: e' um m-* malformado com cara de label valido.
+@test "label-pairs: um label de versao sem o prefixo m- e acusado" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  local malformado
+  # sem phase-N, exatamente como era o dhl — e' por isso que a regra do par
+  # nao o pegava
+  malformado="$(bd create "Epico com rotulo cru" -t epic -l v1.6,quick --silent)"
+
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="label-pairs") | .status' 'warn'
+  grep -qF "$malformado" <<<"$output"
+  # o achado nomeia o defeito CERTO — rotulo malformado, nao par ausente —
+  # e o comando que o conserta
+  grep -qF "without the m- prefix" <<<"$output"
+  grep -qF -- "--add-label m-v1.6" <<<"$output"
+}
+
+# O CONTROLE, e ele e' a metade que importa da decisao: trabalho de BACKLOG
+# nao carrega rotulo de ciclo nenhum, e a ausencia e' o que o marca como
+# fora de ciclo. Uma checagem que acusasse isso transformaria a convencao
+# num falso positivo permanente.
+@test "label-pairs: backlog sem rotulo de ciclo nao e acusado" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  bd create "Ideia para depois" -t task -l backlog --silent >/dev/null
+
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="label-pairs") | .status' 'ok'
+}
+
 @test "label-pairs: phase-only label warns, --fix-labels repairs, re-run clean" {
   require_bd
   make_tmp_repo

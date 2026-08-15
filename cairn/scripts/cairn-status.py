@@ -371,7 +371,6 @@ SGR_DIM = "2"
 SGR_RED = "31"
 SGR_GREEN = "32"
 SGR_YELLOW = "33"
-SGR_BORDER = "90"
 
 # (name, lane color) — READY stays dim/default, DOING yellow, BLOCKED red.
 LANES = (("READY", SGR_DIM), ("DOING", SGR_YELLOW), ("BLOCKED", SGR_RED))
@@ -1453,9 +1452,24 @@ def bd_phase_rows(root):
     """
     if not bd_tracked(root):
         return {}
+    # O RECORTE, QUE FALTAVA NA v3.0.0 E CUSTOU A PRIMEIRA EXECUCAO DELA.
+    #
+    # Sem `milestone_key`, o bd devolve as fases de TODOS os ciclos que ele
+    # guarda — e como este board pergunta "o que falta fazer", o resultado
+    # foi 38 fases de sete ciclos encerrados listadas como pendentes, com um
+    # paragrafo sugerindo replanejar 20 delas em paralelo. Nenhuma existia
+    # como trabalho: todas tinham fechado.
+    #
+    # `open_cycle` responde as DUAS perguntas de uma vez, e a segunda e' a
+    # que importa: quando NAO ha ciclo aberto, `key` e' None, e `None` agora
+    # significa "nenhum ciclo" (ver cairn_source.in_milestone). As tres
+    # chamadas abaixo devolvem vazio, o board fica sem fases pendentes, e
+    # isso e' a resposta certa — nao ha ciclo, entao nao ha o que planejar.
+    key, _has_open = cairn_source.open_cycle(root)
     rows = {}
-    reqs = cairn_source.phase_reqs(root)
-    for n in cairn_source.phases(root):
+    reqs = cairn_source.phase_reqs(root, key)
+    done = cairn_source.completed_phases(root, key)
+    for n in cairn_source.phases(root, key):
         carrier = cairn_source.phase_carrier(root, n)
         closed_at = (carrier or {}).get("closed_at") or ""
         goal = cairn_source.phase_goal(root, n)
@@ -1469,7 +1483,16 @@ def bd_phase_rows(root):
             "number": n,
             "title": clean(carrier["title"]) if carrier else None,
             "milestone": ms[0] if ms else None,
-            "complete": bool(carrier and carrier.get("status") == "closed"),
+            # O PORTADOR RESPONDE, E QUANDO NAO HA PORTADOR A PERGUNTA NAO
+            # FICA SEM RESPOSTA. As fases dos ciclos anteriores a' convencao
+            # do portador nao tem um, e ate a v3.0.0 saiam `complete: false`
+            # com "issues 3/3" ao lado — o proprio board exibindo que tudo
+            # fechou enquanto as chamava de pendentes. `completed_phases()`
+            # ja calculava a queda ("toda issue da fase fechada, e ao menos
+            # uma existindo"); eram duas respostas para a mesma pergunta no
+            # mesmo modulo, e a linha usava a errada.
+            "complete": (bool(carrier and carrier.get("status") == "closed")
+                         if carrier else n in done),
             "completed_on": closed_at[:10] or None,
             "plans_done": sum(1 for _, done in plans if done) if plans else None,
             "plans_total": len(plans) or None,
@@ -3130,6 +3153,28 @@ def render_groups(data, width, max_rows, style):
     return lines
 
 
+def phase_slot(data):
+    """O objeto `phase` do modelo, ou um vazio com a MESMA FORMA.
+
+    `data["phase"]` e' None quando nao ha ciclo aberto (v3.1) — e essa e' a
+    resposta certa para quem PERGUNTA a posicao. Mas onze pontos de render
+    aqui dentro nao perguntam: eles leem `phase["active"]` para decidir se
+    imprimem a linha, e um `None` ali e' TypeError no meio do desenho.
+    
+    O vazio tem a forma completa de proposito: `active: None` e `total: None`
+    ja eram os valores que TODO leitor deste modulo testava antes de imprimir
+    ("if phase['active'] is not None and phase['total']"), entao a ausencia
+    de ciclo percorre exatamente o mesmo caminho que a ausencia de posicao
+    sempre percorreu. Nenhuma condicao de render precisou mudar.
+
+    O contrato PUBLICO (--json) segue sendo `null` — este vazio nao vaza para
+    fora, e nao deve: e' aqui que a distincao entre "sem posicao" e "posicao
+    zerada" deixa de importar, porque as duas nao imprimem nada.
+    """
+    return data.get("phase") or {"active": None, "total": None,
+                                 "completed": 0, "title": None}
+
+
 def meta_parts(data, style, include_done=True):
     """`phase X/Y title · milestone · done: N` as spans (segments drop out
     when unknown).
@@ -3145,7 +3190,7 @@ def meta_parts(data, style, include_done=True):
     `(no roadmap position)` fallback below is already the right answer there.
     """
     parts = []
-    phase = data["phase"]
+    phase = phase_slot(data)
     has_roadmap = phase["active"] is not None and phase["total"]
     if has_roadmap:
         head = [(f"phase {phase['active']}/{phase['total']}", None)]
@@ -3159,6 +3204,15 @@ def meta_parts(data, style, include_done=True):
                       (str(data["counts"]["closed"]), SGR_GREEN)])
     if not parts:
         parts.append([("(no roadmap position)", SGR_DIM)])
+    # DUAS AUSENCIAS QUE PARECEM UMA. Um repositorio sem ciclo aberto tem
+    # trabalho rastreado, historico e fases encerradas; ele so' nao esta
+    # DENTRO de um ciclo agora. Dizer isso, e dizer o comando que abre o
+    # proximo, e' diferente de "(no roadmap position)", que fala do repo que
+    # nunca teve roteiro. Ate a v3.0.0 o board resolvia a primeira ausencia
+    # listando as fases de todos os ciclos ja fechados como pendentes.
+    elif not data.get("open_milestones") and data.get("counts", {}).get("closed"):
+        parts.append([("no open cycle", SGR_DIM),
+                      (" — /cairn:milestone new", SGR_DIM)])
     spans = []
     for i, part in enumerate(parts):
         if i:
@@ -3640,7 +3694,7 @@ def render_plain(data):
             lines.append("\t".join([name, clean(iss.get("id", "?")),
                                     str(issue_priority(iss)),
                                     clean(iss.get("title", "")), extra]))
-    phase = data["phase"]
+    phase = phase_slot(data)
     if phase["active"] is not None and phase["total"]:
         lines.append(f"PHASE\t{phase['active']}/{phase['total']}")
     if data["milestone"]:
@@ -3857,7 +3911,7 @@ def terrain_model(data):
                 on_roadmap = True
         placed += 1 if on_roadmap else 0
     try:
-        active = int(str(data["phase"]["active"]))
+        active = int(str(phase_slot(data)["active"]))
     except (TypeError, ValueError):
         active = None
     if active not in counts:
@@ -4173,7 +4227,7 @@ def html_band(data):
 # ------------------------------------------------------------- page sections
 
 def html_head(data):
-    phase = data["phase"]
+    phase = phase_slot(data)
     bits = []
     if phase["active"] is not None and phase["total"] or data.get(
             "open_milestones"):
@@ -4214,8 +4268,8 @@ def html_next(data):
         title = esc(by_id.get(str(nxt["id"]), {}).get("title", ""))
     elif nxt["kind"] == "workflow":
         mark = esc(nxt["state_next"] or "")
-        if data["phase"]["active"] is not None:
-            title = f'in phase {esc(data["phase"]["active"])}'
+        if phase_slot(data)["active"] is not None:
+            title = f'in phase {esc(phase_slot(data)["active"])}'
     else:
         title = "nothing tracked. plan a phase, or run a health check."
     # The lead-in rides the statement's own baseline ("next: continue cg-12")
@@ -4410,7 +4464,7 @@ def html_lanes(data):
 
 
 def html_foot(data):
-    phase = data["phase"]
+    phase = phase_slot(data)
     lines = []
     tally = [f'<span class="n done-n">{data["counts"]["closed"]}</span> done']
     if phase["total"]:
@@ -4662,10 +4716,25 @@ def main():
         # papering over — see milestone_label().
         "open_milestones": [{"key": ms["key"], "label": ms["label"]}
                             for ms in milestones if ms["open"]],
-        "phase": {"active": active_phase,
-                  "total": len(all_phases) or None,
-                  "completed": len(done_phases),
-                  "title": active_phase_title(phases, active_phase)},
+        # `null` QUANDO NAO HA CICLO ABERTO, e a distincao e' o ponto (v3.1).
+        #
+        # "nao ha posicao a reportar" nao e' "ha um ciclo com zero fases": as
+        # fases dos ciclos encerrados existem, so' nao sao a posicao de
+        # ninguem. Ate a v3.0.0 este objeto vinha sempre preenchido, e num
+        # repositorio sem ciclo aberto ele publicava a posicao 38/38 de um
+        # ciclo fechado com o titulo de um bead de backlog no lugar do nome
+        # da fase — tres campos, todos errados, com forma de resposta.
+        #
+        # QUEBRA DE CONTRATO, DELIBERADA E DOCUMENTADA EM Upgrading: quem
+        # fazia `d["phase"]["total"]` recebia None e seguia; agora levanta.
+        # O consumidor precisa perguntar se ha posicao ANTES de ler qual e',
+        # e a forma antiga permitia pular essa pergunta — que e' exatamente
+        # como o board passou a mentir sem ninguem notar.
+        "phase": ({"active": active_phase,
+                   "total": len(all_phases) or None,
+                   "completed": len(done_phases),
+                   "title": active_phase_title(phases, active_phase)}
+                  if all_phases else None),
         # The described model, public in --json. Every phase carries what it
         # is, how far it has got, what it waits on and the next legal command.
         "phases": phases,

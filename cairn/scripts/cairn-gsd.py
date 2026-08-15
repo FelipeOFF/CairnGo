@@ -878,19 +878,6 @@ def load_scope_config_resolved(root=None):
     return data, "root", False
 
 
-def config_chain_value(key, fallback, root=None):
-    """Cadeia de leitura dos handlers que não são donos da chave: config do
-    escopo (defensiva) → default do schema (manifest em cadeia, sem morrer)
-    → fallback hardcoded (o CONFIG_DEFAULTS bakeado do upstream)."""
-    scope = load_scope_config_defensive(root)
-    value, found = dotted_get(scope, key)
-    if found:
-        return value
-    value, found = schema_default(key)
-    if found:
-        return value
-    return fallback
-
 
 def js_truthy(value):
     """A truthiness do JS para valores vindos de JSON: objeto/array são

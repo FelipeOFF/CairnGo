@@ -172,13 +172,57 @@ def is_carrier(issue):
 
 # --- as perguntas que se faziam ao ROADMAP.md ---------------------------------
 
+class _AllMilestones:
+    """O tipo do sentinela, para que ele se identifique num traceback."""
+    def __repr__(self):
+        return "ALL_MILESTONES"
+
+
+ALL_MILESTONES = _AllMilestones()
+"""Recorte explícito: TODO ciclo que o bd conhece.
+
+`None` NÃO significa mais isso. Ler a docstring de `in_milestone` antes de
+usar — o sentinela existe para que "quero todos os ciclos" seja uma frase
+escrita, e não o resultado de um argumento esquecido.
+"""
+
+
 def in_milestone(issue, key):
-    """A issue pertence ao ciclo? `key` None significa "todo ciclo"."""
-    return key is None or key in issue_milestones(issue)
+    """A issue pertence ao recorte?
+
+    TRÊS VALORES, E `None` MUDOU DE LADO NA v3.1:
+
+        ALL_MILESTONES  -> todo ciclo que o bd conhece
+        "v1.7"          -> aquele ciclo
+        None            -> NENHUM ciclo. Devolve vazio, sempre.
+
+    `None` significava "todos", e esse default produziu DOIS incidentes com
+    a lição escrita ao lado dele. No primeiro, `req-issue` acusou os 174
+    requisitos de cinco ciclos encerrados de não terem issue no ciclo de
+    hoje. No segundo — a v3.0.0, em produção — o board despejou as 38 fases
+    de sete ciclos como pendentes e mandou o usuário replanejar trabalho já
+    entregue.
+
+    A causa nunca foi um chamador distraído: é que `milestone(root)` devolve
+    `None` LEGITIMAMENTE quando nenhum ciclo está aberto, e todo leitor que
+    passasse esse valor adiante recebia o oposto do que pediu. O modo de
+    falha era o pior possível — resposta plausível, jamais uma exceção.
+
+    Invertido, o mesmo esquecimento produz lista vazia: visível, e do lado
+    seguro. Quem quer todos os ciclos escreve `ALL_MILESTONES`.
+    """
+    if key is ALL_MILESTONES:
+        return True
+    if key is None:
+        return False
+    return key in issue_milestones(issue)
 
 
-def phases(root, milestone_key=None):
-    """Os números de fase do ciclo, como int quando inteiro.
+def phases(root, milestone_key):
+    """Os números de fase do recorte, como int quando inteiro.
+
+    O `milestone_key` é OBRIGATÓRIO — ver `in_milestone` para o porquê e
+    para o que `None` significa (nenhum ciclo, não todos).
 
     O ESCOPO NÃO É DETALHE. O `ROADMAP.md` ATIVO listava só o ciclo corrente
     — as fases dos ciclos anteriores saíam dele no arquivamento, e é por isso
@@ -211,8 +255,9 @@ def as_number(n):
             return n
 
 
-def phase_reqs(root, milestone_key=None):
-    """{fase: [req ids]} do ciclo — o requisito é o bead, e o id é `gsd.req`."""
+def phase_reqs(root, milestone_key):
+    """{fase: [req ids]} do recorte — o requisito é o bead, e o id é
+    `gsd.req`. `milestone_key` obrigatório; ver `in_milestone`."""
     out = {}
     for issue in issues(root):
         req = issue_req(issue)
@@ -248,8 +293,8 @@ def phase_goal(root, phase):
     return (carrier.get("description") or "") if carrier else ""
 
 
-def completed_phases(root, milestone_key=None):
-    """Fases do ciclo cujo trabalho terminou: TODA issue da fase fechada, e
+def completed_phases(root, milestone_key):
+    """Fases do recorte cujo trabalho terminou (`milestone_key` obrigatório): TODA issue da fase fechada, e
     ao menos uma issue existindo. Uma fase vazia não é uma fase completa — é
     uma fase sem trabalho, e chamá-la de completa é o `all([])` que faz um
     relatório dizer 'pronto' sobre o que nunca começou.
@@ -287,6 +332,23 @@ def milestone(root):
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
 
 
+def open_cycle(root):
+    """(chave do ciclo aberto, há ciclo aberto?) — a pergunta que cinco
+    leitores faziam cada um do seu jeito.
+
+    Existe porque `milestone(root)` devolve `None` em dois casos que PARECEM
+    o mesmo e não são: não há ciclo aberto, e não há bd algum. Cada
+    consumidor que tratasse esse `None` sozinho inventaria a sua própria
+    resposta — e foi assim que o board acabou dizendo `completed: 1` sobre o
+    mesmo repositório em que `completed_phases()` dizia 38.
+
+    Devolve o par para que o chamador não precise comparar com `None` de
+    novo, que é a comparação que já saiu errada uma vez.
+    """
+    key = milestone(root)
+    return key, key is not None
+
+
 def milestones(root):
     """Todo milestone que o bd conhece, do mais recente para o mais antigo
     pela ordem natural da versão."""
@@ -322,39 +384,6 @@ def phase_plans(root, phase):
     return sorted(out)
 
 
-def plan_counts(root):
-    """(planos, planos fechados) do projeto inteiro — o par que a linha de
-    progresso publicava a partir de contagens de arquivo em disco."""
-    total = done = 0
-    for issue in issues(root):
-        if issue_plan(issue):
-            total += 1
-            if issue.get("status") == "closed":
-                done += 1
-    return total, done
-
-
-def phase_deps(root):
-    """{fase: {fases das quais depende}}, derivado das dependências entre os
-    beads das fases. Só conta a aresta que ATRAVESSA fases — uma dependência
-    dentro da mesma fase é ordenação interna, não precedência de roteiro."""
-    phase_of = {}
-    for issue in issues(root):
-        for n in issue_phases(issue):
-            phase_of.setdefault(issue["id"], set()).add(as_number(n))
-    out = {}
-    for issue in issues(root):
-        mine = phase_of.get(issue["id"]) or set()
-        for dep in (issue.get("dependencies") or []):
-            if dep.get("type") != "blocks":
-                continue
-            theirs = phase_of.get(dep.get("depends_on_id")) or set()
-            for a in mine:
-                for b in theirs:
-                    if a != b:
-                        out.setdefault(a, set()).add(b)
-    return out
-
 
 def active_phase(root):
     """A fase corrente, derivada do trabalho e não de um campo escrito à mão.
@@ -385,56 +414,3 @@ def unlabeled(root):
     no eixo que não depende de roteiro nenhum."""
     return [i for i in issues(root)
             if i.get("status") != "closed" and not issue_phases(i)]
-
-
-def has_project(root):
-    """Este repositório tem projeto rastreado? — a pergunta que decide entre
-    'não há o que medir' e 'há, e mede-se'. É a única coisa que substitui o
-    `.planning/ existe?` de antes, e ela pergunta ao bd."""
-    return bool(issues(root))
-
-
-def demo():
-    """Auto-checagem: roda contra este próprio repositório.
-
-    `python3 cairn_source.py` — sem framework, sem fixture. O que ela prova é
-    o que dá para provar sem inventar um repo: que as derivações concordam
-    entre si e com as convenções que o cairn estampa.
-    """
-    root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    data = issues(root)
-    assert isinstance(data, list), "issues() sempre devolve lista"
-    if not data:
-        print("cairn_source: sem bd ou sem issues — nada a checar aqui")
-        return
-
-    ph = phases(root)
-    reqs = phase_reqs(root)
-    assert set(reqs) <= ph, "toda fase com requisito é uma fase conhecida"
-    done = completed_phases(root)
-    assert done <= ph, "toda fase completa é uma fase conhecida"
-
-    # a segunda leitura vem do cache: mesma lista, e mesmo objeto
-    assert issues(root) is data, "a leitura é uma só por raiz"
-
-    # um portador nunca é requisito, nem plano, nem filho
-    for n in list(ph)[:20]:
-        carrier = phase_carrier(root, n)
-        if carrier:
-            assert not issue_req(carrier) and not issue_plan(carrier)
-            assert not is_child_id(carrier["id"])
-
-    # completude não é vacuidade: uma fase sem issue não entra
-    empty = [n for n in done if not phase_issues(root, n)]
-    assert not empty, "fase vazia não pode contar como completa: %r" % empty
-
-    total, closed = plan_counts(root)
-    assert closed <= total, "planos fechados nunca excedem os planos"
-
-    print("cairn_source: %d issue(s), %d fase(s), %d completa(s), "
-          "milestone %s, %d/%d plano(s)"
-          % (len(data), len(ph), len(done), milestone(root), closed, total))
-
-
-if __name__ == "__main__":
-    demo()

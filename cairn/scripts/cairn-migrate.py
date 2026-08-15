@@ -363,11 +363,6 @@ def parse_requirements_md(path):
     return items
 
 
-def state_active_phase(planning_dir):
-    val = frontmatter(planning_dir / "STATE.md").get("active_phase", "")
-    m = re.search(r"\d+", val)
-    return int(m.group(0)) if m else None
-
 
 def state_milestone(planning_dir):
     val = frontmatter(planning_dir / "STATE.md").get("milestone", "")
