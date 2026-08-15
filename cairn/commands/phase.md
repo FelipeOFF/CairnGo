@@ -30,21 +30,31 @@ knows nothing about those labels. This wrapper moves them.
    `in_progress` in one call. No separate `--status`; it is idempotent when the
    issue is already yours.
 
-3. **Edit the ROADMAP.**
+3. **Change the phase in the tracker.**
 
-   The deliverable is the edited `.planning/ROADMAP.md`, and — when the change
-   adds or removes requirements — `.planning/REQUIREMENTS.md` with it:
+   A phase is a **carrier bead** plus the issues that wear its `phase-<N>`
+   label — not a card in a document. The four operations, each on bd:
 
-   - **add** appends a phase; **insert** places one at a position and pushes
-     the rest down; **remove** deletes one and pulls the rest up; **edit**
-     rewrites a phase's card, goal, requirements or dependencies in place.
-   - A phase carries: the card (the question it answers), the goal, its
-     requirement ids, whether it needs research, and what it depends on.
+   - **add** — create a carrier: the label pair, and NO `gsd.req`, no
+     `plan-NN`, no parent suffix. Title is the phase's name, description is
+     what it promises. That bead is what inherited the roadmap checkbox.
+   - **edit** — `bd update <carrier>` for the name or the promise;
+     `bd dep add` / `bd dep remove` for what it waits on. A phase's
+     requirements are the `gsd.req` of its own issues, so changing them means
+     creating or re-stamping issues, never rewriting a list.
+   - **remove** — close the carrier with a reason, and decide with the user
+     what happens to each issue still wearing the label: close, or move to
+     another phase.
+   - **insert** — create the carrier at the target number, then renumber
+     every phase after it. That renumbering is step 4.
 
-   **Written before the ROADMAP is touched: the renumbering plan.** Insert and
-   remove renumber every phase after the target, and the `phase-<N>` labels
-   follow — that mapping is what step 4 replays onto bd, and deriving it after
-   the file has already moved is how issues get orphaned.
+   **Worked out before anything moves: the renumbering plan.** Insert and
+   remove shift every phase after the target, and the `phase-<N>` labels
+   follow — that mapping is what step 4 replays onto bd.
+
+   **A `.planning/ROADMAP.md` still waiting to be imported is the exception.**
+   Until `/cairn:migrate` reads it, it is the INPUT and it is what describes
+   the phases; run the migration first, and change phases here after.
 
 4. **Move the labels.** This is the step that only exists here. For each
    renumbering the delegate performed, run the script that owns this migration —

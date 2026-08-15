@@ -842,6 +842,65 @@ make_closed_cycle_fixture() {
   ST_BACKLOG="$(bd create "Ideia para depois" -t task -l backlog --silent)"
 }
 
+# A FASE ATIVA VEM DO TRABALHO, e ate a v3.1 vinha do STATE.md. Medido no
+# instante em que o ciclo v3.2 abriu neste repositorio: o rodape imprimiu
+# `phase 38/3` — a fase ativa de um ciclo ENCERRADO ao lado do total do ciclo
+# novo, dois numeros de ciclos diferentes na mesma linha.
+#
+# cairn_source.active_phase() respondia 39, corretamente; quem publicava 38
+# era cairn-status.py lendo `active_phase:` do frontmatter, onde o numero
+# ficou congelado desde o ciclo anterior. A docstring daquela funcao dizia,
+# desde que nasceu, que existia para substituir esse campo — "um numero que
+# alguem tinha de lembrar de mover" — e o consumidor principal nunca passou
+# a usa-la.
+#
+# NENHUM FIXTURE PEGAVA porque todos escrevem STATE.md e bd em acordo: as
+# duas fontes concordam e a divergencia fica invisivel. O caso que expoe e'
+# um STATE.md de ciclo ANTERIOR com um ciclo novo aberto.
+@test "a fase ativa sai do trabalho quando o roteiro nao e a fonte" {
+  require_bd
+  make_tmp_repo
+  make_bd_phases_fixture
+  [ ! -e .planning ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  # a menor fase com trabalho aberto, derivada — nao um numero escrito a mao
+  assert_json_eq "$output" '.phase.active' '1'
+}
+
+@test "STATE.md desatualizado nao contamina a fase ativa de um ciclo novo" {
+  require_bd
+  make_tmp_repo
+  make_bd_phases_fixture
+  # um .planning/ SEM roteiro que nomeie fase: o roteiro nao e' a fonte, mas
+  # o STATE.md existe e carrega o numero de um ciclo que ja passou
+  mkdir -p .planning
+  printf -- '---\nactive_phase: 38\nmilestone: v1.0\n---\n' > .planning/STATE.md
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  # 1, do bd — nao 38, do documento
+  assert_json_eq "$output" '.phase.active' '1'
+}
+
+# O CONTROLE: enquanto o roteiro em disco NOMEIA fases, ele e' a entrada de um
+# GSD por importar e o STATE.md que o acompanha continua respondendo. A regra
+# das duas fontes vale aqui como vale para as fases.
+@test "com roteiro em disco, a fase ativa segue vindo do STATE.md" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture 2>/dev/null || true
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  # o fixture do GSD escreve active_phase no STATE.md; o valor sai de la
+  local from_doc
+  from_doc="$(grep -E '^active_phase:' .planning/STATE.md | sed 's/[^0-9]*//g')"
+  assert_json_eq "$output" '.phase.active' "$from_doc"
+}
+
 @test "ciclo encerrado: nenhuma fase pendente, e o rodape diz por que" {
   require_bd
   make_tmp_repo

@@ -1798,7 +1798,12 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     # the ONE place in the whole module where the batch gets observed into
     # the journal, resiliently (see journal_observe_phases()).
     journal_observe_phases(root, out)
-    return out
+    # (rows, source): a FONTE volta junto porque quem chama precisa dela e
+    # ja foi resolvida aqui, na primeira linha desta funcao. Um segundo
+    # leitor que a recalculasse seria uma segunda leitura da mesma coisa —
+    # e duas leituras da mesma fonte sao duas coisas que podem discordar,
+    # como o comentario do `fm` em main() adverte.
+    return out, source
 
 
 def phase_next_command(p):
@@ -4648,7 +4653,8 @@ def main():
     # answering out of the SAME dict — a second read of git is a second thing
     # that can describe this repository differently.
     landing = fetch_landing(root, planning_dir)
-    phases = phase_model(planning_dir, ready + doing + blocked + closed,
+    phases, phase_source = phase_model(planning_dir,
+                                       ready + doing + blocked + closed,
                          bd_ok=bd_ok, landing=landing)
     all_phases, done_phases = roadmap_phases(planning_dir, phases)
     # Cross-check (docstring step 4b): open issues whose phase labels are
@@ -4684,7 +4690,28 @@ def main():
     # acima, então o TSV e o rodapé não podem mais nomear ciclos diferentes.
     milestone = next((ms["key"] for ms in milestones if ms["open"]), None)
     milestone = clean(milestone) if milestone else None
-    active_phase = normalize_phase(fm["active_phase"])
+    # E A FASE ATIVA SAI DO TRABALHO, PELA MESMA RAZAO (v3.2).
+    #
+    # O paragrafo acima comemorou tirar o MILESTONE do documento e chamou
+    # aquele de "o ultimo sitio do status que ia a um documento". Era o
+    # ultimo atras do milestone. A linha seguinte continuou lendo
+    # `active_phase:` do frontmatter do STATE.md — e a docstring de
+    # cairn_source.active_phase() dizia, desde que nasceu, que existia para
+    # substituir exatamente esse campo, "um numero que alguem tinha de
+    # lembrar de mover".
+    #
+    # MEDIDO no instante em que o ciclo v3.2 abriu: o rodape imprimiu
+    # `phase 38/3` — a fase ativa de um ciclo encerrado ao lado do total do
+    # ciclo novo. Nenhum teste pegava porque todo fixture escreve STATE.md e
+    # bd em acordo; o caso que expoe e' um STATE.md de ciclo ANTERIOR com um
+    # ciclo novo aberto, e nenhum fixture montava isso.
+    #
+    # O documento ainda responde enquanto for a ENTRADA de um GSD por
+    # importar — a mesma regra das duas fontes que governa o resto do board.
+    derived = cairn_source.active_phase(root)
+    active_phase = (normalize_phase(fm["active_phase"])
+                    if phase_source == "roadmap"
+                    else (str(derived) if derived is not None else None))
     nxt = synthesize_next(ready, doing, milestone, active_phase,
                           fm["next_action"], done_phases)
     sync = sync_status(root)
