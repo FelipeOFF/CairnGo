@@ -603,9 +603,27 @@ free_of_timestamp_keys() {
   #     Como no-input, deixava todo repo de trabalho concluido
   #     permanentemente INCOMPLETE (medido: dois casos de phase-artifacts
   #     falharam por isso, sem ter relacao com claims).
+  # ATUALIZADO 2026-08-14 pela 3.1.0, e a razao sao DUAS mudancas de
+  # comportamento no doctor, nenhuma cosmetica:
+  #   - `label-pairs` ganhou uma SEGUNDA regra, emitida como achado distinto:
+  #     um label de versao CRU (`v1.6` em vez de `m-v1.6`) e' um m-*
+  #     malformado — nao casa com `bd list -l m-v1.6`, com listagem de ciclo
+  #     nenhuma, nem com o board. Medido nesta arvore: o epico CairnGo-dhl
+  #     carregava um e sobreviveu ao fecho INTEIRO do v1.6 (72 issues
+  #     fechadas, release publicada), encontrado a mao meses depois. Achado
+  #     separado do par quebrado porque a correcao e' outra — renomear o
+  #     label, nao emparelha-lo com um phase-N que a issue talvez nem devesse
+  #     ter. Backlog fica de fora por construcao, e o controle disso esta em
+  #     tests/cairn-doctor.bats.
+  #   - sairam tres constantes que nenhuma mensagem consumia
+  #     (ACTIVE_PHASE_READERS, ACTIVE_PHASE_ISSUE, REQ_LEDGER_OUT_OF_REMIT_KINDS),
+  #     uma delas endereçando um bead ja fechado. A medicao que a primeira
+  #     carregava — as cinco superficies que leem active_phase — foi
+  #     preservada na docstring de check_claims_stale, que e' onde ela
+  #     informa quem le.
   local doctor="$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
-  local pinned_blob="0075ed18c751fd7f51de282e205a5c7b22133123"
-  local pinned_lines=4402
+  local pinned_blob="281e7e1cfc2099de600a4824a07cab418abdb9c3"
+  local pinned_lines=4434
   [ -f "$doctor" ]
   local blob lines
   blob="$(git hash-object "$doctor")"
