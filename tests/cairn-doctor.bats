@@ -1198,26 +1198,57 @@ PY
   assert_json_eq "$output" '.checks[] | select(.id=="bd-doctor") | .detail | startswith("exit 0:")' 'true'
 }
 
-@test "no .planning/ — not applicable, exit 0, suggests /cairn:migrate" {
+# O REPO MIGRADO E' AUDITADO, e ate a v3.2.0 nao era. O teste que ocupava
+# este lugar afirmava o defeito como se fosse contrato: "no .planning/ — not
+# applicable, exit 0", com uma nota explicando que zero checagens rodavam.
+#
+# `.planning/` tem UM papel e ele acaba: ser a ENTRADA de onde /cairn:migrate
+# extrai o roteiro para dentro do bd. Depois disso o diretorio e' historia, e
+# um repositorio com .beads/ e sem .planning/ e' o DESTINO da migracao — o
+# que o cairn existe para servir. Recusa-lo deixava esse repo sem auditoria
+# nenhuma: nem cobertura requisito-issue, nem par de labels, nem claims
+# velhas, nem recuperabilidade do export. Todas sao perguntas sobre o bd.
+#
+# Mesma familia do ship gate corrigido na v3.1.0, no arquivo ao lado.
+@test "repo migrado: o doctor AUDITA .beads/ sem .planning/" {
   require_bd
   make_tmp_repo
   bd init -q --prefix doc --non-interactive >/dev/null 2>&1
+  bd create "Fase 1: auth" -t task -l phase-1,m-v1.0 --silent >/dev/null
+  bd create "Signup" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' \
+    --silent >/dev/null
+  [ ! -e .planning ]
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  # o oposto exato do que o teste antigo afirmava: as checagens RODAM
+  assert_json_eq "$output" '.applicable' 'true'
+  assert_json_eq "$output" '.note' 'null'
+  local n
+  n="$(jq '.checks | length' <<<"$output")"
+  [ "$n" -gt 0 ]
+
+  # e as checagens que dependem de documento sabem se declarar sozinhas —
+  # e' por isso que o gate GLOBAL era desnecessario
+  assert_json_eq "$output" \
+    '.checks[] | select(.id=="plan-counters") | .scope' 'out-of-scope'
+}
+
+# O CONTROLE, e ele guarda a direcao que CONTINUA nao-aplicavel: sem .beads/
+# nao ha tracker para auditar. As duas direcoes nunca foram o mesmo fato, e
+# so' uma delas era defeito.
+@test "GSD por migrar: sem .beads/ segue nao-aplicavel, com a rota" {
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  [ ! -e .beads ]
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh"
   [ "$status" -eq 0 ]
   grep -qF "not applicable" <<<"$output"
   grep -qF "/cairn:migrate" <<<"$output"
-
-  # MEASURED 2026-08-07 while adding check 20: this path registers ZERO
-  # checks — the doctor short-circuits before the check list is built, so
-  # `.checks` is empty and `.ok` is true by construction. Any assertion here
-  # about a particular check's status or scope would pass against every
-  # implementation, which is not a proof of anything. Said out loud because
-  # the vacuous version of it was written first.
-  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.checks | length' '0'
-  assert_json_eq "$output" '.ok' 'true'
+  # e o achado proprio do GSD por migrar continua sendo emitido
+  grep -qF "gsd-unmigrated" <<<"$output"
 }
 
 @test "no .beads/ — not applicable, exit 0, suggests /cairn:migrate" {

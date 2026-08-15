@@ -9,7 +9,8 @@ Subcommands:
   detect [--project-dir D] [--json]
       Classify the repo. Prints the state letter on the first stdout line:
         A  .planning present, .beads absent        (GSD-only backfill)
-        B  .beads present, .planning absent        (beads-only bootstrap)
+        B  .beads present, .planning absent        (estampa labels no backlog;
+                                                   nao escreve arquivo)
         C  both present, unwired (no *-BEADS-MAP.md anywhere AND no 'beads:'
            frontmatter in any *-PLAN.md)           (wire-up/reconcile)
         W  both present and already wired          (nothing to migrate)
@@ -145,7 +146,8 @@ PHASE_LABEL = re.compile(r"^phase-0*(\d+)$")
 
 STATE_DESCRIPTIONS = {
     "A": ".planning present, .beads absent -> GSD-only backfill (plan --mode A)",
-    "B": ".beads present, .planning absent -> beads-only bootstrap (plan --mode B)",
+    "B": ".beads present, .planning absent -> estampa o par de labels e a "
+         "metadata gsd no backlog; nao escreve arquivo (plan --mode B)",
     "C": "both present, unwired -> wire-up/reconcile (plan --mode C)",
     "W": "both present and already wired -> nothing to migrate",
     "D": "neither present -> greenfield (/gsd:new-project, then /cairn:init)",
@@ -1104,9 +1106,24 @@ def cat_prefix(issues, epic_title, used_fallback="REQ"):
 
 
 def build_plan_b(project, planning, milestone, force, notes):
-    """beads-only bootstrap: group issues into phases, generate the three
-    GSD docs + MILESTONES.md, stamp labels/metadata, generate maps.
-    Never fabricates PLAN.md; never writes PROJECT.md."""
+    """beads-only bootstrap: agrupa as issues em fases e ESTAMPA nelas o par
+    de labels e a metadata `gsd`. Nao escreve arquivo nenhum.
+
+    A DOCSTRING DIZIA OUTRA COISA ATE A v3.3, e o custo disso foi medido em
+    campo. Ela prometia "generate the three GSD docs + MILESTONES.md" — o que
+    o corpo fez ate a v2.0.0, quando CairnGo-9c0h.5 removeu a fabricacao
+    inteira (ver o comentario `v1.7 — O MODO B DEIXOU DE ESCREVER DOCUMENTO`
+    logo abaixo, que explica a direcao). O corpo mudou; a docstring ficou.
+
+    Um agente noutro repositorio leu exatamente esta docstring e concluiu, por
+    escrito, que "o modo B do migrate existe justamente para recriar o
+    .planning/" — e usou a conclusao para versionar o diretorio em vez de
+    aposenta-lo. Prosa desatualizada nao envelhece em silencio aqui: ela
+    induziu uma decisao contraria a doutrina do produto.
+
+    O QUE O MODO B FAZ, e e' tudo: pega um backlog de bd que nunca viu GSD e
+    o faz falar a convencao do cairn. O roteiro que aqueles documentos
+    desenhavam ja esta inteiro nas labels e na metadata."""
     steps = StepList()
     issues = list_issues(project)
     by_id = {i["id"]: i for i in issues}
