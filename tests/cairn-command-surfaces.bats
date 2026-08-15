@@ -379,6 +379,70 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# CairnGo-z320 (GUARD-03) — a cobertura estrutural E' o contrato pretendido
+# ---------------------------------------------------------------------------
+#
+# POR QUE TREZE COMANDOS NAO TEM TESTE DE COMPORTAMENTO PROPRIO, e por que
+# isso e' decisao e nao esquecimento.
+#
+# MEDIDO 2026-08-15: dos 40 comandos, 20 nao tem oraculo comportamental, e
+# treze deles sao INDISTINGUIVEIS do ponto de vista de script — o unico
+# executavel que o prompt manda rodar e' cairn-map.sh, o mesmo nos treze. O
+# que separa /cairn:spec-phase de /cairn:ui-phase nao e' codigo: e' o texto
+# que o modelo le. E prosa nao tem oraculo. Um teste que afirmasse o texto
+# viraria assercao sobre redacao — quebra quando alguem melhora uma frase,
+# e continua verde quando o comando para de fazer o que promete. Isso nao
+# mede comportamento; mede que ninguem editou o arquivo.
+#
+# O QUE GARANTE NO LUGAR. Tres testes enumeram cairn/commands/*.md inteiro e
+# portanto valem para os 40, estes treze inclusive:
+#
+#   - todo comando declara o `group` sob o qual imprime          (acima)
+#   - o help e a referencia listam todo comando, com pagina atras do link
+#     (acima; e o par completo em tests/cairn-wrap.bats)
+#   - nenhum comando `inline` delega para fora, e todo `implementation:
+#     vendored` aponta um arquivo que existe (tests/cairn-standalone.bats)
+#
+# Um comando destes nao pode, entao: sumir da superficie derivada, cair no
+# monte OTHER, apontar para um arquivo que nao existe, nem delegar para um
+# /gsd: que o standalone proibiu. Essa e' a cobertura, e ela e' o contrato
+# PRETENDIDO — nao um degrau a caminho de um teste por comando.
+#
+# O QUE TERIA DE MUDAR para um deles merecer oraculo proprio: deixar de ser
+# indistinguivel. No instante em que um destes prompts passa a mandar rodar
+# qualquer coisa alem de cairn-map.sh, ele adquiriu comportamento observavel
+# — exit code, saida, efeito — e passa a caber teste. O teste abaixo e'
+# exatamente essa vigia: ele nao mede prosa, mede a indistincao, e reprova
+# quando ela acaba.
+
+@test "os comandos que so invocam cairn-map.sh sao exatamente os treze declarados" {
+  # Nao e' uma lista de comandos "sem teste" — e' a lista dos que nao tem o
+  # que testar. Sair dela e' o sinal, nos dois sentidos: quem entra herda a
+  # decisao acima e precisa ser escrito aqui; quem sai ganhou um executavel
+  # proprio e a pergunta "isto ja merece oraculo?" volta a valer.
+  local expected="ai-integration-phase cleanup mvp-phase new plan plan-review-convergence review-backlog secure-phase spec-phase ui-phase ultraplan-phase validate-phase verify"
+
+  local file refs actual=""
+  for file in "$CAIRN_REPO_ROOT"/cairn/commands/*.md; do
+    refs="$(grep -oE '(cairn[-_][a-z_-]+|gbsync)\.(sh|py)' "$file" \
+            | sort -u | tr '\n' ' ')"
+    [ "$refs" = "cairn-map.sh " ] || continue
+    actual="$actual $(basename "$file" .md)"
+  done
+  actual="$(printf '%s\n' $actual | LC_ALL=C sort | tr '\n' ' ')"
+  actual="${actual# }"; actual="${actual% }"
+
+  if [ "$actual" != "$expected" ]; then
+    echo "the roster of map-only commands moved." >&2
+    echo "  declared: $expected" >&2
+    echo "  measured: $actual" >&2
+    echo "a command that LEFT now runs something besides cairn-map.sh: it has observable behaviour, so ask whether it earns its own oracle, then update this list." >&2
+    echo "a command that JOINED is newly indistinguishable: add it here, and read the block above for why it gets no test of its own." >&2
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # CairnGo-13t (FIX-01) — a step ordered at a moment it cannot run
 # ---------------------------------------------------------------------------
 
