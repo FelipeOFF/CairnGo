@@ -140,19 +140,37 @@ A regra, então:
 1. **Sempre exista uma PR aberta para o trabalho corrente** — a da fase contra
    a branch de milestone, ou a de milestone contra `main`. Todo push nela
    dispara a suíte.
-2. **Empurre e siga trabalhando.** Não espere o verde parado. Depois do push,
-   deixe um monitoramento da CI rodando em background e vá para a próxima
-   tarefa (ou continue a atual).
-3. **O vermelho interrompe, o verde não precisa ser esperado.** Quando a CI
-   falhar, pare o que estiver fazendo e conserte antes de empilhar mais
-   trabalho por cima de uma base que não se sabe verde.
+2. **Todo push prende o bead seguinte a um gate `gh:run`.** A espera pela CI é
+   estado rastreado, não disciplina de memória: com o gate aberto, o bead
+   bloqueado não aparece em `bd ready`, então ninguém empilha trabalho sobre
+   base que não se sabe verde por esquecimento.
+3. **Siga trabalhando no que já está aberto** — quem espera é o gate, não você.
+   E o vermelho continua interrompendo: `bd gate check` só fecha o gate quando a
+   run sai `completed` + `success`. CI vermelha deixa o gate aberto e o bead
+   seguinte fora do `ready` até você consertar.
 
 ```bash
-# Empurrar e monitorar sem bloquear
+# empurrar (dispara a CI)
 git push -u origin <branch>
 gh pr create --base <branch-alvo> --fill   # uma vez por frente de trabalho
-gh run watch "$(gh run list --branch <branch> --limit 1 --json databaseId -q '.[0].databaseId')"
+
+# prender o próximo bead à CI desta push
+bd gate create --type=gh:run --blocks <bead-seguinte> --reason="CI de <branch>"
+bd gate discover    # casa a run por branch+SHA; repita se a run ainda não subiu
+
+# antes de pegar o próximo trabalho
+bd gate check --type=gh:run   # verde fecha o gate, vermelho o mantém aberto
+bd ready
+
+bd gate list                            # gates abertos
+bd gate resolve <gate-id> -r "<motivo>" # destravar à mão (run recriada, push refeito)
 ```
+
+**Em `--await-id`, só ID numérico de run é seguro.** Um nome de workflow
+(`--await-id=ci.yml`) é aceito, mas esse hint dispara `gh run list
+--workflow=ci.yml` **sem filtro de branch** — medido em 2026-08-15 com bd 1.1.0:
+o gate casou com a run de outra branch e teria fechado com o verde alheio. Não
+passe `--await-id` na criação; deixe o `bd gate discover` casar por branch e SHA.
 
 **Localmente, use a porta da casa, nunca `bats` cru:**
 
