@@ -56,6 +56,24 @@ carry.
     backlog item with the current milestone to make it visible; visibility
     is what the `backlog` label and the READY lane are for. The doctor
     leaves these alone by construction.
+
+**Promotion is an act, and it has a name.** The rule above describes where
+work RESTS, not a cage. Backlog stays backlog until someone decides to bring
+it into a cycle — and at that moment it gains the label pair and the metadata
+stamp, and stops being backlog:
+
+```bash
+bd update <id> --add-label m-<milestone> --add-label phase-<N> \
+  --remove-label backlog \
+  --metadata '{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}'
+```
+
+`/cairn:review-backlog` exists for exactly this, and does it with the user.
+Read the rule and the act together, because each is dangerous alone: without
+the rule, someone stamps the current milestone onto backlog "so it shows up"
+— the disguise the convention exists to prevent, and how the epic that
+survived a whole milestone close came to be. Without the act, someone refuses
+to promote a real piece of work because they think the rule forbids it.
 - **Metadata stamp:** every cairn-managed issue carries
   `{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}`, set via
   `bd create`/`bd update` `--metadata`. Updates are **read-modify-write**:
