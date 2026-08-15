@@ -161,7 +161,6 @@ USAGE = (
     "                          [--doc-pages-dir <dir>] [--json]"
 )
 
-TOTAL_CLAIM = re.compile(r"\b\d+\s+in total\b")
 DOC_LINK = re.compile(r"\./commands/([A-Za-z0-9._-]+)\.md")
 
 

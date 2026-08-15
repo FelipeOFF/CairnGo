@@ -7,6 +7,116 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-14
+
+O board voltou a saber o que não sabe.
+
+A 3.0.0 tirou o roteiro do markdown e, na primeira execução num repositório
+que tinha acabado de fechar um ciclo, despejou 37 fases `(untitled)` como
+pendentes — todas de milestones encerrados — e terminou sugerindo
+`/cairn:plan 1 alongside /cairn:plan 7, e 19 more`. Mandava replanejar
+trabalho entregue.
+
+A causa não foi um chamador distraído. `milestone()` devolve `None`
+legitimamente quando nenhum ciclo está aberto, e `None` significava "todos os
+ciclos": todo leitor que passasse esse valor adiante recebia o oposto do que
+pediu, sem jamais levantar exceção. A docstring da própria função já
+registrava um incidente idêntico de um ciclo atrás.
+
+### Fixed
+
+- **O board lista as fases do ciclo aberto, e nenhuma quando não há um.**
+  `None` passa a significar NENHUM ciclo nas três funções de escopo
+  (`phases`, `phase_reqs`, `completed_phases`); quem quer todos escreve
+  `cairn_source.ALL_MILESTONES`. O mesmo esquecimento agora produz lista
+  vazia — visível, e do lado seguro. O rodapé diz `no open cycle` e aponta
+  `/cairn:milestone new`, em vez de inventar uma posição.
+
+- **Uma fase sem portador não é uma fase pendente.** As fases anteriores à
+  convenção do portador saíam `complete: false` com `issues 3/3` ao lado — o
+  próprio board exibindo que tudo fechou enquanto as chamava de pendentes.
+  A completude cai para "toda issue da fase fechada", que
+  `completed_phases()` já calculava. O título continua sendo dito como
+  ausente: a queda vale para a completude e não autoriza inventar o nome que
+  só o portador tem.
+
+- **`cairn-map` respeita o ciclo que ele mesmo resolveu.** O comando já
+  deduz o milestone (por `--milestone` ou pelo rótulo das issues da fase) e
+  descartava a resposta ao pedir os requisitos, então a tabela da fase 1
+  listava os requisitos da fase 1 de todos os ciclos que o repositório já
+  viu — os números de fase colidem entre milestones por construção.
+
+- **`/cairn:doctor` acusa um label de versão cru.** `v1.6` sem o prefixo
+  `m-` não casa com nada: nem `bd list -l m-v1.6`, nem listagem de ciclo,
+  nem board. O épico `CairnGo-dhl` carregava um e sobreviveu ao fecho
+  inteiro do v1.6 — 72 issues fechadas, release publicada — até ser
+  encontrado à mão. É um achado distinto do par quebrado, porque a correção
+  é outra: renomear o label, não emparelhá-lo.
+
+### Changed
+
+- **`phase` no `--json` é `null` quando não há ciclo aberto** — ver
+  **Upgrading**. "Não há posição a reportar" é diferente de "há um ciclo com
+  zero fases": as fases encerradas existem, apenas não são a posição de
+  ninguém.
+
+- **Backlog sem `m-*` é convenção, e agora está escrita.** Um item fora de
+  todo ciclo é marcado pela AUSÊNCIA dos dois labels — é o que o mantém fora
+  das listagens de ciclo e fora do "o que falta fazer". A skill `cairn`
+  registra isso, e o doctor deixa esses itens em paz por construção.
+
+### Removed
+
+- **Oito símbolos definidos e referenciados por nada**, encontrados por uma
+  varredura pedida durante a revisão: duas funções públicas do
+  `cairn_source` (`phase_deps`, `has_project`), três constantes do doctor
+  criadas para entrar em mensagens que nunca as consumiram — uma delas
+  endereçando um bead já fechado —, e três sobras de refactor.
+
+- **O `demo()` do `cairn_source`.** Era um self-check que nada executava:
+  nem a CI, nem teste algum. A remoção revelou `plan_counts`, que só ele
+  referenciava — um órfão de produção que a própria testemunha mascarava.
+
+### Added
+
+- **`tests/cairn-dead-code.bats`** — a guarda contra símbolo órfão, com
+  lista fechada de exceções (vazia hoje). Ela distingue referência de
+  PRODUÇÃO de referência de TESTE: um símbolo citado só em `tests/` está
+  morto em produção e vivo apenas na sua própria testemunha, e a primeira
+  versão do detector teria dado verde para essa classe inteira.
+
+### Upgrading
+
+**`phase` pode ser `null` no `--json` do `cairn-status`.** Antes o objeto
+vinha sempre preenchido; num repositório sem ciclo aberto ele publicava a
+posição de um ciclo já fechado com o título de um bead qualquer no lugar do
+nome da fase. Um consumidor que faça
+
+```bash
+cairn-status.sh --json | jq -r '.phase.total'
+```
+
+continua funcionando (jq devolve `null`), mas um que faça
+`d["phase"]["total"]` em Python passa a levantar `TypeError`. Pergunte se há
+posição antes de ler qual é:
+
+```python
+phase = data.get("phase")
+if phase is not None:
+    ...
+```
+
+A forma antiga permitia pular essa pergunta, e foi assim que o board passou a
+mentir sem ninguém notar.
+
+**Quem importa `cairn_source` diretamente:** `phases`, `phase_reqs` e
+`completed_phases` passaram a exigir o segundo argumento, e `None` nele
+significa NENHUM ciclo — não todos. Para o comportamento antigo, passe
+`cairn_source.ALL_MILESTONES` explicitamente. Uma chamada com um argumento
+só agora levanta `TypeError` na hora, em vez de devolver as fases de todos
+os ciclos que o repositório já viu.
+
+
 ## [3.0.0] - 2026-08-14
 
 Três guardas voltaram a poder reprovar.

@@ -818,6 +818,98 @@ make_bd_phases_fixture() {
   grep -qF '2  API' <<<"$output"
 }
 
+# O ESTADO QUE A v3.0.0 PUBLICOU QUEBRADO, e que nenhum fixture cobria: um
+# repositorio COM historico e SEM ciclo aberto. Toda a validação daquela
+# release usou fixtures com ciclo em andamento, e este e' o estado em que um
+# repo entra no minuto em que fecha um milestone — o mais comum que existe
+# entre ciclos.
+#
+# O board despejava as fases de TODOS os ciclos encerrados como pendentes,
+# porque milestone() devolve None (nenhuma issue aberta carrega m-*) e None
+# significava "todos os ciclos" no cairn_source.
+make_closed_cycle_fixture() {
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local a b c d
+  a="$(bd create "Auth" -t task -l phase-1,m-v1.0 --silent)"
+  b="$(bd create "Signup" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' --silent)"
+  c="$(bd create "API" -t task -l phase-2,m-v1.0 --silent)"
+  d="$(bd create "Rate limit" -t task -l phase-2,m-v1.0 \
+    --metadata '{"gsd":{"req":"API-01","phase":2,"milestone":"v1.0"}}' --silent)"
+  bd close "$a" "$b" "$c" "$d" >/dev/null
+  # backlog: sem m-*, sem phase-N. E' o que mantem milestone() em None, e e'
+  # a convencao — trabalho fora de ciclo nao carrega rotulo de ciclo.
+  ST_BACKLOG="$(bd create "Ideia para depois" -t task -l backlog --silent)"
+}
+
+@test "ciclo encerrado: nenhuma fase pendente, e o rodape diz por que" {
+  require_bd
+  make_tmp_repo
+  make_closed_cycle_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  # As fases dos ciclos fechados NAO entram: o recorte e' o ciclo aberto, e
+  # nao ha um. Zero, e nao "as duas do v1.0 marcadas como completas".
+  assert_json_eq "$output" '.phases | length' '0'
+  # E a posicao e' AUSENTE, nao zerada — as fases existem, so' nao sao a
+  # posicao de ninguem.
+  assert_json_eq "$output" '.phase' 'null'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF "no open cycle" <<<"$output"
+  grep -qF "/cairn:milestone new" <<<"$output"
+  # O paragrafo que mandava replanejar trabalho entregue nao pode aparecer.
+  refute_in_output "/cairn:plan 1"
+  refute_in_output "PENDING PHASES"
+}
+
+@test "ciclo encerrado: o backlog sem m-* segue visivel nas lanes" {
+  require_bd
+  make_tmp_repo
+  make_closed_cycle_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  # Nao ter ciclo nao e' nao ter trabalho: a issue de backlog e' claimavel e
+  # continua na lane READY. Some-la junto com as fases seria trocar um board
+  # errado por um board mudo.
+  grep -qF "$ST_BACKLOG" <<<"$output"
+}
+
+# A fase de um ciclo ANTERIOR a convencao do portador: nenhum bead sem
+# gsd.req, sem plan-NN e sem sufixo de filho. Ate a v3.0.0 ela saia
+# `complete: false` com "issues 2/2" ao lado — o board exibindo que tudo
+# fechou enquanto a chamava de pendente.
+@test "fase sem portador: a completude cai para toda-issue-fechada" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix st --non-interactive >/dev/null 2>&1
+  local x y
+  x="$(bd create "Signup" -t task -l phase-1,m-v9.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v9.0"}}' --silent)"
+  y="$(bd create "Login" -t task -l phase-1,m-v9.0 \
+    --metadata '{"gsd":{"req":"AUTH-02","phase":1,"milestone":"v9.0"}}' --silent)"
+  # uma fase 2 aberta mantem o ciclo v9.0 aberto, para que a fase 1 entre no
+  # recorte — o caso e' sobre portador ausente, nao sobre ciclo fechado
+  bd create "Rate limit" -t task -l phase-2,m-v9.0 \
+    --metadata '{"gsd":{"req":"API-01","phase":2,"milestone":"v9.0"}}' --silent >/dev/null
+  bd close "$x" "$y" >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" \
+    '.phases | map(select(.number == 1)) | .[0].complete' 'true'
+  # O titulo continua sendo dito como ausente: a queda vale para a
+  # COMPLETUDE, e nao autoriza inventar o nome que so' o portador tem.
+  assert_json_eq "$output" \
+    '.phases | map(select(.number == 1)) | .[0].title' 'null'
+  # e a fase 2, com trabalho aberto, nao e' arrastada junto
+  assert_json_eq "$output" \
+    '.phases | map(select(.number == 2)) | .[0].complete' 'false'
+}
+
 # O ESTADO INTERMEDIARIO, que nao e' nem um nem outro e foi o que quebrou
 # quando as duas metades da conversao v1.7 se encontraram na mesma arvore:
 # ROADMAP.md apagado, `.planning/phases/` AINDA em disco. As fases vem do

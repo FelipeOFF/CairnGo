@@ -146,7 +146,7 @@ def infer_milestone(issues):
         "pass --milestone to pick one", EXIT_USAGE)
 
 
-def phase_requirements(root, n):
+def phase_requirements(root, n, milestone):
     """Os requisitos da fase, DERIVADOS DO BD (v1.7).
 
     Liam-se da linha `**Requirements**:` dentro da seção `### Phase n` do
@@ -155,8 +155,18 @@ def phase_requirements(root, n):
     consultava. Devolve [] quando a fase não tem requisito estampado; a
     distinção entre "sem requisito" e "sem arquivo" morre junto com o
     arquivo.
+
+    O `milestone` É OBRIGATÓRIO, e a falta dele era um defeito (v3.1). Este
+    comando já resolve o ciclo — `--milestone` explícito, ou `infer_milestone`
+    lendo o rótulo das próprias issues da fase, ou exit 2 quando há mistura
+    — e então descartava a resposta ao pedir os requisitos. O número de fase
+    colide entre ciclos por construção (v1.0 e v1.1 têm cada uma a sua fase
+    1), então uma tabela da fase 1 listava os requisitos da fase 1 de TODOS
+    os ciclos que o repositório já viu. Aqui a resposta que o comando já
+    tinha na mão é usada.
     """
-    return cairn_source.phase_reqs(root).get(cairn_source.as_number(n), [])
+    key = milestone if milestone is not None else cairn_source.ALL_MILESTONES
+    return cairn_source.phase_reqs(root, key).get(cairn_source.as_number(n), [])
 
 
 def gsd_req(issue):
@@ -233,7 +243,7 @@ def main():
         milestone = infer_milestone(issues)
 
     inner, n_rows, n_unmapped, missing = build_inner(
-        issues, phase_requirements(root, n))
+        issues, phase_requirements(root, n, milestone))
 
     nn = f"{n:02d}"
     summary = {

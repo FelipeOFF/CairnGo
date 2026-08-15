@@ -1645,6 +1645,41 @@ def unpaired_issues(issues):
             and not any(lb.startswith("m-") for lb in i["labels"])]
 
 
+# Um label que É uma versão: `v1.6`, `v2`, `v1.10.0`. O prefixo `m-` é o que
+# distingue "o ciclo desta issue" de qualquer outro label que por acaso
+# pareça uma versão, e escrevê-lo sem o prefixo produz um label que NÃO é
+# nada — não filtra, não agrupa, não aparece em `bd list -l m-<x>`.
+BARE_VERSION_LABEL = re.compile(r"^v\d+(?:\.\d+)*$")
+
+
+def malformed_milestone_issues(issues):
+    """Issues com um label de versão CRU, sem o prefixo `m-`.
+
+    MEDIDO NO PRÓPRIO REPOSITÓRIO (2026-08-13): o épico `CairnGo-dhl`
+    carregava `v1.6` em vez de `m-v1.6` e, por isso, não aparecia em
+    listagem nenhuma do ciclo. Sobreviveu ao fecho inteiro do milestone —
+    72 issues fechadas, release publicada — e só foi encontrado meses
+    depois, à mão.
+
+    POR QUE `label-pairs` NÃO O PEGOU, e por que esta é uma checagem
+    separada em vez de um `or` na outra: `unpaired_issues` procura issue com
+    `phase-N` e sem `m-*`, e o `dhl` não tinha `phase-N` nenhum. As duas
+    condições descrevem defeitos diferentes — par quebrado, e rótulo
+    malformado — e um achado que as somasse diria ao usuário uma coisa
+    quando a verdade é a outra.
+
+    Backlog fica de fora por construção: trabalho sem ciclo não carrega
+    label de versão nenhum, cru ou prefixado, e é a AUSÊNCIA que o marca
+    como fora de ciclo (ver a convenção na skill `cairn`).
+    """
+    out = []
+    for i in issues:
+        bare = [lb for lb in i.get("labels") or [] if BARE_VERSION_LABEL.match(lb)]
+        if bare:
+            out.append((i, bare))
+    return out
+
+
 def check_label_pairs(issues, milestone, fixed, fix_error):
     items = []
     for iss in unpaired_issues(issues):
@@ -1654,14 +1689,27 @@ def check_label_pairs(issues, milestone, fixed, fix_error):
                 if milestone else "cairn-relabel.sh pair --milestone <m>")
         items.append(f"{iss.get('id', '?')}: {labels} but no m-* label "
                      f"— {hint}")
+    # A SEGUNDA REGRA, como achado DISTINTO e não como mais um item da
+    # primeira: um label de versão cru (`v1.6`) é um `m-*` malformado, e a
+    # correção é renomear o label — não emparelhá-lo com um `phase-N` que a
+    # issue talvez nem devesse ter. Dizer as duas coisas com a mesma frase
+    # mandaria o usuário rodar o comando errado.
+    for iss, bare in malformed_milestone_issues(issues):
+        items.append(
+            f"{iss.get('id', '?')}: label {', '.join(bare)} without the m- "
+            f"prefix — invisible to `bd list -l m-{bare[0]}`; rename it "
+            f"(bd update {iss.get('id', '?')} --add-label m-{bare[0]} "
+            f"--remove-label {bare[0]})")
     if fix_error:
         items.insert(0, f"--fix-labels failed: {fix_error}")
         status = "fail"
         detail = "--fix-labels could not repair the pairing"
     else:
         status = "warn" if items else "ok"
-        detail = (f"{len(items)} issue(s) missing the m-* pair" if items
-                  else "every phase-labeled issue carries an m-* label")
+        detail = (f"{len(items)} issue(s) with a broken milestone label"
+                  if items
+                  else "every phase-labeled issue carries an m-* label, "
+                       "and no label is a bare version")
         if fixed:
             detail += f" (fixed {fixed} via cairn-relabel pair)"
     # Phase 23 evaluated and KEPT `ok` for the zero counts here, both of them.
@@ -1673,22 +1721,16 @@ def check_label_pairs(issues, milestone, fixed, fix_error):
             "detail": detail, "items": items}
 
 
-# Every cairn surface that READS STATE.md's active_phase, measured
-# 2026-08-04 (`grep -rln active_phase cairn/`, docstring-only mentions
-# excluded): naming them is what makes the no-input verdict below routable
-# instead of a shrug.
-ACTIVE_PHASE_READERS = ("cairn-status.py", "cairn-doctor.py",
-                        "cairn-lease.py", "cairn-migrate.py",
-                        "hooks/session-start.sh")
-
-# Where the decision this check is waiting on actually lives. A non-ok state
-# with no address becomes noise in two weeks.
-ACTIVE_PHASE_ISSUE = "CairnGo-rq0"
-
 
 def check_claims_stale(issues, milestone, active_phase):
     """Check 8, id "claims-stale" — in_progress issues assigned outside the
     active phase.
+
+    AS SUPERFICIES QUE LEEM `active_phase` do STATE.md, medidas 2026-08-04
+    (`grep -rln active_phase cairn/`, menções só em docstring excluídas):
+    cairn-status.py, cairn-doctor.py, cairn-lease.py, cairn-migrate.py e
+    hooks/session-start.sh. A medição vivia numa constante que nenhuma
+    mensagem chegou a consumir; ela informa quem lê, e é aqui que se lê.
 
     THE NO-INPUT BRANCH IS NOT `ok`, AND THAT IS THE POINT (AUTO-08).
     Measured before this change, in this very repository:
@@ -2837,16 +2879,6 @@ REQ_LEDGER_CHAIN_KINDS = (
     "requirements-line-unreadable",  # link 3: the phase's Requirements line
     "plan-checkbox-stale",           # link 4: SUMMARY on disk -> plan checkbox
     "requirement-checkbox-stale",    # reconcile's derived 2, same chain
-)
-
-# Named by reconcile, outside this check's remit: STATE.md's own views. They
-# are still SURFACED — an unexplained absence is the exact defect this phase
-# removes — but they never spend exit 7 on a check called `req-ledger`, and
-# `state-narrative-stale` is free text reconcile itself declines to rewrite,
-# so failing on it would be a red that the routed command cannot clear.
-REQ_LEDGER_OUT_OF_REMIT_KINDS = (
-    "state-counter-stale",
-    "state-narrative-stale",
 )
 
 # "This repo has no coverage view at all" is not a broken ledger, it is no

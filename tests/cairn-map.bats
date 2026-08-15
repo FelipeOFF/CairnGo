@@ -160,6 +160,45 @@ make_map_fixture() {
   grep -qF "every phase requirement is mapped" <<<"$output"
 }
 
+# O NUMERO DE FASE COLIDE ENTRE CICLOS POR CONSTRUCAO — v1.0 e v1.1 tem cada
+# uma a sua fase 1 — e ate a v3.0.0 a coluna de requisitos ignorava isso: o
+# comando resolvia o ciclo (por --milestone, ou inferindo do rotulo das
+# issues) e entao descartava a resposta ao pedir os requisitos ao bd. Uma
+# tabela da fase 1 listava os requisitos da fase 1 de TODOS os ciclos que o
+# repositorio ja viu.
+@test "os requisitos sao os do ciclo pedido, nao os da fase 1 de todos os ciclos" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix map --non-interactive >/dev/null 2>&1
+  local velho novo
+  velho="$(bd create "Signup antigo" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"OLD-01","phase":1,"milestone":"v1.0"}}' --silent)"
+  novo="$(bd create "Signup novo" -t task -l phase-1,m-v2.0 \
+    --metadata '{"gsd":{"req":"NEW-01","phase":1,"milestone":"v2.0"}}' --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 --milestone v2.0
+  [ "$status" -eq 0 ]
+  grep -qF "NEW-01" <<<"$output"
+  # O requisito do ciclo ENCERRADO nao entra — nem na tabela, nem na lista de
+  # lacunas, que e' onde ele apareceria como "requisito sem issue".
+  refute_out "OLD-01"
+}
+
+# A outra metade: num repo LEGADO, onde issue nenhuma carrega m-*, nao ha
+# ciclo a recortar e todo requisito estampado continua valendo. A correcao
+# nao pode transformar "sem rotulo de ciclo" em "sem requisito nenhum".
+@test "repo legado sem m-*: os requisitos continuam aparecendo" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix map --non-interactive >/dev/null 2>&1
+  bd create "Rate limiter" -t task -l phase-2 \
+    --metadata '{"gsd":{"req":"API-99","phase":2,"milestone":"v1.0"}}' --silent >/dev/null
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 2
+  [ "$status" -eq 0 ]
+  grep -qF "API-99" <<<"$output"
+}
+
 @test "--json traz o resumo de maquina, e sem 'file' nem 'changed'" {
   require_bd
   make_tmp_repo
