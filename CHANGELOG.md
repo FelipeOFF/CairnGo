@@ -7,11 +7,15 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [3.3.0] - 2026-08-15
+## [3.2.1] - 2026-08-15
 
-O doctor audita o repositório que o cairn existe para servir.
+O doctor volta a auditar o repositório que o cairn existe para servir.
 
-Este defeito foi encontrado **de fora**. Um agente trabalhando em outro
+Dois defeitos de comportamento, sem mudança de contrato — o doctor recusava o
+repo migrado, e uma docstring descrevia o que o código deixou de fazer três
+releases atrás.
+
+O primeiro foi encontrado **de fora**. Um agente trabalhando em outro
 repositório com a 3.2.0 mediu em vez de assumir e reportou a discordância:
 *"a `SKILL.md` diz que o cairn não precisa mais do `.planning/`, mas a
 implementação discorda"*. Estava certo. Nenhum teste daqui o pegaria —
@@ -58,10 +62,14 @@ havia um pinando o comportamento errado como contrato.
 
 ### Upgrading
 
-**O doctor passa a rodar onde antes saía 0 em silêncio.** Se o seu
-repositório já migrou — tem `.beads/` e não tem `.planning/` — ele estava sem
-auditoria e agora tem 24 checagens. Espere findings na primeira execução:
-eles descrevem estado que já existia, não regressão. Rode
+Nada a fazer, e nada a adaptar: nenhum contrato de saída muda, nenhuma
+assinatura pública se mexe. O doctor volta a fazer o que sempre deveria — é
+correção, não capacidade nova.
+
+**O que esperar na primeira execução.** Se o seu repositório já migrou — tem
+`.beads/` e não tem `.planning/` — ele estava sem auditoria nenhuma e agora
+tem 24 checagens. Findings que aparecerem descrevem estado que **já existia**
+e estava invisível; não são regressão desta versão. Rode
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-doctor.sh"
