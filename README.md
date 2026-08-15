@@ -92,6 +92,7 @@ see [GSD Core migration](cairn/docs/gsd-core-migration.md).
 | [Migration guide](cairn/docs/migration.md) | adopting existing repos, safety model, troubleshooting |
 | [GSD Core migration](cairn/docs/gsd-core-migration.md) | the two lineage migrations: to the official GSD in v1.4, and off the plugin dependency entirely in v1.6 |
 | [gsd-core commands](cairn/docs/gsd-core-commands.md) | a recorded decision for every GSD command cairn does not carry, and where the thirteen former wrappers are implemented now |
+| [Vendored GSD runtime](cairn/docs/gsd-runtime.md) | the Python dispatcher behind `gsd_run`: verb routing, the measured parity contract and its declared divergences, the D-01 line ceiling, and `cairn_source` |
 | [Sync guide](cairn/docs/sync.md) | mirroring bd to external trackers |
 | [Memory guide](cairn/docs/context.md) | intent-scoped context-mode integration |
 | [CHANGELOG](CHANGELOG.md) | release history |
