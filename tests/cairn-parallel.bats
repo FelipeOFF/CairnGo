@@ -1492,6 +1492,36 @@ wait_for_file() {
   return 1
 }
 
+# Wait for the writer that must SURVIVE — deliberately NOT wait_for_file, and
+# the difference is the whole of DEBT-02. Above is right for a marker that a
+# live process writes with one `echo` (milliseconds of work, and there is no
+# exit to wait on because that writer is still running by design). It is the
+# wrong instrument for b-done, which is the LAST thing writer B does, after a
+# `git commit` and a `cairn-lease.sh release` that is python plus bd
+# subprocesses. That tail is pure load scaling — measured on this machine at
+# 1.3s idle, 4.0s at eight-way contention, 8.7s at sixteen-way, against a
+# 100-poll budget worth ~10s — while B reached its end in 57 of 57 runs. So a
+# poll budget answers "was the machine busy?" and reports it as "B never
+# wrote it", which is a false accusation exactly when a parallel suite runs.
+#
+# `kill -0` asks the question the test actually means. A B that DIED is
+# caught on the next poll rather than after the budget, and reported with its
+# own output instead of a bare timeout; a B that is merely slow is waited
+# for. The deadline is not the assertion — it is only there so a genuine hang
+# fails this file instead of wedging it.
+wait_for_writer() {
+  local pid="$1" marker="$2" log="$3" deadline=$((SECONDS + 300))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    [ -e "$marker" ] && return 0
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  [ -e "$marker" ] && return 0
+  echo "writer $pid ended without writing $marker. Its output:" >&2
+  cat "$log" >&2 2>/dev/null
+  return 1
+}
+
 # The writer that gets killed. Writes one file, then blocks in a loop on a
 # stop file that never appears, then would write a second file. The loop is
 # deliberately NOT `sleep 300`: a SIGKILL to this script cannot kill a child
@@ -1565,12 +1595,17 @@ EOF
   local go="$BATS_TEST_TMPDIR/a-is-dead"
   local done_marker="$BATS_TEST_TMPDIR/b-done"
 
-  # stdout/stderr go to /dev/null so no background child holds the pipe bats
-  # is reading the test's own output through.
+  # Neither writer keeps the pipe bats is reading the test's own output
+  # through: A is going to be killed and has nothing to say, so /dev/null;
+  # B's output goes to a FILE rather than /dev/null for the same reason it
+  # does not go to the pipe — it is off the pipe either way, and on the day B
+  # really does fail, the file is the difference between a diagnosis and a
+  # bare timeout.
+  local b_log="$BATS_TEST_TMPDIR/writer-b.log"
   bash "$BATS_TEST_TMPDIR/writer-a.sh" "$wt_a" "$never" >/dev/null 2>&1 &
   local pid_a=$!
   bash "$BATS_TEST_TMPDIR/writer-b.sh" "$wt_b" "$ready" "$go" "$done_marker" \
-    "$LEASE" "$MAIN_ROOT" >/dev/null 2>&1 &
+    "$LEASE" "$MAIN_ROOT" >"$b_log" 2>&1 &
   local pid_b=$!
 
   # Both are provably mid-flight before anything is killed.
@@ -1585,7 +1620,7 @@ EOF
   [ "$a_status" -eq 137 ]
   : > "$go"
 
-  wait_for_file "$done_marker"
+  wait_for_writer "$pid_b" "$done_marker" "$b_log"
   local b_status=0
   wait "$pid_b" || b_status=$?
   [ "$b_status" -eq 0 ]
