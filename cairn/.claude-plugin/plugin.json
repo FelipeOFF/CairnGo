@@ -1,6 +1,6 @@
 {
   "name": "cairn",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Batteries-included glue for three tools — GSD planning, the beads issue tracker (bd), and context-mode memory — behind one unified /cairn: command interface. The GSD planning runtime is VENDORED inside this plugin (cairn/gsd/), so no external gsd-core plugin is installed, required, or kept in sync; installing cairn auto-installs context-mode (a declared dependency) and, on first session, offers to install the beads bd binary. A single /cairn:init wires a project end to end, while /cairn:migrate wires repos that already have .planning/ or .beads/ history. /cairn: verbs drive the combined lifecycle (new/plan/work/verify/ship, plus intent-scoped remember/recall) from one namespace, creating, claiming, closing and gating bd issues as they go. Mirrors bd issues two-way (hub-and-spoke) to GitHub Issues, GitLab, Jira, Asana, and Azure Boards (optional), and makes the context-mode knowledge base intent-aware (scope compressed memory by active bd issue + GSD phase). The integration conventions activate in repos that use GSD (.planning/) and beads (.beads/).",
   "dependencies": [
     {

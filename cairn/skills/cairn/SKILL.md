@@ -32,13 +32,30 @@ There is one owner. `bd` holds the work items AND the planning record; a
 phase, a requirement and a plan are all beads, distinguished by what they
 carry.
 
-- **Labels (the pair):** every cairn-managed issue carries BOTH
+- **Labels (the pair):** every issue that belongs to a CYCLE carries BOTH
   `m-<milestone>` (e.g. `m-v1.0`) AND `phase-<N>` (unpadded — `phase-3`,
   never `phase-03`). Phase numbers collide across milestones (v1.0 and v1.1
   each have a phase 1), so the milestone label disambiguates. List a phase's
   work with `bd list -l m-<milestone>,phase-<N>` — a comma list to `-l` is
   AND. *Legacy repos* whose issues carry only `phase-N`: pair them once with
   `${CLAUDE_PLUGIN_ROOT}/scripts/cairn-relabel.sh pair --milestone <m>`.
+
+  Two failure modes around this label, and both have bitten:
+
+  - **A bare version label is not a milestone label.** `v1.6` without the
+    `m-` prefix matches nothing: not `bd list -l m-v1.6`, not any cycle
+    listing, not the board. The epic `CairnGo-dhl` carried one and survived
+    the entire close of v1.6 — 72 issues closed, release shipped — before
+    anyone found it by hand. `/cairn:doctor` now names this as its own
+    finding, separate from a broken pair, because the fix is different:
+    rename the label, don't pair it.
+  - **Backlog work carries NEITHER label, and that is the convention, not an
+    oversight.** An issue outside every cycle is marked as such by the
+    ABSENCE of `m-*` and `phase-N` — that is what keeps it out of a cycle's
+    listings and out of "what is left to do" on the board. Do not stamp a
+    backlog item with the current milestone to make it visible; visibility
+    is what the `backlog` label and the READY lane are for. The doctor
+    leaves these alone by construction.
 - **Metadata stamp:** every cairn-managed issue carries
   `{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}`, set via
   `bd create`/`bd update` `--metadata`. Updates are **read-modify-write**:
