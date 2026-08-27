@@ -1988,3 +1988,126 @@ make_cycle_fixture() {
   assert_json_eq "$output" '.mirror.ok' 'true'
   grep -qF "close $CYC_CARRIER --dir" "$log"
 }
+
+# --------------------------------------------------------------------------- #
+# close N in a tracker-owned repo (phase 52 / CLOSE-01, CairnGo-km7a)
+#
+# Measured 2026-08-26 on this repository: `close 43 --apply` died with exit 4
+# ("no checkbox line") because the archived ROADMAP.md is still on disk, and
+# every checkpoint of phases 42-51 closed the carrier with `bd close` by hand.
+# The file decides only while it names a phase; past that, the phase ends in
+# the tracker: lease retired, worktree cleaned, carrier closed.
+# --------------------------------------------------------------------------- #
+
+# A tracker-owned phase 7: its carrier and one closed requirement, under a
+# `.planning/` whose ROADMAP.md is the archived index (names no phase).
+make_tracker_phase_fixture() {
+  make_gsd_fixture "$PWD"
+  make_roadmap_without_phases "$PWD"
+  bd init -q --prefix trk --non-interactive >/dev/null 2>&1
+  TRK_CARRIER="$(bd create "The tracker-owned phase" -t task -l phase-7,m-v1.0 --silent)"
+  TRK_DONE="$(bd create "TRK-01: done work" -t task -l phase-7,m-v1.0 \
+    --metadata '{"gsd":{"req":"TRK-01","phase":7,"milestone":"v1.0"}}' --silent)"
+  bd close "$TRK_DONE" >/dev/null
+}
+
+bd_status_of() {
+  bd show "$1" --json | jq -r '.[0].status'
+}
+
+@test "close: an archived roadmap that names no phase is out-of-scope, and --apply closes the carrier" {
+  require_bd
+  make_tracker_phase_fixture
+  bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 7 --project-dir "$PWD" >/dev/null
+
+  # Read mode: nothing is written, the tracker is not touched, exit 0 — and
+  # never exit 4, which is what this fixture used to get.
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.documents.status' 'not-applicable'
+  assert_json_eq "$output" '.documents.scope' 'out-of-scope'
+  assert_json_eq "$output" '.tracker.ran' 'false'
+  [ "$(bd_status_of "$TRK_CARRIER")" = "open" ]
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.documents.status' 'not-applicable'
+  assert_json_eq "$output" '.changed' 'false'
+  assert_json_eq "$output" '.tracker.carrier.state' 'closed'
+  assert_json_eq "$output" '.tracker.carrier.id' "$TRK_CARRIER"
+  assert_json_eq "$output" '.tracker.lease.result.issue_status' 'closed'
+  [ "$(bd_status_of "$TRK_CARRIER")" = "closed" ]
+  grep -qF "phase 7 closed by cairn-bookkeep" <<<"$(bd show "$TRK_CARRIER" --json)"
+}
+
+@test "close --apply: the human report names the carrier it closed" {
+  require_bd
+  make_tracker_phase_fixture
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply
+  [ "$status" -eq 0 ]
+  grep -qF "tracker :: carrier :: closed $TRK_CARRIER" <<<"$output"
+  grep -qF "names no phase" <<<"$output"
+  refute_in_output "no checkbox line"
+}
+
+@test "close --apply: no .planning at all closes the carrier the same way" {
+  require_bd
+  bd init -q --prefix trk --non-interactive >/dev/null 2>&1
+  TRK_CARRIER="$(bd create "The tracker-owned phase" -t task -l phase-7,m-v1.0 --silent)"
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.tracker.carrier.state' 'closed'
+  [ "$(bd_status_of "$TRK_CARRIER")" = "closed" ]
+}
+
+@test "close --apply: a non-closed bead of the phase keeps the carrier open, named, exit 0" {
+  require_bd
+  make_tracker_phase_fixture
+  local straggler
+  straggler="$(bd create "TRK-02: still open" -t task -l phase-7,m-v1.0 \
+    --metadata '{"gsd":{"req":"TRK-02","phase":7,"milestone":"v1.0"}}' --silent)"
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.tracker.carrier.state' 'open-work'
+  assert_json_eq "$output" '.tracker.carrier.open[0]' "$straggler"
+  [ "$(bd_status_of "$TRK_CARRIER")" = "open" ]
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply
+  [ "$status" -eq 0 ]
+  grep -qF "tracker :: carrier :: NOT closed" <<<"$output"
+  grep -qF "$straggler" <<<"$output"
+}
+
+@test "close --apply twice: the second run reports the carrier already closed, never closes it again" {
+  require_bd
+  make_tracker_phase_fixture
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.tracker.carrier.state' 'closed'
+
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.tracker.carrier.state' 'already-closed'
+  assert_json_eq "$output" '.tracker.carrier.closed' 'false'
+}
+
+@test "close: a phase without a carrier is reported as none, never invented" {
+  require_bd
+  bd init -q --prefix trk --non-interactive >/dev/null 2>&1
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.tracker.carrier.state' 'none'
+  [ "$(bd list --all --limit 0 --json | jq 'length')" -eq 0 ]
+}
+
+@test "close: a roadmap that names OTHER phases is still an input — exit 4, carrier untouched" {
+  require_bd
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix trk --non-interactive >/dev/null 2>&1
+  TRK_CARRIER="$(bd create "The tracker-owned phase" -t task -l phase-7,m-v1.0 --silent)"
+  run env CLAUDE_PROJECT_DIR="$PWD" bash "$BOOKKEEP" close 7 --apply
+  [ "$status" -eq 4 ]
+  grep -qF "no checkbox line for phase 7" <<<"$output"
+  [ "$(bd_status_of "$TRK_CARRIER")" = "open" ]
+}

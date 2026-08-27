@@ -366,7 +366,7 @@ make_bd_fixture() {
   # one. Leaving it without a recovery path would have made every fixture
   # carry a permanent warning and pushed seven tests to assert an unhealthy
   # baseline as healthy — teaching the suite that the defect is normal.
-  bd export --all -o .beads/issues.jsonl >/dev/null 2>&1
+  bd export -o .beads/issues.jsonl >/dev/null 2>&1
   git add -f .beads/issues.jsonl >/dev/null 2>&1
   git -c user.email=t@t -c user.name=t commit -q -m "beads: export" \
     -- .beads/issues.jsonl >/dev/null 2>&1 || true
@@ -612,7 +612,7 @@ assert_frontmatter_key() {
 # would mean weakening the check until it stopped noticing the lag it exists
 # to notice.
 beads_export_refresh() {
-  bd export --all -o .beads/issues.jsonl >/dev/null 2>&1
+  bd export -o .beads/issues.jsonl >/dev/null 2>&1
 }
 
 # Nanosecond mtime of FILE, through python3.

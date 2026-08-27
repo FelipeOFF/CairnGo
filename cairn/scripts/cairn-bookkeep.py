@@ -494,7 +494,10 @@ Exit codes:
     2  EXIT_USAGE — bad flags/arguments, or an ambiguous phase number.
     3  EXIT_DISAGREEMENT — read mode found something to change. Mirrors
        cairn-map.py's exit 3 ("stale") on purpose.
-    4  EXIT_NO_PHASE — no checkbox line for that phase number.
+    4  EXIT_NO_PHASE — no checkbox line for that phase number, in a roadmap
+       that names phases. A roadmap naming NONE is the archived index of a
+       migrated repo, and `close N` there is exit 0 with `documents.status =
+       not-applicable`: the carrier, the lease and the worktree still close.
     5  EXIT_NO_BD — `bd` is not on PATH and the tracker half was not waived
        with --no-tracker. Returned BEFORE any write, so the three files are
        byte-identical. Never a failed check: barring is cairn-gate.py's 6.
@@ -791,13 +794,31 @@ def document_source(planning):
     Returns the doctor's shape: `status`, plus `scope` when and only when the
     status is not-applicable, plus the sentence saying which it is and why.
     """
-    if (planning / "ROADMAP.md").is_file():
+    roadmap = planning / "ROADMAP.md"
+    if roadmap.is_file():
+        # THE FILE DECIDES ONLY WHILE IT SAYS SOMETHING. A roadmap that
+        # names no phase at all is the index the import archived — this
+        # repository's own, after v1.7 — and not an input: there is no
+        # checkbox to flip, so `close N` on it used to die with exit 4 ("no
+        # checkbox line") on every phase of every migrated repo, and the
+        # autonomous checkpoint had to close carriers by hand (measured
+        # 2026-08-26, phases 42-51, CairnGo-km7a). Same rule cairn-gate.py
+        # holds since CairnGo-9sdp, asked in this command's own grammar:
+        # parse_roadmap() is what finds the checkbox lines it would edit.
+        if parse_roadmap(read_lines(roadmap))["phases"]:
+            return {
+                "status": "ok", "scope": None,
+                "detail": f"{roadmap} is on disk and names phases: this "
+                          f"repo still holds a GSD to import, so the three "
+                          f"documents have numbers that can disagree and "
+                          f"this command keeps them in agreement"}
         return {
-            "status": "ok", "scope": None,
-            "detail": f"{planning / 'ROADMAP.md'} is on disk: this repo still "
-                      f"holds a GSD to import, so the three documents have "
-                      f"numbers that can disagree and this command keeps "
-                      f"them in agreement"}
+            "status": NOT_APPLICABLE, "scope": NA_OUT_OF_SCOPE,
+            "detail": f"{roadmap} is on disk but names no phase: it is the "
+                      f"index the import archived, not an input. Nothing is "
+                      f"written and nothing is compared — the phase's "
+                      f"carrier, its lease and its worktree still close with "
+                      f"the phase"}
     return {
         "status": NOT_APPLICABLE, "scope": NA_OUT_OF_SCOPE,
         "detail": f"no {planning / 'ROADMAP.md'}: this project's source is "
@@ -885,7 +906,7 @@ def run_tracker(planning, root, phase, wanted, applied):
     before this runs and the bd gate already fired.
     """
     out = {"ran": False, "skipped": None, "map": None, "lease": None,
-           "worktree": None}
+           "worktree": None, "carrier": None}
     if phase is None:
         out["skipped"] = ("this run owns no phase (reconcile, plan): there "
                           "is no lease to release and no worktree to clean")
@@ -916,7 +937,56 @@ def run_tracker(planning, root, phase, wanted, applied):
                                         "cleanup", "--phase", str(phase),
                                         "--apply", "--json",
                                         "--project-dir", str(root)])
+    # Last, after the lease is retired: closing the carrier under a live
+    # lease would end the phase beneath whoever still holds it.
+    out["carrier"] = close_carrier(root, phase)
     return out
+
+
+def close_carrier(root, phase):
+    """Close the phase's own bead — the carrier, the bead that inherited the
+    roadmap checkbox — the way `milestone` closes the cycle's (v4.1,
+    CairnGo-km7a). Until then `close N` released the lease and cleaned the
+    worktree and left the carrier open, so every checkpoint of a migrated
+    repo had to `bd close` it by hand.
+
+    Not a gate, on purpose: a non-closed bead of the phase besides the
+    carrier leaves the carrier open and is NAMED here, exit unchanged —
+    barring is cairn-gate.py's 6, and the autonomous checkpoint already asks
+    `bd list --all` for stragglers. Idempotent: an already-closed carrier is
+    reported, never closed twice. A phase without a carrier gets `none`;
+    creating one is cairn-record's job, never this command's.
+    """
+    # Imported HERE for the same reason cmd_milestone does it: a bats case
+    # copies this script to a tmpdir, where a top-level import would fail
+    # for every subcommand.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cairn_source
+    cairn_source.invalidate(root)
+    carrier = cairn_source.phase_carrier(root, phase)
+    if carrier is None:
+        return {"id": None, "closed": False, "state": "none",
+                "note": f"phase {phase} has no carrier bead"}
+    cid = carrier.get("id")
+    if carrier.get("status") == "closed":
+        return {"id": cid, "closed": False, "state": "already-closed",
+                "note": "already closed"}
+    open_ids = sorted(i.get("id") for i in
+                      cairn_source.phase_issues(root, phase)
+                      if i.get("id") != cid and i.get("status") != "closed")
+    if open_ids:
+        return {"id": cid, "closed": False, "state": "open-work",
+                "open": open_ids,
+                "note": f"{len(open_ids)} non-closed bead(s) of phase "
+                        f"{phase} besides the carrier: {', '.join(open_ids)}"}
+    proc = subprocess.run(["bd", "-C", str(root), "close", cid, "--reason",
+                           f"phase {phase} closed by cairn-bookkeep"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        return {"id": cid, "closed": False, "state": "failed",
+                "note": (proc.stderr or proc.stdout or "").strip()[:400]}
+    cairn_source.invalidate(root)
+    return {"id": cid, "closed": True, "state": "closed", "note": None}
 
 
 def run_bookkeeping(args, phase):
@@ -1067,6 +1137,15 @@ def run_bookkeeping(args, phase):
                     if name == "worktree" else []:
                 human.append(f"  retained {row.get('path')} :: "
                              f"{'; '.join(row.get('reasons') or [])}")
+        got = tracker.get("carrier") or {}
+        state = {
+            "closed": f"closed {got.get('id')}",
+            "already-closed": f"{got.get('id')} already closed",
+            "none": f"none ({got.get('note')})",
+            "open-work": f"NOT closed — {got.get('note')}",
+            "failed": f"FAILED ({got.get('note')})",
+        }.get(got.get("state"), "not run")
+        human.append(f"tracker :: carrier :: {state}")
     if commit["note"]:
         human.append(f"commit :: {commit['note']}")
     elif commit["made"]:

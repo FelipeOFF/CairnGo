@@ -71,7 +71,7 @@ make_doctor_fixture() {
   # fixture would carry a permanent warning, and the file's own baseline
   # assertion — "nothing warns" — would have had to be weakened to accept the
   # very defect the check was written to surface.
-  bd export --all -o .beads/issues.jsonl >/dev/null 2>&1
+  bd export -o .beads/issues.jsonl >/dev/null 2>&1
   git add -f .beads/issues.jsonl >/dev/null 2>&1
   git -c user.email=t@t -c user.name=t commit -q -m "beads: export" \
     -- .beads/issues.jsonl >/dev/null 2>&1 || true
@@ -1220,6 +1220,11 @@ PY
   require_bd
   make_tmp_repo
   bd init -q --prefix doc --non-interactive >/dev/null 2>&1
+  # Desde a 4.1 um ciclo aberto sem carrier de milestone e' ✗ (phase 55):
+  # o repo migrado saudavel tem o seu — o bead que /cairn:milestone new
+  # cria. Sem ele este teste provaria o exit 7 do check certo, nao a
+  # auditoria que ele afirma.
+  bd create "v1.0 — the migrated cycle" -t task -l m-v1.0,milestone --silent >/dev/null
   bd create "Fase 1: auth" -t task -l phase-1,m-v1.0 --silent >/dev/null
   bd create "Signup" -t task -l phase-1,m-v1.0 \
     --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' \
@@ -4001,7 +4006,7 @@ PY
   # The whole defect in one assertion: the file is present, complete, and
   # correct on disk, and git does not carry it. Reading the directory would
   # call this recoverable; reading git does not.
-  bd export --all -o .beads/issues.jsonl >/dev/null 2>&1
+  bd export -o .beads/issues.jsonl >/dev/null 2>&1
   [ -s .beads/issues.jsonl ]
 
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
@@ -4220,7 +4225,7 @@ PY
   assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'ok'
 }
 
-@test "milestone-carrier: an open cycle without one warns with the bd create; closed, it is history" {
+@test "milestone-carrier: an open cycle without one fails with the bd create; closed, it is history" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -4232,13 +4237,15 @@ PY
 
   beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  # A warning in 4.0, not a failure: exit stays 0.
-  [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .status' 'warn'
+  # A failure since 4.1 (it warned for exactly one release, 4.0, so a cycle
+  # opened under 3.x could create the bead first): exit 7.
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .status' 'fail'
   assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .items | length' '1'
   grep -qF 'm-v1.1: open cycle with no milestone carrier' <<<"$output"
   grep -qF -- '-t task -l m-v1.1,milestone -d' <<<"$output"
-  grep -qF 'a warning in 4.0, a failure from 4.1' <<<"$output"
+  grep -qF '/cairn:milestone new create' <<<"$output"
+  refute_in_output 'a warning in 4.0'
 
   # Closed, the cycle is never asked: v1.1 has no carrier and no finding.
   bd close "$straggler" >/dev/null
@@ -4508,4 +4515,40 @@ JSON
   items="$(jq -r '.checks[] | select(.id=="planning-writes") | .items[]' <<<"$output")"
   grep -qF "02-UI-SPEC.md is new" <<<"$items"
   grep -qF "record it with cairn-record.sh ui-spec --phase 2" <<<"$items"
+}
+
+# ─── issues-recoverable: the advice (phase 54 / DOCTOR-01, CairnGo-9926) ──────
+#
+# Measured 2026-08-26 on bd 1.1.0: `bd export --all` drags the `bd remember`
+# memories into the file, the committed export never carried one, and with
+# them in it bd's own auto-export refuses every following write ("shrink
+# guard: 2 record(s) outside auto-export scope"). The finding used to hand
+# out exactly that command. Both branches that give advice are pinned here,
+# and the script itself is grepped, so a new sentence with `--all` cannot
+# slip in through a branch this test does not reach.
+
+@test "issues-recoverable: the advice says bd export -o and never --all, on both branches" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_bd_fixture "$PWD"
+
+  # Branch 1: an export that is behind the store.
+  bd create "born after the export" -t task --silent >/dev/null
+  run bash -c "bash '$CAIRN_SCRIPTS_DIR/cairn-doctor.sh' --json | jq -r '[.checks[] | select(.id==\"issues-recoverable\")] | .[0].detail'"
+  grep -qF "behind the store" <<<"$output"
+  grep -qF "bd export -o .beads/issues.jsonl" <<<"$output"
+  refute_in_output "--all"
+
+  # Branch 2: no export tracked at all.
+  git rm -q --cached .beads/issues.jsonl >/dev/null 2>&1
+  git -c user.email=t@t -c user.name=t commit -q -m "untrack export" >/dev/null 2>&1
+  run bash -c "bash '$CAIRN_SCRIPTS_DIR/cairn-doctor.sh' --json | jq -r '[.checks[] | select(.id==\"issues-recoverable\")] | .[0].detail'"
+  grep -qF "recovers NONE" <<<"$output"
+  grep -qF "bd export -o .beads/issues.jsonl" <<<"$output"
+  refute_in_output "--all"
+
+  # And the script never says it anywhere, whichever branch prints.
+  run grep -c "export --all" "$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
+  [ "$output" = "0" ]
 }
