@@ -2286,3 +2286,68 @@ EOF
      | test("\\.cairn/journal")' 'true'
   [ ! -d "$MAIN_ROOT-phase-7" ]
 }
+
+# --------------------------------------------------------------------------- #
+# the bead unit — one worktree per bead for /cairn:implement (phase 47)
+# --------------------------------------------------------------------------- #
+
+@test "prepare-bead names worktree and branch from the bead, branches from --base, takes the bead lease" {
+  require_bd
+  make_parallel_fixture
+  git -C "$MAIN_ROOT" checkout -q -b pr/phase-3
+  local bead; bead="$(bd create "The Link Lives In The Bead, said it" -t task -l phase-3,m-v1.0 --silent)"
+  local short="${bead#*-}"
+
+  run bash "$PARALLEL" prepare-bead "$bead" --base pr/phase-3 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.branch' "bead/$short-the-link-lives-in"
+  assert_json_eq "$output" '.base' 'pr/phase-3'
+  assert_json_eq "$output" '.lease.key' "bead:$bead"
+  local wt; wt="$(jq -r '.worktree' <<<"$output")"
+  [ "$(basename "$wt")" = "$(basename "$MAIN_ROOT")-bead-$short" ]
+  run git -C "$wt" rev-parse --abbrev-ref HEAD
+  [ "$output" = "bead/$short-the-link-lives-in" ]
+  run bash "$LEASE" status "bead:$bead" --project-dir "$MAIN_ROOT" --json
+  assert_json_eq "$output" '.held' 'true'
+  [ "$(realpath_of "$(jq -r '.holder' <<<"$output")")" = "$(realpath_of "$wt")" ]
+
+  # A second prepare-bead of the same bead from the main checkout is a reuse.
+  run bash "$PARALLEL" prepare-bead "$bead" --base pr/phase-3 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.created' 'false'
+
+  # Unknown bead: usage error, nothing created.
+  run bash "$PARALLEL" prepare-bead par-nope --project-dir "$MAIN_ROOT"
+  [ "$status" -eq 2 ]
+  [ ! -d "$MAIN_ROOT-bead-nope" ]
+}
+
+@test "reconcile --beads reports every bead branch against --base, and cleanup removes the merged one" {
+  require_bd
+  make_parallel_fixture
+  git -C "$MAIN_ROOT" checkout -q -b pr/phase-3
+  local bead; bead="$(bd create "Write the thing" -t task -l phase-3,m-v1.0 --silent)"
+  local short="${bead#*-}"
+  run bash "$PARALLEL" prepare-bead "$bead" --base pr/phase-3 --project-dir "$MAIN_ROOT" --json
+  local wt; wt="$(jq -r '.worktree' <<<"$output")"
+  echo "work" > "$wt/bead.txt"
+  git -C "$wt" add bead.txt
+  git -C "$wt" -c user.email=t@t -c user.name=t commit -q -m "bead work"
+
+  run bash "$PARALLEL" reconcile --beads --base pr/phase-3 --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.unit' 'bead'
+  assert_json_eq "$output" '.branches | length' '1'
+  assert_json_eq "$output" '.branches[0].bead' "$short"
+  assert_json_eq "$output" '.branches[0].commits' '1'
+  assert_json_eq "$output" '.pairs[0].branches[0]' 'pr/phase-3'
+  assert_json_eq "$output" '.pairs[0].conflicts | length' '0'
+
+  # The merger lands it; then the worktree is clean and wholly merged.
+  git -C "$MAIN_ROOT" -c user.email=t@t -c user.name=t merge -q --no-ff "bead/$short-write-the-thing" -m "merge bead"
+  bash "$LEASE" release "bead:$bead" --project-dir "$MAIN_ROOT" >/dev/null
+  run bash "$PARALLEL" cleanup --apply --project-dir "$MAIN_ROOT" --json
+  [ "$status" -eq 0 ]
+  grep -qF "$(basename "$wt")" <<<"$output"
+  [ ! -d "$wt" ]
+}

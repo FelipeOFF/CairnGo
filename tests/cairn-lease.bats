@@ -920,3 +920,49 @@ STUB
   [ "$status" -ne 0 ]
   grep -qF "disco cheio" <<<"$output"
 }
+
+# --------------------------------------------------------------------------- #
+# the bead key — one lease per bead for /cairn:implement (phase 47 / IMPL-01)
+# --------------------------------------------------------------------------- #
+
+@test "bead:<id> is a lease key: acquire, status, status --all, release, and phases untouched" {
+  require_bd
+  make_tmp_repo
+  bd init -q --prefix lse --non-interactive >/dev/null 2>&1
+  local wt; wt="$(git rev-parse --show-toplevel)"
+
+  run bash "$LEASE" acquire bead:lse-abc --project-dir "$wt"
+  [ "$status" -eq 0 ]
+  grep -qF "acquired bead lse-abc lease" <<<"$output"
+  run bash "$LEASE" acquire 3 --project-dir "$wt"
+  [ "$status" -eq 0 ]
+
+  run bash "$LEASE" status bead:lse-abc --project-dir "$wt" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.bead' 'lse-abc'
+  assert_json_eq "$output" '.phase' 'null'
+  assert_json_eq "$output" '.held' 'true'
+
+  # --all lists both, phases first.
+  run bash "$LEASE" status --all --project-dir "$wt" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" 'length' '2'
+  assert_json_eq "$output" '.[0].phase' '3'
+  assert_json_eq "$output" '.[1].bead' 'lse-abc'
+  # The lease bead wears only the `lease` label, never a phase-N.
+  run bd list -l lease --all --json
+  assert_json_eq "$output" '[.[] | .labels[]] | unique | join(",")' 'lease'
+
+  run bash "$LEASE" release bead:lse-abc --project-dir "$wt"
+  [ "$status" -eq 0 ]
+  grep -qF "released bead lse-abc lease" <<<"$output"
+  run bash "$LEASE" status bead:lse-abc --project-dir "$wt" --json
+  assert_json_eq "$output" '.held' 'false'
+  run bash "$LEASE" status 3 --project-dir "$wt" --json
+  assert_json_eq "$output" '.held' 'true'
+
+  # A key that is neither is a usage error, not a traceback.
+  run bash "$LEASE" acquire bead: --project-dir "$wt"
+  [ "$status" -eq 2 ]
+  refute_in_output "Traceback"
+}

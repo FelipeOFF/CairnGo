@@ -2989,12 +2989,18 @@ def check_lease_stale(root):
             continue
         if entry.get("held") and entry.get("stale"):
             phase = entry.get("phase")
+            # A bead lease (phase 47) has no phase: it is named by its bead.
+            key = f"bead:{entry.get('bead')}" if phase is None else str(phase)
+            what = f"bead {entry.get('bead')}" if phase is None else f"phase {phase}"
+            taker = ("the next /cairn:implement takes it automatically"
+                     if phase is None
+                     else f"the next /cairn:work {phase} takes it automatically")
             items.append(
-                f"phase {phase}: held by {entry.get('holder')} (actor: "
+                f"{what}: held by {entry.get('holder')} (actor: "
                 f"{entry.get('actor')}) since {entry.get('acquired_at')}, "
                 f"last renewed {entry.get('heartbeat_at')} — reclaimable "
-                f"— the next /cairn:work {phase} takes it automatically, "
-                f"or run cairn-lease.sh release {phase} to clear it now")
+                f"— {taker}, or run cairn-lease.sh release {key} to clear "
+                "it now")
     detail = (f"{len(items)} stale phase lease(s)" if items
               else "no stale phase leases")
     # Phase 23 evaluated and KEPT `ok`, and this is the cleanest example of
