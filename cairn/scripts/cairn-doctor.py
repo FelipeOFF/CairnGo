@@ -1835,6 +1835,10 @@ def jira_fetch(backend, key):
     when the tracker says it does not exist; `how` names the road taken:
     'seam', 'rest', or a 'skipped: …' reason when no road was open. Every
     call is bounded by JIRA_FETCH_TIMEOUT (GUARD-01)."""
+    if not re.match(r"^[A-Z][A-Z0-9_]*-\d+$", key or ""):
+        # A hand-edited or foreign external_ref is not a key: never put it
+        # in a credentialed URL or an argv (review of the 4.0 branch).
+        return None, f"skipped: {key!r} is not a Jira key"
     if CAIRN_JIRA_FETCH:
         try:
             proc = subprocess.run(CAIRN_JIRA_FETCH.split() + [key],
@@ -1857,6 +1861,7 @@ def jira_fetch(backend, key):
                       f"({cfg.get('email_env') or 'JIRA_EMAIL'} / "
                       f"{cfg.get('token_env') or 'JIRA_API_TOKEN'})")
     import base64
+    import http.client
     import urllib.error
     import urllib.request
     req = urllib.request.Request(
@@ -1871,7 +1876,7 @@ def jira_fetch(backend, key):
         if exc.code == 404:
             return None, "rest"
         return None, f"skipped: REST {exc.code} for {key}"
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, http.client.HTTPException) as exc:
         return None, f"skipped: REST unreachable ({exc})"
 
 
@@ -2060,8 +2065,11 @@ def check_planning_writes(root, planning_dir):
             continue
         state = "new" if line[:2].strip() in ("??", "A") else "modified"
         stem = pathlib_name(path)
-        kind = next((v for k, v in KINDS.items() if stem.upper().endswith(k)),
-                    None)
+        # Longest suffix first: `05-UI-SPEC` ends with `SPEC` too, and the
+        # dict order would have prescribed the wrong kind (review, 4.0).
+        kind = next((v for k, v in sorted(KINDS.items(),
+                                          key=lambda kv: -len(kv[0]))
+                     if stem.upper().endswith(k)), None)
         m = re.search(r"phases/0*(\d+)", path)
         phase = m.group(1) if m else "<N>"
         cure = (f"cairn-record.sh {kind} --phase {phase}" if kind

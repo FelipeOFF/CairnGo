@@ -48,7 +48,8 @@ bats fixtures under `tests/fixtures/jira/` are examples of exactly that shape.
 
 1. **Resolve the target.** `--milestone` or `--phase` when given; otherwise
    the phase whose lease this checkout holds
-   (`cairn-lease.sh status --json`), else the open milestone
+   (`cairn-lease.sh status --all --json`: the entry whose `holder` is this
+   checkout and whose `phase` is a number, not a `bead`), else the open milestone
    (`cairn-status.sh --json` → `milestone`). Say which one you picked.
 2. **Detect the key — do not ask for it first.** Four signals, in this
    precedence, and the first two are the strong ones:

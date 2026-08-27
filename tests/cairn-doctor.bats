@@ -4373,6 +4373,25 @@ SH
   grep -qF "$twin" <<<"$dup"
 }
 
+@test "jira-links: an external_ref that is not a key is skipped by name, never sent to the tracker" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  make_jira_backend
+  make_jira_fetch_stub
+  bd update "$DOC_MS" --external-ref "jira-DTP 12/../x" >/dev/null
+
+  beads_export_refresh
+  run env CAIRN_JIRA_FETCH="$JIRA_FETCH" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  local items; items="$(jq -r '.checks[] | select(.id=="jira-links") | .items[]' <<<"$output")"
+  grep -qF "is not a Jira key" <<<"$items"
+  refute_output_has_traceback() { ! grep -qF "Traceback" <<<"$output"; }
+  refute_output_has_traceback
+}
+
 @test "jira-links: a fully linked, existing, undrifted cycle is ok" {
   require_bd
   make_tmp_repo
@@ -4481,4 +4500,12 @@ JSON
   grep -qF "record it with cairn-record.sh spec --phase 2" <<<"$items"
   grep -qF ".planning/phases/02-api/02-01-PLAN.md is modified" <<<"$items"
   grep -qF "cairn-record.sh plan --plan NN --phase 2" <<<"$items"
+
+  # The longest suffix wins: a UI-SPEC is not a SPEC.
+  printf '# ui\n' > .planning/phases/02-api/02-UI-SPEC.md
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  items="$(jq -r '.checks[] | select(.id=="planning-writes") | .items[]' <<<"$output")"
+  grep -qF "02-UI-SPEC.md is new" <<<"$items"
+  grep -qF "record it with cairn-record.sh ui-spec --phase 2" <<<"$items"
 }

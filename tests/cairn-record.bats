@@ -432,3 +432,16 @@ EOS
   grep -qF "o que se pesquisou" <<<"$output"
   [ "$(grep -c '^## CONTEXT' <<<"$output")" -eq 1 ]
 }
+
+@test "record: um design gravado antes das secoes vira '## LEGACY' e sobrevive ao primeiro kind" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  bd update "$REC_PHASE" --design "decisao antiga gravada com set" >/dev/null
+  echo "o que a fase entrega" | python3 "$RECORD" spec --phase 1
+  run bd_field "$REC_PHASE" design
+  grep -qF "## LEGACY" <<<"$output"
+  grep -qF "decisao antiga gravada com set" <<<"$output"
+  grep -qF "## SPEC" <<<"$output"
+  grep -qF "o que a fase entrega" <<<"$output"
+}

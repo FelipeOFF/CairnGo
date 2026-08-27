@@ -116,10 +116,10 @@ the mode; with neither `new` nor `complete`, ask which one.
 
    **In a tracker-owned repo there is nothing to archive** — the closed beads
    ARE the archive, queryable by `bd list -l m-<X.Y> --all` forever. Run
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh"`; where the
-   planning documents do not exist it reports `documents: not-applicable /
-   out-of-scope` and exits 0, which is the correct answer and not a skipped
-   step.
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh" reconcile`; where
+   the planning documents do not exist it reports `documents:
+   not-applicable / out-of-scope` and exits 0 (3 lists disagreements), which
+   is the correct answer and not a skipped step.
 
    **Only a repo that still carries an unimported `.planning/` has anything to
    move**: its `ROADMAP`/`REQUIREMENTS` and phase dirs go to

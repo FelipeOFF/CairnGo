@@ -787,7 +787,7 @@ def action_argv(root, action, ident, reason):
         return ["bd", "-C", str(root), "update", ident, "--status", "open",
                 "--assignee", ""], None
     if action == "gate-check":
-        gtype = (reason or "gh:run").strip()
+        gtype = (ident or reason or "gh:run").strip()
         if not re.match(r"^[a-z:]+$", gtype):
             return None, "gate type is not a type"
         return ["bd", "-C", str(root), "gate", "check", f"--type={gtype}"], None
@@ -860,6 +860,11 @@ def run_action(root, snapshot, action, ident, reason):
     return result, (200 if result["ok"] else 409)
 
 
+def host_ok(headers, port):
+    allowed = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    return (headers.get("Host") or "").strip() in allowed
+
+
 def same_origin(headers, port):
     """ACT-02 (no token by decision): the bind is the loopback, and a POST
     has to come from THIS page — Origin, when the browser sends one, must
@@ -926,6 +931,11 @@ def make_handler(root, snapshot):
 
         def do_GET(self):
             path = self.path.split("?", 1)[0]
+            # The Host half of the guard applies to READS too (review of
+            # the 4.0 branch): a page on evil.example that rebinds its DNS to
+            # 127.0.0.1 would otherwise read the whole board as same-origin.
+            if not host_ok(self.headers, self.server.server_address[1]):
+                return self.send(403, "host is not this board\n")
             if path == "/healthz":
                 return self.send(200, "ok\n")
             if path == "/favicon.ico":
@@ -954,7 +964,7 @@ def make_handler(root, snapshot):
                                  "application/json; charset=utf-8")
             if path == "/api/fragment":
                 if data is None:
-                    return self.send(503, f"<p class=\"placeholder\">{error}</p>",
+                    return self.send(503, f"<p class=\"placeholder\">{esc(error)}</p>",
                                      "text/html; charset=utf-8")
                 return self.send(200, fragment + live_blocks(root, data),
                                  "text/html; charset=utf-8")

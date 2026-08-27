@@ -73,14 +73,13 @@ finished work is unfinished; that assertion belongs to the audit.
    verification, and a reason that does not say how it was checked is the same
    silence in different words.
 
-7. **Refresh and check the map:**
+7. **Refresh the map:**
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N"
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N" --check
    ```
-   `--check` exits `3` with a diff when the map is stale; exit `5` means bd is
-   unavailable and degrades without blocking. The map's requirement-gap list
-   is the proof the requirement step was complete — read it rather than
-   assuming.
+   The map is printed live from bd — there is no stored copy to go stale, so
+   there is nothing to `--check`. Exit `5` means bd is unavailable and
+   degrades without blocking. The map's requirement-gap list is the proof the
+   requirement step was complete — read it rather than assuming.
 
 Next: `/cairn:verify <N>`.

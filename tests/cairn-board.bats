@@ -191,9 +191,17 @@ post_action() {  # post_action <url> <json> [extra curl args...]
   [ "$output" = "200" ]
   run post_action "$url" '{"action":"gate-check"}'
   [ "$output" = "200" ]
-  # GET stays free of the check.
+  # GET ignores Origin but not Host: a rebound name reading the board is 403.
   run curl -s -o /dev/null -w '%{http_code}' -H "Origin: http://evil.example" "${url}api/status"
   [ "$output" = "200" ]
+  run curl -s -o /dev/null -w '%{http_code}' -H "Host: evil.example:$port" "${url}api/status"
+  [ "$output" = "403" ]
+  run curl -s -o /dev/null -w '%{http_code}' -H "Host: evil.example:$port" "$url"
+  [ "$output" = "403" ]
+  # gate-check takes the type from the clicked gate, never a fixed gh:run.
+  run post_action "$url" '{"action":"gate-check","id":"timer"}'
+  [ "$output" = "200" ]
+  grep -qF "timer" "$BOARD_ROOT/.cairn/board.log"
 }
 
 @test "an action mirrors through gbsync when a sync config exists, and releases a lease by key" {

@@ -329,8 +329,15 @@ def replace_section(text, kind, body):
     head = "## " + kind.upper()
     lines = (text or "").splitlines()
     if not any(re.match(SECTION_RE, ln) for ln in lines):
-        return head + "\n" + body.strip() + "\n" if not text.strip() \
-            else head + "\n" + body.strip() + "\n"
+        if not (text or "").strip():
+            return head + "\n" + body.strip() + "\n"
+        # A design written before sections existed (3.x `set`): it becomes
+        # the `## LEGACY` section and the new kind is appended after it.
+        # MEASURED 2026-08-27 (review of the 4.0 branch): the first draft
+        # returned the new body alone here and erased the old text with
+        # exit 0 — the exact silent loss the docstring above promises not
+        # to cause.
+        lines = ["## LEGACY"] + lines
     out, i, replaced = [], 0, False
     while i < len(lines):
         m = re.match(SECTION_RE, lines[i])
