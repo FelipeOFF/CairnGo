@@ -1,74 +1,93 @@
 ---
-description: Gather phase context before planning — GSD discuss-phase, with the phase's beads claimed and the CONTEXT reconciled against them
-argument-hint: "<phase> [--all] [--auto] [--chain] [--batch] [--analyze] [--text] [--power] [--assumptions]"
+description: Gather phase context before planning — the decisions recorded on the phase carrier, and the phase's beads reconciled against them
+argument-hint: "<phase> [--auto] [--assumptions]"
 wraps: discuss-phase
 wrap-family: phase
-implementation: vendored
+implementation: inline
 ---
 
 Gather context for phase **$ARGUMENTS** under the `cairn` conventions.
 
-What this adds over the bare GSD discussion workflow: the CONTEXT.md it produces is what
-`/cairn:plan` treats as **authoritative on divergence**. If the CONTEXT and the
-phase's bd issues disagree about what the phase is, the disagreement has to be
-named here, while someone is still thinking about it — not discovered at
-planning time.
+**The record is the bead.** Nothing this command produces is a file: every
+piece of prose goes through one boundary,
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-record.sh" <kind> --phase <N>`,
+body on stdin, and lands on the phase carrier (`design` for the design
+kinds, one `## KIND` section each; `acceptance_criteria` for a verification;
+`notes` for a review) or on a plan record (`plan-NN`, a child of the carrier).
+Read it back with `bd show <carrier> --json | jq -r .design`, and the phase's
+table with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>`. A
+`.planning/` directory, when present, is a GSD project waiting to be
+imported — never a place this command writes.
 
-1. **Preflight, before anything else:**
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-wrap.sh" preflight discuss-phase
-   ```
-   Exit `6` (looked, the plugin does not carry it) or `5` (this plugin has no
-   vendored runtime at all) **stops here** — print the script's message
-   verbatim; it already names what is missing, every path searched, and the
-   fix. Running anyway is the silent exit 0 this step exists to prevent.
+What this verb settles is what `/cairn:plan` then treats as **authoritative
+on divergence**: if the context and the phase's beads disagree about what the
+phase is, the disagreement is named here, while someone is still thinking
+about it — not discovered at planning time.
 
-2. **Split `$ARGUMENTS`.** The bare phase number `<N>` drives labels and the
-   map; every flag (`--all`, `--auto`, `--chain`, `--batch`, `--analyze`,
-   `--text`, `--power`, `--assumptions`) goes **only** to the discussion
-   workflow in step 5.
+1. **Split `$ARGUMENTS`.** The bare `<N>` drives labels and the record;
+   `--auto` answers every gray area with a sensible default recorded as
+   *Claude's Discretion*, `--assumptions` lists the assumptions the phase
+   rests on before asking anything.
 
-3. **Read the phase's beads first**, so the discussion starts from what is
+2. **Read the phase's beads first**, so the discussion starts from what is
    already tracked rather than from a blank page:
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N"
+   bd show <carrier> --json | jq -r '.description, .design'
    ```
-   Exit `5` (bd unavailable) degrades: say so and continue without the map —
-   it is printed from bd, so there is no stored copy to read instead.
+   Exit `5` (bd unavailable) stops here — the record has nowhere to go.
 
-4. **Claim what you are about to move.** For every id on the phase's map:
-   `bd update <id> --claim` — atomic, assigns and sets `in_progress` in one
-   call, idempotent when already yours.
+3. **Find the facts yourself, then put the decisions to the user.** A gray
+   area whose answer lives in the code (a file, a measured output, a current
+   behaviour) is yours to look up, never the user's to guess. What remains
+   is a decision, and each one goes to the user as one `AskUserQuestion` —
+   a recommended option first, the trade-off in each description. Under
+   `--auto`, skip the questions and record the recommendation as the
+   decision, marked *Claude's Discretion*.
 
-5. **Execute the vendored discussion workflow**, with the full arguments.
-   The implementation ships inside this plugin — read it and follow it:
-   ```
-   ${CLAUDE_PLUGIN_ROOT}/gsd/commands/gsd/discuss-phase.md
-   ```
-   It is already adapted to bd (phase 36): its state and verb sites talk to
-   the cairn runtime, not to a markdown state file. No external plugin is
-   involved, and none is required.
+4. **Claim what you are about to move:** for every id on the map,
+   `bd update <id> --claim`.
 
-6. **Reconcile, and name every divergence.** Where the produced CONTEXT.md
-   contradicts an issue, **CONTEXT wins**: flag it ⚠ outside the map's
-   generated markers and `bd update` the issue to match, with a dated note
-   pointing at the GSD doc. A requirement the CONTEXT introduces and no issue
-   covers becomes a new issue, with the label pair and the house stamp:
+5. **Record the context on the carrier** — what exists today (measured, with
+   sites), the decisions (`D-nn` by the user, `C-nn` by Claude, each with its
+   reason), and the waves the plan will cut:
    ```bash
-   bd create "<title>" -t task -l m-<milestone>,phase-<N> \
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-record.sh" context --phase "$N" <<'BODY'
+   …
+   BODY
+   ```
+   It writes the `## CONTEXT` section of the carrier's `design` and leaves
+   every other section (`## RESEARCH`, `## SPEC`…) as it was.
+
+6. **Reconcile, and name every divergence.** Where the recorded context
+   contradicts a bead, **the context wins**: `bd update` the bead to match,
+   with a dated note. A requirement the context introduces and no bead covers
+   becomes one:
+   Every requirement the record introduces becomes an issue, with the label
+   pair and the stamp — labels use the **unpadded** number (`phase-3`, never
+   `phase-03`), and the milestone is the open cycle
+   (`cairn-status.sh --json` → `milestone`):
+   ```bash
+   bd create "<REQ-ID>: <title>" -t task -l m-<milestone>,phase-<N> \
      --metadata '{"gsd": {"milestone": "<vX.Y>", "phase": <N>, "req": "<REQ-ID>"}}'
    ```
-   Labels use the **unpadded** number — `phase-3`, never `phase-03`; strip any
-   leading zero from `<N>`. The active milestone comes from ROADMAP.md's
-   current milestone header, or STATE.md.
+   A requirement the record drops does not lose its issue in silence: close
+   it with the reason (`bd close <id> --reason="dropped — <why>"`), or release
+   it and leave it open when it is merely deferred
+   (`bd update <id> --assignee "" --status open`). Deleting is never the answer.
 
 7. **Close what the discussion actually settled** —
    `bd close <id> --reason="<1–2 sentences>"`. Discussion rarely finishes an
    implementation issue: what is merely deferred is **released and left open**
    (`bd update <id> --assignee "" --status open`), never closed by giving up.
-   An issue left open stays visible in `/cairn:status`; a closed one evaporates.
 
-8. **Refresh the map** so it reflects the reconciliation: `cairn-map.sh <N>`,
-   then `cairn-map.sh <N> --check` (exit `3` + diff when stale).
+8. **Refresh the map** so it reflects the reconciliation:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N"
+   ```
+   The map is printed live from bd — there is no stored copy to go stale, so
+   there is nothing to `--check`. Exit `5` means bd is unavailable and
+   degrades without blocking. The map's requirement-gap list is the proof the
+   requirement step was complete — read it rather than assuming.
 
 Next: `/cairn:plan <N>`.

@@ -164,7 +164,9 @@ seed_jira_signals() {
   # guards is the critical one in the threat register: a token VALUE written
   # into a committed file. There is no field here that could hold one.
   assert_json_eq "$cfg" '.backends[0].config | keys | join(",")' \
-    'base_url,email_env,issue_type,project_key,token_env,transitions'
+    'base_url,email_env,issue_type,issue_types,project_key,token_env,transitions'
+  assert_json_eq "$cfg" '.backends[0].model' 'hierarchy'
+  assert_json_eq "$cfg" '.backends[0].config.issue_types | to_entries | map(.key + "=" + .value) | join(",")' 'milestone=Story,phase=Sub-task'
   assert_json_eq "$cfg" '.backends[0].config.email_env' "JIRA_EMAIL"
   assert_json_eq "$cfg" '.backends[0].config.token_env' "JIRA_API_TOKEN"
   assert_json_eq "$cfg" \
@@ -405,4 +407,209 @@ EOF
   grep -qF "detect" <<<"$output"
   grep -qF "apply" <<<"$output"
   grep -qF "decline" <<<"$output"
+}
+
+# --------------------------------------------------------------------------- #
+# link / unlink / links — the vinculo lives in the bead (phase 44 / LINK-02)
+# --------------------------------------------------------------------------- #
+
+FIX="$BATS_TEST_DIRNAME/fixtures/jira"
+
+# A v1.0 cycle with its milestone carrier, one phase carrier and one
+# requirement — the three kinds of bead a link can be aimed at (only the
+# first two accept one).
+make_link_fixture() {
+  bd init -q --prefix lnk --non-interactive >/dev/null 2>&1
+  LNK_MS="$(bd create "v1.0 — the fixture cycle" -t task -l m-v1.0,milestone \
+    -d "what v1.0 promises" --silent)"
+  LNK_PH="$(bd create "The link lives in the bead" -t task -l m-v1.0,phase-1 \
+    -d "what phase 1 promises" --silent)"
+  LNK_REQ="$(bd create "LINK-01: a requirement" -t task -l m-v1.0,phase-1 \
+    --metadata '{"gsd":{"req":"LINK-01","phase":1,"milestone":"v1.0"}}' --silent)"
+}
+
+@test "link: a Story lands on the milestone carrier, and its Epic is cached" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+
+  run JIRA link --from-json "$FIX/story.json" --milestone v1.0 --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.linked' "$LNK_MS"
+  assert_json_eq "$output" '.key' 'DTP-142'
+  assert_json_eq "$output" '.epic' 'DTP-100'
+  assert_json_eq "$output" '.changed' 'true'
+
+  local shown; shown="$(bd show "$LNK_MS" --json)"
+  grep -qF '"external_ref": "jira-DTP-142"' <<<"$shown"
+  grep -qF '"epic": "DTP-100"' <<<"$shown"
+  grep -qF '"story": "DTP-142"' <<<"$shown"
+
+  # Idempotent: the same card again is "already linked", nothing rewritten.
+  run JIRA link --from-json "$FIX/story.json" --milestone v1.0
+  [ "$status" -eq 0 ]
+  grep -qF "already linked" <<<"$output"
+
+  # A story without a parent caches no epic and says so with null.
+  run JIRA unlink --milestone v1.0
+  [ "$status" -eq 0 ]
+  run JIRA link --from-json "$FIX/story-no-epic.json" --milestone v1.0 --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.epic' 'null'
+}
+
+@test "link: a Sub-task lands on the phase carrier; a foreign parent is a warning, not a refusal" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+  JIRA link --from-json "$FIX/story.json" --milestone v1.0 >/dev/null
+
+  run JIRA link --from-json "$FIX/subtask.json" --phase 1 --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.linked' "$LNK_PH"
+  assert_json_eq "$output" '.warnings | length' '0'
+  grep -qF '"external_ref": "jira-DTP-143"' <<<"$(bd show "$LNK_PH" --json)"
+  # The requirement was never touched: it inherits the card for display only.
+  refute_in_output_fn() { :; }
+  ! grep -qF '"external_ref": "jira-' <<<"$(bd show "$LNK_REQ" --json)"
+
+  run JIRA unlink --phase 1
+  [ "$status" -eq 0 ]
+  run JIRA link --from-json "$FIX/subtask-other-parent.json" --phase 1
+  [ "$status" -eq 0 ]
+  grep -qF "warning: DTP-150 hangs under DTP-999, and the cycle's story is DTP-142" <<<"$output"
+}
+
+@test "link refuses (exit 2) a card whose type does not fit the target, naming the type" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+
+  run JIRA link --from-json "$FIX/story.json" --phase 1
+  [ "$status" -eq 2 ]
+  grep -qF "DTP-142 is a Story, and a phase links to a Sub-task" <<<"$output"
+
+  run JIRA link --from-json "$FIX/subtask.json" --milestone v1.0
+  [ "$status" -eq 2 ]
+  grep -qF "DTP-143 is a Sub-task, and a milestone links to a Story" <<<"$output"
+
+  run JIRA link --from-json "$FIX/task.json" --milestone v1.0
+  [ "$status" -eq 2 ]
+  grep -qF "DTP-160 is a Task" <<<"$output"
+
+  # Nothing was written by any refusal.
+  ! grep -qF '"external_ref": "jira-' <<<"$(bd show "$LNK_MS" --json)"
+  ! grep -qF '"external_ref": "jira-' <<<"$(bd show "$LNK_PH" --json)"
+}
+
+@test "link refuses (exit 3) over an existing ref and over a key another bead holds" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+
+  # A gh-N the doctor's --link-refs might have written: unlink first.
+  bd update "$LNK_MS" --external-ref gh-12 >/dev/null
+  run JIRA link --from-json "$FIX/story.json" --milestone v1.0
+  [ "$status" -eq 3 ]
+  grep -qF "already carries external_ref 'gh-12'" <<<"$output"
+  grep -qF "unlink --milestone v1.0" <<<"$output"
+  grep -qF '"external_ref": "gh-12"' <<<"$(bd show "$LNK_MS" --json)"
+
+  # 1:1 strict: the story is already someone else's.
+  local other; other="$(bd create "Stray bead holding the story" -t task \
+    -l backlog --external-ref jira-DTP-142 --silent)"
+  JIRA unlink --milestone v1.0 >/dev/null
+  run JIRA link --from-json "$FIX/story.json" --milestone v1.0
+  [ "$status" -eq 3 ]
+  grep -qF "DTP-142 is already linked to $other" <<<"$output"
+  grep -qF "$LNK_MS" <<<"$output"
+}
+
+@test "unlink clears the ref and the cached epic; links lists the whole cycle" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+  JIRA link --from-json "$FIX/story.json" --milestone v1.0 >/dev/null
+  JIRA link --from-json "$FIX/subtask.json" --phase 1 >/dev/null
+
+  run JIRA links --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.milestone.story' 'DTP-142'
+  assert_json_eq "$output" '.milestone.epic' 'DTP-100'
+  assert_json_eq "$output" '.milestone.carrier' "$LNK_MS"
+  assert_json_eq "$output" '.phases[0].phase' '1'
+  assert_json_eq "$output" '.phases[0].key' 'DTP-143'
+
+  run JIRA unlink --milestone v1.0 --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.was' 'jira-DTP-142'
+  local shown; shown="$(bd show "$LNK_MS" --json)"
+  ! grep -qF '"jira-DTP-142"' <<<"$shown"
+  ! grep -qF '"epic"' <<<"$shown"
+
+  run JIRA links
+  [ "$status" -eq 0 ]
+  grep -qF "story (unlinked)" <<<"$output"
+  grep -qF "phase 1: $LNK_PH -> DTP-143" <<<"$output"
+}
+
+@test "link/unlink: a phase without a carrier, or a cycle without one, is exit 4" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+
+  run JIRA link --from-json "$FIX/subtask.json" --phase 7
+  [ "$status" -eq 4 ]
+  grep -qF "phase 7 has no carrier" <<<"$output"
+
+  run JIRA unlink --milestone v9.9
+  [ "$status" -eq 4 ]
+  grep -qF "m-v9.9 has 0 milestone carrier(s)" <<<"$output"
+}
+
+@test "pending lists the queued mirror writes per bead, and --clear drops them" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+  bd update "$LNK_PH" --external-ref jira-DTP-143 --metadata \
+    '{"gsd":{"mirror":{"pending":[{"backend":"jira","action":"close","key":"DTP-143","at":"2026-08-27T00:00:00Z"}]}}}' >/dev/null
+
+  run JIRA pending --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" 'length' '1'
+  assert_json_eq "$output" '.[0].bead' "$LNK_PH"
+  assert_json_eq "$output" '.[0].pending[0].action' 'close'
+
+  run JIRA pending
+  [ "$status" -eq 0 ]
+  grep -qF "jira close DTP-143" <<<"$output"
+
+  run JIRA pending --clear "$LNK_PH" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.count' '1'
+  run JIRA pending --json
+  assert_json_eq "$output" 'length' '0'
+  # The ref survived the clear; only the queue went.
+  grep -qF '"external_ref": "jira-DTP-143"' <<<"$(bd show "$LNK_PH" --json)"
+}
+
+@test "seen --from-json records the card's status under state.json like a pull would" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+  JIRA link --from-json "$FIX/story.json" --milestone v1.0 >/dev/null
+  cat > "$BATS_TEST_TMPDIR/done.json" <<'JSON'
+{"key": "DTP-142", "fields": {"summary": "Cairn talks to Jira", "status": {"name": "Done", "statusCategory": {"key": "done"}}, "issuetype": {"name": "Story"}}}
+JSON
+
+  run JIRA seen --from-json "$BATS_TEST_TMPDIR/done.json" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.status' 'closed'
+  assert_json_eq "$output" '.bd_id' "$LNK_MS"
+  run jq -r '.seen.jira["DTP-142"].status' .cairn/state.json
+  [ "$output" = "closed" ]
+  # A name alone is enough when the category is missing.
+  run JIRA seen --from-json "$FIX/story-no-epic.json" --json
+  assert_json_eq "$output" '.status' 'in_progress'
+  assert_json_eq "$output" '.bd_id' 'null'
 }

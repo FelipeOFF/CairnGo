@@ -1,8 +1,6 @@
 # /cairn:ultraplan-phase
 
-> Offload planning to the ultraplan cloud and import it back — GSD
-> ultraplan-phase, and the imported PLAN gets the beads frontmatter it arrives
-> without
+> Offload planning to the ultraplan cloud and import it back — the imported plan lands as plan records that name the requirements they advance
 
 ## Usage
 
@@ -10,48 +8,35 @@
 /cairn:ultraplan-phase [phase-number]
 ```
 
-The bare phase number drives labels and the map.
-
-## Why this wrapper exists
-
-The sharpest gap on the whole wrap list: **the PLAN.md comes back from the
-cloud without `beads:` frontmatter.** It was written somewhere that has never
-heard of this repository's issue tracker. Nothing downstream notices —
-[`/cairn:work`](./work.md) simply finds no ids to claim and executes the phase
-untracked.
-
 ## What it does
 
-1. **Preflight** — `cairn-wrap.sh preflight ultraplan-phase`. Exit `6` or `5`
-   stops.
-2. **Records the phase's ids before the round trip** — the imported plan will
-   not mention them, so the mapping has to exist on this side.
-3. **Claims** each of them.
-4. **Runs `/gsd:ultraplan-phase`** and lets it import.
-5. **Fills `beads:` on every imported `PLAN.md`** — the step this wrapper exists
-   for. A plan that cannot be matched is reported, not left with an empty key.
-6. **A plan the cloud invented with no issue behind it gets one**, labelled
-   `m-<milestone>,phase-<N>` (unpadded) with the `metadata.gsd` stamp.
-7. **Anything the imported plan dropped is released and left open** — never
-   closed because a remote planner stopped mentioning it.
-8. **Refreshes and checks the map.**
+1. Split `$ARGUMENTS`
+2. Record the phase's ids before the round trip
+3. Claim
+4. A plan the cloud invented with no issue behind it gets one
+5. Close only what the planning genuinely finished
+6. Refresh and check the map
 
-Next: [/cairn:work N](./work.md).
+## The record
 
-## Exit codes
+Nothing this command produces is a file. It records through one boundary,
+`cairn-record.sh plan --phase <N>` (body on stdin), and the record lands on
+the phase carrier — one `plan-NN` bead per wave, a child of the carrier (`description` = the plan; `notes` = its summary, on close) (recording the same `NN` rewrites it). A `.planning/` directory, when present,
+is a GSD project waiting to be imported, never a place this command writes;
+`/cairn:doctor`'s `planning-writes` check names any document written there
+after the import.
 
-| Source | Code | Meaning |
-| --- | --- | --- |
-| `cairn-wrap preflight` | `0` / `5` / `6` | installed / could not look / not there |
-| `cairn-map` | `3` | map is stale (`--check`) |
-| | `5` | `bd` unavailable — degrade, do not block |
+Each plan record **names the requirement ids it advances** — that name is the link [`/cairn:work`](work.md) resolves to bead ids through the map; there is no `beads:` frontmatter any more.
 
-## Files it touches
+Read it back:
 
-- `.planning/phases/*/NN-MM-PLAN.md` — imported, then given `beads:`
-- `.planning/phases/*/NN-BEADS-MAP.md` — regenerated
-- bd issues — claimed, created, closed or released
+```bash
+bd show <carrier> --json | jq -r '.description, .design, .acceptance_criteria, .notes'
+bd list --parent <carrier> --json          # the plan records
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
+```
 
-## See also
+## Related
 
-- [Command reference](../commands.md) · [gsd-core commands](../gsd-core-commands.md)
+- [`/cairn:work`](work.md) — what comes next
+- [`/cairn:doctor`](doctor.md) — `planning-writes`, the guard on the old habit

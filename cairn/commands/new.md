@@ -24,7 +24,12 @@ project-creation interview over an existing `.planning/`.
      tick goes through `cairn-bookkeep`, never through a keyboard.
      `/cairn:plan <N>`, `/cairn:work <N>` and `/cairn:doctor` all work from
      there. Say which route you took.
-3. Once the roadmap exists, apply the `cairn` skill: for every requirement,
+3. Once the roadmap exists, apply the `cairn` skill. First give the cycle
+   its **carrier** — one bead with the marker label `milestone` and the
+   `m-<milestone>` label, no `phase-N`, titled with the cycle's name and
+   described with its promise (`bd create "<cycle name>" -t task -l
+   m-<milestone>,milestone -d "<promise>"`); `/cairn:doctor` reports an open
+   cycle without one. Then, for every requirement,
    `bd create` one issue with the label pair `m-<milestone>,phase-<N>` and the
    metadata stamp
    `--metadata '{"gsd": {"req": "CAT-NN", "phase": N, "milestone": "vX.Y"}}'`

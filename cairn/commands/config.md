@@ -39,6 +39,9 @@ first question of each group):
   --apply` updates the roadmap and the requirements, does cairn make the
   commit, or does it leave the staged change for you?
   Options: *Leave it to me* (`false`) · *Commit it* (`true`).
+- **Auto-merge** (`ship.auto_merge`) — does `/cairn:implement` merge the
+  pull request itself once the last CI gate closes green (`true`), or stop
+  at ready for review and leave the merge to you (`false`, the default)?
 - **PR scope** (`ship.pr_scope`) — when does a pull request come due?
   Options: *Once per phase* (`phase`) · *Once per milestone* (`milestone`) ·
   *Never* (`none`).

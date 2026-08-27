@@ -4,6 +4,7 @@
 #   cairn-relabel.sh pair --milestone <m> [--phase <N>] [--dry-run]
 #   cairn-relabel.sh renumber --from <N> --to <M> [--milestone <m>] [--force]
 #                             [--dry-run]
+#   cairn-relabel.sh rename m-<X> m-<Y> [--apply]      (dry-run by default)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exec python3 "$HERE/cairn-relabel.py" "$@"

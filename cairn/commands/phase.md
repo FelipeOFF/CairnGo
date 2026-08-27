@@ -71,8 +71,9 @@ knows nothing about those labels. This wrapper moves them.
 
    Labels use the **unpadded** phase number — `phase-3`, never `phase-03`. Strip
    any leading zero from `<N>` before building a label. The label pair is
-   `m-<milestone>` + `phase-<N>`; the active milestone comes from ROADMAP.md's
-   current milestone header, or STATE.md.
+   `m-<milestone>` + `phase-<N>`; the active milestone comes from the tracker —
+   the `m-*` label that still has open work (`cairn-status.sh --json` prints
+   it under `milestone`), never from a ROADMAP.md header or a STATE.md key.
 
 5. **A phase that was added needs its issues.** For each requirement the new
    phase carries, create the issue with the label pair and the house stamp:

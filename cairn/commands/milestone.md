@@ -31,6 +31,24 @@ the mode; with neither `new` nor `complete`, ask which one.
    corroboration all read it. A phase without a carrier has no name, and the
    board says so rather than borrowing a requirement's title.
 
+   Give the **milestone** a carrier too — always, with or without an
+   external tracker. It is one bead with the marker label `milestone` and
+   the `m-<new-milestone>` label, **no** `phase-N`, no `gsd` stamp; its
+   title is the cycle's name and its description is the cycle's promise:
+
+   ```bash
+   bd create "<cycle name>" -t task -l m-<new-milestone>,milestone \
+     -d "<what this cycle promises>"
+   ```
+
+   Until it exists the cycle has no name, no promise and nowhere to hang an
+   outside link (`external_ref` is a field of this bead, filled in by the
+   Jira link when there is one). `/cairn:doctor` reports an open cycle
+   without one; `/cairn:status` reads the header from it; `complete` closes
+   it last, after the gate passes. The label chosen here is the **intent** —
+   the final version is decided at close, and `complete` renames the whole
+   cycle when they diverge.
+
    **A `.planning/` still waiting to be imported is the exception, and the
    only one.** If this repo has one, it is the INPUT of a GSD that has not
    been migrated yet: run `/cairn:migrate` first, and open the cycle after —
@@ -76,12 +94,32 @@ the mode; with neither `new` nor `complete`, ask which one.
      Until `new` re-adds a phase label, `/cairn:doctor` shows the carried
      issue as a transient orphan warn — expected; it clears when the next
      milestone's roadmap places it.
-3. **Close the cycle. In a tracker-owned repo there is nothing to archive** —
-   the closed beads ARE the archive, queryable by `bd list -l m-<X.Y> --all`
-   forever. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh"`; where
+3. **Decide the final version, then close the cycle's own bead.** The
+   label chosen at `new` was the intent; the version that ships is decided
+   here, by the CHANGELOG's contract criterion (a contract change is a
+   major, a new surface a minor, the rest a patch). Ask the user for it,
+   then let the script turn the answer into bd writes:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh" milestone --release <X.Y.Z>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh" milestone --release <X.Y.Z> --apply
+   ```
+   Read mode names the writes and exits 3: a `cairn-relabel rename` of the
+   whole cycle when `m-vX.Y` differs from the open label (every bead, the
+   carrier's title included — `.cairn/id-map.json`, branches and the journal
+   are reported, not touched), then `bd close <carrier> --reason "release
+   X.Y.Z"`. Exit 6 is a refusal with ids: a non-closed bead of the cycle
+   other than the carrier — back to step 2. Exit 4 means the cycle has no
+   carrier, or two; `/cairn:doctor`'s `milestone-carrier` check says which.
+   With a `jira` backend the story follows the cycle (`--apply` fires the
+   mirror close); with no token in the shell it waits on the bead —
+   `/cairn:jira flush` sends it.
+
+   **In a tracker-owned repo there is nothing to archive** — the closed beads
+   ARE the archive, queryable by `bd list -l m-<X.Y> --all` forever. Run
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh" reconcile`; where
    the planning documents do not exist it reports `documents:
-   not-applicable / out-of-scope` and exits 0, which is the correct answer and
-   not a skipped step.
+   not-applicable / out-of-scope` and exits 0 (3 lists disagreements), which
+   is the correct answer and not a skipped step.
 
    **Only a repo that still carries an unimported `.planning/` has anything to
    move**: its `ROADMAP`/`REQUIREMENTS` and phase dirs go to

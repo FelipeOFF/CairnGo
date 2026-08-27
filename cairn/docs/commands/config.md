@@ -42,6 +42,7 @@ second source of truth, and the file is committed like `sync.json` and
 | Section | Key | Effect |
 | --- | --- | --- |
 | Bookkeeping | `bookkeep.auto_commit` | After `cairn-bookkeep.sh --apply` updates the roadmap and requirements, does cairn make the commit or leave the staged change for you? |
+| Bookkeeping | `ship.auto_merge` | Whether `/cairn:implement` merges the pull request itself once the last CI gate closes green, or stops at ready for review (`false`, default) |
 | Bookkeeping | `ship.pr_scope` | When a pull request comes due: `phase` · `milestone` · `none` |
 | Autonomous run | `autonomous.max_parallel` | Ceiling on how many phases `cairn-parallel.sh batch` runs at once. It is a ceiling on **human attention**: each phase gets its own worktree and agent, and three is about what one person can review before the review becomes a rubber stamp. |
 | Autonomous run | `autonomous.max_cycles` | How many cycles an autonomous run may take before `batch` stops selecting. `0` means no ceiling. |

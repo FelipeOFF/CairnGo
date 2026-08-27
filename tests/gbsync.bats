@@ -631,3 +631,230 @@ PY
   fi
   [ "$status" -eq 0 ]
 }
+
+# --------------------------------------------------------------------------- #
+# refresh-map — the id-map is derived from external_ref (phase 44 / LINK-02)
+# --------------------------------------------------------------------------- #
+
+@test "refresh-map derives id-map entries from external_ref, and the bead wins over the file" {
+  require_bd
+  make_tmp_repo
+  make_bd_fixture "$PWD"
+  make_jira_sync_config
+  bd update "$BD_EPIC" --external-ref jira-CHN-42 >/dev/null
+  bd update "$BD_CHILD_OPEN" --external-ref gh-7 >/dev/null
+  # A stale cache entry that disagrees with the bead.
+  printf '{"%s": {"jira": "CHN-1"}}\n' "$BD_EPIC" > .cairn/id-map.json
+
+  run bash "$CAIRN_SCRIPTS_DIR/gbsync.sh" refresh-map --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  grep -qF "DRY-RUN: refresh-map would rewrite 1 entry" <<<"$output"
+  grep -qF '"CHN-1"' .cairn/id-map.json
+
+  run bash "$CAIRN_SCRIPTS_DIR/gbsync.sh" refresh-map --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "1 entry derived from external_ref" <<<"$output"
+  run jq -r --arg id "$BD_EPIC" '.[$id].jira' .cairn/id-map.json
+  [ "$output" = "CHN-42" ]
+  # gh-7 names a backend that is not enabled here: not mapped.
+  run jq -r --arg id "$BD_CHILD_OPEN" '.[$id]' .cairn/id-map.json
+  [ "$output" = "null" ]
+}
+
+# --------------------------------------------------------------------------- #
+# the hierarchy model — carriers only, with a parent (phase 45 / MIRROR-01)
+# --------------------------------------------------------------------------- #
+
+# A jira backend in the hierarchy model, pointed at a stub adapter that logs
+# every event and answers a create with a fresh key.
+make_hierarchy_jira() {
+  mkdir -p .cairn
+  cat > .cairn/sync.json <<'JSON'
+{"backends": [{"type": "jira", "enabled": true, "adapter": "jira", "model": "hierarchy",
+  "config": {"base_url": "https://example.atlassian.net", "project_key": "CHN",
+             "issue_types": {"milestone": "Story", "phase": "Sub-task"}}}]}
+JSON
+  STUB_ADAPTERS_DIR="$BATS_TEST_TMPDIR/adapters"
+  mkdir -p "$STUB_ADAPTERS_DIR"
+  cat > "$STUB_ADAPTERS_DIR/jira.py" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys
+event = json.load(sys.stdin)
+with open(os.path.join(os.path.dirname(__file__), "calls.log"), "a") as fh:
+    fh.write(json.dumps(event) + "\n")
+if event["action"] == "create":
+    print("CHN-9" if event.get("level") == "milestone" else "CHN-10")
+else:
+    print(event.get("external_id") or "")
+PY
+  export CAIRN_ADAPTERS_DIR="$STUB_ADAPTERS_DIR"
+}
+
+# A cycle: its carrier (epic cached), a phase carrier, a requirement.
+make_cycle_beads() {
+  bd init -q --prefix hy --non-interactive >/dev/null 2>&1
+  HY_MS="$(bd create "v1.0 — the cycle" -t task -l m-v1.0,milestone \
+    --metadata '{"gsd":{"jira":{"epic":"CHN-100"}}}' --silent)"
+  HY_PH="$(bd create "The phase" -t task -l m-v1.0,phase-1 --silent)"
+  HY_REQ="$(bd create "REQ-01: a requirement" -t task -l m-v1.0,phase-1 \
+    --metadata '{"gsd":{"req":"REQ-01","phase":1,"milestone":"v1.0"}}' --silent)"
+}
+
+@test "hierarchy: a requirement is never pushed — skip, adapter untouched, exit 0" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_REQ" --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  [ "$output" = "DRY-RUN: jira skip $HY_REQ (not a carrier)" ]
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_REQ" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "not a carrier" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+}
+
+@test "hierarchy: the cycle's carrier goes up as a milestone-level item under its epic, and the key lands in the bead" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_MS" --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  [ "$output" = "DRY-RUN: jira create $HY_MS -> (new) [milestone, parent CHN-100]" ]
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_MS" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  run jq -r '.level + " " + .parent + " " + .action' "$STUB_ADAPTERS_DIR/calls.log"
+  [ "$output" = "milestone CHN-100 create" ]
+  # The link lives in the bead, and the cache follows.
+  grep -qF '"external_ref": "jira-CHN-9"' <<<"$(bd show "$HY_MS" --json)"
+  run jq -r --arg id "$HY_MS" '.[$id].jira' .cairn/id-map.json
+  [ "$output" = "CHN-9" ]
+}
+
+@test "hierarchy: a phase carrier needs the cycle linked first, then goes up under the story" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_PH" --dir "$PWD"
+  [ "$status" -eq 2 ]
+  grep -qF "phase carrier with no parent: link the cycle first" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+
+  bd update "$HY_MS" --external-ref jira-CHN-9 >/dev/null
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_PH" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  run jq -r '.level + " " + .parent' "$STUB_ADAPTERS_DIR/calls.log"
+  [ "$output" = "phase CHN-9" ]
+  grep -qF '"external_ref": "jira-CHN-10"' <<<"$(bd show "$HY_PH" --json)"
+}
+
+@test "hierarchy: import refuses (exit 2) and points at the link" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" import --project CHN --dir "$PWD"
+  [ "$status" -eq 2 ]
+  grep -qF "cairn-jira.py link --from-json" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+}
+
+@test "hierarchy: a comment reaches the linked card with its text; unlinked, it is skipped" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" comment "$HY_MS" --text "Plano 01 registrado: x" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "not linked — nothing to comment on" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+
+  bd update "$HY_MS" --external-ref jira-CHN-9 >/dev/null
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" comment "$HY_MS" --text "Plano 01 registrado: x" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  run jq -r '.action + "|" + .external_id + "|" + .text' "$STUB_ADAPTERS_DIR/calls.log"
+  [ "$output" = "comment|CHN-9|Plano 01 registrado: x" ]
+
+  # A requirement never gets a comment either.
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" comment "$HY_REQ" --text "nope" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "not a carrier" <<<"$output"
+}
+
+@test "hierarchy: with no credentials in the shell the write is QUEUED on the bead, not attempted" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+  # Declare the env var names the backend needs, and leave them unset.
+  python3 - <<'PY'
+import json
+p = ".cairn/sync.json"; d = json.load(open(p))
+d["backends"][0]["config"].update({"email_env": "HY_EMAIL", "token_env": "HY_TOKEN"})
+json.dump(d, open(p, "w"))
+PY
+  bd update "$HY_MS" --external-ref jira-CHN-9 >/dev/null
+
+  run env -u HY_EMAIL -u HY_TOKEN python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" close "$HY_MS" --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  grep -qF "(queued: no credentials)" <<<"$output"
+
+  run env -u HY_EMAIL -u HY_TOKEN python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" close "$HY_MS" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "close queued on the bead (no HY_EMAIL/HY_TOKEN in the shell)" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+  run env -u HY_EMAIL -u HY_TOKEN python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" comment "$HY_MS" --text "Fechado: done" --dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  local meta; meta="$(bd show "$HY_MS" --json | jq -c '.[0].metadata.gsd.mirror.pending')"
+  [ "$(jq 'length' <<<"$meta")" = "2" ]
+  [ "$(jq -r '.[0].action + " " + .[0].key + " " + .[0].backend' <<<"$meta")" = "close CHN-9 jira" ]
+  [ "$(jq -r '.[1].text' <<<"$meta")" = "Fechado: done" ]
+
+  # With the credentials present the same write goes to the adapter.
+  run env HY_EMAIL=x HY_TOKEN=y python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" close "$HY_MS" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  run jq -r '.action' "$STUB_ADAPTERS_DIR/calls.log"
+  [ "$output" = "close" ]
+}
+
+@test "hierarchy: pull records what the tracker shows under state.json seen, and touches no bead" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+  bd update "$HY_MS" --external-ref jira-CHN-9 >/dev/null
+  cat > "$STUB_ADAPTERS_DIR/jira.py" <<'PY'
+#!/usr/bin/env python3
+import json, sys
+event = json.load(sys.stdin)
+assert event["action"] == "pull", event
+print(json.dumps([{"bd_id": it["bd_id"], "external_id": it["external_id"],
+                   "title": "renamed in jira", "body": "rewritten", "status": "closed",
+                   "updated_at": "2099-01-01T00:00:00Z"} for it in event["items"]]))
+PY
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  grep -qF "DRY-RUN: jira pull $HY_MS <- CHN-9 (read only: seen)" <<<"$output"
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "seen=1 (read only" <<<"$output"
+  run jq -r '.seen.jira["CHN-9"].status + " " + .seen.jira["CHN-9"].bd_id' .cairn/state.json
+  [ "$output" = "closed $HY_MS" ]
+  # The bead is the source: still open, still its own title, no conflict.
+  local shown; shown="$(bd show "$HY_MS" --json)"
+  grep -qF '"status": "open"' <<<"$shown"
+  grep -qF 'v1.0 — the cycle' <<<"$shown"
+  [ ! -e .cairn/conflicts.json ]
+}

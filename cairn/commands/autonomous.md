@@ -100,7 +100,7 @@ a time, in the main checkout, exactly the loop this command used to run.
 
    Then go. No further questions: gray areas during planning resolve to
    sensible defaults recorded as Claude's Discretion in each phase's
-   CONTEXT.md.
+   `## CONTEXT` record (`cairn-record.sh context`, on the phase carrier).
 
    **`--interactive` inverts that last sentence**, and only that one. The
    pre-flight, the order, the stop rules and every bd step are unchanged; what
@@ -115,11 +115,21 @@ the order is what keeps the parallel half from writing where it must not.
 
 ### 1. Plan — in the main checkout, one phase at a time
 
+**Read the stop flag first**, here and at every boundary below:
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-stop.sh" check` exits `3` when a
+stop was requested (from the board, or `cairn-stop.sh request`). Then stop
+clean: release the claims that no longer reflect live work, report the
+phase and step you reached, and leave the flag for the operator to clear
+(`cairn-stop.sh clear`). Never in the middle of a merge — a merge in
+progress finishes or is reverted first.
+
 `/cairn:plan N` for every phase of the batch, sequentially, in the main
 checkout, **before any worktree exists**. Without `--interactive`, run it
 non-interactively (skip discussion questions; record assumptions instead). Each
-run regenerates the beads map, runs the vendored plan-phase workflow for N, reconciles divergence
-(CONTEXT wins) and sets each PLAN.md's `beads:` frontmatter.
+run reads the beads map, records the phase's context and research on its
+carrier, cuts the phase into waves — one plan record each, naming the
+requirements it advances — and reconciles divergence (the recorded context
+wins). Nothing is written to a file.
 
 Planning is deliberately not parallelized, and the reason is mechanical rather
 than cautious: the plan-phase workflow writes to `ROADMAP.md` — it fills in the
@@ -127,13 +137,13 @@ phase Goal and the list of plans. A phase planned inside its own worktree would
 therefore break the planning-file prohibition on its very first step. Planning
 centrally, one phase after another, *is* the central application that rule
 asks for, and it is cheap next to execution, so little is lost. It also means
-every worktree is branched from a HEAD that already carries its own PLAN.md
-files.
+every worktree starts from a bd that already carries the phase's plan
+records.
 
-**Discuss (only under `--interactive`)** — if the phase has no
-`NN-CONTEXT.md`, run the vendored discuss-phase workflow for N **before** planning it. Invoke it
-here, in the autonomous loop, rather than telling the user to run it
-themselves.
+**Discuss (only under `--interactive`)** — if the phase carrier's `design`
+has no `## CONTEXT` section (`bd show <carrier> --json | jq -r .design`), run
+`/cairn:discuss-phase N` **before** planning it. Invoke it here, in the
+autonomous loop, rather than telling the user to run it themselves.
 
 This is allowed, and the reason matters. GSD's `plan-phase` workflow forbids
 invoking discuss-phase as a nested Skill/Task call, because `AskUserQuestion`
@@ -145,7 +155,7 @@ command back to the user as if you could not run it.
 
 **Discuss at the phase's turn, never in a batch up front.** It is tempting,
 with five pending phases, to discuss all five before planning any — do not. A
-CONTEXT.md is a set of locked decisions, and decisions locked for phase N+2 are
+context record is a set of locked decisions, and decisions locked for phase N+2 are
 taken against a codebase that phase N is about to change: the discussion is
 held over a guess, and the guess is then recorded as settled. That is the same
 failure this whole plugin is built to catch — a record that claims more
@@ -256,7 +266,9 @@ Nothing in this moment happens inside a worktree.
    still carrying a violation in that list, and reacting only to exit 6 would
    let it through. Detecting something nobody reads is the same as not
    detecting it.
-2. **Merge one branch at a time**, `git merge --no-ff <branch>`, plain. A git
+2. **Merge one branch at a time**, `git merge --no-ff <branch>`, plain —
+   checking the stop flag before each one (a request stops the run after
+   the merge in flight, never inside it). A git
    conflict is a stop rule: hand it to the operator with the branch and the
    paths, and do not attempt to resolve it.
 
@@ -304,7 +316,9 @@ Nothing in this moment happens inside a worktree.
    unmerged commits is retained and reported with the command to inspect it —
    including the tree of a phase that failed in moment 3.
 
-Then take the next batch: back to step 0.3, until no phase is pending.
+Then take the next batch: back to step 0.3, until no phase is pending —
+`batch --json` carries `stop_requested`, and `true` there ends the run at
+this boundary with the report above.
 
 ### `--sequential`
 

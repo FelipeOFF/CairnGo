@@ -641,9 +641,22 @@ free_of_timestamp_keys() {
   #
   # Junto, um `if has_planning:` aninhado numa condicao que ja o exigia:
   # sempre-verdadeiro com forma de teste, a armadilha do `parent` do bd.
+  # ATUALIZADO 2026-08-27 pelo ciclo v4.0 (phases 43, 44, 46), que e' o dono
+  # desta atualizacao. Tres checks novos, nenhum cosmetico:
+  #   - milestone-carrier (phase 43): todo ciclo aberto tem exatamente um
+  #     carrier de milestone — ⚠ sem carrier nesta linha (✗ a partir da 4.1),
+  #     ✗ com dois. O milestone deixou de ser so' um label.
+  #   - jira-links (phase 44): gap, duplicata 1:1, chave inexistente (via o
+  #     seam CAIRN_JIRA_FETCH ou REST), epic drift, status divergente e fila
+  #     pendente; ⊘ out-of-scope sem backend jira em .cairn/sync.json.
+  #   - planning-writes (phase 46): um .md novo ou modificado sob
+  #     .planning/phases/ rastreado pelo git e' um documento escrito onde o
+  #     bead e' a fonte, com o cairn-record que o substitui.
+  # De quebra: 'milestone' entrou em NO_PHASE_EXEMPT, o lease-stale nomeia
+  # leases de bead, e jira_fetch valida a chave antes de qualquer URL.
   local doctor="$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
-  local pinned_blob="31b85665b8dd3220c8335ca6668a819cfe62c77e"
-  local pinned_lines=4460
+  local pinned_blob="7e3defd9e00ea425e8a58b3e8625332437a4f3fa"
+  local pinned_lines=4836
   [ -f "$doctor" ]
   local blob lines
   blob="$(git hash-object "$doctor")"

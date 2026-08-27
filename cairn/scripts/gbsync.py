@@ -63,9 +63,10 @@ ADAPTERS_DIR = Path(os.environ.get("CAIRN_ADAPTERS_DIR")
                     or Path(__file__).resolve().parent.parent / "adapters")
 PUSH_ACTIONS = {"create", "update", "close"}
 VALID_STATUS = {"open", "in_progress", "closed"}
-USAGE = ("usage: gbsync.py <create|update|close> <bd_id> | pull "
+USAGE = ("usage: gbsync.py <create|update|close> <bd_id> | comment <bd_id> "
+         "--text <t> | pull "
          "[--since <iso>] | import (--query <q> | --project <KEY>) "
-         "[--backend <type>] [--dir <project_dir>] [--dry-run]")
+         "[--backend <type>] | refresh-map [--dir <project_dir>] [--dry-run]")
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
@@ -214,13 +215,163 @@ def enabled_backends(cfg):
 # --------------------------------------------------------------------------- #
 # PUSH:  bd -> tools
 # --------------------------------------------------------------------------- #
-def do_push(action, bd_id, base, cfg, dry_run=False):
+# external_ref prefix -> backend type, as cairn's own writers spell them.
+REF_BACKENDS = {"jira": "jira", "gh": "github", "github": "github",
+                "gl": "gitlab", "gitlab": "gitlab", "linear": "linear"}
+# ...and the prefix a backend's key is written with, when this dispatcher
+# is the one writing it (a card it just created for a carrier).
+REF_PREFIX = {"jira": "jira", "github": "gh", "gitlab": "gl", "linear": "linear"}
+
+
+def source():
+    """cairn_source, imported on first use — the classification of a bead
+    (carrier of a cycle, carrier of a phase, or neither) lives there, once."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cairn_source
+    return cairn_source
+
+
+def hierarchical(backend):
+    """The hierarchy model (phase 45 / MIRROR-01, D-01): a backend that
+    declares `"model": "hierarchy"` receives ONLY carriers — the cycle's bead
+    as a milestone-level item under its cached epic, a phase's bead as a
+    phase-level item under the cycle's item — and never a requirement, a
+    plan record, a quick or a lease. The model is cairn's; the adapter maps
+    levels to its own types. A backend without the key keeps the flat
+    mirror it always had."""
+    return backend.get("model") == "hierarchy"
+
+
+def classify(root, bd_id, btype):
+    """(level, parent_key, issue) for a hierarchy push, or (None, None,
+    issue) when the bead is not a carrier. The parent of a milestone-level
+    item is the epic cached under metadata.gsd.<backend>.epic; the parent of
+    a phase-level item is the key of the cycle's own carrier for this
+    backend (its external_ref), or None when the cycle is not linked yet."""
+    cs = source()
+    issue = next((i for i in cs.issues(root) if i.get("id") == bd_id), None)
+    if issue is None:
+        return None, None, None
+    if cs.is_milestone_carrier(issue):
+        epic = (cs.gsd(issue).get(btype) or {}).get("epic")
+        return "milestone", epic or None, issue
+    if cs.is_carrier(issue) and cs.issue_phases(issue):
+        parent = None
+        for key in cs.issue_milestones(issue):
+            for c in cs.milestone_carriers(root, key):
+                ref = str(c.get("external_ref") or "")
+                prefix, _, ext = ref.partition("-")
+                if ext and REF_BACKENDS.get(prefix) == btype:
+                    parent = ext
+        return "phase", parent, issue
+    return None, None, issue
+
+
+def credentials_missing(cfg):
+    """The env var NAMES a backend declares (email_env / token_env /
+    pat_env) that are not set in this shell — the reason a hierarchy write
+    is queued on the bead instead of attempted (phase 45, D-02/C-04). A
+    backend that declares none is assumed reachable."""
+    names = [cfg.get(k) for k in ("email_env", "token_env", "pat_env")
+             if cfg.get(k)]
+    return [n for n in names if not os.environ.get(n)]
+
+
+def enqueue_pending(root, bd_id, btype, action, extra=None):
+    """Append one write to metadata.gsd.mirror.pending on the bead, by
+    read-modify-write (bd replaces a provided top-level key wholesale). The
+    queue is what /cairn:jira flush applies in a session, and what the
+    doctor shows meanwhile."""
+    try:
+        out = subprocess.run(["bd", "-C", str(root), "show", bd_id, "--json"],
+                             capture_output=True, text=True, check=True).stdout
+        data = json.loads(out or "[]")
+    except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
+        return False
+    issue = data[0] if isinstance(data, list) else data
+    meta = issue.get("metadata") if isinstance(issue.get("metadata"), dict) else {}
+    gsd = meta.get("gsd") if isinstance(meta.get("gsd"), dict) else {}
+    mirror = gsd.get("mirror") if isinstance(gsd.get("mirror"), dict) else {}
+    pending = mirror.get("pending") if isinstance(mirror.get("pending"), list) else []
+    entry = {"backend": btype, "action": action, "at": now_iso()}
+    entry.update(extra or {})
+    pending.append(entry)
+    mirror["pending"] = pending
+    gsd["mirror"] = mirror
+    meta["gsd"] = gsd
+    proc = subprocess.run(["bd", "-C", str(root), "update", bd_id,
+                           "--metadata", json.dumps(meta)],
+                          capture_output=True, text=True)
+    source().invalidate(root)
+    return proc.returncode == 0
+
+
+def record_ref(root, bd_id, btype, ext):
+    """A card this dispatcher just created is a link, and the link lives in
+    the bead: write external_ref <prefix>-<key> when the bead has none."""
+    prefix = REF_PREFIX.get(btype)
+    if not prefix:
+        return
+    subprocess.run(["bd", "-C", str(root), "update", bd_id,
+                    "--external-ref", f"{prefix}-{ext}"],
+                   capture_output=True, text=True)
+    source().invalidate(root)
+
+
+def derive_idmap(idmap, cfg):
+    """Fold bd's own `external_ref` into the id-map (phase 44 / LINK-02).
+
+    The link lives in the bead — `jira-DTP-142` on a carrier — and travels
+    with Dolt; the id-map is a per-machine cache that used to be the only
+    record and is now DERIVED: for every issue whose external_ref prefix
+    names an enabled backend, entry[backend] = key, and the bead wins over
+    whatever the file said. Called on every push and pull, and by
+    `refresh-map` on its own. One bd list, never one per issue."""
+    wanted = {b.get("type") for b in enabled_backends(cfg)}
+    try:
+        out = subprocess.run(["bd", "list", "--all", "--limit", "0", "--json"],
+                             capture_output=True, text=True, check=True).stdout
+        issues = json.loads(out or "[]")
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
+        return idmap, 0
+    if not isinstance(issues, list):
+        issues = issues.get("issues", []) if isinstance(issues, dict) else []
+    changed = 0
+    for issue in issues:
+        ref = str(issue.get("external_ref") or "").strip()
+        prefix, _, key = ref.partition("-")
+        btype = REF_BACKENDS.get(prefix)
+        if not key or btype not in wanted:
+            continue
+        entry = idmap.setdefault(issue.get("id"), {})
+        if entry.get(btype) != key:
+            entry[btype] = key
+            changed += 1
+    return idmap, changed
+
+
+def do_refresh_map(base, cfg, dry_run=False):
+    idmap = load_json(base / "id-map.json", {})
+    before = json.dumps(idmap, sort_keys=True)
+    idmap, changed = derive_idmap(idmap, cfg)
+    if dry_run:
+        print(f"DRY-RUN: refresh-map would rewrite {changed} entr"
+              f"{'y' if changed == 1 else 'ies'} from external_ref")
+        return 0
+    if json.dumps(idmap, sort_keys=True) != before:
+        write_json(base / "id-map.json", idmap)
+    print(f"[gbsync] refresh-map: {changed} entr{'y' if changed == 1 else 'ies'} "
+          f"derived from external_ref ({len(idmap)} bd id(s) mapped)")
+    return 0
+
+
+def do_push(action, bd_id, base, cfg, dry_run=False, text=None):
     backends = enabled_backends(cfg)
     if not backends:
         print("[gbsync] no enabled backends — nothing to mirror")
         return 0
     issue = bd_fetch(bd_id)
-    idmap = load_json(base / "id-map.json", {})
+    idmap, _ = derive_idmap(load_json(base / "id-map.json", {}), cfg)
     entry = idmap.setdefault(bd_id, {})
     if dry_run:
         for b in backends:
@@ -231,14 +382,32 @@ def do_push(action, bd_id, base, cfg, dry_run=False):
                       f"(adapter '{b.get('adapter', btype)}' not found)")
                 continue
             ext = entry.get(btype)
+            if hierarchical(b):
+                level, parent, _ = classify(base.parent, bd_id, btype)
+                if level is None:
+                    print(f"DRY-RUN: {btype} skip {bd_id} (not a carrier)")
+                    continue
+                queued = " (queued: no credentials)" \
+                    if credentials_missing(b.get("config", {})) else ""
+                print(f"DRY-RUN: {btype} {action} {bd_id} -> {ext or '(new)'} "
+                      f"[{level}, parent {parent or '(none)'}]{queued}")
+                continue
+            if action == "comment":
+                print(f"DRY-RUN: {btype} skip {bd_id} (comment needs the "
+                      "hierarchy model)")
+                continue
             print(f"DRY-RUN: {btype} {action} {bd_id} -> {ext or '(new)'}")
         return 0
     results = []
+    root = base.parent
     for b in backends:
         btype = b.get("type", "?")
         adapter = resolve_adapter(b.get("adapter", btype))
         if not adapter:
             results.append((btype, "skip", f"adapter '{b.get('adapter', btype)}' not found"))
+            continue
+        if action == "comment" and not hierarchical(b):
+            results.append((btype, "skip", "comment needs the hierarchy model"))
             continue
         event = {
             "action": action, "bd_id": issue["bd_id"], "title": issue["title"],
@@ -246,11 +415,45 @@ def do_push(action, bd_id, base, cfg, dry_run=False):
             "labels": issue["labels"], "external_id": entry.get(btype),
             "config": b.get("config", {}),
         }
+        if hierarchical(b):
+            level, parent, _ = classify(root, bd_id, btype)
+            if level is None:
+                results.append((btype, "skip", "not a carrier — the hierarchy "
+                                "model mirrors cycles and phases only"))
+                continue
+            if level == "phase" and not parent and not entry.get(btype):
+                results.append((btype, "FAIL", "phase carrier with no parent: "
+                                "link the cycle first (cairn-jira.py link "
+                                "--milestone)"))
+                continue
+            event.update({"level": level, "parent": parent,
+                          "external_key": entry.get(btype)})
+            if action == "comment" and not entry.get(btype):
+                results.append((btype, "skip", "not linked — nothing to "
+                                "comment on"))
+                continue
+            missing = credentials_missing(b.get("config", {}))
+            if missing:
+                # No road to the tracker: queue, never fail, never forget.
+                extra = {"key": entry.get(btype)}
+                if text is not None:
+                    extra["text"] = text
+                ok = enqueue_pending(root, bd_id, btype, action, extra)
+                results.append((btype, "queued" if ok else "FAIL",
+                                f"{action} queued on the bead (no "
+                                f"{'/'.join(missing)} in the shell) — "
+                                "/cairn:jira flush applies it"
+                                if ok else "could not queue on the bead"))
+                continue
+            if text is not None:
+                event["text"] = text
         ext, err = run_adapter(adapter, event)
         if err:
             results.append((btype, "FAIL", err))
             continue
         if ext:
+            if hierarchical(b) and not entry.get(btype):
+                record_ref(root, bd_id, btype, ext)
             entry[btype] = ext
         results.append((btype, "ok", f"{action} -> {ext or entry.get(btype, '?')}"))
     write_json(base / "id-map.json", idmap)
@@ -268,7 +471,7 @@ def do_pull(base, cfg, since_override, dry_run=False):
     if not backends:
         print("[gbsync] no enabled backends — nothing to pull")
         return 0
-    idmap = load_json(base / "id-map.json", {})
+    idmap, _ = derive_idmap(load_json(base / "id-map.json", {}), cfg)
     state = load_json(base / "state.json", {})
     last_pull = state.setdefault("last_pull", {})
     conflicts = load_json(base / "conflicts.json", [])
@@ -293,6 +496,48 @@ def do_pull(base, cfg, since_override, dry_run=False):
                 results.append((btype, "skip", "no mapped items"))
             continue
         watermark = parse_ts(since_override or last_pull.get(btype))
+        if hierarchical(b):
+            # Read only (phase 45 / MIRROR-04): the tracker's status is
+            # RECORDED under state.json.seen and the doctor names the
+            # divergence; nothing here closes, reopens or rewrites a bead,
+            # and nothing is a conflict — the bead is the source.
+            if dry_run:
+                for it in items:
+                    print(f"DRY-RUN: {btype} pull {it['bd_id']} "
+                          f"<- {it['external_id']} (read only: seen)")
+                continue
+            missing = credentials_missing(b.get("config", {}))
+            if missing:
+                results.append((btype, "skip", f"no {'/'.join(missing)} in "
+                                "the shell — in a session, /cairn:sync-pull "
+                                "reads through the MCP and records with "
+                                "cairn-jira.py seen"))
+                continue
+            out, err = run_adapter(adapter, {"action": "pull",
+                                             "config": b.get("config", {}),
+                                             "items": items})
+            if err:
+                results.append((btype, "FAIL", err))
+                continue
+            try:
+                ext_states = json.loads(out) if out else []
+            except json.JSONDecodeError as e:
+                results.append((btype, "FAIL", f"bad adapter JSON: {e}"))
+                continue
+            seen = state.setdefault("seen", {}).setdefault(btype, {})
+            for ext in ext_states:
+                key = ext.get("external_id")
+                if not key:
+                    continue
+                seen[key] = {"bd_id": ext.get("bd_id"),
+                             "status": ext.get("status"),
+                             "title": ext.get("title"),
+                             "updated_at": ext.get("updated_at"),
+                             "at": started}
+            last_pull[btype] = started
+            results.append((btype, "ok", f"seen={len(ext_states)} (read only; "
+                            "the doctor names any divergence)"))
+            continue
         if dry_run:
             wm = watermark.strftime("%Y-%m-%dT%H:%M:%SZ")
             for it in items:
@@ -372,6 +617,11 @@ def do_import(base, cfg, query, project, backend_type, dry_run=False):
         die("multiple enabled backends — pick one with --backend <type>")
     b = backends[0]
     btype = b.get("type", "?")
+    if hierarchical(b):
+        die(f"{btype} runs the hierarchy model: a card does not become a bead, "
+            "it LINKS to an existing carrier — save the card JSON and run "
+            "cairn-jira.py link --from-json <file> (--milestone vX.Y | "
+            "--phase N), or /cairn:jira link in a session", 2)
     adapter = resolve_adapter(b.get("adapter", btype))
     if not adapter:
         die(f"adapter '{b.get('adapter', btype)}' not found")
@@ -459,6 +709,7 @@ def main():
     since = take_flag(args, "--since")
     query = take_flag(args, "--query")
     project_key = take_flag(args, "--project")
+    text = take_flag(args, "--text")
     backend = take_flag(args, "--backend")
     dry_run = "--dry-run" in args
     if dry_run:
@@ -472,6 +723,8 @@ def main():
         die(f"no {base/'sync.json'} — run /cairn:sync-config first")
 
     action = args[0]
+    if action == "refresh-map":
+        sys.exit(do_refresh_map(base, cfg, dry_run))
     if action == "pull":
         sys.exit(do_pull(base, cfg, since, dry_run))
     elif action == "import":
@@ -481,12 +734,16 @@ def main():
         if bool(query) == bool(project_key):
             die("import needs exactly one of --query <q> or --project <KEY>")
         sys.exit(do_import(base, cfg, query, project_key, backend, dry_run))
+    elif action == "comment":
+        if len(args) != 2 or not (text or "").strip():
+            die("usage: gbsync.py comment <bd_id> --text <text> [--dry-run]")
+        sys.exit(do_push("comment", args[1], base, cfg, dry_run, text=text))
     elif action in PUSH_ACTIONS:
         if len(args) != 2:
             die(f"usage: gbsync.py {action} <bd_id> [--dry-run]")
         sys.exit(do_push(action, args[1], base, cfg, dry_run))
     else:
-        die(f"unknown action '{action}' (use create|update|close|pull|import)")
+        die(f"unknown action '{action}' (use create|update|close|comment|pull|import|refresh-map)")
 
 
 if __name__ == "__main__":

@@ -152,6 +152,34 @@ this routine health-check flow — see its own section below.
      says how many were suppressed, because a count that quietly reaches zero
      is indistinguishable from an axis somebody switched off.
    - **label-pairs** (⚠) — step 3 above (`--fix-labels`).
+   - **milestone-carrier** (⚠ none; ✗ two or more) — every OPEN cycle (an
+     `m-*` label with at least one non-closed bead) has exactly one milestone
+     carrier: the bead with the marker label `milestone` + `m-vX.Y` and no
+     `phase-N`, created by `/cairn:milestone new`. **None** → run the `bd
+     create` the item prints (a warning in 4.0, a failure from 4.1 — the
+     carrier is a 4.0 contract, and a cycle opened under 3.x gets one release
+     to catch up). **Two or more** → one cycle, one bead: close or relabel the
+     extra, then re-run. Closed cycles are history and are never asked.
+   - **planning-writes** (⊘ out-of-scope; ⚠) — a `.md` file git sees as new
+     or modified under `.planning/phases/` in a repo that has `.beads/`: a
+     document written where the bead is the source. Record it with the
+     `cairn-record.sh <kind>` the item names (spec, context, plan, summary,
+     verification, review…) and `git rm` the file. `⊘` when there is no
+     `.planning/phases/` at all.
+   - **jira-links** (⊘ out-of-scope; ⚠; ✗) — `⊘` until `.cairn/sync.json`
+     enables a `jira` backend (`/cairn:sync-config`); that is not a clean
+     bill, it is "nothing to compare". With a backend: **gap** (⚠) — an open
+     cycle's milestone carrier or an open phase's carrier with no
+     `external_ref` → `/cairn:jira link --milestone vX.Y` / `--phase N`;
+     **duplicate** (✗) — two beads share one `jira-<KEY>` → `/cairn:jira`
+     asks which bead the card is about and offers another card for the
+     other; **absent** (✗) — a linked key the tracker does not know, asked
+     through `CAIRN_JIRA_FETCH` or REST with the backend's token env vars →
+     fix the key (`unlink`, then `link` the right card); **epic drift** (⚠) —
+     the story's live parent is not the cached epic → re-link to refresh the
+     cache. An **existence … not checked** item means neither road was open;
+     in a session `/cairn:jira audit` asks the MCP instead. The check never
+     writes.
    - **claims-stale** (⚠; ⊘ when it has no input) — in_progress + assigned
      issues outside the active
      phase → finish and close, release the claim, or correct `active_phase:`

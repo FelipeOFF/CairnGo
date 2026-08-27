@@ -7,6 +7,120 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-08-27
+
+O cairn fala com o Jira e entrega uma phase como PR — e ganha um painel.
+
+Nove phases num ciclo só, corridas de ponta a ponta por `/cairn:autonomous
+--sequential --interactive`: cada uma discutida com o usuário nas decisões que
+o grilling não fechou, planejada em registros no bd, executada, verificada e
+fechada com o doctor sem ✗. A primeira coisa que o ciclo fez foi dar nome ao
+próprio ciclo: o milestone era só um label, e passou a ser um bead — o
+**carrier de milestone** — com promessa, vínculo externo e um fecho que renomeia
+o label quando a versão decidida no fim diverge da intenção do começo.
+
+O segundo achado organizou o resto: nenhum comando de planejamento chamava
+`cairn-record`, e o `/cairn:plan` mandava "ler e seguir" um workflow vendorizado
+que escreve `PLAN.md`. A regra "cairn não escreve markdown" vivia só na
+`SKILL.md`. Doze comandos viraram autossuficientes e gravam no bead — e o
+doctor passou a acusar um documento nascido em `.planning/phases/` depois da
+importação.
+
+### Added
+
+- **Carrier de milestone** (`milestone` + `m-vX.Y`, sem `phase-N`), criado por
+  `/cairn:milestone new`, auditado por `milestone-carrier` (⚠ sem carrier nesta
+  linha, ✗ com dois), nomeando o cabeçalho do board (`v4.0 — …`) e fechado por
+  `cairn-bookkeep.sh milestone --release X.Y.Z`, que recusa qualquer bead aberto
+  além dele, renomeia o ciclo inteiro via **`cairn-relabel rename`** quando a
+  versão diverge do label, e fecha o carrier.
+
+- **`/cairn:jira`** — a única porta que fala com o MCP da Atlassian, com o
+  contrato escrito (tools e campos): detecta a chave em quatro sinais, mostra o
+  card, confirma uma vez e grava via `cairn-jira.py link --from-json`. O
+  vínculo vive no `external_ref` nativo do bd (`jira-<KEY>`): Story ↔
+  milestone, Sub-task ↔ phase, 1:1 estrito, Epic cacheado; requisitos não têm
+  card. O board mostra `⧉ KEY` no ciclo e nas phases; `--json` ganha o bloco
+  `jira`; o doctor audita em `jira-links` (gap, duplicata, chave inexistente,
+  epic drift, status divergente, fila pendente).
+
+- **Espelho hierárquico** (`"model": "hierarchy"` no backend): o gbsync empurra
+  só carriers, com nível e parent; `import` vira link; sem token no shell a
+  escrita vai para `metadata.gsd.mirror.pending` e **`/cairn:jira flush`** a
+  aplica via MCP; `pull` só registra o status visto e o doctor nomeia a
+  divergência — o card nunca reescreve o bead. O modelo é genérico; o adapter
+  Jira é o primeiro.
+
+- **`/cairn:implement <N>`** — uma phase vira uma PR: fronteira `bd ready`
+  recomputada, um implementer por bead em worktree próprio
+  (`cairn-parallel.sh prepare-bead`, lease `bead:<id>`), merger que resolve
+  conflito lendo os dois lados e para se a suíte falhar, draft PR no início,
+  gate `gh:run` por push, review + fix, `ready`; **`ship.auto_merge`** decide
+  o merge.
+
+- **`/cairn:board`** — o painel local: um `http.server` da stdlib por repo em
+  `127.0.0.1`, o mesmo board do `--html` refrescado por polling adaptativo,
+  blocos *attention* / *now* / *jira* / *commands*, ações pelo CLI
+  (`POST /api/action`, guarda Origin/Host sem token), **stop** por uma flag que
+  `autonomous` e `implement` leem em toda fronteira (`cairn-stop.py`, nunca
+  kill), tendência (`/api/trend`) e CI via `gh` só com `git.review_state=gh`.
+
+### Changed
+
+- **Os comandos de planejamento gravam em bead.** `plan`, `discuss-phase`,
+  `spec-phase`, `mvp-phase`, `plan-review-convergence`, `ultraplan-phase`,
+  `ui-phase`, `ai-integration-phase`, `secure-phase`, `validate-phase`, `work`
+  e `verify` são autossuficientes e passam por `cairn-record` — um kind cada,
+  os kinds de desenho em seções do `design` do carrier, um plan record por
+  onda nomeando os requisitos que avança. Zero comandos `vendored`; o roster
+  "só `cairn-map`" caiu de treze para três.
+
+- **`cairn-parallel` e `cairn-lease` ganharam a unidade bead** ao lado da
+  phase; `cleanup` aplica os mesmos três guardas aos worktrees de bead.
+
+- **O doctor cresceu para 27 checks** (`milestone-carrier`, `jira-links`,
+  `planning-writes`); o rodapé do board tem teto de 48 células no nome do
+  ciclo.
+
+### Fixed
+
+- **O gate do milestone estava verde por vacuidade num repo migrado**: aceitava
+  o `ROADMAP.md` arquivado como fonte mesmo sem nomear phase nenhuma, e fechou
+  nove phases com "no completed phases". O disco decide só enquanto nomeia
+  phases; senão o bd (medido: `source bd`, 43–51).
+
+- **`bd update --metadata {}` não limpa nada** — o bd substitui só a chave
+  fornecida. `unlink` e `pending --clear` passaram a enviar `"gsd": {}`.
+
+### Upgrading
+
+O ciclo v4.0 muda dois contratos, e por isso é um major:
+
+- **O push para o Jira passa a ser hierárquico e só de carriers.** Um backend
+  `jira` escrito por `/cairn:sync-config` nasce com `"model": "hierarchy"`:
+  o carrier do ciclo sobe como Story (sob o epic cacheado), cada carrier de
+  phase como Sub-task sob a story, e requisitos, plan records, quick e lease
+  nunca sobem. `gbsync import` recusa em favor de `/cairn:jira link`. Um
+  `sync.json` escrito à mão sem a chave `model` mantém o espelho plano de
+  antes; os demais backends (github, gitlab, asana, azure-boards) seguem como
+  estavam. O vínculo vive no `external_ref` do bead (`jira-<KEY>`);
+  `.cairn/id-map.json` vira cache derivado (`gbsync refresh-map`).
+- **Todo ciclo aberto tem um carrier de milestone.** Um bead com o label
+  `milestone` + `m-vX.Y`, sem `phase-N`, criado por `/cairn:milestone new`.
+  O doctor avisa (⚠ nesta linha; ✗ a partir da 4.1) quando um ciclo aberto
+  não tem um — quem fez upgrade com ciclo aberto roda o `bd create` que o
+  finding imprime. `/cairn:milestone complete` fecha o ciclo pelo
+  `cairn-bookkeep.sh milestone --release X.Y.Z`, renomeando o label quando a
+  versão final diverge (`cairn-relabel rename`).
+
+Também nesta linha: os comandos de planejamento não escrevem mais markdown
+(o registro é o bead, via `cairn-record`), e `/cairn:implement <N>` entrega
+uma phase como uma PR.
+
+Backlog aberto pelo ciclo: `bookkeep close N` ainda exige checkbox num
+`ROADMAP.md` legado (as phases fecharam o carrier com `bd close`), e o warn
+"ciclo sem carrier" vira ✗ na 4.1.
+
 ## [3.2.1] - 2026-08-15
 
 O doctor volta a auditar o repositório que o cairn existe para servir.

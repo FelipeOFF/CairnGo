@@ -14,10 +14,17 @@ Pre-ship gate, then ship:
    milestone header; any status other than `closed` blocks). If anything is
    non-closed, **stop** and report it — do not push.
 2. When all completed phases are clean, finalize. **cairn does not vendor
-   `ship`** — v1.6 vendored the four cycle verbs and nothing else — so push the
-   branch directly (`git push -u origin <branch>`) and open the PR by hand. A
-   GSD plugin installed alongside cairn can still run its own release workflow
-   through the declared passthrough, `/cairn:gsd ship`.
+   `ship`** — v1.6 vendored the four cycle verbs and nothing else. A phase
+   that went through `/cairn:implement` already has its pull request (draft
+   → ready); here the step is the merge, and with `ship.auto_merge` off it is
+   yours: `gh pr merge`. Otherwise push the branch directly (`git push -u
+   origin <branch>`) and open the PR by hand — Summary / Changes / Test plan,
+   no AI mention. A GSD plugin installed alongside cairn can still run its
+   own release workflow through the declared passthrough, `/cairn:gsd ship`.
+
+Before pushing, `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-jira.sh" pending`
+when `.cairn/sync.json` has a backend: a queued mirror write is a card the
+tracker still shows open — `/cairn:jira flush` sends it.
 
 Never push with non-closed issues on a phase marked done. The git pre-push
 shim installed by `/cairn:init` enforces this same gate outside the agent.

@@ -472,7 +472,7 @@ print(' '.join(m['key'] for m in cs.roadmap_milestones(pathlib.Path('.planning')
   # fixture (make_gsd_fixture + a status fixture); the two literals must agree,
   # and a key that appears under only one fixture would show up as exactly that
   # disagreement.
-  [ "$output" = "blocked,counts,doing,groups,landing,lease,milestone,next,next_commands,note,open_milestones,parallelism,phase,phases,ready,stale_complete,sync" ]
+  [ "$output" = "blocked,counts,doing,groups,jira,landing,lease,milestone,milestone_carrier,next,next_commands,note,open_milestones,parallelism,phase,phases,ready,stale_complete,sync" ]
 }
 
 @test "every phases[] row carries exactly the key set the contract fixes" {

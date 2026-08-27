@@ -113,7 +113,9 @@ Exit codes:
     verbs that write.
 """
 import argparse
+import datetime
 import json
+import re
 import os
 import subprocess
 import sys
@@ -141,9 +143,31 @@ DEFAULT_ISSUE_TYPE = "Task"
 DEFAULT_EMAIL_ENV = "JIRA_EMAIL"
 DEFAULT_TOKEN_ENV = "JIRA_API_TOKEN"
 DEFAULT_TRANSITIONS = {"in_progress": "In Progress", "closed": "Done"}
+DEFAULT_ISSUE_TYPES = {"milestone": "Story", "phase": "Sub-task"}
 
 USAGE = ("usage: cairn-jira.py {detect | apply --key PREFIX [--base-url URL] "
-         "| decline} [--project-dir DIR] [--json]")
+         "| decline | link --from-json FILE (--milestone M | --phase N) "
+         "| unlink (--milestone M | --phase N) | links [--milestone M]} "
+         "[--project-dir DIR] [--json]")
+
+# The link half (phase 44 / LINK-02). One fact, one owner: the link IS bd's
+# own `external_ref`, spelled `jira-<KEY>`; .cairn/id-map.json is a cache
+# gbsync derives from it (derive_idmap). Nothing here talks to Jira — the
+# card arrives as JSON the session saved from the MCP (or the REST adapter
+# fetched), in the REST shape, and the script only decides and writes.
+JIRA_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
+REF_PREFIX = "jira-"
+SUBTASK_NAMES = {"sub-task", "subtask"}
+
+
+def source():
+    """cairn_source, imported on first use and not at module level: a bats
+    case copies this script alone into a tmpdir to prove detection is not
+    reimplemented here, and a top-level import of a sibling would turn that
+    exit 5 into an ImportError for every subcommand."""
+    sys.path.insert(0, str(SCRIPT_DIR))
+    import cairn_source
+    return cairn_source
 
 
 def die(msg, code=EXIT_USAGE):
@@ -333,14 +357,23 @@ def jira_backend(key, base_url, previous):
     transitions = prev_config.get("transitions")
     if not isinstance(transitions, dict):
         transitions = dict(DEFAULT_TRANSITIONS)
+    issue_types = prev_config.get("issue_types")
+    if not isinstance(issue_types, dict):
+        issue_types = dict(DEFAULT_ISSUE_TYPES)
     return {
         "type": "jira",
         "enabled": True,
         "adapter": "jira",
+        # The hierarchy model (phase 45): cairn mirrors its cycle as a Story
+        # and its phases as Sub-tasks under it, and nothing else. A backend
+        # written by this script is born in that model; a hand-written one
+        # without the key keeps the flat mirror.
+        "model": "hierarchy",
         "config": {
             "base_url": base_url,
             "project_key": key,
             "issue_type": prev_config.get("issue_type") or DEFAULT_ISSUE_TYPE,
+            "issue_types": issue_types,
             "email_env": prev_config.get("email_env") or DEFAULT_EMAIL_ENV,
             "token_env": prev_config.get("token_env") or DEFAULT_TOKEN_ENV,
             "transitions": transitions,
@@ -441,6 +474,344 @@ def cmd_decline(args, root):
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# link / unlink / links — the vinculo lives in the bead (LINK-02)
+# --------------------------------------------------------------------------- #
+def read_card(path):
+    """The card as the session saved it — a subset of Jira's REST shape
+    (D-04): {key, fields: {summary, status: {name}, issuetype: {name,
+    subtask}, parent: {key, fields: {issuetype: {name}}}}}. Anything the
+    shape does not carry is None; anything malformed is a usage error."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        die(f"cannot read card JSON {path}: {exc}")
+    if not isinstance(raw, dict):
+        die(f"card JSON {path} is not an object")
+    key = str(raw.get("key") or "").strip()
+    if not JIRA_KEY_RE.match(key):
+        die(f"card JSON {path}: 'key' {key!r} is not a Jira key (PROJ-123)")
+    fields = raw.get("fields") or {}
+    if not isinstance(fields, dict):
+        die(f"card JSON {path}: 'fields' is not an object")
+    itype = (fields.get("issuetype") or {})
+    parent = fields.get("parent") or {}
+    ptype = ((parent.get("fields") or {}).get("issuetype") or {})
+    name = str(itype.get("name") or "").strip()
+    return {
+        "key": key,
+        "summary": str(fields.get("summary") or "").strip(),
+        "status": str((fields.get("status") or {}).get("name") or "").strip(),
+        "type": name,
+        "is_subtask": bool(itype.get("subtask")) or name.lower() in SUBTASK_NAMES,
+        "parent_key": str(parent.get("key") or "").strip() or None,
+        "parent_type": str(ptype.get("name") or "").strip() or None,
+    }
+
+
+def link_target(args, root):
+    """(carrier, scope) — scope is ("milestone", key) or ("phase", N). A
+    cycle without exactly one carrier, or a phase without one, is exit 4:
+    there is no bead to write on, and inventing one is the milestone
+    command's job, not this one's."""
+    if bool(args.milestone) == bool(args.phase is not None):
+        die("link/unlink need exactly one of --milestone <vX.Y> or "
+            f"--phase <N>\n{USAGE}")
+    if not source().bd_available():
+        die("'bd' not found on PATH", EXIT_NO_HELPER)
+    if args.milestone:
+        key = args.milestone.lstrip("m-") if args.milestone.startswith("m-") \
+            else args.milestone
+        carriers = source().milestone_carriers(root, key)
+        if len(carriers) != 1:
+            die(f"m-{key} has {len(carriers)} milestone carrier(s) — the link "
+                "needs exactly one (cairn-doctor: milestone-carrier)", 4)
+        return carriers[0], ("milestone", key)
+    carrier = source().phase_carrier(root, args.phase)
+    if carrier is None:
+        die(f"phase {args.phase} has no carrier bead to link", 4)
+    return carrier, ("phase", args.phase)
+
+
+def bd_cmd(root, argv):
+    proc = subprocess.run(["bd", "-C", str(root)] + argv,
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        die(f"bd {' '.join(argv[:2])} failed: {proc.stderr.strip()[:300]}", 1)
+    return proc.stdout
+
+
+def carrier_metadata(root, bd_id):
+    data = json.loads(bd_cmd(root, ["show", bd_id, "--json"]) or "[]")
+    issue = data[0] if isinstance(data, list) else data
+    meta = issue.get("metadata")
+    return meta if isinstance(meta, dict) else {}
+
+
+def write_gsd_jira(root, bd_id, jira):
+    """metadata.gsd.jira = jira (or removed when None) by read-modify-write:
+    bd replaces a provided top-level key wholesale, so the whole metadata
+    object goes back."""
+    meta = carrier_metadata(root, bd_id)
+    gsd = meta.get("gsd") if isinstance(meta.get("gsd"), dict) else {}
+    if jira is None:
+        gsd.pop("jira", None)
+    else:
+        gsd["jira"] = jira
+    # Always send the `gsd` key, even empty: bd merges top-level keys and
+    # replaces a PROVIDED key wholesale, so `{}` changes nothing while
+    # `{"gsd": {}}` is the clear (measured, bd 1.1.0).
+    meta["gsd"] = gsd
+    bd_cmd(root, ["update", bd_id, "--metadata", json.dumps(meta)])
+
+
+def milestone_story(root, key):
+    """The story key the cycle's carrier is linked to, or None."""
+    carriers = source().milestone_carriers(root, key)
+    ref = str(carriers[0].get("external_ref") or "") if len(carriers) == 1 else ""
+    return ref[len(REF_PREFIX):] if ref.startswith(REF_PREFIX) else None
+
+
+def cmd_link(args, root):
+    card = read_card(args.from_json)
+    carrier, (kind, scope) = link_target(args, root)
+    # D-03: the type is the hierarchy. Story <-> milestone, Sub-task <-> phase.
+    if kind == "milestone" and (card["is_subtask"] or card["type"] != "Story"):
+        die(f"{card['key']} is a {card['type'] or '?'}, and a milestone links "
+            f"to a Story — fix the card in Jira, or pick the story", EXIT_USAGE)
+    if kind == "phase" and not card["is_subtask"]:
+        die(f"{card['key']} is a {card['type'] or '?'}, and a phase links to a "
+            f"Sub-task — fix the card in Jira, or pick the sub-task", EXIT_USAGE)
+    ref = REF_PREFIX + card["key"]
+    current = str(carrier.get("external_ref") or "").strip()
+    # D-02: never over an existing link. unlink first, on purpose.
+    if current and current != ref:
+        die(f"{carrier['id']} already carries external_ref {current!r} — run "
+            f"'cairn-jira.py unlink --{kind} {scope}' first, then link",
+            EXIT_NOTHING)
+    # 1:1 strict: one card, one bead.
+    holders = [i["id"] for i in source().issues(root)
+               if str(i.get("external_ref") or "").strip() == ref
+               and i.get("id") != carrier.get("id")]
+    if holders:
+        die(f"{card['key']} is already linked to {', '.join(holders)} — one "
+            f"card, one bead; the session decides which is right "
+            f"({carrier['id']} or {', '.join(holders)}) and offers to create "
+            "another card for the other", EXIT_NOTHING)
+    warnings = []
+    epic = None
+    if kind == "milestone":
+        if card["parent_key"] and (card["parent_type"] or "").lower() == "epic":
+            epic = card["parent_key"]
+    else:
+        ms_keys = source().issue_milestones(carrier)
+        story = milestone_story(root, ms_keys[0]) if ms_keys else None
+        if story and card["parent_key"] and card["parent_key"] != story:
+            warnings.append(f"{card['key']} hangs under {card['parent_key']}, "
+                            f"and the cycle's story is {story} — the doctor "
+                            "will call this drift")
+        elif story is None:
+            warnings.append("the cycle has no story linked yet — link the "
+                            "milestone so the sub-task's parent can be checked")
+    changed = current != ref
+    if changed:
+        bd_cmd(root, ["update", carrier["id"], "--external-ref", ref])
+    if kind == "milestone":
+        write_gsd_jira(root, carrier["id"],
+                       {"story": card["key"], "epic": epic})
+    source().invalidate(root)
+    payload = {"linked": carrier["id"], "kind": kind, "scope": scope,
+               "key": card["key"], "type": card["type"], "epic": epic,
+               "summary": card["summary"], "changed": changed,
+               "warnings": warnings}
+    if args.json:
+        print(json.dumps(payload))
+        sys.exit(EXIT_OK)
+    verb = "linked" if changed else "already linked"
+    print(f"[cairn-jira] {verb} {carrier['id']} ({kind} {scope}) -> "
+          f"{card['key']} [{card['type']}] {card['summary']}")
+    if epic:
+        print(f"[cairn-jira] epic {epic} cached on the milestone carrier")
+    for w in warnings:
+        print(f"[cairn-jira] warning: {w}")
+    sys.exit(EXIT_OK)
+
+
+def cmd_unlink(args, root):
+    carrier, (kind, scope) = link_target(args, root)
+    current = str(carrier.get("external_ref") or "").strip()
+    if current:
+        bd_cmd(root, ["update", carrier["id"], "--external-ref", ""])
+    if kind == "milestone":
+        write_gsd_jira(root, carrier["id"], None)
+    source().invalidate(root)
+    payload = {"unlinked": carrier["id"], "kind": kind, "scope": scope,
+               "was": current or None}
+    if args.json:
+        print(json.dumps(payload))
+        sys.exit(EXIT_OK)
+    print(f"[cairn-jira] {carrier['id']} ({kind} {scope}): "
+          f"{'cleared ' + current if current else 'nothing to clear'}")
+    sys.exit(EXIT_OK)
+
+
+def links_model(root, key):
+    """{milestone: {key, carrier, story, epic}, phases: [{phase, carrier,
+    title, key}]} — the whole cycle's vinculo, read from beads only."""
+    carriers = source().milestone_carriers(root, key)
+    ms = {"key": key, "carrier": None, "story": None, "epic": None}
+    if len(carriers) == 1:
+        c = carriers[0]
+        ms["carrier"] = c.get("id")
+        ref = str(c.get("external_ref") or "")
+        ms["story"] = ref[len(REF_PREFIX):] if ref.startswith(REF_PREFIX) else None
+        ms["epic"] = (source().gsd(c).get("jira") or {}).get("epic")
+    phases = []
+    for n in sorted(source().milestone_phases(root, key),
+                    key=lambda x: (not isinstance(x, (int, float)), x)):
+        c = source().phase_carrier(root, n)
+        ref = str((c or {}).get("external_ref") or "")
+        phases.append({"phase": n, "carrier": (c or {}).get("id"),
+                       "title": (c or {}).get("title"),
+                       "key": ref[len(REF_PREFIX):]
+                       if ref.startswith(REF_PREFIX) else None})
+    return {"milestone": ms, "phases": phases}
+
+
+def cmd_links(args, root):
+    if not source().bd_available():
+        die("'bd' not found on PATH", EXIT_NO_HELPER)
+    key = args.milestone or source().milestone(root)
+    if not key:
+        die("no open cycle and no --milestone given", 4)
+    key = key[2:] if key.startswith("m-") else key
+    model = links_model(root, key)
+    if args.json:
+        print(json.dumps(model))
+        sys.exit(EXIT_OK)
+    ms = model["milestone"]
+    print(f"[cairn-jira] m-{key}: carrier {ms['carrier'] or '-'} -> story "
+          f"{ms['story'] or '(unlinked)'}"
+          + (f", epic {ms['epic']}" if ms["epic"] else ""))
+    for ph in model["phases"]:
+        print(f"[cairn-jira]   phase {ph['phase']}: {ph['carrier'] or '-'} -> "
+              f"{ph['key'] or '(unlinked)'}"
+              + (f"  {ph['title']}" if ph.get("title") else ""))
+    sys.exit(EXIT_OK)
+
+
+def pending_model(root):
+    """[{bead, title, pending: [...]}] — every bead with mirror writes
+    waiting in metadata.gsd.mirror.pending (phase 45, D-02)."""
+    out = []
+    for iss in source().issues(root):
+        mirror = source().gsd(iss).get("mirror") or {}
+        pending = mirror.get("pending") if isinstance(mirror, dict) else None
+        if pending:
+            out.append({"bead": iss.get("id"), "title": iss.get("title"),
+                        "external_ref": iss.get("external_ref") or None,
+                        "pending": pending})
+    return sorted(out, key=lambda x: x["bead"] or "")
+
+
+def cmd_pending(args, root):
+    if not source().bd_available():
+        die("'bd' not found on PATH", EXIT_NO_HELPER)
+    if args.clear:
+        meta = carrier_metadata(root, args.clear)
+        gsd = meta.get("gsd") if isinstance(meta.get("gsd"), dict) else {}
+        mirror = gsd.get("mirror") if isinstance(gsd.get("mirror"), dict) else {}
+        n = len(mirror.get("pending") or [])
+        mirror.pop("pending", None)
+        if mirror:
+            gsd["mirror"] = mirror
+        else:
+            gsd.pop("mirror", None)
+        meta["gsd"] = gsd   # sent even when empty — see write_gsd_jira()
+        bd_cmd(root, ["update", args.clear, "--metadata", json.dumps(meta)])
+        source().invalidate(root)
+        if args.json:
+            print(json.dumps({"cleared": args.clear, "count": n}))
+        else:
+            print(f"[cairn-jira] cleared {n} pending write(s) on {args.clear}")
+        sys.exit(EXIT_OK)
+    model = pending_model(root)
+    if args.json:
+        print(json.dumps(model))
+        sys.exit(EXIT_OK)
+    if not model:
+        print("[cairn-jira] no pending mirror writes")
+        sys.exit(EXIT_OK)
+    for row in model:
+        print(f"[cairn-jira] {row['bead']} ({row['external_ref'] or 'unlinked'}): "
+              f"{row['title']}")
+        for e in row["pending"]:
+            extra = f" — {e['text'][:60]}" if e.get("text") else ""
+            print(f"[cairn-jira]   {e.get('backend')} {e.get('action')} "
+                  f"{e.get('key') or ''}{extra} ({e.get('at')})")
+    sys.exit(EXIT_OK)
+
+
+STATUS_WORDS = {"closed": {"done", "closed", "resolved", "concluído",
+                           "concluido", "finalizado"},
+                "in_progress": {"in progress", "em andamento", "doing"}}
+
+
+def card_status(card):
+    """The bead-side status the card's status maps to: the REST/MCP
+    statusCategory when the card carries one (new / indeterminate / done),
+    else the status name, else open."""
+    status = ((card.get("fields") or {}).get("status") or {})
+    cat = ((status.get("statusCategory") or {}).get("key") or "").lower()
+    if cat:
+        return {"new": "open", "indeterminate": "in_progress",
+                "done": "closed"}.get(cat, "open")
+    name = (status.get("name") or "").strip().lower()
+    for bd_status, words in STATUS_WORDS.items():
+        if name in words:
+            return bd_status
+    return "open"
+
+
+def cmd_seen(args, root):
+    """`seen --from-json FILE` — the session's half of a pull without a
+    token (phase 45 / MIRROR-04): the card the MCP returned is recorded
+    under .cairn/state.json seen.jira[key], exactly as gbsync pull would
+    have, and the doctor names the divergence. Writes no bead."""
+    try:
+        raw = json.loads(Path(args.from_json).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        die(f"cannot read card JSON {args.from_json}: {exc}")
+    key = str((raw or {}).get("key") or "").strip()
+    if not JIRA_KEY_RE.match(key):
+        die(f"card JSON {args.from_json}: 'key' {key!r} is not a Jira key")
+    ref = REF_PREFIX + key
+    holders = [i["id"] for i in source().issues(root)
+               if str(i.get("external_ref") or "").strip() == ref]
+    path = Path(root) / ".cairn" / "state.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except ValueError:
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    entry = {"bd_id": holders[0] if holders else None,
+             "status": card_status(raw),
+             "title": ((raw.get("fields") or {}).get("summary") or "").strip(),
+             "updated_at": (raw.get("fields") or {}).get("updated"),
+             "at": datetime.datetime.now(datetime.timezone.utc)
+             .strftime("%Y-%m-%dT%H:%M:%SZ")}
+    state.setdefault("seen", {}).setdefault("jira", {})[key] = entry
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    if args.json:
+        print(json.dumps({"key": key, **entry}))
+        sys.exit(EXIT_OK)
+    print(f"[cairn-jira] seen {key}: {entry['status']} "
+          f"({'on ' + entry['bd_id'] if entry['bd_id'] else 'no bead linked'})")
+    sys.exit(EXIT_OK)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="cairn-jira",
@@ -464,7 +835,41 @@ def build_parser():
     decline = sub.add_parser("decline", help="record the answer no")
     decline.set_defaults(func=cmd_decline)
 
-    for p in (detect, apply_, decline):
+    link = sub.add_parser("link", help="write external_ref jira-<KEY> on a "
+                                       "milestone or phase carrier from a "
+                                       "saved card JSON (REST shape)")
+    link.add_argument("--from-json", required=True, metavar="FILE",
+                      help="the card as the MCP/REST returned it")
+    unlink = sub.add_parser("unlink", help="clear a carrier's jira link")
+    for p in (link, unlink):
+        p.add_argument("--milestone", metavar="vX.Y",
+                       help="the cycle whose carrier is the target")
+        p.add_argument("--phase", type=int, metavar="N",
+                       help="the phase whose carrier is the target")
+    link.set_defaults(func=cmd_link)
+    unlink.set_defaults(func=cmd_unlink)
+
+    links = sub.add_parser("links", help="list the cycle's links: story, "
+                                         "epic, one sub-task per phase")
+    links.add_argument("--milestone", metavar="vX.Y",
+                       help="the cycle (default: the open one)")
+    links.set_defaults(func=cmd_links)
+
+    pending = sub.add_parser("pending", help="mirror writes waiting on beads "
+                                             "(no credentials when they were "
+                                             "made); --clear after a flush")
+    pending.add_argument("--clear", metavar="BEAD",
+                         help="drop the queue of this bead (after applying it)")
+    pending.set_defaults(func=cmd_pending)
+
+    seen = sub.add_parser("seen", help="record a card's status under "
+                                       ".cairn/state.json seen.jira, as a "
+                                       "pull would (read only)")
+    seen.add_argument("--from-json", required=True, metavar="FILE",
+                      help="the card as the MCP/REST returned it")
+    seen.set_defaults(func=cmd_seen)
+
+    for p in (detect, apply_, decline, link, unlink, links, pending, seen):
         p.add_argument("--project-dir", metavar="DIR",
                        help="project root the .cairn/ directory hangs off "
                             "(default: $CLAUDE_PROJECT_DIR or cwd)")

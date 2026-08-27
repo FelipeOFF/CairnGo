@@ -185,7 +185,37 @@ and "something never ran" are different questions and get different keys.
                         the checks run (the report shows post-fix state);
                         refused (exit 2) when the active milestone is
                         unresolvable.
-    8. claims-stale     in_progress issues with an assignee whose phase-<N>
+    7c. jira-links      (LINK-05, phase 44) the cycle's Jira links, read off
+                    the beads: ⊘ out-of-scope until .cairn/sync.json has
+                    an enabled `jira` backend. With one: an open milestone
+                    or open phase whose carrier has no external_ref ->
+                    warn; two beads sharing one jira-<KEY> -> fail (one
+                    card, one bead); a linked key the tracker does not
+                    know -> fail, asked through the CAIRN_JIRA_FETCH seam
+                    (a command printing the card JSON, exit non-zero when
+                    absent) or, by default, REST with the backend's
+                    email/token env vars — and `skipped`, said out loud,
+                    when neither can ask; a story whose parent is not the
+                    cached epic -> warn (epic drift). Writes nothing.
+
+7d. planning-writes (RECORD-03, phase 46) a markdown file NEW or MODIFIED
+                    under .planning/phases/ in a repo that has .beads/ —
+                    a document written where the bead is the source. Warn,
+                    naming the cairn-record kind that replaces it; ⊘
+                    out-of-scope with no .planning/phases/ at all.
+
+7b. milestone-carrier  (CARRY-02, phase 43) every OPEN cycle — an m-*
+                    label with at least one non-closed issue — has exactly
+                    one milestone carrier (label `milestone` + m-*, no
+                    phase-*). None -> warn in 4.0, with the bd create that
+                    resolves it (a failure from 4.1: the carrier is the
+                    contract for cycles opened from 4.0 on, and a cycle
+                    opened under 3.x deserves one release to catch up).
+                    Two or more -> fail, always: two beads claiming to be
+                    the same cycle is an inconsistency, not a gap. Closed
+                    cycles are history and are never asked.
+
+8. claims-stale     in_progress issues with an assignee whose phase-<N>
                         label differs from STATE.md's active_phase -> WARN
                         (possible stale claim). When active_phase is
                         unresolvable the check CANNOT RUN, and that is
@@ -705,6 +735,12 @@ CAIRN_JOURNAL = os.environ.get(
 # owns them.
 CAIRN_RELEASE = os.environ.get(
     "CAIRN_RELEASE", str(SCRIPTS_DIR / "cairn-release.py"))
+# jira-links' way of asking the tracker whether a key exists: a command
+# that takes the key as its last argument and prints the card JSON (REST
+# shape), exiting non-zero when the card is absent. Unset -> REST through
+# the backend's own env var names, when both are in the shell.
+CAIRN_JIRA_FETCH = os.environ.get("CAIRN_JIRA_FETCH")
+JIRA_FETCH_TIMEOUT = 20
 CAIRN_TEST = os.environ.get(
     "CAIRN_TEST", str(SCRIPTS_DIR / "cairn-test.py"))
 
@@ -755,7 +791,10 @@ PR_NUMBER = re.compile(r"\(#(\d+)\)")
 # phase-<N> label: it would make the lease look like real phase work to
 # this doctor's own phase-complete-open check, phase-corroboration, and
 # work.md's done-check).
-NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick", "lease"}
+# `milestone` is the milestone carrier (phase 43): the cycle's own bead,
+# which by definition wears no phase-N — check_milestone_carrier is the
+# check that audits it, and the orphans axis has no opinion about it.
+NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick", "lease", "milestone"}
 
 
 def die(msg, code):
@@ -1722,6 +1761,334 @@ def check_label_pairs(issues, milestone, fixed, fix_error):
 
 
 
+def check_milestone_carrier(issues):
+    """Check 7b, id "milestone-carrier" — one carrier per OPEN cycle.
+
+    An open cycle is an m-* label with at least one non-closed issue: that is
+    cairn_source.milestone()'s own definition of "current", applied to every
+    label rather than to the most frequent one, so a straggler cycle with one
+    open bead is asked the question too. Closed cycles are never asked —
+    v1.1..v3.3 of this repository have no carrier and never will.
+
+    The severity split is deliberate and dated. Zero carriers is a WARN in
+    4.0 because the carrier is a 4.0 contract, and a repository that
+    upgrades mid-cycle would otherwise go from green to exit 7 without
+    having done anything wrong; the item carries the exact bd create that
+    closes the gap. From 4.1 it becomes a failure. Two carriers is a FAIL
+    already: that is two beads disagreeing about what the cycle is, and
+    the doctor exists to refuse that out loud.
+    """
+    open_keys = set()
+    for iss in issues:
+        if iss.get("status") != "closed":
+            open_keys.update(cairn_source.issue_milestones(iss))
+    if not open_keys:
+        return {"id": "milestone-carrier", "status": "ok",
+                "detail": "no open cycle — nothing to require a carrier of",
+                "items": []}
+    missing, doubled = [], []
+    for key in sorted(open_keys):
+        carriers = [i for i in issues
+                    if cairn_source.is_milestone_carrier(i)
+                    and key in cairn_source.issue_milestones(i)]
+        if not carriers:
+            missing.append(
+                f"m-{key}: open cycle with no milestone carrier — "
+                f"bd create \"<cycle name>\" -t task -l m-{key},milestone "
+                f"-d \"<what the cycle promises>\" (a warning in 4.0, a "
+                f"failure from 4.1)")
+        elif len(carriers) > 1:
+            ids = ", ".join(i.get("id", "?") for i in carriers)
+            doubled.append(f"m-{key}: {len(carriers)} milestone carriers "
+                           f"({ids}) — one cycle, one bead; close or "
+                           f"relabel the extra")
+    items = doubled + missing
+    if doubled:
+        status = "fail"
+    elif missing:
+        status = "warn"
+    else:
+        status = "ok"
+    n = len(open_keys)
+    detail = (f"{n} open cycle(s), each with one milestone carrier"
+              if status == "ok"
+              else f"{len(items)} finding(s) over {n} open cycle(s)")
+    return {"id": "milestone-carrier", "status": status,
+            "detail": detail, "items": items}
+
+
+def jira_backend(root):
+    """The enabled `jira` backend of .cairn/sync.json, or None."""
+    path = root / ".cairn" / "sync.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    for b in (data.get("backends") or []) if isinstance(data, dict) else []:
+        if isinstance(b, dict) and b.get("type") == "jira" and b.get("enabled"):
+            return b
+    return None
+
+
+def jira_fetch(backend, key):
+    """(card|None, how) — the card for `key` as REST-shaped JSON, or None
+    when the tracker says it does not exist; `how` names the road taken:
+    'seam', 'rest', or a 'skipped: …' reason when no road was open. Every
+    call is bounded by JIRA_FETCH_TIMEOUT (GUARD-01)."""
+    if not re.match(r"^[A-Z][A-Z0-9_]*-\d+$", key or ""):
+        # A hand-edited or foreign external_ref is not a key: never put it
+        # in a credentialed URL or an argv (review of the 4.0 branch).
+        return None, f"skipped: {key!r} is not a Jira key"
+    if CAIRN_JIRA_FETCH:
+        try:
+            proc = subprocess.run(CAIRN_JIRA_FETCH.split() + [key],
+                                  capture_output=True, text=True,
+                                  timeout=JIRA_FETCH_TIMEOUT)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return None, f"skipped: CAIRN_JIRA_FETCH failed ({exc})"
+        if proc.returncode != 0:
+            return None, "seam"
+        try:
+            return json.loads(proc.stdout or "{}"), "seam"
+        except ValueError:
+            return None, "skipped: CAIRN_JIRA_FETCH printed no JSON"
+    cfg = backend.get("config") or {}
+    email = os.environ.get(cfg.get("email_env") or "JIRA_EMAIL", "")
+    token = os.environ.get(cfg.get("token_env") or "JIRA_API_TOKEN", "")
+    base = str(cfg.get("base_url") or "").rstrip("/")
+    if not (email and token and base):
+        return None, (f"skipped: no token in the shell "
+                      f"({cfg.get('email_env') or 'JIRA_EMAIL'} / "
+                      f"{cfg.get('token_env') or 'JIRA_API_TOKEN'})")
+    import base64
+    import http.client
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(
+        f"{base}/rest/api/3/issue/{key}?fields=summary,status,issuetype,parent")
+    req.add_header("Authorization", "Basic " + base64.b64encode(
+        f"{email}:{token}".encode()).decode())
+    req.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=JIRA_FETCH_TIMEOUT) as r:
+            return json.loads(r.read().decode() or "{}"), "rest"
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None, "rest"
+        return None, f"skipped: REST {exc.code} for {key}"
+    except (OSError, ValueError, http.client.HTTPException) as exc:
+        return None, f"skipped: REST unreachable ({exc})"
+
+
+def check_jira_links(root, issues):
+    """Check 7c, id "jira-links" — the cycle's links, audited off the beads.
+
+    Out of scope, not silent, until .cairn/sync.json enables a `jira`
+    backend: a repository that never chose Jira has nothing to compare and
+    must not read "no links" as a finding. With a backend, four questions,
+    none of which writes:
+      gap        an open cycle's milestone carrier, or an open phase's
+                 carrier, with no external_ref -> warn (the link is a
+                 convention from 4.0 on; a missing one is friction).
+      duplicate  two beads sharing one jira-<KEY> -> fail. One card, one
+                 bead is the contract; /cairn:doctor puts the pair to the
+                 user and offers to create another card.
+      absent     a linked key the tracker does not know -> fail. Asked via
+                 CAIRN_JIRA_FETCH or REST; when neither can ask, the item
+                 says `skipped` and the verdict is not green over it.
+      drift      the story's live parent differs from the epic cached on the
+                 milestone carrier -> warn.
+    """
+    backend = jira_backend(root)
+    if backend is None:
+        return {"id": "jira-links", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "out of scope — no enabled jira backend in "
+                          ".cairn/sync.json (/cairn:sync-config)",
+                "items": []}
+    key = cairn_source.milestone(root)
+    items, fails, warns = [], 0, 0
+    linked = {}   # jira key -> [bead ids]
+    for iss in issues:
+        ref = str(iss.get("external_ref") or "").strip()
+        if ref.startswith("jira-"):
+            linked.setdefault(ref[len("jira-"):], []).append(iss.get("id", "?"))
+    for jkey, ids in sorted(linked.items()):
+        if len(ids) > 1:
+            fails += 1
+            items.append(f"duplicate: {jkey} is linked to "
+                         f"{', '.join(sorted(ids))} — "
+                         "one card, one bead; /cairn:jira decides which and "
+                         "offers another card for the other")
+    carriers = []   # (kind, display name, link target, bead)
+    if key:
+        ms = cairn_source.milestone_carriers(root, key)
+        if len(ms) == 1:
+            carriers.append(("milestone", f"m-{key}", key, ms[0]))
+        done = cairn_source.completed_phases(root, key)
+        for n in sorted(cairn_source.milestone_phases(root, key),
+                        key=lambda x: (not isinstance(x, (int, float)), x)):
+            if n in done:
+                continue
+            c = cairn_source.phase_carrier(root, n)
+            if c is not None:
+                carriers.append(("phase", f"phase {n}", n, c))
+    for kind, name, target, c in carriers:
+        if not str(c.get("external_ref") or "").startswith("jira-"):
+            warns += 1
+            what = "Story" if kind == "milestone" else "Sub-task"
+            items.append(f"gap: {name} ({c.get('id')}) has no jira link — "
+                         f"/cairn:jira link --{kind} {target} (a {what})")
+    checked, skipped = 0, None
+    for jkey, ids in sorted(linked.items()):
+        card, how = jira_fetch(backend, jkey)
+        if how.startswith("skipped"):
+            skipped = how
+            break
+        checked += 1
+        if card is None:
+            fails += 1
+            items.append(f"absent: {jkey} (on {', '.join(ids)}) does not "
+                         f"exist in the tracker (asked via {how})")
+            continue
+        for kind, name, target, c in carriers:
+            if kind != "milestone" or c.get("id") not in ids:
+                continue
+            cached = (cairn_source.gsd(c).get("jira") or {}).get("epic")
+            live = ((card.get("fields") or {}).get("parent") or {}).get("key")
+            if cached and live and cached != live:
+                warns += 1
+                items.append(f"epic drift: {jkey}'s parent is {live} now, "
+                             f"and {c.get('id')} caches {cached} — re-link "
+                             "to refresh the cache")
+    # What the last pull saw (state.json seen.jira, written by gbsync pull
+    # or cairn-jira.py seen): a card Done while its bead is open, or the
+    # reverse, is named — never acted on (MIRROR-04).
+    try:
+        state = json.loads((root / ".cairn" / "state.json")
+                           .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    seen = ((state.get("seen") or {}).get("jira") or {}) \
+        if isinstance(state, dict) else {}
+    by_id = {i.get("id"): i for i in issues}
+    for jkey, ids in sorted(linked.items()):
+        entry = seen.get(jkey) if isinstance(seen, dict) else None
+        if not isinstance(entry, dict) or len(ids) != 1:
+            continue
+        bead = by_id.get(ids[0]) or {}
+        card_closed = entry.get("status") == "closed"
+        bead_closed = bead.get("status") == "closed"
+        if card_closed != bead_closed:
+            warns += 1
+            items.append(f"status divergent: {jkey} is "
+                         f"{'Done' if card_closed else 'open'} in Jira and "
+                         f"{ids[0]} is {'closed' if bead_closed else 'open'} "
+                         f"in bd (seen {entry.get('at') or '?'}) — the bead "
+                         "is the source; close or reopen on the side that is "
+                         "wrong")
+    for iss in issues:
+        mirror = cairn_source.gsd(iss).get("mirror") or {}
+        pending = mirror.get("pending") if isinstance(mirror, dict) else None
+        waiting = [e for e in (pending or []) if e.get("backend") == "jira"]
+        if waiting:
+            warns += 1
+            what = ", ".join(f"{e.get('action')} {e.get('key') or ''}".strip()
+                             for e in waiting[:3])
+            items.append(f"pending: {iss.get('id')} has {len(waiting)} mirror "
+                         f"write(s) waiting ({what}) — /cairn:jira flush "
+                         "applies them in a session")
+    if skipped:
+        items.append(f"existence of {len(linked)} linked key(s) not checked — "
+                     f"{skipped}; in a session, /cairn:jira audit asks the "
+                     "MCP instead")
+    status = "fail" if fails else ("warn" if warns else "ok")
+    detail = (f"{len(linked)} linked key(s), {len(carriers)} open carrier(s)"
+              f", {checked} existence check(s)"
+              + (", existence skipped" if skipped else ""))
+    return {"id": "jira-links", "status": status, "detail": detail,
+            "items": items}
+
+
+def check_planning_writes(root, planning_dir):
+    """Check 7d, id "planning-writes" (RECORD-03, phase 46) — a document
+    written where the bead is the source.
+
+    In a repo that has `.beads/`, `.planning/phases/` is import material
+    and history; every planning command records on beads through
+    cairn-record. A file under it that git sees as NEW or MODIFIED in the
+    working tree is therefore something written after the fact — a session
+    that followed an old habit, or an old prompt — and the finding names the
+    record that should have been made instead. Out of scope when there is
+    no `.planning/phases/` at all; not a mtime comparison, because no import
+    date is recorded and git already says what was born since the last
+    commit. Never fails: the file is a symptom, and the cure is one
+    cairn-record call and a `git rm`.
+    """
+    phases_dir = planning_dir / "phases"
+    tracked = []
+    if phases_dir.is_dir():
+        try:
+            proc = subprocess.run(["git", "-C", str(root), "ls-files", "--",
+                                   str(phases_dir)],
+                                  capture_output=True, text=True, timeout=30)
+            tracked = (proc.stdout or "").split() if proc.returncode == 0 else []
+        except (OSError, subprocess.SubprocessError):
+            tracked = []
+    if not tracked:
+        # Either no directory, or one git never recorded: a GSD project
+        # still being imported, not history somebody wrote over. The
+        # gsd-unmigrated check owns that case.
+        return {"id": "planning-writes", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "out of scope — .planning/phases/ is not tracked "
+                          "history here (nothing imported to guard; the "
+                          "record is the bead)",
+                "items": []}
+    try:
+        proc = subprocess.run(["git", "-C", str(root), "status",
+                               "--porcelain", "--untracked-files=all", "--",
+                               str(phases_dir)],
+                              capture_output=True, text=True, timeout=30)
+        lines = (proc.stdout or "").splitlines() if proc.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError):
+        lines = []
+    KINDS = {"SPEC": "spec", "CONTEXT": "context", "RESEARCH": "research",
+             "PATTERNS": "patterns", "UI-SPEC": "ui-spec", "AI-SPEC": "ai-spec",
+             "PLAN": "plan --plan NN", "SUMMARY": "summary --plan NN",
+             "VERIFICATION": "verification", "VALIDATION": "verification",
+             "SECURITY": "review", "REVIEW": "review"}
+    items = []
+    for line in lines:
+        path = line[3:].strip()
+        if not path.endswith(".md"):
+            continue
+        state = "new" if line[:2].strip() in ("??", "A") else "modified"
+        stem = pathlib_name(path)
+        # Longest suffix first: `05-UI-SPEC` ends with `SPEC` too, and the
+        # dict order would have prescribed the wrong kind (review, 4.0).
+        kind = next((v for k, v in sorted(KINDS.items(),
+                                          key=lambda kv: -len(kv[0]))
+                     if stem.upper().endswith(k)), None)
+        m = re.search(r"phases/0*(\d+)", path)
+        phase = m.group(1) if m else "<N>"
+        cure = (f"cairn-record.sh {kind} --phase {phase}" if kind
+                else "the matching cairn-record.sh kind")
+        items.append(f"{path} is {state} — a document written where the "
+                     f"bead is the source; record it with {cure} and git rm "
+                     "the file")
+    return {"id": "planning-writes", "status": "warn" if items else "ok",
+            "detail": (f"{len(items)} document(s) written under "
+                       ".planning/phases/ since the last commit" if items
+                       else ".planning/phases/ untouched since the last "
+                            "commit — the record is the bead"),
+            "items": items}
+
+
+def pathlib_name(path):
+    return path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+
 def check_claims_stale(issues, milestone, active_phase):
     """Check 8, id "claims-stale" — in_progress issues assigned outside the
     active phase.
@@ -2630,12 +2997,18 @@ def check_lease_stale(root):
             continue
         if entry.get("held") and entry.get("stale"):
             phase = entry.get("phase")
+            # A bead lease (phase 47) has no phase: it is named by its bead.
+            key = f"bead:{entry.get('bead')}" if phase is None else str(phase)
+            what = f"bead {entry.get('bead')}" if phase is None else f"phase {phase}"
+            taker = ("the next /cairn:implement takes it automatically"
+                     if phase is None
+                     else f"the next /cairn:work {phase} takes it automatically")
             items.append(
-                f"phase {phase}: held by {entry.get('holder')} (actor: "
+                f"{what}: held by {entry.get('holder')} (actor: "
                 f"{entry.get('actor')}) since {entry.get('acquired_at')}, "
                 f"last renewed {entry.get('heartbeat_at')} — reclaimable "
-                f"— the next /cairn:work {phase} takes it automatically, "
-                f"or run cairn-lease.sh release {phase} to clear it now")
+                f"— {taker}, or run cairn-lease.sh release {key} to clear "
+                "it now")
     detail = (f"{len(items)} stale phase lease(s)" if items
               else "no stale phase leases")
     # Phase 23 evaluated and KEPT `ok`, and this is the cleanest example of
@@ -4383,6 +4756,9 @@ def main():
         check_orphans(issues, roadmap_phases,
                       archived_milestones(planning_dir)),
         check_label_pairs(issues, milestone, fixed, fix_error),
+        check_milestone_carrier(issues),
+        check_jira_links(root, issues),
+        check_planning_writes(root, planning_dir),
         check_claims_stale(issues, milestone, active_phase),
         check_bd_doctor(root),
         check_gsd_capability(root),

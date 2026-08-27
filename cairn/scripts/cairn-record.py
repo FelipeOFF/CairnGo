@@ -118,15 +118,20 @@ USAGE = ("usage: cairn-record.py <kind> --phase <N> [--plan <P>] "
 # campo proprio a cada um exigiria seis campos que o bd nao tem, e a saida
 # seria inventar formato — o que este milestone recusa. Eles compartilham
 # `design` e se distinguem pelo kind no cabecalho do corpo.
+# "section" (phase 46): os seis kinds de desenho dividem `design`, e um `set`
+# de um apagaria o outro — um spec gravado depois do context levaria o
+# context junto. Cada kind escreve a SUA secao (`## KIND`), substituindo a
+# anterior do mesmo kind e preservando as demais; o campo inteiro continua
+# legivel como um documento so'.
 KINDS = {
     "plan":         ("plan",  "description",         "create"),
     "summary":      ("plan",  "notes",               "close"),
-    "context":      ("phase", "design",              "set"),
-    "research":     ("phase", "design",              "set"),
-    "patterns":     ("phase", "design",              "set"),
-    "spec":         ("phase", "design",              "set"),
-    "ui-spec":      ("phase", "design",              "set"),
-    "ai-spec":      ("phase", "design",              "set"),
+    "context":      ("phase", "design",              "section"),
+    "research":     ("phase", "design",              "section"),
+    "patterns":     ("phase", "design",              "section"),
+    "spec":         ("phase", "design",              "section"),
+    "ui-spec":      ("phase", "design",              "section"),
+    "ai-spec":      ("phase", "design",              "section"),
     "verification": ("phase", "acceptance_criteria", "set"),
     "review":       ("phase", "notes",               "append"),
     "log":          ("phase", "notes",               "append"),
@@ -269,6 +274,91 @@ def resolve_plan_record(phase, plan, milestone, root):
     return issues[0]["id"] if issues else None
 
 
+def first_paragraph(text, limit=600):
+    para = (text or "").strip().split("\n\n", 1)[0].strip()
+    return para if len(para) <= limit else para[:limit - 1].rstrip() + "…"
+
+
+def mirror_comment(args, root, issue, body, mode):
+    """A plan opened or a summary closed reaches the phase's card as a
+    comment (phase 45 / MIRROR-03, C-01/C-02) — through gbsync, explicitly,
+    because this script writes bd by subprocess and the post-bd-write hook
+    never sees it. Only when .cairn/sync.json exists; never fatal: the
+    record is the fact, the mirror is a courtesy, and a failure is said."""
+    if args.kind not in ("plan", "summary") or not args.phase:
+        return None
+    if not os.path.isfile(os.path.join(root, ".cairn", "sync.json")):
+        return None
+    carrier = resolve_phase_carrier(args.phase, args.milestone, root)
+    if not carrier:
+        return None
+    if args.kind == "plan":
+        title = args.title or ("Phase %s plan %s" % (args.phase, args.plan))
+        text = "Plano %s registrado: %s\n\n%s" % (args.plan, title,
+                                                    first_paragraph(body))
+    else:
+        text = "Fechado: %s\n\nregistro completo no bead %s" % (
+            first_paragraph(body), issue)
+    gbsync = os.environ.get("CAIRN_GBSYNC") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "gbsync.sh")
+    try:
+        proc = subprocess.run(["bash", gbsync, "comment", carrier, "--text",
+                               text, "--dir", root],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("%s mirror: gbsync comment could not run (%s)"
+              % (TAG_PREFIX, exc), file=sys.stderr)
+        return {"carrier": carrier, "ok": False}
+    if proc.returncode != 0:
+        print("%s mirror: gbsync comment exited %s: %s"
+              % (TAG_PREFIX, proc.returncode,
+                 (proc.stderr or proc.stdout).strip()[:200]), file=sys.stderr)
+    return {"carrier": carrier, "ok": proc.returncode == 0}
+
+
+SECTION_RE = r"^## ([A-Z][A-Z-]*)\s*$"
+
+
+def replace_section(text, kind, body):
+    """`text` with the `## KIND` section replaced by `body` (appended when
+    absent); every other `## X` section is kept byte for byte. A field that
+    was written before sections existed (no `## ` heading at all) becomes
+    the first section, under the kind that is being written — nothing is
+    lost, and the next write finds a heading to replace."""
+    import re
+    head = "## " + kind.upper()
+    lines = (text or "").splitlines()
+    if not any(re.match(SECTION_RE, ln) for ln in lines):
+        if not (text or "").strip():
+            return head + "\n" + body.strip() + "\n"
+        # A design written before sections existed (3.x `set`): it becomes
+        # the `## LEGACY` section and the new kind is appended after it.
+        # MEASURED 2026-08-27 (review of the 4.0 branch): the first draft
+        # returned the new body alone here and erased the old text with
+        # exit 0 — the exact silent loss the docstring above promises not
+        # to cause.
+        lines = ["## LEGACY"] + lines
+    out, i, replaced = [], 0, False
+    while i < len(lines):
+        m = re.match(SECTION_RE, lines[i])
+        if m and m.group(1) == kind.upper():
+            out.append(head)
+            out.append(body.strip())
+            out.append("")
+            i += 1
+            while i < len(lines) and not re.match(SECTION_RE, lines[i]):
+                i += 1
+            replaced = True
+            continue
+        out.append(lines[i])
+        i += 1
+    if not replaced:
+        if out and out[-1].strip():
+            out.append("")
+        out += [head, body.strip(), ""]
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(prog="cairn-record.py", add_help=True,
                                      usage=USAGE)
@@ -348,16 +438,22 @@ def main():
         bd(["update", issue, "--description", body], root)
     elif mode == "set":
         bd(["update", issue, FIELD_FLAG[field], body], root)
+    elif mode == "section":
+        current = bd_json(["show", issue], root)
+        current = (current[0] if isinstance(current, list) else current) or {}
+        merged = replace_section(current.get(field) or "", args.kind, body)
+        bd(["update", issue, FIELD_FLAG[field], merged], root)
     elif mode == "append":
         bd(["update", issue, "--append-notes", body], root)
     elif mode == "close":
         bd(["update", issue, "--notes", body], root)
         bd(["close", issue], root)
 
+    mirror = mirror_comment(args, root, issue, body, mode)
     if args.as_json:
         print(json.dumps({"kind": args.kind, "issue": issue, "field": field,
                           "mode": mode, "phase": args.phase,
-                          "plan": args.plan}))
+                          "plan": args.plan, "mirror": mirror}))
     else:
         print("%s %s -> %s.%s (%s)"
               % (TAG_PREFIX, args.kind, issue, field, mode))

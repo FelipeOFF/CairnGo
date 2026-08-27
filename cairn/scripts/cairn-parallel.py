@@ -1103,6 +1103,135 @@ def cmd_prepare(args, top):
 # --------------------------------------------------------------------------- #
 # batch
 # --------------------------------------------------------------------------- #
+def cmd_prepare_bead(args, top):
+    """`prepare-bead <id> [--base <ref>]` — the bead unit of `prepare`
+    (phase 47 / IMPL-01): one worktree per bead, branched from the PR
+    branch the implement verb is building, its lease keyed `bead:<id>` and
+    pointing at that worktree. Same refusals as `prepare`, same output
+    shape, plus the bead's title so the implementer prompt can carry it."""
+    bead_id = args.bead
+    if is_linked_worktree(top):
+        die(f"prepare-bead runs from the main checkout only, and {top} is a "
+            f"linked worktree — run it from the repo the worktrees hang off",
+            EXIT_USAGE)
+    title = bead_title(top, bead_id)
+    layout = bead_layout(top, bead_id, title)
+    worktree = Path(layout["worktree"])
+    branch = layout["branch"]
+    key = f"bead:{bead_id}"
+    base = args.base or "HEAD"
+    if args.base:
+        rc, _, _ = run_git(top, ["rev-parse", "--verify", "--quiet",
+                                 f"{args.base}^{{commit}}"])
+        if rc != 0:
+            die(f"--base {args.base!r} is not a branch or commit of this "
+                "repo", EXIT_USAGE)
+    pre = lease_status(top, key)
+    if (pre.get("held") and not pre.get("stale")
+            and not same_path(pre.get("holder"), worktree)):
+        refuse_held(key, pre, False, args.json)
+    created_worktree = created_branch = False
+    existing = worktree_entry_at(top, worktree)
+    if existing is not None:
+        if existing.get("branch") != branch:
+            die(f"{worktree} is already a worktree of this repo on branch "
+                f"'{existing.get('branch')}', not '{branch}' — refusing to "
+                f"touch it", EXIT_GIT)
+    elif worktree.exists():
+        die(f"{worktree} already exists and is not a worktree of this repo "
+            f"— refusing to touch it", EXIT_GIT)
+    else:
+        if branch_exists(top, branch):
+            die(f"branch '{branch}' already exists but has no worktree at "
+                f"{worktree} — refusing to guess which one is the bead's "
+                f"work; remove or rename it first", EXIT_GIT)
+        rc, _, err = run_git(top, ["worktree", "add", "-b", branch,
+                                   str(worktree), base])
+        if rc != 0:
+            die(f"git worktree add failed: {err or 'unknown error'}",
+                EXIT_GIT)
+        created_worktree = created_branch = True
+    rc, entry = lease_acquire(top, key, worktree)
+    if rc == EXIT_HELD:
+        rolled_back = rollback(top, worktree, branch, created_worktree,
+                               created_branch)
+        refuse_held(key, entry if isinstance(entry, dict) else {},
+                    rolled_back, args.json)
+    _, base_commit, _ = run_git(worktree, ["rev-parse", "HEAD"])
+    language, language_source = config_language(top)
+    out = {
+        "bead": bead_id, "title": title, "short": layout["short"],
+        "slug": layout["slug"], "branch": branch, "base": base,
+        "worktree": str(worktree), "base_commit": base_commit or None,
+        "created": created_worktree,
+        "lease": {"key": key, "holder": entry.get("holder"),
+                  "acquired_at": entry.get("acquired_at")},
+        "planning_files_forbidden": list(PLANNING_FILES_FORBIDDEN),
+        "response_language": language,
+        "response_language_source": language_source,
+    }
+    if args.json:
+        print(json.dumps(out))
+    else:
+        verb = "prepared" if created_worktree else "reused"
+        print(f"[cairn-parallel] {verb} worktree {worktree} on branch "
+              f"{branch} from {base} (base {base_commit})")
+        print(f"[cairn-parallel] bead {bead_id} lease held by "
+              f"{out['lease']['holder']} since {out['lease']['acquired_at']}")
+        print(f"[cairn-parallel] forbidden in this worktree (D-03): "
+              f"{', '.join(PLANNING_FILES_FORBIDDEN)}")
+    sys.exit(EXIT_OK)
+
+
+def reconcile_beads(args, top):
+    """The bead unit of reconcile (phase 47): every bead/* branch against
+    ONE base — the PR branch the merger folds them into — not against each
+    other. The merger takes them one at a time, so what matters is what
+    each one will raise when it lands, and what it would change in silence
+    on lines the base moved too."""
+    version = git_version(top)
+    base_ref = args.base or "HEAD"
+    branches, pairs, planning_writes = [], [], []
+    findings, unknown = 0, False
+    for short, branch in bead_branches(top):
+        anc = common_ancestor(top, base_ref, branch)
+        entry = {"bead": short, "phase": None, "branch": branch, "base": anc,
+                 "commits": None, "files": None, "insertions": None,
+                 "deletions": None}
+        edits = []
+        if anc:
+            rc, out, _ = run_git(top, ["rev-list", "--count",
+                                       f"{anc}..{branch}"])
+            entry["commits"] = int(out) if rc == 0 and out.isdigit() else None
+            stat = numstat(top, anc, branch)
+            entry.update(files=stat["files"], insertions=stat["insertions"],
+                         deletions=stat["deletions"])
+            touched = [p for p in stat["paths"]
+                       if p in PLANNING_FILES_FORBIDDEN]
+            if touched:
+                planning_writes.append({"bead": short, "branch": branch,
+                                        "files": touched})
+            edits = convergent_edits(diff_hunks(top, anc, base_ref),
+                                     diff_hunks(top, anc, branch),
+                                     base_ref, branch)
+        conflicts, note = merge_tree_conflicts(top, base_ref, branch, version)
+        if conflicts is None:
+            unknown = True
+        findings += len(edits) + (len(conflicts) if conflicts else 0)
+        branches.append(entry)
+        pairs.append({"branches": [base_ref, branch], "base": anc,
+                      "convergent_edits": edits, "conflicts": conflicts,
+                      "conflicts_note": note})
+    result = {"git_version": version, "unit": "bead", "base_ref": base_ref,
+              "branches": branches, "pairs": pairs,
+              "planning_writes": planning_writes, "findings_total": findings}
+    if args.json:
+        print(json.dumps(result))
+    else:
+        print_report(result)
+    sys.exit(EXIT_FINDINGS if (findings or unknown) else EXIT_OK)
+
+
 def build_announcement(result):
     """The text /cairn:autonomous step 0.4 prints before it spawns anything:
     how many phases run and why each one, what was left out and why, and the
@@ -1217,6 +1346,19 @@ def config_int(top, key, fallback, minimum):
     return value if value >= minimum else fallback
 
 
+def stop_requested(top):
+    """cairn-stop.py check, through the sibling script: True when a global
+    request is on file (a per-phase request is the phase's own business)."""
+    proc = run_script(str(Path(__file__).resolve().parent / "cairn-stop.py"),
+                      ["check", "--json", "--project-dir", str(top)], top,
+                      "cairn-stop.py")
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return False
+    return bool(data.get("requested")) and data.get("phase") in (None, "")
+
+
 def cmd_batch(args, top):
     if args.max is not None and args.max < 1:
         die(f"--max must be at least 1 (got {args.max})\n" + USAGE,
@@ -1327,6 +1469,9 @@ def cmd_batch(args, top):
         "cycle_note": cycle_note,
         "selected": selected,
         "deferred": deferred,
+        # Phase 50: a stop request applies to the whole run; the loop
+        # reads it here before it takes the next batch.
+        "stop_requested": stop_requested(top),
     }
     result["announcement"] = build_announcement(result)
 
@@ -1380,6 +1525,69 @@ def cmd_batch(args, top):
 # constants live beside the code they serve rather than with the module-level
 # block above, so the greppable region is self-contained.
 PHASE_BRANCH = re.compile(r"^phase/0*(\d+)(?:-|$)")
+# The bead unit (phase 47 / IMPL-01): `bead/<short>-<slug>`, `<short>` being
+# the bead id without its project prefix (`CairnGo-o1vm` -> `o1vm`).
+BEAD_BRANCH = re.compile(r"^bead/([A-Za-z0-9.]+)(?:-|$)")
+
+
+def bead_short(bead_id):
+    return bead_id.split("-", 1)[1] if "-" in bead_id else bead_id
+
+
+def bead_slug(title, words=4):
+    toks = re.findall(r"[a-z0-9]+",
+                      (title or "").lower().encode("ascii", "ignore").decode())
+    return "-".join(toks[:words])
+
+
+def bead_title(top, bead_id):
+    proc = subprocess.run(["bd", "-C", str(top), "show", bead_id, "--json"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        die(f"bd show {bead_id} failed: {proc.stderr.strip()[:200]} — the "
+            "bead has to exist before a worktree is named after it",
+            EXIT_USAGE)
+    try:
+        data = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError:
+        die(f"bd show {bead_id} returned no JSON", EXIT_NO_BD)
+    issue = data[0] if isinstance(data, list) and data else data
+    return (issue or {}).get("title") or ""
+
+
+def bead_layout(top, bead_id, title):
+    """{bead, short, slug, branch, worktree} — the single naming authority
+    for the bead unit, the same way phase_layout() is for phases: the path
+    is the ROOT's basename plus the bead's short id, a sibling of the root,
+    and the branch carries the short id and a slug of the title."""
+    short = bead_short(bead_id)
+    if not SLUG_OK.match(short):
+        die(f"bead id {bead_id!r} does not yield a safe path component",
+            EXIT_USAGE)
+    worktree = Path(top).parent / f"{Path(top).name}-bead-{short}"
+    if worktree.parent != Path(top).parent:
+        die(f"refusing to place a worktree outside the repo's parent "
+            f"directory: {worktree}", EXIT_GIT)
+    slug = bead_slug(title)
+    branch = f"bead/{short}-{slug}" if slug else f"bead/{short}"
+    return {"bead": bead_id, "short": short, "slug": slug or None,
+            "branch": branch, "worktree": str(worktree)}
+
+
+def bead_branches(top):
+    """[(short, branch)] for every refs/heads/bead/* ref — discovery by the
+    name prepare-bead gave it (D-01), never by what an agent reports."""
+    rc, out, _ = run_git(top, ["for-each-ref", "--format=%(refname:short)",
+                               "refs/heads/bead/*"])
+    if rc != 0 or not out:
+        return []
+    found = []
+    for name in out.splitlines():
+        m = BEAD_BRANCH.match(name.strip())
+        if m:
+            found.append((m.group(1), name.strip()))
+    found.sort()
+    return found
 
 # `@@ -a[,b] +c[,d] @@` — the raw material of the detector. `b` defaults to 1
 # when absent (`@@ -1 +1 @@` replaces exactly one base line); `b == 0` is a
@@ -1673,7 +1881,8 @@ def print_report(result):
                   f"+{b['insertions']} -{b['deletions']}"
                   if b["commits"] is not None and b["files"] is not None
                   else "unmeasurable (no common ancestor with HEAD)")
-        say(f"phase {b['phase']} ({b['branch']}): {counts}")
+        who = (f"bead {b['bead']}" if b.get("bead") else f"phase {b['phase']}")
+        say(f"{who} ({b['branch']}): {counts}")
 
     edits = [(p, e) for p in result["pairs"] for e in p["convergent_edits"]]
     if edits:
@@ -1711,6 +1920,8 @@ def print_report(result):
 
 
 def cmd_reconcile(args, top):
+    if getattr(args, "beads", False):
+        return reconcile_beads(args, top)
     wanted = parse_phases(args.phases)
     version = git_version(top)
 
@@ -1973,7 +2184,8 @@ def cleanup_scan(top, phase=None):
             continue
         holder = entry.get("holder")
         holder_real = os.path.realpath(str(holder)) if holder else None
-        row = {"phase": entry.get("phase"), "id": entry.get("id"),
+        row = {"phase": entry.get("phase"), "bead": entry.get("bead"),
+               "id": entry.get("id"),
                "holder": holder, "acquired_at": entry.get("acquired_at"),
                "heartbeat_at": entry.get("heartbeat_at"),
                "stale": bool(entry.get("stale"))}
@@ -1996,10 +2208,16 @@ def cleanup_scan(top, phase=None):
     retained = []
     removable = []
     for entry in live:
-        m = PHASE_BRANCH.match(entry["branch"] or "")
-        if not m or same_path(entry["path"], top):
+        if same_path(entry["path"], top):
             continue
-        phase = int(m.group(1))
+        m = PHASE_BRANCH.match(entry["branch"] or "")
+        mb = BEAD_BRANCH.match(entry["branch"] or "")
+        if not m and not mb:
+            continue
+        # The bead unit (phase 47) goes through the same three guards —
+        # dirty, unmerged, lease held here — with `bead` where `phase` was.
+        phase = int(m.group(1)) if m else None
+        bead = mb.group(1) if mb else None
         reasons = []
         manual = None
         if worktree_dirty(entry["path"]):
@@ -2016,12 +2234,15 @@ def cleanup_scan(top, phase=None):
         if lease is not None:
             note = " (stale, but the tree is right here)" \
                 if lease.get("stale") else ""
-            reasons.append(f"lease for phase {lease.get('phase')} still held "
-                           f"by this worktree since "
-                           f"{lease.get('acquired_at')}{note}")
-            manual = manual or (f"cairn-lease.sh status {lease.get('phase')} "
+            lease_key = (f"bead:{lease.get('bead')}" if lease.get("bead")
+                         else str(lease.get("phase")))
+            what = (f"bead {lease.get('bead')}" if lease.get("bead")
+                    else f"phase {lease.get('phase')}")
+            reasons.append(f"lease for {what} still held by this worktree "
+                           f"since {lease.get('acquired_at')}{note}")
+            manual = manual or (f"cairn-lease.sh status {lease_key} "
                                 f"--project-dir {top}")
-        row = {"phase": phase, "path": entry["path"],
+        row = {"phase": phase, "bead": bead, "path": entry["path"],
                "branch": entry["branch"]}
         if reasons:
             row["reasons"] = reasons
@@ -2179,6 +2400,16 @@ def build_parser():
     prepare.add_argument("phase", type=int, help="phase number")
     prepare.set_defaults(func=cmd_prepare)
 
+    prepare_bead = sub.add_parser("prepare-bead",
+                                  help="create bead <id>'s named worktree "
+                                       "(<root>-bead-<short>, branch "
+                                       "bead/<short>-<slug>) from --base and "
+                                       "take its lease pointing at it")
+    prepare_bead.add_argument("bead", help="bead id, e.g. CairnGo-o1vm")
+    prepare_bead.add_argument("--base", metavar="REF",
+                              help="branch or commit to branch from "
+                                   "(default: HEAD — the PR branch)")
+    prepare_bead.set_defaults(func=cmd_prepare_bead)
     reconcile = sub.add_parser("reconcile",
                                help="read-only report over the phase/* "
                                     "branches: what each phase produced, the "
@@ -2187,6 +2418,12 @@ def build_parser():
     reconcile.add_argument("--phases", metavar="LIST",
                            help="comma-separated phase numbers to restrict "
                                 "to (default: every phase/* branch)")
+    reconcile.add_argument("--beads", action="store_true",
+                           help="the bead unit: every bead/* branch against "
+                                "--base (default HEAD), one pair each")
+    reconcile.add_argument("--base", metavar="REF",
+                           help="with --beads: the branch the merger folds "
+                                "the beads into (default HEAD)")
     reconcile.set_defaults(func=cmd_reconcile)
 
     cleanup = sub.add_parser("cleanup",
@@ -2205,7 +2442,7 @@ def build_parser():
                               "prepare builds) and its own lease")
     cleanup.set_defaults(func=cmd_cleanup)
 
-    for p in (batch, prepare, reconcile, cleanup):
+    for p in (batch, prepare, prepare_bead, reconcile, cleanup):
         p.add_argument("--project-dir", metavar="DIR",
                        help="project root for git/bd discovery (default: "
                             "$CLAUDE_PROJECT_DIR or cwd)")

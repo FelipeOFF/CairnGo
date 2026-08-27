@@ -2105,6 +2105,127 @@ def cmd_reconcile(args):
     sys.exit(EXIT_DISAGREEMENT if found else EXIT_OK)
 
 
+RELEASE_RE = re.compile(r"^(\d+)\.(\d+)(?:\.\d+)?$")
+
+
+def cmd_milestone(args):
+    """`milestone --release X.Y.Z [--apply]` — close the open cycle's carrier,
+    renaming the whole cycle first when the label chosen at open is not the
+    version decided at close (phase 43, D-04).
+
+    The label is the INTENT: `m-v3.3` was opened for what shipped as 3.2.1,
+    and the label stayed wrong forever. From 4.0 the final version is
+    decided here, by the CHANGELOG's contract criterion, and this command is
+    the one place that turns that decision into bd writes — rename via
+    cairn-relabel (never re-implemented), then `bd close` on the carrier.
+
+    Refusals, in order: no bd (5); no open cycle, or a cycle without exactly
+    one carrier (4 — the doctor's milestone-carrier check says which); any
+    non-closed bead of the cycle other than the carrier (6, the ids listed).
+    That last rule subsumes the ship gate: the gate blocks non-closed beads
+    of COMPLETED phases, and a cycle closes only when nothing but its own
+    bead is still open — a phase never started is a straggler too.
+    Read mode names the writes and exits 3 when there is something to write.
+    """
+    # Imported HERE and not at module level: a bats case copies this script
+    # to a tmpdir and runs the copy (reconcile's derived-kinds test), and a
+    # top-level `import cairn_source` would fail there for every subcommand,
+    # not only for the one that reads the tracker through it.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cairn_source
+    planning = resolve_planning_dir(args.planning_dir)
+    root = planning.parent
+    if shutil.which("bd") is None:
+        die("'bd' not on PATH — the cycle cannot be closed without the "
+            "tracker (exit 5)", EXIT_NO_BD)
+    m = RELEASE_RE.match(args.release)
+    if not m:
+        die(f"--release {args.release!r} is not a version (X.Y or X.Y.Z)",
+            EXIT_USAGE)
+    target_key = f"v{m.group(1)}.{m.group(2)}"
+
+    key = cairn_source.milestone(root)
+    if key is None:
+        die("no open cycle — nothing to close", EXIT_NO_PHASE)
+    carriers = cairn_source.milestone_carriers(root, key)
+    if len(carriers) != 1:
+        die(f"m-{key} has {len(carriers)} milestone carrier(s), and closing "
+            f"needs exactly one — run cairn-doctor (milestone-carrier)",
+            EXIT_NO_PHASE)
+    carrier = carriers[0]
+    stragglers = sorted(i.get("id", "?") for i in cairn_source.issues(root)
+                        if i.get("status") != "closed"
+                        and key in cairn_source.issue_milestones(i)
+                        and i.get("id") != carrier.get("id"))
+
+    payload = {"milestone": key, "carrier": carrier.get("id"),
+               "release": args.release, "target": target_key,
+               "rename": key != target_key, "stragglers": stragglers,
+               "applied": False, "steps": []}
+    human = [f"open cycle m-{key}, carrier {carrier.get('id')} "
+             f"({(carrier.get('title') or '').strip()})"]
+    if stragglers:
+        payload["steps"] = []
+        human.append(f"refusing: {len(stragglers)} non-closed bead(s) of "
+                     f"m-{key} besides the carrier — close or carry each "
+                     f"over first: {', '.join(stragglers)}")
+        emit(payload, args.json, human)
+        sys.exit(6)
+    if payload["rename"]:
+        payload["steps"].append({"step": "rename", "from": f"m-{key}",
+                                 "to": f"m-{target_key}"})
+        human.append(f"rename m-{key} -> m-{target_key} (cairn-relabel "
+                     f"rename, the whole cycle)")
+    payload["steps"].append({"step": "close", "id": carrier.get("id"),
+                             "reason": f"release {args.release}"})
+    human.append(f"close {carrier.get('id')} --reason \"release "
+                 f"{args.release}\"")
+    if not args.apply:
+        human.append(f"{len(payload['steps'])} write(s) planned — "
+                     "re-run with --apply")
+        emit(payload, args.json, human)
+        sys.exit(EXIT_DISAGREEMENT)
+
+    if payload["rename"]:
+        proc = subprocess.run(
+            [sys.executable, sibling("cairn-relabel.py"), "rename",
+             f"m-{key}", f"m-{target_key}", "--apply", "--dir", str(root)],
+            capture_output=True, text=True)
+        if proc.returncode != 0:
+            die(f"cairn-relabel rename failed (exit {proc.returncode}): "
+                f"{(proc.stderr or proc.stdout).strip()[:400]}", 1)
+        human.append(proc.stdout.strip().splitlines()[-1]
+                     if proc.stdout.strip() else "renamed")
+    proc = subprocess.run(["bd", "-C", str(root), "close", carrier["id"],
+                           f"--reason=release {args.release}"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        die(f"bd close {carrier['id']} failed: "
+            f"{(proc.stderr or proc.stdout).strip()[:400]}", 1)
+    cairn_source.invalidate(root)
+    payload["applied"] = True
+    human.append(f"closed {carrier['id']} — the cycle is history now; "
+                 "/cairn:milestone new opens the next one")
+    # The story follows the cycle (phase 45 / MIRROR-02): this close was a
+    # subprocess the post-bd-write hook never saw, so the mirror is fired
+    # here, explicitly, and only when a sync config exists. Never fatal.
+    if (root / ".cairn" / "sync.json").is_file():
+        gbsync = os.environ.get("CAIRN_GBSYNC") or sibling("gbsync.sh")
+        try:
+            proc = subprocess.run(["bash", gbsync, "close", carrier["id"],
+                                   "--dir", str(root)],
+                                  capture_output=True, text=True, timeout=60)
+            tail = (proc.stdout or proc.stderr).strip().splitlines()
+            payload["mirror"] = {"ok": proc.returncode == 0,
+                                 "detail": tail[-1] if tail else ""}
+            human.append(f"mirror: {tail[-1] if tail else 'gbsync close ran'}")
+        except (OSError, subprocess.SubprocessError) as exc:
+            payload["mirror"] = {"ok": False, "detail": str(exc)}
+            human.append(f"mirror: gbsync close could not run ({exc})")
+    emit(payload, args.json, human)
+    sys.exit(EXIT_OK)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="cairn-bookkeep.py",
@@ -2151,6 +2272,22 @@ def build_parser():
                      help="planning dir (default: $CLAUDE_PROJECT_DIR or "
                           "cwd, plus /.planning)")
     rec.set_defaults(func=cmd_reconcile)
+
+    ms = sub.add_parser("milestone", help="close the open cycle's carrier, "
+                                          "renaming the cycle first when the "
+                                          "label and the release disagree")
+    ms.add_argument("--release", required=True, metavar="X.Y.Z",
+                    help="the version being released; m-vX.Y is the label "
+                         "the cycle ends up with")
+    ms.add_argument("--apply", action="store_true",
+                    help="write (default: name the writes and exit 3)")
+    ms.add_argument("--json", action="store_true",
+                    help="machine-readable output")
+    ms.add_argument("--planning-dir", metavar="DIR",
+                    help="planning dir; its parent is the repo root "
+                         "(default: $CLAUDE_PROJECT_DIR or cwd, plus "
+                         "/.planning)")
+    ms.set_defaults(func=cmd_milestone)
     return parser
 
 

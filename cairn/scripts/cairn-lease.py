@@ -316,9 +316,54 @@ def try_bd(args, root):
     return proc.returncode == 0, proc.stderr.strip()
 
 
+# A lease KEY is an int phase, or `bead:<id>` (phase 47 / IMPL-01): the
+# implement verb holds one lease per bead, in the same bd issue shape, with
+# {"bead": "<id>"} where a phase lease carries {"phase": N}. Everything below
+# that used to take a phase takes a key; a phase caller sees no difference.
+BEAD_PREFIX = "bead:"
+
+
+def lease_key(text):
+    """argparse type: '7' -> 7; 'bead:proj-abc' -> 'bead:proj-abc'."""
+    text = str(text).strip()
+    if text.startswith(BEAD_PREFIX) and len(text) > len(BEAD_PREFIX):
+        return text
+    if text.isdigit():
+        return int(text)
+    raise argparse.ArgumentTypeError(
+        f"expected a phase number or bead:<id>, got {text!r}")
+
+
+def is_bead_key(key):
+    return isinstance(key, str) and key.startswith(BEAD_PREFIX)
+
+
+def key_label(key):
+    return f"bead {key[len(BEAD_PREFIX):]}" if is_bead_key(key) \
+        else f"phase {key}"
+
+
+def lease_key_of(lease):
+    """The key a stored lease dict answers to, or None when malformed."""
+    if not isinstance(lease, dict):
+        return None
+    if lease.get("bead"):
+        return BEAD_PREFIX + str(lease["bead"])
+    try:
+        return int(lease.get("phase"))
+    except (TypeError, ValueError):
+        return None
+
+
 def bd_create_lease_issue(root, phase):
-    meta = json.dumps({"cairn": {"lease": {"phase": phase}}})
-    out = run_bd(["create", f"phase-{phase} lease", "-t", "chore",
+    if is_bead_key(phase):
+        bead = phase[len(BEAD_PREFIX):]
+        meta = json.dumps({"cairn": {"lease": {"bead": bead}}})
+        title = f"bead-{bead} lease"
+    else:
+        meta = json.dumps({"cairn": {"lease": {"phase": phase}}})
+        title = f"phase-{phase} lease"
+    out = run_bd(["create", title, "-t", "chore",
                   "-l", "lease", "--metadata", meta, "--silent"], root)
     issue_id = out.strip()
     if not issue_id:
@@ -393,6 +438,9 @@ def journal_lease_event(root, phase, action, holder, actor=None,
     or releasing a lease is the real work here; recording it is
     bookkeeping, and a broken or missing cairn-journal.py (D-02: the one
     writer) must never block cairn-lease.py's own documented contract."""
+    if is_bead_key(phase):
+        return   # the journal speaks phases; a bead lease leaves no event
+
     cmd = [sys.executable, CAIRN_JOURNAL, "lease", str(phase), action,
            "--holder", holder, "--actor", actor,
            "--project-dir", str(root)]
@@ -435,11 +483,7 @@ def find_lease_issue(root, phase):
         lease = lease_metadata(issue)
         if lease is None:
             continue
-        try:
-            lease_phase = int(lease.get("phase"))
-        except (TypeError, ValueError):
-            continue
-        if lease_phase == phase:
+        if lease_key_of(lease) == phase:
             return issue.get("id"), lease
     return None, None
 
@@ -454,12 +498,13 @@ def collect_all_statuses(root):
         lease = lease_metadata(issue)
         if lease is None:
             continue
-        try:
-            phase = int(lease.get("phase"))
-        except (TypeError, ValueError):
+        key = lease_key_of(lease)
+        if key is None:
             continue
-        entries.append(status_entry(phase, issue.get("id"), lease))
-    entries.sort(key=lambda e: e["phase"])
+        entries.append(status_entry(key, issue.get("id"), lease))
+    # Phases first, by number; bead leases after, by id.
+    entries.sort(key=lambda e: (e["phase"] is None, e["phase"] or 0,
+                                e.get("bead") or ""))
     return entries
 
 
@@ -469,7 +514,8 @@ def lease_payload(phase, holder=None, actor=None, host=None,
     WHOLE (see module docstring: bd's --metadata replaces each top-level
     key wholesale, so a partial patch would erase sibling fields). No
     `holder` means vacant — every other identity field is omitted too."""
-    lease = {"phase": phase}
+    lease = ({"bead": phase[len(BEAD_PREFIX):]} if is_bead_key(phase)
+             else {"phase": phase})
     if holder:
         lease.update(holder=holder, actor=actor, host=host,
                       acquired_at=acquired_at, heartbeat_at=heartbeat_at)
@@ -509,7 +555,8 @@ def status_entry(phase, issue_id, lease):
     holder = lease.get("holder")
     held = bool(holder)
     return {
-        "phase": phase,
+        "phase": None if is_bead_key(phase) else phase,
+        "bead": phase[len(BEAD_PREFIX):] if is_bead_key(phase) else None,
         "id": issue_id,
         "held": held,
         "holder": holder,
@@ -519,16 +566,38 @@ def status_entry(phase, issue_id, lease):
         "heartbeat_at": lease.get("heartbeat_at"),
         "stale": held and is_stale(lease.get("heartbeat_at")),
         "ttl_hours": LEASE_TTL_SECONDS // 3600,
+        # Phase 50: the stop flag, read by cairn-stop.py's one reader.
+        "stop_requested": bool(stop_flag_for(phase)),
     }
+
+
+def stop_flag_for(phase):
+    """The .cairn/stop request that applies to this lease's key, via
+    cairn-stop.py's own reader (never re-parsed here). None when the
+    sibling is missing, which is the same as no request."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "cairn_stop", str(Path(__file__).resolve().parent / "cairn-stop.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception:  # noqa: BLE001 — a missing sibling is "no request"
+        return None
+    root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    try:
+        root = _STATUS_ROOT or root
+    except NameError:
+        pass
+    return mod.stop_requested(root, phase)
 
 
 def print_status_human(entry):
     if not entry["held"]:
         note = " (never created)" if entry["id"] is None else ""
-        print(f"[cairn-lease] phase {entry['phase']} lease: not held{note}")
+        print(f"[cairn-lease] {key_label(entry.get('phase') if entry.get('phase') is not None else BEAD_PREFIX + str(entry.get('bead')))} lease: not held{note}")
         return
     stale_note = " [STALE]" if entry["stale"] else ""
-    print(f"[cairn-lease] phase {entry['phase']} lease{stale_note}: held by "
+    print(f"[cairn-lease] {key_label(entry.get('phase') if entry.get('phase') is not None else BEAD_PREFIX + str(entry.get('bead')))} lease{stale_note}: held by "
           f"{entry['holder']} (actor: {entry['actor']}) since "
           f"{entry['acquired_at']}, last renewed {entry['heartbeat_at']}")
 
@@ -546,7 +615,7 @@ def cmd_acquire(args, root):
     issue_id, lease = find_lease_issue(root, phase)
     if issue_id is None:
         issue_id = bd_create_lease_issue(root, phase)
-        lease = {"phase": phase}
+        lease = lease_payload(phase)["cairn"]["lease"]
 
     current_holder = lease.get("holder")
     already_mine = current_holder == holder
@@ -557,7 +626,7 @@ def cmd_acquire(args, root):
         if args.json:
             print(json.dumps(entry))
         else:
-            print(f"[cairn-lease] phase {phase} lease is held by "
+            print(f"[cairn-lease] {key_label(phase)} lease is held by "
                   f"{current_holder} (actor: {lease.get('actor')}) since "
                   f"{lease.get('acquired_at')}, last renewed "
                   f"{lease.get('heartbeat_at')} — not acquired")
@@ -584,15 +653,15 @@ def cmd_acquire(args, root):
     if args.json:
         print(json.dumps(entry))
     elif reclaimed:
-        print(f"[cairn-lease] reclaimed phase {phase} lease (was stale) — "
+        print(f"[cairn-lease] reclaimed {key_label(phase)} lease (was stale) — "
               f"previously held by {current_holder} since "
               f"{lease.get('acquired_at')}, last renewed "
               f"{lease.get('heartbeat_at')}")
     elif already_mine:
-        print(f"[cairn-lease] phase {phase} lease already yours — "
+        print(f"[cairn-lease] {key_label(phase)} lease already yours — "
               f"heartbeat renewed")
     else:
-        print(f"[cairn-lease] acquired phase {phase} lease for {holder}")
+        print(f"[cairn-lease] acquired {key_label(phase)} lease for {holder}")
     sys.exit(EXIT_OK)
 
 
@@ -602,7 +671,7 @@ def release_one(args, root, phase):
         if args.json:
             print(json.dumps(status_entry(phase, None, None)))
         else:
-            print(f"[cairn-lease] phase {phase} lease: nothing to release "
+            print(f"[cairn-lease] {key_label(phase)} lease: nothing to release "
                   f"(no lease issue exists)")
         return
 
@@ -618,7 +687,7 @@ def release_one(args, root, phase):
     if args.json:
         print(json.dumps(status_entry(phase, issue_id, None)))
     else:
-        print(f"[cairn-lease] released phase {phase} lease")
+        print(f"[cairn-lease] released {key_label(phase)} lease")
 
 
 def cmd_release(args, root):
@@ -628,12 +697,14 @@ def cmd_release(args, root):
         mine = [e for e in collect_all_statuses(root)
                 if e["held"] and e["holder"] == holder]
         for entry in mine:
-            write_lease(root, entry["id"], lease_payload(entry["phase"]),
+            entry_key = (entry["phase"] if entry.get("phase") is not None
+                         else BEAD_PREFIX + str(entry.get("bead")))
+            write_lease(root, entry["id"], lease_payload(entry_key),
                         vacate=True)
             # Every entry in `mine` was already filtered to held=True
             # above, so this loop only ever runs for real releases — one
             # lease_changed record per phase actually released (D-01).
-            journal_lease_event(root, entry["phase"], "released", holder,
+            journal_lease_event(root, entry_key, "released", holder,
                                  actor=actor)
         if args.json:
             print(json.dumps({"released": len(mine), "holder": holder,
@@ -703,7 +774,7 @@ def cmd_retire(args, root):
             print(json.dumps(dict(status_entry(phase, None, None),
                                   retired=False, issue_status=None)))
         else:
-            print(f"[cairn-lease] phase {phase} lease: nothing to retire "
+            print(f"[cairn-lease] {key_label(phase)} lease: nothing to retire "
                   f"(no lease issue exists)")
         sys.exit(EXIT_OK)
 
@@ -759,7 +830,7 @@ def cmd_renew(args, root):
     if args.json:
         print(json.dumps(entry))
     else:
-        print(f"[cairn-lease] phase {phase} lease heartbeat renewed")
+        print(f"[cairn-lease] {key_label(phase)} lease heartbeat renewed")
     sys.exit(EXIT_OK)
 
 
@@ -799,25 +870,25 @@ def build_parser():
 
     acquire = sub.add_parser("acquire", help="acquire (or renew) this "
                               "worktree's hold on a phase lease")
-    acquire.add_argument("phase", type=int, help="phase number")
+    acquire.add_argument("phase", type=lease_key, help="phase number, or bead:<id>")
     acquire.set_defaults(func=cmd_acquire)
 
     release = sub.add_parser("release", help="release a phase lease "
                               "unconditionally, or --mine (every lease this "
                               "worktree holds)")
-    release.add_argument("phase", type=int, nargs="?", help="phase number")
+    release.add_argument("phase", type=lease_key, nargs="?", help="phase number, or bead:<id>")
     release.add_argument("--mine", action="store_true",
                           help="release every lease this worktree holds")
     release.set_defaults(func=cmd_release)
 
     retire = sub.add_parser("retire", help="end a phase lease's life: vacate "
                              "it AND close its bd issue")
-    retire.add_argument("phase", type=int, help="phase number")
+    retire.add_argument("phase", type=lease_key, help="phase number, or bead:<id>")
     retire.set_defaults(func=cmd_retire)
 
     renew = sub.add_parser("renew", help="heartbeat a lease this worktree "
                             "already holds; silent no-op otherwise")
-    renew.add_argument("phase", type=int, nargs="?",
+    renew.add_argument("phase", type=lease_key, nargs="?",
                         help="phase number (default: STATE.md's "
                              "active_phase)")
     renew.set_defaults(func=cmd_renew)
@@ -825,7 +896,7 @@ def build_parser():
     status = sub.add_parser("status", help="report a phase lease's state, "
                              "or --all (every phase that ever had a lease) "
                              "-- read-only, never creates the lease issue")
-    status.add_argument("phase", type=int, nargs="?", help="phase number")
+    status.add_argument("phase", type=lease_key, nargs="?", help="phase number, or bead:<id>")
     status.add_argument("--all", action="store_true",
                          help="report every phase that ever had a lease")
     status.set_defaults(func=cmd_status)
@@ -840,10 +911,15 @@ def build_parser():
     return parser
 
 
+_STATUS_ROOT = None
+
+
 def main():
+    global _STATUS_ROOT
     parser = build_parser()
     args = parser.parse_args()
     root = resolve_root(args.project_dir)
+    _STATUS_ROOT = str(root)
     if shutil.which("bd") is None:
         die("'bd' not found on PATH", EXIT_NO_BD)
     args.func(args, root)

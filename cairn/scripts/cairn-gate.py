@@ -142,17 +142,36 @@ def bd_completed_phases(root):
     return done
 
 
+ANY_PHASE = re.compile(r"^\s*-\s*\[[ xX]\]\s*\*{0,2}Phase\s+0*(\d+)")
+
+
+def roadmap_names_phases(planning_dir):
+    """True when ROADMAP.md carries at least one phase line, checked or not.
+    An archived index that names none is not an input — it is what this
+    repository's own roadmap became after the import."""
+    for line in read_lines(planning_dir / "ROADMAP.md"):
+        if ANY_PHASE.match(line) or TABLE_PHASE.match(line):
+            return True
+    return False
+
+
 def completed_phases(planning_dir, root):
-    """(phases, source) — from the ROADMAP on disk when there is one, from
-    the tracker when there is not.
+    """(phases, source) — from the ROADMAP on disk while it NAMES phases,
+    from the tracker otherwise.
 
     Same two-source rule cairn-doctor holds: a `.planning/ROADMAP.md` that is
     still waiting to be imported is the INPUT, and comparing what it claims
     against what bd holds is the coverage the migration has to prove. Once
-    imported the file is gone, and the carrier answers instead.
+    imported the file is gone — or, as in this repository, still there with
+    its phase list archived out of it. MEASURED 2026-08-27 (CairnGo-9sdp):
+    with the old rule (`disk or the file exists`) that archived index won
+    the vote with an empty list, and the gate closed a nine-phase milestone
+    with "no completed phases — nothing to gate": green by vacuity, the same
+    family as the doctor's global gate (v3.3) and bookkeep close. The file
+    decides only while it says something.
     """
     disk = disk_completed_phases(planning_dir)
-    if disk or (planning_dir / "ROADMAP.md").is_file():
+    if disk or roadmap_names_phases(planning_dir):
         return disk, "roadmap"
     return bd_completed_phases(root), "bd"
 

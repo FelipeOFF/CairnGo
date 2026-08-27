@@ -19,7 +19,19 @@ bd, the hub. Do the following:
    `.cairn/state.json`; the dispatcher also accepts `--dir <path>` and
    `--dry-run`.)
 
-3. Reconciliation is **last-writer-wins by `updated_at`**:
+3. A backend in the **hierarchy model** (`"model": "hierarchy"` — the Jira
+   backend `/cairn:sync-config` writes) is **read only** here: the pull
+   records each linked card's status under `.cairn/state.json` (`seen`) and
+   `/cairn:doctor`'s `jira-links` names any divergence (a card Done with
+   its bead open, or the reverse). Nothing closes, reopens or rewrites a
+   bead — the bead is the source. When the dispatcher reports
+   `skip … no <token> in the shell`, do the read yourself: fetch each
+   linked key through the MCP (`getJiraIssue`, per `/cairn:jira`), save
+   the JSON, and record it with
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-jira.sh" seen --from-json <file>`
+   — then run the doctor.
+
+   For a flat backend, reconciliation is **last-writer-wins by `updated_at`**:
    - external newer than bd → applied to bd via `bd update`
    - bd newer → left for the next push
    - both changed since last pull → **conflict**, logged to

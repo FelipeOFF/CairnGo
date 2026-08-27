@@ -1,110 +1,44 @@
 # /cairn:plan
 
-> Plan a phase — GSD plan-phase plus beads map reconciliation
+> Plan a phase — context, research and one plan record per wave, all on beads
 
 ## Usage
 
 ```text
-/cairn:plan <phase-number> [--auto] [--research] [--skip-research] [--tdd]
+/cairn:plan <phase-number> [--research|--skip-research] [--tdd]
 ```
-
-The phase number is required; anything after it is passed through to
-`/gsd:plan-phase` (see Flags). Only the bare phase number reaches `cairn-map`
-and the labels. `cairn-map` resolves the phase directory itself:
-`3` matches `3-auth`, `03-auth`, and a project-code-prefixed
-`myproj-03-auth`.
 
 ## What it does
 
-1. **Regenerate the phase's beads map, then read it.** The map is generated
-   from bd state — never hand-edit between the `<!-- cairn:generated:* -->`
-   markers (manual notes *outside* the markers survive regeneration):
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
-   ```
-   The script prints the map's path; the whole `*-BEADS-MAP.md` file is read,
-   including any manual notes outside the markers. Exit 5 means bd is
-   unavailable — fallback: read the existing file as-is (resolve the phase
-   directory by its numeric prefix under `.planning/phases/`).
-2. **Run `/gsd:plan-phase <N>` plus any passthrough flags** — the normal GSD
-   planning flow. (With the
-   capability installed, its `plan:post` hook also writes `beads:`
-   frontmatter and refreshes the map when plain `/gsd:plan-phase` is used.)
-3. **Reconcile divergence.** Where a bd issue conflicts with the phase
-   `CONTEXT.md`, **CONTEXT wins** — the conflict is flagged ⚠ (outside the
-   markers) and the issue is updated via `bd update` with a dated note
-   pointing at the GSD doc; the issue text is never silently followed.
-   Issues are created for any unmapped requirement (label pair
-   `m-<milestone>,phase-<N>` + `gsd` metadata stamp), then the map is
-   regenerated. `cairn-map.sh <N> --check` verifies it is current (exit 3 +
-   diff when stale).
-4. **Link plans to issues:** each generated `PLAN.md` gets its `beads:`
-   frontmatter set to the bd ids it advances.
+1. Split `$ARGUMENTS`
+2. Read what is already tracked
+3. Context first, when there is none
+4. Research what the plan depends on
+5. Claim
+6. Cut the phase into waves, one plan record each
+7. Reconcile
+8. Refresh and check the map
 
-Next: [/cairn:work N](./work.md).
+## The record
 
-### Side effects
+Nothing this command produces is a file. It records through one boundary,
+`cairn-record.sh plan --phase <N>` (body on stdin), and the record lands on
+the phase carrier — one `plan-NN` bead per wave, a child of the carrier (`description` = the plan; `notes` = its summary, on close) (recording the same `NN` rewrites it). A `.planning/` directory, when present,
+is a GSD project waiting to be imported, never a place this command writes;
+`/cairn:doctor`'s `planning-writes` check names any document written there
+after the import.
 
-- `NN-BEADS-MAP.md` regenerated (twice, when reconciliation creates issues).
-- `bd update` on diverging issues (dated reconciliation note),
-  `bd create` for unmapped requirements — both fire the plugin's PostToolUse
-  hook (mirror push + map refresh) as with any bd write.
-- `beads:` frontmatter written into each generated `PLAN.md`.
-- No commits are made by the command itself.
+Each plan record **names the requirement ids it advances** — that name is the link [`/cairn:work`](work.md) resolves to bead ids through the map; there is no `beads:` frontmatter any more.
 
-## Flags & arguments
+Read it back:
 
-| Argument / flag | Meaning |
-|---|---|
-| `<phase-number>` | required positional — the phase to plan; the only part `cairn-map.sh` and the labels see |
-| `--auto` | passed through to `/gsd:plan-phase` |
-| `--research` / `--skip-research` | passed through to `/gsd:plan-phase` |
-| `--gaps` | passed through to `/gsd:plan-phase` |
-| `--skip-verify` | passed through to `/gsd:plan-phase` |
-| `--prd <file>` | passed through to `/gsd:plan-phase` |
-| `--reviews` | passed through to `/gsd:plan-phase` |
-| `--text` | passed through to `/gsd:plan-phase` |
-| `--tdd` | passed through to `/gsd:plan-phase` |
-| `--check` (of `cairn-map.sh`) | verify map freshness instead of regenerating; exit 3 + diff when stale |
-
-## Exit codes
-
-These belong to `cairn-map.sh`, which the command drives:
-
-| Code | Meaning |
-|---|---|
-| `0` | map generated / up to date |
-| `3` | (`--check` only) map is stale — a diff is printed |
-| `5` | bd unavailable — fall back to reading the existing map file as-is |
-
-## Examples
-
-```text
-/cairn:plan 3
-→ cairn-map.sh 3 → .planning/phases/03-auth/03-BEADS-MAP.md (regenerated)
-→ /gsd:plan-phase 3 … 2 plans created
-→ reconcile: app-12 diverged from CONTEXT.md → ⚠ flagged, bd update with
-  dated note · 1 unmapped requirement → bd create (stamped, labeled)
-→ 03-01-PLAN.md beads: [app-12] · 03-02-PLAN.md beads: [app-14, app-15]
-→ next: /cairn:work 3
+```bash
+bd show <carrier> --json | jq -r '.description, .design, .acceptance_criteria, .notes'
+bd list --parent <carrier> --json          # the plan records
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
 ```
-
-```text
-/cairn:plan 3        # bd not installed on this machine
-→ cairn-map.sh exited 5 (bd unavailable) — reading the existing
-  03-BEADS-MAP.md as-is; reconciliation against live bd state is skipped
-```
-
-## Files touched
-
-- **Reads:** `.planning/phases/<dir>/*-BEADS-MAP.md`, phase `CONTEXT.md`,
-  bd state via `bd … --json`.
-- **Writes:** `*-BEADS-MAP.md` (generated region), `PLAN.md` `beads:`
-  frontmatter, `.beads/` via `bd update` / `bd create`.
 
 ## Related
 
-- [/cairn:work](./work.md) — execute the phase just planned
-- [/cairn:verify](./verify.md) — cross-check after execution
-- [/cairn:new](./new.md) — where the issues and maps come from initially
-- [/cairn:milestone](./milestone.md) — roadmap-level lifecycle around phases
+- [`/cairn:work`](work.md) — what comes next
+- [`/cairn:doctor`](doctor.md) — `planning-writes`, the guard on the old habit

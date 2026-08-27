@@ -145,6 +145,7 @@ Keys, and what reads each one:
     |                          |   "unset"           |                         |
     | ship.pr_scope            | phase|milestone|    | cairn-bookkeep.py       |
     |                          |   none, "phase"     |                         |
+    | ship.auto_merge          | bool, false         | /cairn:implement        |
     | test.jobs                | int >=1 or null     | cairn-test.py           |
     |                          |   (= available CPUs)|                         |
 
@@ -274,6 +275,14 @@ SCHEMA = {
         "reader": "cairn-bookkeep.py",
         "effect": "when a pull request comes due: once per phase, once per "
                   "milestone, or never",
+    },
+    "ship.auto_merge": {
+        "type": "bool",
+        "default": False,
+        "reader": "/cairn:implement",
+        "effect": "whether /cairn:implement merges the pull request itself "
+                  "once the last CI gate closes green, or stops at ready "
+                  "for review",
     },
     "test.jobs": {
         "type": "int_or_null",
