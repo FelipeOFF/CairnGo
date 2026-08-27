@@ -496,3 +496,31 @@ make_gate_stub() {
   grep -qF "ok — no open issues" <<<"$output"
   refute_in_output "$carrier"
 }
+
+@test "a ROADMAP.md that names no phase does not silence the gate: the tracker answers (CairnGo-9sdp)" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_roadmap_without_phases
+  bd init -q --prefix gate --non-interactive >/dev/null 2>&1
+  # Phase 1 closed in the tracker — carrier and requirement — with one
+  # straggler reopened after the fact.
+  local carrier req stray
+  carrier="$(bd create "Phase 1 carrier" -t task -l phase-1,m-v1.0 --silent)"
+  req="$(bd create "AUTH-01: Signup" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' --silent)"
+  bd close "$carrier" "$req" >/dev/null
+  # The cycle is still open: phase 2 is in flight.
+  bd create "API-01: Rate limiting" -t task -l phase-2,m-v1.0 \
+    --metadata '{"gsd":{"req":"API-01","phase":2,"milestone":"v1.0"}}' --silent >/dev/null
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.source' 'bd'
+  assert_json_eq "$output" '.completed_phases | map(tostring) | join(",")' '1'
+
+  stray="$(bd create "AUTH-02: reopened" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-02","phase":1,"milestone":"v1.0"}}' --silent)"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
+  [ "$status" -eq 6 ]
+  grep -qE "^${stray}[[:space:]]" <<<"$output"
+}
