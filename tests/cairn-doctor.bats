@@ -4411,3 +4411,29 @@ SH
   local items; items="$(jq -r '.checks[] | select(.id=="jira-links") | .items[]' <<<"$output")"
   grep -qF "pending: $DOC_MS has 1 mirror write(s) waiting (close DTP-142) — /cairn:jira flush" <<<"$items"
 }
+
+@test "jira-links: a card Done with its bead open is 'status divergent' — named, never acted on" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  make_jira_backend
+  make_jira_fetch_stub
+  bd update "$DOC_MS" --external-ref jira-DTP-142 \
+    --metadata '{"gsd":{"jira":{"story":"DTP-142","epic":"DTP-100"}}}' >/dev/null
+  bd create "Phase 2 carrier" -t task -l phase-2,m-v1.0 --external-ref jira-DTP-143 --silent >/dev/null
+  cat > .cairn/state.json <<JSON
+{"seen": {"jira": {"DTP-142": {"bd_id": "$DOC_MS", "status": "closed", "at": "2026-08-27T10:00:00Z"},
+                   "DTP-143": {"status": "open", "at": "2026-08-27T10:00:00Z"}}}}
+JSON
+
+  beads_export_refresh
+  run env CAIRN_JIRA_FETCH="$JIRA_FETCH" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .status' 'warn'
+  local items; items="$(jq -r '.checks[] | select(.id=="jira-links") | .items[]' <<<"$output")"
+  grep -qF "status divergent: DTP-142 is Done in Jira and $DOC_MS is open in bd (seen 2026-08-27T10:00:00Z)" <<<"$items"
+  ! grep -qF "DTP-143 is" <<<"$items"
+  grep -qF '"status": "open"' <<<"$(bd show "$DOC_MS" --json)"
+}

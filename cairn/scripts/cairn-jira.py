@@ -113,6 +113,7 @@ Exit codes:
     verbs that write.
 """
 import argparse
+import datetime
 import json
 import re
 import os
@@ -751,6 +752,66 @@ def cmd_pending(args, root):
     sys.exit(EXIT_OK)
 
 
+STATUS_WORDS = {"closed": {"done", "closed", "resolved", "concluído",
+                           "concluido", "finalizado"},
+                "in_progress": {"in progress", "em andamento", "doing"}}
+
+
+def card_status(card):
+    """The bead-side status the card's status maps to: the REST/MCP
+    statusCategory when the card carries one (new / indeterminate / done),
+    else the status name, else open."""
+    status = ((card.get("fields") or {}).get("status") or {})
+    cat = ((status.get("statusCategory") or {}).get("key") or "").lower()
+    if cat:
+        return {"new": "open", "indeterminate": "in_progress",
+                "done": "closed"}.get(cat, "open")
+    name = (status.get("name") or "").strip().lower()
+    for bd_status, words in STATUS_WORDS.items():
+        if name in words:
+            return bd_status
+    return "open"
+
+
+def cmd_seen(args, root):
+    """`seen --from-json FILE` — the session's half of a pull without a
+    token (phase 45 / MIRROR-04): the card the MCP returned is recorded
+    under .cairn/state.json seen.jira[key], exactly as gbsync pull would
+    have, and the doctor names the divergence. Writes no bead."""
+    try:
+        raw = json.loads(Path(args.from_json).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        die(f"cannot read card JSON {args.from_json}: {exc}")
+    key = str((raw or {}).get("key") or "").strip()
+    if not JIRA_KEY_RE.match(key):
+        die(f"card JSON {args.from_json}: 'key' {key!r} is not a Jira key")
+    ref = REF_PREFIX + key
+    holders = [i["id"] for i in source().issues(root)
+               if str(i.get("external_ref") or "").strip() == ref]
+    path = Path(root) / ".cairn" / "state.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except ValueError:
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    entry = {"bd_id": holders[0] if holders else None,
+             "status": card_status(raw),
+             "title": ((raw.get("fields") or {}).get("summary") or "").strip(),
+             "updated_at": (raw.get("fields") or {}).get("updated"),
+             "at": datetime.datetime.now(datetime.timezone.utc)
+             .strftime("%Y-%m-%dT%H:%M:%SZ")}
+    state.setdefault("seen", {}).setdefault("jira", {})[key] = entry
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    if args.json:
+        print(json.dumps({"key": key, **entry}))
+        sys.exit(EXIT_OK)
+    print(f"[cairn-jira] seen {key}: {entry['status']} "
+          f"({'on ' + entry['bd_id'] if entry['bd_id'] else 'no bead linked'})")
+    sys.exit(EXIT_OK)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="cairn-jira",
@@ -801,7 +862,14 @@ def build_parser():
                          help="drop the queue of this bead (after applying it)")
     pending.set_defaults(func=cmd_pending)
 
-    for p in (detect, apply_, decline, link, unlink, links, pending):
+    seen = sub.add_parser("seen", help="record a card's status under "
+                                       ".cairn/state.json seen.jira, as a "
+                                       "pull would (read only)")
+    seen.add_argument("--from-json", required=True, metavar="FILE",
+                      help="the card as the MCP/REST returned it")
+    seen.set_defaults(func=cmd_seen)
+
+    for p in (detect, apply_, decline, link, unlink, links, pending, seen):
         p.add_argument("--project-dir", metavar="DIR",
                        help="project root the .cairn/ directory hangs off "
                             "(default: $CLAUDE_PROJECT_DIR or cwd)")

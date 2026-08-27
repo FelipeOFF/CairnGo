@@ -497,6 +497,48 @@ def do_pull(base, cfg, since_override, dry_run=False):
                 results.append((btype, "skip", "no mapped items"))
             continue
         watermark = parse_ts(since_override or last_pull.get(btype))
+        if hierarchical(b):
+            # Read only (phase 45 / MIRROR-04): the tracker's status is
+            # RECORDED under state.json.seen and the doctor names the
+            # divergence; nothing here closes, reopens or rewrites a bead,
+            # and nothing is a conflict — the bead is the source.
+            if dry_run:
+                for it in items:
+                    print(f"DRY-RUN: {btype} pull {it['bd_id']} "
+                          f"<- {it['external_id']} (read only: seen)")
+                continue
+            missing = credentials_missing(b.get("config", {}))
+            if missing:
+                results.append((btype, "skip", f"no {'/'.join(missing)} in "
+                                "the shell — in a session, /cairn:sync-pull "
+                                "reads through the MCP and records with "
+                                "cairn-jira.py seen"))
+                continue
+            out, err = run_adapter(adapter, {"action": "pull",
+                                             "config": b.get("config", {}),
+                                             "items": items})
+            if err:
+                results.append((btype, "FAIL", err))
+                continue
+            try:
+                ext_states = json.loads(out) if out else []
+            except json.JSONDecodeError as e:
+                results.append((btype, "FAIL", f"bad adapter JSON: {e}"))
+                continue
+            seen = state.setdefault("seen", {}).setdefault(btype, {})
+            for ext in ext_states:
+                key = ext.get("external_id")
+                if not key:
+                    continue
+                seen[key] = {"bd_id": ext.get("bd_id"),
+                             "status": ext.get("status"),
+                             "title": ext.get("title"),
+                             "updated_at": ext.get("updated_at"),
+                             "at": started}
+            last_pull[btype] = started
+            results.append((btype, "ok", f"seen={len(ext_states)} (read only; "
+                            "the doctor names any divergence)"))
+            continue
         if dry_run:
             wm = watermark.strftime("%Y-%m-%dT%H:%M:%SZ")
             for it in items:

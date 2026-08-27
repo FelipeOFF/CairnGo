@@ -826,3 +826,35 @@ PY
   run jq -r '.action' "$STUB_ADAPTERS_DIR/calls.log"
   [ "$output" = "close" ]
 }
+
+@test "hierarchy: pull records what the tracker shows under state.json seen, and touches no bead" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+  bd update "$HY_MS" --external-ref jira-CHN-9 >/dev/null
+  cat > "$STUB_ADAPTERS_DIR/jira.py" <<'PY'
+#!/usr/bin/env python3
+import json, sys
+event = json.load(sys.stdin)
+assert event["action"] == "pull", event
+print(json.dumps([{"bd_id": it["bd_id"], "external_id": it["external_id"],
+                   "title": "renamed in jira", "body": "rewritten", "status": "closed",
+                   "updated_at": "2099-01-01T00:00:00Z"} for it in event["items"]]))
+PY
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  grep -qF "DRY-RUN: jira pull $HY_MS <- CHN-9 (read only: seen)" <<<"$output"
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "seen=1 (read only" <<<"$output"
+  run jq -r '.seen.jira["CHN-9"].status + " " + .seen.jira["CHN-9"].bd_id' .cairn/state.json
+  [ "$output" = "closed $HY_MS" ]
+  # The bead is the source: still open, still its own title, no conflict.
+  local shown; shown="$(bd show "$HY_MS" --json)"
+  grep -qF '"status": "open"' <<<"$shown"
+  grep -qF 'v1.0 — the cycle' <<<"$shown"
+  [ ! -e .cairn/conflicts.json ]
+}

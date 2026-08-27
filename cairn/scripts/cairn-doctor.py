@@ -1950,6 +1950,32 @@ def check_jira_links(root, issues):
                 items.append(f"epic drift: {jkey}'s parent is {live} now, "
                              f"and {c.get('id')} caches {cached} — re-link "
                              "to refresh the cache")
+    # What the last pull saw (state.json seen.jira, written by gbsync pull
+    # or cairn-jira.py seen): a card Done while its bead is open, or the
+    # reverse, is named — never acted on (MIRROR-04).
+    try:
+        state = json.loads((root / ".cairn" / "state.json")
+                           .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    seen = ((state.get("seen") or {}).get("jira") or {}) \
+        if isinstance(state, dict) else {}
+    by_id = {i.get("id"): i for i in issues}
+    for jkey, ids in sorted(linked.items()):
+        entry = seen.get(jkey) if isinstance(seen, dict) else None
+        if not isinstance(entry, dict) or len(ids) != 1:
+            continue
+        bead = by_id.get(ids[0]) or {}
+        card_closed = entry.get("status") == "closed"
+        bead_closed = bead.get("status") == "closed"
+        if card_closed != bead_closed:
+            warns += 1
+            items.append(f"status divergent: {jkey} is "
+                         f"{'Done' if card_closed else 'open'} in Jira and "
+                         f"{ids[0]} is {'closed' if bead_closed else 'open'} "
+                         f"in bd (seen {entry.get('at') or '?'}) — the bead "
+                         "is the source; close or reopen on the side that is "
+                         "wrong")
     for iss in issues:
         mirror = cairn_source.gsd(iss).get("mirror") or {}
         pending = mirror.get("pending") if isinstance(mirror, dict) else None

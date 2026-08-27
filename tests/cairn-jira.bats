@@ -592,3 +592,24 @@ make_link_fixture() {
   # The ref survived the clear; only the queue went.
   grep -qF '"external_ref": "jira-DTP-143"' <<<"$(bd show "$LNK_PH" --json)"
 }
+
+@test "seen --from-json records the card's status under state.json like a pull would" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+  JIRA link --from-json "$FIX/story.json" --milestone v1.0 >/dev/null
+  cat > "$BATS_TEST_TMPDIR/done.json" <<'JSON'
+{"key": "DTP-142", "fields": {"summary": "Cairn talks to Jira", "status": {"name": "Done", "statusCategory": {"key": "done"}}, "issuetype": {"name": "Story"}}}
+JSON
+
+  run JIRA seen --from-json "$BATS_TEST_TMPDIR/done.json" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.status' 'closed'
+  assert_json_eq "$output" '.bd_id' "$LNK_MS"
+  run jq -r '.seen.jira["DTP-142"].status' .cairn/state.json
+  [ "$output" = "closed" ]
+  # A name alone is enough when the category is missing.
+  run JIRA seen --from-json "$FIX/story-no-epic.json" --json
+  assert_json_eq "$output" '.status' 'in_progress'
+  assert_json_eq "$output" '.bd_id' 'null'
+}

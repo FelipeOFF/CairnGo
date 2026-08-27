@@ -11,6 +11,14 @@
 Flags typed by the user are passed through to the dispatcher — `--since`
 forces a wider time window than the stored watermark (see Flags).
 
+
+> **Hierarchy model (Jira since 4.0):** the pull is **read only** — each
+> linked card's status is recorded under `.cairn/state.json` (`seen`) and
+> `/cairn:doctor`'s `jira-links` names any divergence; no bead is closed,
+> reopened or rewritten. Without a token in the shell the session fetches
+> the cards through the MCP and records them with
+> `cairn-jira.sh seen --from-json <file>`.
+
 ## What it does
 
 Pulls edits made in the external tools (GitHub/GitLab/Jira/Asana/Azure Boards)
