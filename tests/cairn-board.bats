@@ -92,3 +92,33 @@ make_board_repo() {
   [ "$status" -eq 2 ]
   grep -qF "no .beads/" <<<"$output"
 }
+
+@test "the page is the board plus the live blocks and the poller; a held lease shows under now; buttons copy commands" {
+  make_board_repo
+  bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 2 --project-dir "$BOARD_ROOT" >/dev/null
+  run bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  [ "$status" -eq 0 ]
+  local url; url="$(jq -r '.url' <<<"$output")"
+
+  run curl -s "$url"
+  [ "$status" -eq 0 ]
+  grep -qF '<title>cairn: live board</title>' <<<"$output"
+  grep -qF 'id="live-status"' <<<"$output"
+  grep -qF 'id="live-attention"' <<<"$output"
+  grep -qF 'id="live-now"' <<<"$output"
+  grep -qF 'id="live-jira"' <<<"$output"
+  grep -qF 'id="live-commands"' <<<"$output"
+  grep -qF "fetch('/api/status'" <<<"$output"
+  # The board region itself is there — the same renderer as --html.
+  grep -qF 'class="lanes"' <<<"$output"
+  # The held lease is what "now" shows.
+  grep -qF 'phase 2</span>' <<<"$output"
+  # A ready row carries the exact bd command to copy.
+  grep -qF "data-cmd=\"bd update $BD_STANDALONE --claim\"" <<<"$output"
+  # No external resource: no http(s) URL loaded by the page.
+  ! grep -qE '(src|href)="https?://' <<<"$output"
+
+  run curl -s "${url}api/fragment"
+  [ "$status" -eq 0 ]
+  grep -qF 'id="live-now"' <<<"$output"
+}

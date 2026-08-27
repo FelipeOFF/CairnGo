@@ -65,7 +65,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = SCRIPTS_DIR.parent
 CAIRN_STATUS = os.environ.get("CAIRN_STATUS", str(SCRIPTS_DIR / "cairn-status.py"))
 CAIRN_LEASE = os.environ.get("CAIRN_LEASE", str(SCRIPTS_DIR / "cairn-lease.py"))
-TEMPLATE = PLUGIN_ROOT / "templates" / "board-live.html"
+TEMPLATE = PLUGIN_ROOT / "templates" / "status-board.html"
+LIVE_MARK = "<!-- cairn:live:blocks -->"
 BOARD_START = "<!-- cairn:generated:board:start -->"
 BOARD_END = "<!-- cairn:generated:board:end -->"
 CACHE_TTL = float(os.environ.get("CAIRN_BOARD_TTL") or 3.0)
@@ -173,11 +174,289 @@ class Snapshot:
             return self.data, self.fragment, self.error, self.fetched_at
 
 
+# --------------------------------------------------------------------------- #
+# the live blocks — what a snapshot cannot carry (BOARD-03)
+# --------------------------------------------------------------------------- #
+def esc(text):
+    return (str(text or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def run_json(argv, cwd, default):
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              cwd=str(cwd), timeout=60)
+        out = (proc.stdout or "").strip()
+        start = min([i for i in (out.find("["), out.find("{")) if i >= 0] or [-1])
+        if start < 0:
+            return default
+        value = json.loads(out[start:])
+        return value if value is not None else default
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return default
+
+
+def leases_now(root):
+    entries = run_json([sys.executable, CAIRN_LEASE, "status", "--all",
+                        "--json", "--project-dir", str(root)], root, [])
+    if not isinstance(entries, list):
+        return []
+    return [e for e in entries if isinstance(e, dict) and e.get("held")]
+
+
+def open_gates(root):
+    gates = run_json(["bd", "-C", str(root), "gate", "list", "--json"], root, [])
+    if isinstance(gates, dict):
+        gates = gates.get("gates") or []
+    return [g for g in gates if isinstance(g, dict)] if isinstance(gates, list) else []
+
+
+def journal_tail(root, limit=12):
+    """The last `limit` journal records across this checkout AND every
+    worktree of the repo (C-04): each one keeps its own .cairn/journal/, and
+    a phase running in a sibling tree is exactly what "now" has to show."""
+    roots = [root]
+    try:
+        proc = subprocess.run(["git", "-C", str(root), "worktree", "list",
+                               "--porcelain"], capture_output=True, text=True,
+                              timeout=30)
+        for line in (proc.stdout or "").splitlines():
+            if line.startswith("worktree "):
+                path = Path(line[len("worktree "):].strip())
+                if path.resolve() != root.resolve() and path.is_dir():
+                    roots.append(path)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    records = []
+    for base in roots:
+        for f in sorted((base / ".cairn" / "journal").glob("*.jsonl")):
+            try:
+                lines = f.read_text(encoding="utf-8").splitlines()[-limit:]
+            except OSError:
+                continue
+            for line in lines:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(rec, dict) and rec.get("ts"):
+                    rec["_where"] = base.name
+                    records.append(rec)
+    records.sort(key=lambda r: r.get("ts") or "", reverse=True)
+    return records[:limit]
+
+
+def copy_button(cmd):
+    return (f'<button type="button" class="copy" data-cmd="{esc(cmd)}" '
+            f'title="{esc(cmd)}">copy</button>')
+
+
 def live_blocks(root, data):
-    """The live blocks the static board has no way to show (BOARD-03):
-    filled in by phase 48's second wave; the first wave serves the board
-    region alone."""
-    return ""
+    """The four blocks appended after the board region: attention, now,
+    jira, commands. Every button copies a command for the terminal; no
+    endpoint writes (actions are phase 49)."""
+    if not data:
+        return ""
+    ms = data.get("milestone")
+    lanes = {k: data.get(k) or [] for k in ("ready", "doing", "blocked")}
+    out = [LIVE_MARK, '<div class="live">']
+
+    # --- attention -------------------------------------------------------
+    rows = []
+    for g in open_gates(root):
+        gid = g.get("id") or "?"
+        what = f"{g.get('type') or 'gate'} gate {gid}"
+        blocks = g.get("blocks") or g.get("blocked") or ""
+        reason = g.get("reason") or g.get("title") or ""
+        rows.append(f'<li><span class="live-k">{esc(what)}</span> '
+                    f'<span class="live-v">{esc(reason)}'
+                    f'{" · blocks " + esc(blocks) if blocks else ""}</span> '
+                    f'{copy_button("bd gate check --type=" + str(g.get("type") or "gh:run"))} '
+                    f'{copy_button("bd gate resolve " + str(gid) + " -r \"\"")}</li>')
+    if lanes["blocked"]:
+        ids = ", ".join(str(i.get("id")) for i in lanes["blocked"][:6])
+        rows.append(f'<li><span class="live-k">{len(lanes["blocked"])} blocked</span> '
+                    f'<span class="live-v">{esc(ids)}</span></li>')
+    nxt = data.get("next") or {}
+    if nxt.get("text"):
+        cmd = nxt.get("command") or (f"bd update {nxt.get('id')} --claim"
+                                     if nxt.get("id") else "")
+        rows.append(f'<li><span class="live-k is-next">next</span> '
+                    f'<span class="live-v">{esc(nxt["text"])}</span> '
+                    f'{copy_button(cmd) if cmd else ""}</li>')
+    out.append('<section class="live-block" id="live-attention"><h2 class="panel-h">attention</h2>'
+               + (f'<ul>{"".join(rows)}</ul>' if rows
+                  else '<p class="live-empty">nothing waits on you.</p>')
+               + '</section>')
+
+    # --- now -------------------------------------------------------------
+    rows = []
+    for e in leases_now(root):
+        who = (f"phase {e.get('phase')}" if e.get("phase") is not None
+               else f"bead {e.get('bead')}")
+        stale = " (stale)" if e.get("stale") else ""
+        rows.append(f'<li><span class="live-k">{esc(who)}{stale}</span> '
+                    f'<span class="live-v">{esc(e.get("holder") or "")} since '
+                    f'{esc((e.get("acquired_at") or "")[:19])}</span></li>')
+    journal = journal_tail(root)
+    jrows = []
+    for r in journal:
+        ev = r.get("event") or ""
+        detail = ""
+        if ev == "state_changed":
+            detail = f"{r.get('source')}: {r.get('from')} → {r.get('to')}"
+        elif ev == "verdict_changed":
+            detail = f"{r.get('from')} → {r.get('to')}"
+        elif ev == "lease_changed":
+            detail = f"{r.get('action') or ''} {r.get('holder') or ''}".strip()
+        jrows.append(f'<li><span class="live-t">{esc((r.get("ts") or "")[11:19])}</span> '
+                    f'<span class="live-k">phase {esc(r.get("phase"))}</span> '
+                    f'<span class="live-v">{esc(ev)} {esc(detail)} '
+                    f'<span class="live-dim">{esc(r.get("_where"))}</span></span></li>')
+    out.append('<section class="live-block" id="live-now"><h2 class="panel-h">now</h2>'
+               + (f'<ul>{"".join(rows)}</ul>' if rows
+                  else '<p class="live-empty">no lease held.</p>')
+               + (f'<h3>journal</h3><ul class="live-journal">{"".join(jrows)}</ul>'
+                  if jrows else '')
+               + '</section>')
+
+    # --- jira ------------------------------------------------------------
+    jira = data.get("jira") or {}
+    carrier = data.get("milestone_carrier") or {}
+    rows = []
+    if ms:
+        story = (jira.get("milestone") or {}).get("story")
+        epic = (jira.get("milestone") or {}).get("epic")
+        rows.append(f'<li><span class="live-k">m-{esc(ms)}</span> '
+                    f'<span class="live-v">{esc(carrier.get("name") or "")}'
+                    f'{" ⧉ " + esc(story) if story else " (no story linked)"}'
+                    f'{" · epic " + esc(epic) if epic else ""}</span></li>')
+        for n, key in sorted((jira.get("phases") or {}).items(),
+                             key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 0):
+            rows.append(f'<li><span class="live-k">phase {esc(n)}</span> '
+                        f'<span class="live-v">⧉ {esc(key)}</span></li>')
+    out.append('<section class="live-block" id="live-jira"><h2 class="panel-h">jira</h2>'
+               + (f'<ul>{"".join(rows)}</ul>' if rows
+                  else '<p class="live-empty">no open cycle.</p>')
+               + '</section>')
+
+    # --- commands --------------------------------------------------------
+    rows = []
+    for i in lanes["ready"][:12]:
+        rows.append(f'<li><span class="live-k">{esc(i.get("id"))}</span> '
+                    f'<span class="live-v">{esc(i.get("title"))}</span> '
+                    f'{copy_button("bd update " + str(i.get("id")) + " --claim")}</li>')
+    for i in lanes["doing"][:12]:
+        rows.append(f'<li><span class="live-k">{esc(i.get("id"))}</span> '
+                    f'<span class="live-v">{esc(i.get("title"))}</span> '
+                    f'{copy_button("bd close " + str(i.get("id")) + " --reason=\"\"")}</li>')
+    out.append('<section class="live-block" id="live-commands"><h2 class="panel-h">commands</h2>'
+               + (f'<ul>{"".join(rows)}</ul>' if rows
+                  else '<p class="live-empty">nothing to claim or close.</p>')
+               + '</section>')
+    out.append('</div>')
+    return "\n".join(out)
+
+
+LIVE_CSS = """
+<style>
+/* the live blocks — data in mono where it is data, tone over decoration */
+.live { display: grid; gap: clamp(20px, 3vw, 36px); margin-top: clamp(28px, 4vw, 48px); }
+@media (min-width: 900px) { .live { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.live-block > .panel-h { margin: 0 0 10px; }
+.live-block h3 { font: 400 var(--t-xs)/1.2 var(--sans); color: var(--bone-dim); margin: 18px 0 6px; }
+.live-block ul { list-style: none; margin: 0; padding: 0; }
+.live-block li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--bone) 12%, transparent); }
+.live-block li:first-child { border-top: 0; }
+.live-k { font: 400 var(--t-s)/1.4 var(--mono); color: var(--bone); white-space: nowrap; }
+.live-k.is-next { color: var(--amber); }
+.live-t { font: 400 var(--t-xs)/1.4 var(--mono); color: var(--bone-dim); }
+.live-v { font: 400 var(--t-s)/1.4 var(--sans); color: var(--bone); flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.live-dim { color: var(--bone-dim); }
+.live-empty { font: 400 var(--t-s)/1.4 var(--sans); color: var(--bone-dim); margin: 0; }
+.live-journal li { padding: 4px 0; border-top: 0; }
+.copy { font: 400 var(--t-xs)/1 var(--mono); color: var(--bone); background: color-mix(in srgb, var(--bone) 10%, transparent); border: 1px solid color-mix(in srgb, var(--bone) 18%, transparent); border-radius: 4px; padding: 5px 9px; cursor: pointer; margin-left: auto; }
+.copy:hover, .copy:focus-visible { background: color-mix(in srgb, var(--bone) 18%, transparent); outline: none; }
+.copy.is-done { color: var(--lichen); border-color: color-mix(in srgb, var(--lichen) 60%, transparent); }
+.live-status { font: 400 var(--t-xs)/1.4 var(--mono); color: var(--bone-dim); max-width: var(--measure); margin: 0 auto; padding: 18px var(--pad) 0; }
+.live-status.is-off { color: var(--oxide); }
+</style>
+"""
+
+LIVE_JS = """
+<script>
+(function () {
+  var main = document.querySelector('main.sheet');
+  var status = document.getElementById('live-status');
+  var lastSig = null, lastChange = Date.now(), timer = null, due = 0, inflight = false;
+  function sig(d) {
+    var ids = function (xs) { return (xs || []).map(function (i) { return i.id + ':' + (i.assignee || ''); }).join(','); };
+    return JSON.stringify([d.counts, ids(d.ready), ids(d.doing), ids(d.blocked),
+      d.lease && d.lease.held, d.phase && d.phase.active, d.next && d.next.text, d.jira]);
+  }
+  function cadence(d) {
+    var active = (d.lease && d.lease.held && !d.lease.stale) || (d.counts && d.counts.doing > 0);
+    if (active) return 5000;
+    return (Date.now() - lastChange > 5 * 60 * 1000) ? 30000 : 15000;
+  }
+  function clock() {
+    if (!status || status.classList.contains('is-off') || !due) return;
+    var s = Math.max(0, Math.round((due - Date.now()) / 1000));
+    status.textContent = 'observed ' + status.dataset.at + ' · next in ' + s + 's';
+  }
+  function schedule(ms) {
+    clearTimeout(timer); due = Date.now() + ms;
+    timer = setTimeout(poll, ms);
+  }
+  function poll() {
+    if (document.visibilityState !== 'visible' || inflight) return;
+    inflight = true;
+    fetch('/api/status', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      inflight = false;
+      var s = sig(d);
+      if (status) { status.dataset.at = new Date().toTimeString().slice(0, 8); status.classList.remove('is-off'); }
+      if (s !== lastSig) {
+        lastChange = Date.now();
+        if (lastSig !== null) {
+          fetch('/api/fragment', { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (html) {
+            main.innerHTML = html; wire();
+          });
+        }
+        lastSig = s;
+      }
+      schedule(cadence(d));
+    }).catch(function () {
+      inflight = false;
+      if (status) { status.textContent = 'board unreachable — cairn-board.sh start'; status.classList.add('is-off'); }
+      schedule(15000);
+    });
+  }
+  function copyText(text, btn) {
+    var done = function () { btn.textContent = 'copied'; btn.classList.add('is-done');
+      setTimeout(function () { btn.textContent = 'copy'; btn.classList.remove('is-done'); }, 1400); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallback(text); done(); });
+    } else { fallback(text); done(); }
+  }
+  function fallback(text) {
+    var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta);
+    ta.select(); try { document.execCommand('copy'); } catch (e) {} document.body.removeChild(ta);
+  }
+  function wire() {
+    main.querySelectorAll('button.copy').forEach(function (b) {
+      b.addEventListener('click', function () { copyText(b.dataset.cmd, b); });
+    });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') poll();
+  });
+  wire();
+  setInterval(clock, 1000);
+  poll();
+})();
+</script>
+"""
 
 
 # --------------------------------------------------------------------------- #
@@ -208,6 +487,11 @@ def make_handler(root, snapshot):
             path = self.path.split("?", 1)[0]
             if path == "/healthz":
                 return self.send(200, "ok\n")
+            if path == "/favicon.ico":
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             data, fragment, error, fetched_at = snapshot.current()
             stamp = datetime.fromtimestamp(fetched_at, timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ") if fetched_at else None
@@ -235,19 +519,30 @@ def make_handler(root, snapshot):
 
 
 def render_page(root, snapshot):
-    """The page: the live template when it ships (wave 02), else the
-    static render itself — the same board, without the poller."""
+    """The page: status-board.html itself (one renderer, one CSS), its
+    generated region filled with the fragment plus the live blocks, the
+    live CSS added to the head, the status line and the poller added to
+    the body. The static --html file and this page share every byte of
+    board markup; only the script differs."""
     data, fragment, error, fetched_at = snapshot.current()
-    if TEMPLATE.is_file():
-        page = TEMPLATE.read_text(encoding="utf-8")
-        body = fragment + live_blocks(root, data) if data is not None else \
-            f"<p class=\"placeholder\">{error}</p>"
-        return page.replace("<!-- cairn:board:fragment -->", body)
-    cached = snapshot.cache_dir / "board.html"
     try:
-        return cached.read_text(encoding="utf-8")
+        page = TEMPLATE.read_text(encoding="utf-8")
     except OSError:
-        return f"<p>{error or 'no board yet'}</p>"
+        return f"<p>{error or 'board template missing'}</p>"
+    body = (fragment + live_blocks(root, data) if data is not None
+            else f'<p class="placeholder">{esc(error)}</p>')
+    start, end = page.find(BOARD_START), page.find(BOARD_END)
+    if start >= 0 and end > start:
+        page = page[:start + len(BOARD_START)] + "\n" + body + "\n" + page[end:]
+    stamp = datetime.fromtimestamp(fetched_at).strftime("%H:%M:%S") if fetched_at else "--:--:--"
+    status_line = (f'<p class="live-status" id="live-status" data-at="{stamp}">'
+                   f'observed {stamp}</p>')
+    page = page.replace("<title>cairn: status board</title>",
+                        "<title>cairn: live board</title>", 1)
+    page = page.replace("</head>", LIVE_CSS + "</head>", 1)
+    page = page.replace('<main class="sheet">', status_line + '\n<main class="sheet">', 1)
+    page = page.replace("</body>", LIVE_JS + "</body>", 1)
+    return page
 
 
 def cmd_serve(args, root):
