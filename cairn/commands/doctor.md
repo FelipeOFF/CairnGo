@@ -145,6 +145,16 @@ An id the report prints and the table does not carry is a gap in the **table**
 — say so plainly and route the user to the check's own name, rather than
 inventing a remedy for a check you cannot read.
 
+Two `jira-links` items need a session, and this is the session. An item
+saying **existence … not checked** means the script had no token and no
+`CAIRN_JIRA_FETCH` to ask with: load the Atlassian MCP per `/cairn:jira`
+and fetch each linked key yourself (`getJiraIssue`), then report which exist
+— the script said `skipped`, and only a session can close that gap. A
+**duplicate** item names two beads sharing one card: put the pair to the user
+(`AskUserQuestion`) with each bead's title, ask which one the card is really
+about, and offer to create another card for the other through
+`/cairn:jira link` — never unlink one of them on your own.
+
 Re-run the doctor after the fixes. A clean re-run is an `ok` footer with no
 `⊘ no-input` line — not merely exit `0`, which an INCOMPLETE run also
 returns.

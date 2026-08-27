@@ -160,6 +160,20 @@ this routine health-check flow — see its own section below.
      carrier is a 4.0 contract, and a cycle opened under 3.x gets one release
      to catch up). **Two or more** → one cycle, one bead: close or relabel the
      extra, then re-run. Closed cycles are history and are never asked.
+   - **jira-links** (⊘ out-of-scope; ⚠; ✗) — `⊘` until `.cairn/sync.json`
+     enables a `jira` backend (`/cairn:sync-config`); that is not a clean
+     bill, it is "nothing to compare". With a backend: **gap** (⚠) — an open
+     cycle's milestone carrier or an open phase's carrier with no
+     `external_ref` → `/cairn:jira link --milestone vX.Y` / `--phase N`;
+     **duplicate** (✗) — two beads share one `jira-<KEY>` → `/cairn:jira`
+     asks which bead the card is about and offers another card for the
+     other; **absent** (✗) — a linked key the tracker does not know, asked
+     through `CAIRN_JIRA_FETCH` or REST with the backend's token env vars →
+     fix the key (`unlink`, then `link` the right card); **epic drift** (⚠) —
+     the story's live parent is not the cached epic → re-link to refresh the
+     cache. An **existence … not checked** item means neither road was open;
+     in a session `/cairn:jira audit` asks the MCP instead. The check never
+     writes.
    - **claims-stale** (⚠; ⊘ when it has no input) — in_progress + assigned
      issues outside the active
      phase → finish and close, release the claim, or correct `active_phase:`

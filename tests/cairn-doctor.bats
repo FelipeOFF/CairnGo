@@ -160,7 +160,7 @@ wire_capability_ok() {
   # once. The four sites were edited in one change, from the branch that owns
   # cairn-doctor.py; the other branch never touches it, so there is one
   # writer and no merge to be silent about.
-  assert_json_eq "$output" '.checks | length' '25'
+  assert_json_eq "$output" '.checks | length' '26'
   # The exact ordered set, not "unique == ok": after 23-02 this fixture has
   # two ⊘ checks (cairn's own manifests are absent by construction), and an
   # assertion that merely tolerated extra values would stop proving anything.
@@ -3241,7 +3241,7 @@ PY
   # assertion near the top of this file for why the merge, and not either
   # branch, is what made this literal wrong once, and why BOTH sites are
   # edited in one change.
-  assert_json_eq "$output" '.checks | length' '25'
+  assert_json_eq "$output" '.checks | length' '26'
   assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
     'true'
 }
@@ -4265,4 +4265,129 @@ PY
   grep -qF "$DOC_MS" <<<"$output"
   grep -qF "$twin" <<<"$output"
   assert_json_eq "$output" '.failed' 'true'
+}
+
+# --------------------------------------------------------------------------- #
+# jira-links — the cycle's links, audited off the beads (phase 44 / LINK-05)
+# --------------------------------------------------------------------------- #
+
+# An enabled jira backend, the shape /cairn:sync-config writes. Names of env
+# vars only, never a value.
+make_jira_backend() {
+  mkdir -p .cairn
+  cat > .cairn/sync.json <<'JSON'
+{"backends": [{"type": "jira", "enabled": true, "adapter": "jira",
+  "config": {"base_url": "https://example.atlassian.net", "project_key": "DTP",
+             "email_env": "DOC_JIRA_EMAIL", "token_env": "DOC_JIRA_TOKEN"}}]}
+JSON
+}
+
+# A canned tracker on the CAIRN_JIRA_FETCH seam: DTP-142 is a story under
+# epic DTP-100, DTP-143 a sub-task; every other key is absent (exit 1).
+make_jira_fetch_stub() {
+  JIRA_FETCH="$BATS_TEST_TMPDIR/jira-fetch.sh"
+  cat > "$JIRA_FETCH" <<'SH'
+#!/usr/bin/env bash
+case "${@: -1}" in
+  DTP-142) echo '{"key":"DTP-142","fields":{"summary":"the story","issuetype":{"name":"Story"},"parent":{"key":"DTP-100","fields":{"issuetype":{"name":"Epic"}}}}}' ;;
+  DTP-143) echo '{"key":"DTP-143","fields":{"summary":"the sub-task","issuetype":{"name":"Sub-task","subtask":true},"parent":{"key":"DTP-142"}}}' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$JIRA_FETCH"
+}
+
+@test "jira-links: without a jira backend the check is out-of-scope, and the run stays ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .status' 'not-applicable'
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .scope' 'out-of-scope'
+  assert_json_eq "$output" '.ok' 'true'
+}
+
+@test "jira-links: unlinked open carriers are gaps (warn), and a skipped existence check is said" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  make_jira_backend
+  local ph2
+  ph2="$(bd create "Phase 2 carrier" -t task -l phase-2,m-v1.0 --silent)"
+  bd update "$ph2" --external-ref jira-DTP-143 >/dev/null
+
+  beads_export_refresh
+  # No CAIRN_JIRA_FETCH and no token in the shell: existence cannot be asked.
+  run env -u CAIRN_JIRA_FETCH -u DOC_JIRA_EMAIL -u DOC_JIRA_TOKEN \
+    bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .status' 'warn'
+  # Items are read back through jq: --json escapes the em dash (\u2014), so
+  # a literal grep over the raw output would miss its own sentence.
+  local items; items="$(jq -r '.checks[] | select(.id=="jira-links") | .items[]' <<<"$output")"
+  grep -qF "gap: m-v1.0 ($DOC_MS) has no jira link — /cairn:jira link --milestone v1.0 (a Story)" <<<"$items"
+  grep -qF "existence of 1 linked key(s) not checked — skipped: no token in the shell (DOC_JIRA_EMAIL / DOC_JIRA_TOKEN)" <<<"$items"
+  # Phase 1 is complete: its carrier-less state is never a gap.
+  ! grep -qF "phase 1 (" <<<"$items"
+}
+
+@test "jira-links: a duplicate key fails, an absent key fails, epic drift warns — via the fetch seam" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  make_jira_backend
+  make_jira_fetch_stub
+  bd update "$DOC_MS" --external-ref jira-DTP-142 \
+    --metadata '{"gsd":{"jira":{"story":"DTP-142","epic":"DTP-999"}}}' >/dev/null
+  local ph2 twin
+  ph2="$(bd create "Phase 2 carrier" -t task -l phase-2,m-v1.0 \
+    --external-ref jira-DTP-777 --silent)"
+
+  beads_export_refresh
+  run env CAIRN_JIRA_FETCH="$JIRA_FETCH" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .status' 'fail'
+  local items; items="$(jq -r '.checks[] | select(.id=="jira-links") | .items[]' <<<"$output")"
+  grep -qF "absent: DTP-777 (on $ph2) does not exist in the tracker (asked via seam)" <<<"$items"
+  grep -qF "epic drift: DTP-142's parent is DTP-100 now, and $DOC_MS caches DTP-999" <<<"$items"
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .detail' \
+    '2 linked key(s), 2 open carrier(s), 2 existence check(s)'
+
+  # One card, two beads.
+  twin="$(bd create "Another bead claiming the story" -t task -l backlog \
+    --external-ref jira-DTP-142 --silent)"
+  beads_export_refresh
+  run env CAIRN_JIRA_FETCH="$JIRA_FETCH" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  local dup; dup="$(jq -r '.checks[] | select(.id=="jira-links") | .items[] | select(startswith("duplicate: DTP-142"))' <<<"$output")"
+  grep -qF "$DOC_MS" <<<"$dup"
+  grep -qF "$twin" <<<"$dup"
+}
+
+@test "jira-links: a fully linked, existing, undrifted cycle is ok" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  make_jira_backend
+  make_jira_fetch_stub
+  bd update "$DOC_MS" --external-ref jira-DTP-142 \
+    --metadata '{"gsd":{"jira":{"story":"DTP-142","epic":"DTP-100"}}}' >/dev/null
+  bd create "Phase 2 carrier" -t task -l phase-2,m-v1.0 --external-ref jira-DTP-143 --silent >/dev/null
+
+  beads_export_refresh
+  run env CAIRN_JIRA_FETCH="$JIRA_FETCH" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .items | length' '0'
 }
