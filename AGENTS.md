@@ -138,7 +138,9 @@ capability.
 A regra, então:
 
 1. **Sempre exista uma PR aberta para o trabalho corrente** — a da fase contra
-   a branch de milestone, ou a de milestone contra `main`. Todo push nela
+   a branch de milestone (`/cairn:implement <N>` abre essa PR como draft, a
+   partir da branch em que você está, quando `ship.pr_scope=phase`), ou a de
+   milestone (`feat/vX.Y/<slug>`) contra `master`. Todo push nela
    dispara a suíte.
 2. **Todo push prende o bead seguinte a um gate `gh:run`.** A espera pela CI é
    estado rastreado, não disciplina de memória: com o gate aberto, o bead

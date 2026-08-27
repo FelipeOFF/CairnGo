@@ -7,6 +7,31 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Upgrading
+
+O ciclo v4.0 muda dois contratos, e por isso é um major:
+
+- **O push para o Jira passa a ser hierárquico e só de carriers.** Um backend
+  `jira` escrito por `/cairn:sync-config` nasce com `"model": "hierarchy"`:
+  o carrier do ciclo sobe como Story (sob o epic cacheado), cada carrier de
+  phase como Sub-task sob a story, e requisitos, plan records, quick e lease
+  nunca sobem. `gbsync import` recusa em favor de `/cairn:jira link`. Um
+  `sync.json` escrito à mão sem a chave `model` mantém o espelho plano de
+  antes; os demais backends (github, gitlab, asana, azure-boards) seguem como
+  estavam. O vínculo vive no `external_ref` do bead (`jira-<KEY>`);
+  `.cairn/id-map.json` vira cache derivado (`gbsync refresh-map`).
+- **Todo ciclo aberto tem um carrier de milestone.** Um bead com o label
+  `milestone` + `m-vX.Y`, sem `phase-N`, criado por `/cairn:milestone new`.
+  O doctor avisa (⚠ nesta linha; ✗ a partir da 4.1) quando um ciclo aberto
+  não tem um — quem fez upgrade com ciclo aberto roda o `bd create` que o
+  finding imprime. `/cairn:milestone complete` fecha o ciclo pelo
+  `cairn-bookkeep.sh milestone --release X.Y.Z`, renomeando o label quando a
+  versão final diverge (`cairn-relabel rename`).
+
+Também nesta linha: os comandos de planejamento não escrevem mais markdown
+(o registro é o bead, via `cairn-record`), e `/cairn:implement <N>` entrega
+uma phase como uma PR.
+
 ## [3.2.1] - 2026-08-15
 
 O doctor volta a auditar o repositório que o cairn existe para servir.
