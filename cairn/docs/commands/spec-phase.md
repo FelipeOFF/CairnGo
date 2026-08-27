@@ -1,54 +1,39 @@
 # /cairn:spec-phase
 
-> Clarify WHAT a phase delivers, with ambiguity scoring — GSD spec-phase,
-> and every requirement the SPEC names gets a stamped issue
+> Clarify WHAT a phase delivers, with ambiguity scoring — the SPEC recorded on the phase carrier, and every requirement it names a stamped issue
 
 ## Usage
 
 ```text
-/cairn:spec-phase <phase> [--auto] [--text]
+/cairn:spec-phase <phase> [--auto]
 ```
-
-The bare phase number drives labels and the map; `--auto` and `--text` go only
-to `/gsd:spec-phase`.
-
-## Why this wrapper exists
-
-A SPEC gives the phase a **requirements surface**, and in cairn a requirement
-without an issue is untracked work. The SPEC's requirements arrive as bd issues
-carrying the label pair and the stamp, in the same run that produced them.
 
 ## What it does
 
-1. **Preflight** — `cairn-wrap.sh preflight spec-phase`. Exit `6` or `5` stops
-   the command and prints the script's message verbatim.
-2. **Claims** the phase's existing ids before rewriting the shape of them.
-3. **Runs `/gsd:spec-phase`.**
-4. **Turns every new requirement into an issue**, labelled
-   `m-<milestone>,phase-<N>` (unpadded — `phase-3`, never `phase-03`) with
-   `metadata.gsd.req` set. That stamp is what `cairn-map` keys the requirement
-   table on; without it the issue lands in the map's gap list instead of a row.
-5. **A requirement the SPEC drops** is closed with a reason, or released and
-   left open when merely deferred. Never deleted.
-6. **Refreshes and checks the map** — its requirement-gap list is the proof
-   that step 4 was complete, rather than an assumption.
+1. Split `$ARGUMENTS`
+2. Read what is tracked
+3. Write the SPEC and record it
+4. Turn the SPEC's requirements into issues
+5. Refresh and check the map
 
-Next: [/cairn:discuss-phase N](./discuss-phase.md), then [/cairn:plan N](./plan.md).
+## The record
 
-## Exit codes
+Nothing this command produces is a file. It records through one boundary,
+`cairn-record.sh spec --phase <N>` (body on stdin), and the record lands on
+the phase carrier — `design`, section `## SPEC` (context stays). A `.planning/` directory, when present,
+is a GSD project waiting to be imported, never a place this command writes;
+`/cairn:doctor`'s `planning-writes` check names any document written there
+after the import.
 
-| Source | Code | Meaning |
-| --- | --- | --- |
-| `cairn-wrap preflight` | `0` / `5` / `6` | installed / could not look / not there |
-| `cairn-map` | `3` | map is stale (`--check`) |
-| | `5` | `bd` unavailable — degrade, do not block |
+Read it back:
 
-## Files it touches
+```bash
+bd show <carrier> --json | jq -r '.description, .design, .acceptance_criteria, .notes'
+bd list --parent <carrier> --json          # the plan records
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
+```
 
-- `.planning/phases/*/NN-SPEC.md` — via `/gsd:spec-phase`
-- `.planning/phases/*/NN-BEADS-MAP.md` — regenerated
-- bd issues — claimed, created, closed or released
+## Related
 
-## See also
-
-- [Command reference](../commands.md) · [gsd-core commands](../gsd-core-commands.md)
+- [`/cairn:discuss-phase`](discuss-phase.md) — what comes next
+- [`/cairn:doctor`](doctor.md) — `planning-writes`, the guard on the old habit

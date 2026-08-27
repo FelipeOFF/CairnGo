@@ -198,6 +198,12 @@ and "something never ran" are different questions and get different keys.
                     when neither can ask; a story whose parent is not the
                     cached epic -> warn (epic drift). Writes nothing.
 
+7d. planning-writes (RECORD-03, phase 46) a markdown file NEW or MODIFIED
+                    under .planning/phases/ in a repo that has .beads/ —
+                    a document written where the bead is the source. Warn,
+                    naming the cairn-record kind that replaces it; ⊘
+                    out-of-scope with no .planning/phases/ at all.
+
 7b. milestone-carrier  (CARRY-02, phase 43) every OPEN cycle — an m-*
                     label with at least one non-closed issue — has exactly
                     one milestone carrier (label `milestone` + m-*, no
@@ -1997,6 +2003,82 @@ def check_jira_links(root, issues):
               + (", existence skipped" if skipped else ""))
     return {"id": "jira-links", "status": status, "detail": detail,
             "items": items}
+
+
+def check_planning_writes(root, planning_dir):
+    """Check 7d, id "planning-writes" (RECORD-03, phase 46) — a document
+    written where the bead is the source.
+
+    In a repo that has `.beads/`, `.planning/phases/` is import material
+    and history; every planning command records on beads through
+    cairn-record. A file under it that git sees as NEW or MODIFIED in the
+    working tree is therefore something written after the fact — a session
+    that followed an old habit, or an old prompt — and the finding names the
+    record that should have been made instead. Out of scope when there is
+    no `.planning/phases/` at all; not a mtime comparison, because no import
+    date is recorded and git already says what was born since the last
+    commit. Never fails: the file is a symptom, and the cure is one
+    cairn-record call and a `git rm`.
+    """
+    phases_dir = planning_dir / "phases"
+    tracked = []
+    if phases_dir.is_dir():
+        try:
+            proc = subprocess.run(["git", "-C", str(root), "ls-files", "--",
+                                   str(phases_dir)],
+                                  capture_output=True, text=True, timeout=30)
+            tracked = (proc.stdout or "").split() if proc.returncode == 0 else []
+        except (OSError, subprocess.SubprocessError):
+            tracked = []
+    if not tracked:
+        # Either no directory, or one git never recorded: a GSD project
+        # still being imported, not history somebody wrote over. The
+        # gsd-unmigrated check owns that case.
+        return {"id": "planning-writes", "status": NOT_APPLICABLE,
+                "scope": NA_OUT_OF_SCOPE,
+                "detail": "out of scope — .planning/phases/ is not tracked "
+                          "history here (nothing imported to guard; the "
+                          "record is the bead)",
+                "items": []}
+    try:
+        proc = subprocess.run(["git", "-C", str(root), "status",
+                               "--porcelain", "--untracked-files=all", "--",
+                               str(phases_dir)],
+                              capture_output=True, text=True, timeout=30)
+        lines = (proc.stdout or "").splitlines() if proc.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError):
+        lines = []
+    KINDS = {"SPEC": "spec", "CONTEXT": "context", "RESEARCH": "research",
+             "PATTERNS": "patterns", "UI-SPEC": "ui-spec", "AI-SPEC": "ai-spec",
+             "PLAN": "plan --plan NN", "SUMMARY": "summary --plan NN",
+             "VERIFICATION": "verification", "VALIDATION": "verification",
+             "SECURITY": "review", "REVIEW": "review"}
+    items = []
+    for line in lines:
+        path = line[3:].strip()
+        if not path.endswith(".md"):
+            continue
+        state = "new" if line[:2].strip() in ("??", "A") else "modified"
+        stem = pathlib_name(path)
+        kind = next((v for k, v in KINDS.items() if stem.upper().endswith(k)),
+                    None)
+        m = re.search(r"phases/0*(\d+)", path)
+        phase = m.group(1) if m else "<N>"
+        cure = (f"cairn-record.sh {kind} --phase {phase}" if kind
+                else "the matching cairn-record.sh kind")
+        items.append(f"{path} is {state} — a document written where the "
+                     f"bead is the source; record it with {cure} and git rm "
+                     "the file")
+    return {"id": "planning-writes", "status": "warn" if items else "ok",
+            "detail": (f"{len(items)} document(s) written under "
+                       ".planning/phases/ since the last commit" if items
+                       else ".planning/phases/ untouched since the last "
+                            "commit — the record is the bead"),
+            "items": items}
+
+
+def pathlib_name(path):
+    return path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
 
 def check_claims_stale(issues, milestone, active_phase):
@@ -4662,6 +4744,7 @@ def main():
         check_label_pairs(issues, milestone, fixed, fix_error),
         check_milestone_carrier(issues),
         check_jira_links(root, issues),
+        check_planning_writes(root, planning_dir),
         check_claims_stale(issues, milestone, active_phase),
         check_bd_doctor(root),
         check_gsd_capability(root),

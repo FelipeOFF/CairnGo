@@ -1,94 +1,40 @@
 # /cairn:work
 
-> Execute a phase — claim its beads, run GSD execute-phase, close on success
+> Execute a phase — claim each plan record's beads, do the work, close the record with its summary and the beads with their reason
 
 ## Usage
 
 ```text
-/cairn:work <phase-number> [--wave N] [--gaps-only] [--tdd]
+/cairn:work <phase-number> [--wave N] [--tdd]
 ```
-
-The phase number is required; anything after it is passed through to
-`/gsd:execute-phase` (see Flags). Only the bare phase number reaches claims,
-labels, and `cairn-map`. Labels use the **unpadded** phase number
-(`phase-3`, never `phase-03`) — any leading zero is stripped from the
-argument before building the label.
 
 ## What it does
 
-1. **Claim before starting.** For each plan in the phase, before it starts:
-   every id in that plan's `beads:` frontmatter gets
-   `bd update <id> --claim`. `--claim` atomically assigns the issue to you
-   **and** sets its status to `in_progress` in one call (no separate
-   `--status` needed; idempotent if the issue is already yours).
-2. **Run `/gsd:execute-phase <N>` plus any passthrough flags** — the normal
-   GSD execution flow.
-3. **Close on verified success.** On a plan's successful completion **and**
-   verification, its ids are closed:
-   `bd close <id> --reason="<1–2 sentence summary>"`. Never at the end of raw
-   execution — only after the work is verified.
-4. **Done check.** When the milestone is known (ROADMAP.md's current
-   milestone header, or STATE.md), the list is scoped with the label pair:
-   `bd list -l m-<milestone>,phase-<N> --status open` — it should be empty
-   when the phase is complete; anything still open is reported.
-5. **Refresh the map** so it reflects the closes:
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
-   ```
+1. Acquire this phase's coordination lease before anything else
+2. Read the plan off the beads
+3. For each open plan record, in order — before starting it
+4. Do the wave
+5. Done check
+6. Refresh the phase's map
 
-Next: [/cairn:verify N](./verify.md) or [/cairn:ship](./ship.md).
+## The record
 
-### Side effects
+Nothing this command produces is a file. It records through one boundary,
+`cairn-record.sh summary --phase <N>` (body on stdin), and the record lands on
+the phase carrier — the plan record's `notes`; the record is closed (the bead count does not rise). A `.planning/` directory, when present,
+is a GSD project waiting to be imported, never a place this command writes;
+`/cairn:doctor`'s `planning-writes` check names any document written there
+after the import.
 
-- bd claims (`--claim`) at plan start; bd closes with a `--reason` after
-  verified success. Both are bd writes, so the plugin's PostToolUse hook
-  fires on each (mirror push when sync is configured + phase-map refresh).
-- `NN-BEADS-MAP.md` refreshed at the end.
-- The plugin's **Stop hook** warns about issues still `in_progress` and
-  assigned to the current actor at session end — a claim left dangling is
-  surfaced, not lost.
-- With the capability installed, plain `/gsd:execute-phase` performs the same
-  claim (`execute:wave:pre`) and close (`execute:wave:post`) by itself — the
-  duplicated side effect is expected and idempotent.
-- No commits are made by the command itself (GSD's execute flow owns its own
-  commit behavior).
+Read it back:
 
-## Flags & arguments
-
-| Argument / flag | Meaning |
-|---|---|
-| `<phase-number>` | required positional — the phase to execute; the only part claims, labels, and `cairn-map.sh` see |
-| `--wave N` | passed through to `/gsd:execute-phase` |
-| `--gaps-only` | passed through to `/gsd:execute-phase` |
-| `--interactive` | passed through to `/gsd:execute-phase` |
-| `--tdd` | passed through to `/gsd:execute-phase` |
-
-## Examples
-
-```text
-/cairn:work 3
-→ plan 03-01: bd update app-12 --claim (assigned + in_progress)
-→ /gsd:execute-phase 3 … plan 03-01 complete + verified
-→ bd close app-12 --reason="JWT auth middleware landed with tests"
-→ done check: bd list -l m-v1.0,phase-3 --status open → empty
-→ cairn-map.sh 3 refreshed · next: /cairn:verify 3
+```bash
+bd show <carrier> --json | jq -r '.description, .design, .acceptance_criteria, .notes'
+bd list --parent <carrier> --json          # the plan records
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
 ```
-
-```text
-/cairn:work 03       # leading zero in the argument
-→ labels built as phase-3 (unpadded) — phase-03 would match nothing
-```
-
-## Files touched
-
-- **Reads:** `PLAN.md` `beads:` frontmatter, ROADMAP.md / STATE.md (active
-  milestone), bd state via `bd … --json`.
-- **Writes:** `.beads/` via `bd update --claim` / `bd close`,
-  `.planning/phases/<dir>/*-BEADS-MAP.md` (refresh).
 
 ## Related
 
-- [/cairn:plan](./plan.md) — produces the plans and frontmatter this consumes
-- [/cairn:verify](./verify.md) — cross-check GSD verification against beads
-- [/cairn:ship](./ship.md) — the gate that requires these closes
-- [/cairn:quick](./quick.md) — tracked side-quests discovered mid-phase
+- [`/cairn:verify`](verify.md) — what comes next
+- [`/cairn:doctor`](doctor.md) — `planning-writes`, the guard on the old habit

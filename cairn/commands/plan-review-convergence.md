@@ -37,10 +37,15 @@ have survived.
 3. **Claim** every requirement id in that record: `bd update <id> --claim`.
 
 4. **Rewrite until the review closes.** Each cycle: collect the reviewers'
-   concerns, change the plan, and rewrite the affected record —
-   `cairn-record.sh plan --phase "$N" --plan PP` with the same `PP` replaces
-   its description; a wave that splits gets a new `PP`. Append one row per
-   cycle to the convergence log on the carrier:
+   concerns, change the plan, and rewrite the affected record:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-record.sh" plan --phase "$N" --plan PP \
+     --title "Phase <N> plan PP — <what the wave delivers>" <<'BODY'
+   <REQ-IDs>. <the plan as the review left it>
+   BODY
+   ```
+   The same `PP` replaces that record's description; a wave that splits gets
+   a new `PP`. Append one row per cycle to the convergence log on the carrier:
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-record.sh" review --phase "$N" <<'BODY'
    Cycle <k> — <concern> — <change> — <open|closed>

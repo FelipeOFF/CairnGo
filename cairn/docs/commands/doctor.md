@@ -160,6 +160,12 @@ this routine health-check flow — see its own section below.
      carrier is a 4.0 contract, and a cycle opened under 3.x gets one release
      to catch up). **Two or more** → one cycle, one bead: close or relabel the
      extra, then re-run. Closed cycles are history and are never asked.
+   - **planning-writes** (⊘ out-of-scope; ⚠) — a `.md` file git sees as new
+     or modified under `.planning/phases/` in a repo that has `.beads/`: a
+     document written where the bead is the source. Record it with the
+     `cairn-record.sh <kind>` the item names (spec, context, plan, summary,
+     verification, review…) and `git rm` the file. `⊘` when there is no
+     `.planning/phases/` at all.
    - **jira-links** (⊘ out-of-scope; ⚠; ✗) — `⊘` until `.cairn/sync.json`
      enables a `jira` backend (`/cairn:sync-config`); that is not a clean
      bill, it is "nothing to compare". With a backend: **gap** (⚠) — an open

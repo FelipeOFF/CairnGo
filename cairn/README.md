@@ -108,7 +108,7 @@ The data model underneath (bd is the machine-readable source of truth):
 - **Generated maps** — each phase's `NN-BEADS-MAP.md` is rendered from
   `bd list --json` between `<!-- cairn:generated -->` markers; notes outside
   the markers survive regeneration.
-- **Plan frontmatter** — every `PLAN.md` lists the bd ids it advances
+- **Plan records** — every wave is a `plan-NN` bead under the phase carrier, naming the requirements it advances
   (`beads: [ids]`); that list is what claim and close operate on.
 - **Precedence** — when an issue's text conflicts with GSD phase docs, the GSD
   doc wins; the issue is updated with a dated reconciliation note.

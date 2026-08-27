@@ -1,8 +1,6 @@
 # /cairn:secure-phase
 
-> Retroactively verify a completed phase's threat mitigations — GSD
-> secure-phase, and an unmitigated threat becomes a tracked issue rather than a
-> note
+> Retroactively verify a completed phase's threat mitigations — the security review recorded on the carrier, and an unmitigated threat a tracked issue rather than a note
 
 ## Usage
 
@@ -10,48 +8,34 @@
 /cairn:secure-phase [phase number]
 ```
 
-The phase number may be omitted upstream; when it is, it is resolved from
-STATE.md before any label is built.
-
-## Why this wrapper exists
-
-Same shape as [`/cairn:validate-phase`](./validate-phase.md), on a **completed**
-phase — plus one thing specific to security work. **An unmitigated threat
-recorded only as prose is how security findings die.** Every one of them leaves
-this command as a tracked issue with an id someone can be assigned.
-
-**The wrapper never re-opens on its own initiative.**
-
 ## What it does
 
-1. **Preflight** — `cairn-wrap.sh preflight secure-phase`. Exit `6` or `5` stops.
-2. **Records the closed set.**
-3. **Runs `/gsd:secure-phase`.**
-4. **Every unmitigated threat becomes an issue**, with the threat named in the
-   title rather than "security fix", at raised priority, labelled
-   `m-<milestone>,phase-<N>` (unpadded) with the `metadata.gsd` stamp.
-5. **If — and only if — the audit re-opened phase work**, the matching issues
-   are re-opened, each named with why.
-6. **Closes only a mitigation that is verified**, with a reason that says **how**
-   it was checked. "Looks fine" is the same silence in different words.
-7. **Refreshes and checks the map.**
+1. Split `$ARGUMENTS`
+2. Record the closed set
+3. Write the security review and record it
+4. Every unmitigated threat becomes an issue
+5. If — and only if — the audit re-opened phase work
+6. Close only a mitigation that is verified
+7. Refresh and check the map
 
-Next: [/cairn:verify N](./verify.md).
+## The record
 
-## Exit codes
+Nothing this command produces is a file. It records through one boundary,
+`cairn-record.sh review --phase <N>` (body on stdin), and the record lands on
+the phase carrier — `notes`, appended and dated (audits accumulate). A `.planning/` directory, when present,
+is a GSD project waiting to be imported, never a place this command writes;
+`/cairn:doctor`'s `planning-writes` check names any document written there
+after the import.
 
-| Source | Code | Meaning |
-| --- | --- | --- |
-| `cairn-wrap preflight` | `0` / `5` / `6` | installed / could not look / not there |
-| `cairn-map` | `3` | map is stale (`--check`) |
-| | `5` | `bd` unavailable — degrade, do not block |
+Read it back:
 
-## Files it touches
+```bash
+bd show <carrier> --json | jq -r '.description, .design, .acceptance_criteria, .notes'
+bd list --parent <carrier> --json          # the plan records
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
+```
 
-- `.planning/phases/*/` threat artifacts — via `/gsd:secure-phase`
-- `.planning/phases/*/NN-BEADS-MAP.md` — regenerated
-- bd issues — created, claimed, conditionally re-opened, closed
+## Related
 
-## See also
-
-- [Command reference](../commands.md) · [gsd-core commands](../gsd-core-commands.md)
+- [`/cairn:verify`](verify.md) — what comes next
+- [`/cairn:doctor`](doctor.md) — `planning-writes`, the guard on the old habit

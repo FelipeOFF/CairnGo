@@ -1,58 +1,46 @@
 # /cairn:plan-review-convergence
 
-> Replan until cross-AI review concerns are resolved — GSD
-> plan-review-convergence, with the beads linkage re-resolved after every
-> rewrite
+> Replan until cross-AI review concerns are resolved — the plan records rewritten, the convergence log on the carrier, the requirement linkage re-resolved after every rewrite
 
 ## Usage
 
 ```text
-/cairn:plan-review-convergence <phase> [--codex] [--gemini] [--claude] [--opencode] [--ollama] [--lm-studio] [--llama-cpp] [--agy] [--text] [--ws <name>] [--all] [--max-cycles N]
+/cairn:plan-review-convergence <phase> [--codex] [--gemini] [--claude] [--opencode] [--ollama] [--lm-studio] [--llama-cpp] [--agy] [--all] [--max-cycles N]
 ```
-
-The bare phase number drives labels and the map; every reviewer flag goes only
-to `/gsd:plan-review-convergence`.
-
-## Why this wrapper exists
-
-It **rewrites PLAN.md**, possibly several times. Every rewrite can split a
-plan, merge two, or renumber them — and the `beads:` frontmatter written before
-the first cycle is stale after it. The linkage is **re-resolved after
-convergence**, never assumed to have survived.
 
 ## What it does
 
-1. **Preflight** — `cairn-wrap.sh preflight plan-review-convergence`. Exit `6`
-   or `5` stops.
-2. **Records the linkage before the first cycle** — the only record of the
-   pre-convergence mapping.
-3. **Claims** every id in that record.
-4. **Runs `/gsd:plan-review-convergence`.**
-5. **Re-resolves `beads:` on every plan that now exists** — a fresh resolution,
-   not a diff. A split plan inherits the ids matching its remaining scope; a
-   merged one carries both. An id that lands nowhere is **reported**, never
-   quietly dropped: converging a review does not finish work.
-6. **A concern no issue covers becomes one**, labelled `m-<milestone>,phase-<N>`
-   (unpadded) with the `metadata.gsd` stamp.
-7. **Closes only what convergence settled**; releases the rest.
-8. **Refreshes and checks the map.**
+1. Split `$ARGUMENTS`
+2. Record the linkage before the first cycle
+3. Claim
+4. Rewrite until the review closes
+5. Re-resolve the requirement linkage on every record that now exists
+6. A concern the review raised that no issue covers becomes one
+7. Close only what convergence settled
+8. Refresh and check the map
 
-Next: [/cairn:work N](./work.md).
+## The record
 
-## Exit codes
+Nothing this command produces is a file. It records through one boundary,
+`cairn-record.sh plan --phase <N>` (body on stdin), and the record lands on
+the phase carrier — one `plan-NN` bead per wave, a child of the carrier (`description` = the plan; `notes` = its summary, on close) (recording the same `NN` rewrites it). A `.planning/` directory, when present,
+is a GSD project waiting to be imported, never a place this command writes;
+`/cairn:doctor`'s `planning-writes` check names any document written there
+after the import.
 
-| Source | Code | Meaning |
-| --- | --- | --- |
-| `cairn-wrap preflight` | `0` / `5` / `6` | installed / could not look / not there |
-| `cairn-map` | `3` | map is stale (`--check`) |
-| | `5` | `bd` unavailable — degrade, do not block |
+It also appends the convergence log to the carrier's `notes` (`cairn-record.sh review`), one row per cycle.
 
-## Files it touches
+Each plan record **names the requirement ids it advances** — that name is the link [`/cairn:work`](work.md) resolves to bead ids through the map; there is no `beads:` frontmatter any more.
 
-- `.planning/phases/*/NN-MM-PLAN.md` — rewritten, then re-linked
-- `.planning/phases/*/NN-BEADS-MAP.md` — regenerated
-- bd issues — claimed, created, closed or released
+Read it back:
 
-## See also
+```bash
+bd show <carrier> --json | jq -r '.description, .design, .acceptance_criteria, .notes'
+bd list --parent <carrier> --json          # the plan records
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
+```
 
-- [Command reference](../commands.md) · [gsd-core commands](../gsd-core-commands.md)
+## Related
+
+- [`/cairn:work`](work.md) — what comes next
+- [`/cairn:doctor`](doctor.md) — `planning-writes`, the guard on the old habit

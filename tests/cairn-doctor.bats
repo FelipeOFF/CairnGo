@@ -160,7 +160,7 @@ wire_capability_ok() {
   # once. The four sites were edited in one change, from the branch that owns
   # cairn-doctor.py; the other branch never touches it, so there is one
   # writer and no merge to be silent about.
-  assert_json_eq "$output" '.checks | length' '26'
+  assert_json_eq "$output" '.checks | length' '27'
   # The exact ordered set, not "unique == ok": after 23-02 this fixture has
   # two ⊘ checks (cairn's own manifests are absent by construction), and an
   # assertion that merely tolerated extra values would stop proving anything.
@@ -2259,10 +2259,10 @@ EOF
   # claims-stale.
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .id] | sort | join(",")' \
-    'jira-links,maps-fresh,phase-landed,release-versions,state-dialect,test-parallel'
+    'jira-links,maps-fresh,phase-landed,planning-writes,release-versions,state-dialect,test-parallel'
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .scope] | sort | join(",")' \
-    'out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope'
+    'out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope'
 }
 
 # --------------------------------------------------------------------------- #
@@ -3241,7 +3241,7 @@ PY
   # assertion near the top of this file for why the merge, and not either
   # branch, is what made this literal wrong once, and why BOTH sites are
   # edited in one change.
-  assert_json_eq "$output" '.checks | length' '26'
+  assert_json_eq "$output" '.checks | length' '27'
   assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
     'true'
 }
@@ -4436,4 +4436,49 @@ JSON
   grep -qF "status divergent: DTP-142 is Done in Jira and $DOC_MS is open in bd (seen 2026-08-27T10:00:00Z)" <<<"$items"
   ! grep -qF "DTP-143 is" <<<"$items"
   grep -qF '"status": "open"' <<<"$(bd show "$DOC_MS" --json)"
+}
+
+# --------------------------------------------------------------------------- #
+# planning-writes — a document written where the bead is the source (phase 46)
+# --------------------------------------------------------------------------- #
+
+@test "planning-writes: untracked .planning/ is import material — out of scope, not a finding" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="planning-writes") | .status' 'not-applicable'
+  assert_json_eq "$output" '.checks[] | select(.id=="planning-writes") | .scope' 'out-of-scope'
+}
+
+@test "planning-writes: a SPEC.md born after the import warns and names the cairn-record kind" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  # The imported history is committed; then a session writes a document.
+  git add -f .planning >/dev/null 2>&1
+  git -c user.email=t@t -c user.name=t commit -q -m "import" >/dev/null 2>&1
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="planning-writes") | .status' 'ok'
+
+  printf '# spec\n' > .planning/phases/02-api/02-SPEC.md
+  printf 'edited\n' >> .planning/phases/02-api/02-01-PLAN.md
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="planning-writes") | .status' 'warn'
+  local items; items="$(jq -r '.checks[] | select(.id=="planning-writes") | .items[]' <<<"$output")"
+  grep -qF ".planning/phases/02-api/02-SPEC.md is new" <<<"$items"
+  grep -qF "record it with cairn-record.sh spec --phase 2" <<<"$items"
+  grep -qF ".planning/phases/02-api/02-01-PLAN.md is modified" <<<"$items"
+  grep -qF "cairn-record.sh plan --plan NN --phase 2" <<<"$items"
 }

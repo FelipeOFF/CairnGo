@@ -1,7 +1,6 @@
 # /cairn:ui-phase
 
-> Generate the UI design contract (UI-SPEC.md) for a frontend phase — GSD
-> ui-phase, with its requirements tracked as stamped issues
+> Record the UI design contract for a frontend phase — the UI-SPEC on the phase carrier, with its requirements tracked as stamped issues
 
 ## Usage
 
@@ -9,42 +8,32 @@
 /cairn:ui-phase [phase]
 ```
 
-The phase number may be omitted upstream; when it is, the active phase is
-resolved from STATE.md before any label is built.
-
-## Why this wrapper exists
-
-A UI-SPEC is a phase artifact with requirements in it — screens, states,
-acceptance criteria — and those need issues like any other requirement. A design
-contract nobody tracked is a contract nobody ships against.
-
 ## What it does
 
-1. **Preflight** — `cairn-wrap.sh preflight ui-phase`. Exit `6` or `5` stops.
-2. **Claims** the phase's ids.
-3. **Runs `/gsd:ui-phase`.**
-4. **Every UI-SPEC requirement becomes an issue**, labelled
-   `m-<milestone>,phase-<N>` (unpadded) with the `metadata.gsd` stamp.
-5. **Closes what the contract settled**; releases and leaves open what it
-   deferred — a screen postponed is not a screen finished.
-6. **Refreshes and checks the map.**
+1. Split `$ARGUMENTS`
+2. Read the map and the carrier
+3. Write the UI-SPEC and record it
+4. Every UI-SPEC requirement gets an issue
+5. Refresh and check the map
 
-Next: [/cairn:plan N](./plan.md).
+## The record
 
-## Exit codes
+Nothing this command produces is a file. It records through one boundary,
+`cairn-record.sh ui-spec --phase <N>` (body on stdin), and the record lands on
+the phase carrier — `design`, section `## UI-SPEC` (the other sections stay). A `.planning/` directory, when present,
+is a GSD project waiting to be imported, never a place this command writes;
+`/cairn:doctor`'s `planning-writes` check names any document written there
+after the import.
 
-| Source | Code | Meaning |
-| --- | --- | --- |
-| `cairn-wrap preflight` | `0` / `5` / `6` | installed / could not look / not there |
-| `cairn-map` | `3` | map is stale (`--check`) |
-| | `5` | `bd` unavailable — degrade, do not block |
+Read it back:
 
-## Files it touches
+```bash
+bd show <carrier> --json | jq -r '.description, .design, .acceptance_criteria, .notes'
+bd list --parent <carrier> --json          # the plan records
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>
+```
 
-- `.planning/phases/*/NN-UI-SPEC.md` — via `/gsd:ui-phase`
-- `.planning/phases/*/NN-BEADS-MAP.md` — regenerated
-- bd issues — claimed, created, closed or released
+## Related
 
-## See also
-
-- [Command reference](../commands.md) · [gsd-core commands](../gsd-core-commands.md)
+- [`/cairn:plan`](plan.md) — what comes next
+- [`/cairn:doctor`](doctor.md) — `planning-writes`, the guard on the old habit
