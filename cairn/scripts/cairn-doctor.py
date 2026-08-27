@@ -185,7 +185,18 @@ and "something never ran" are different questions and get different keys.
                         the checks run (the report shows post-fix state);
                         refused (exit 2) when the active milestone is
                         unresolvable.
-    8. claims-stale     in_progress issues with an assignee whose phase-<N>
+    7b. milestone-carrier  (CARRY-02, phase 43) every OPEN cycle — an m-*
+                    label with at least one non-closed issue — has exactly
+                    one milestone carrier (label `milestone` + m-*, no
+                    phase-*). None -> warn in 4.0, with the bd create that
+                    resolves it (a failure from 4.1: the carrier is the
+                    contract for cycles opened from 4.0 on, and a cycle
+                    opened under 3.x deserves one release to catch up).
+                    Two or more -> fail, always: two beads claiming to be
+                    the same cycle is an inconsistency, not a gap. Closed
+                    cycles are history and are never asked.
+
+8. claims-stale     in_progress issues with an assignee whose phase-<N>
                         label differs from STATE.md's active_phase -> WARN
                         (possible stale claim). When active_phase is
                         unresolvable the check CANNOT RUN, and that is
@@ -755,7 +766,10 @@ PR_NUMBER = re.compile(r"\(#(\d+)\)")
 # phase-<N> label: it would make the lease look like real phase work to
 # this doctor's own phase-complete-open check, phase-corroboration, and
 # work.md's done-check).
-NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick", "lease"}
+# `milestone` is the milestone carrier (phase 43): the cycle's own bead,
+# which by definition wears no phase-N — check_milestone_carrier is the
+# check that audits it, and the orphans axis has no opinion about it.
+NO_PHASE_EXEMPT = {"migrated-todo", "backlog", "quick", "lease", "milestone"}
 
 
 def die(msg, code):
@@ -1720,6 +1734,62 @@ def check_label_pairs(issues, milestone, fixed, fix_error):
     return {"id": "label-pairs", "status": status,
             "detail": detail, "items": items}
 
+
+
+def check_milestone_carrier(issues):
+    """Check 7b, id "milestone-carrier" — one carrier per OPEN cycle.
+
+    An open cycle is an m-* label with at least one non-closed issue: that is
+    cairn_source.milestone()'s own definition of "current", applied to every
+    label rather than to the most frequent one, so a straggler cycle with one
+    open bead is asked the question too. Closed cycles are never asked —
+    v1.1..v3.3 of this repository have no carrier and never will.
+
+    The severity split is deliberate and dated. Zero carriers is a WARN in
+    4.0 because the carrier is a 4.0 contract, and a repository that
+    upgrades mid-cycle would otherwise go from green to exit 7 without
+    having done anything wrong; the item carries the exact bd create that
+    closes the gap. From 4.1 it becomes a failure. Two carriers is a FAIL
+    already: that is two beads disagreeing about what the cycle is, and
+    the doctor exists to refuse that out loud.
+    """
+    open_keys = set()
+    for iss in issues:
+        if iss.get("status") != "closed":
+            open_keys.update(cairn_source.issue_milestones(iss))
+    if not open_keys:
+        return {"id": "milestone-carrier", "status": "ok",
+                "detail": "no open cycle — nothing to require a carrier of",
+                "items": []}
+    missing, doubled = [], []
+    for key in sorted(open_keys):
+        carriers = [i for i in issues
+                    if cairn_source.is_milestone_carrier(i)
+                    and key in cairn_source.issue_milestones(i)]
+        if not carriers:
+            missing.append(
+                f"m-{key}: open cycle with no milestone carrier — "
+                f"bd create \"<cycle name>\" -t task -l m-{key},milestone "
+                f"-d \"<what the cycle promises>\" (a warning in 4.0, a "
+                f"failure from 4.1)")
+        elif len(carriers) > 1:
+            ids = ", ".join(i.get("id", "?") for i in carriers)
+            doubled.append(f"m-{key}: {len(carriers)} milestone carriers "
+                           f"({ids}) — one cycle, one bead; close or "
+                           f"relabel the extra")
+    items = doubled + missing
+    if doubled:
+        status = "fail"
+    elif missing:
+        status = "warn"
+    else:
+        status = "ok"
+    n = len(open_keys)
+    detail = (f"{n} open cycle(s), each with one milestone carrier"
+              if status == "ok"
+              else f"{len(items)} finding(s) over {n} open cycle(s)")
+    return {"id": "milestone-carrier", "status": status,
+            "detail": detail, "items": items}
 
 
 def check_claims_stale(issues, milestone, active_phase):
@@ -4383,6 +4453,7 @@ def main():
         check_orphans(issues, roadmap_phases,
                       archived_milestones(planning_dir)),
         check_label_pairs(issues, milestone, fixed, fix_error),
+        check_milestone_carrier(issues),
         check_claims_stale(issues, milestone, active_phase),
         check_bd_doctor(root),
         check_gsd_capability(root),

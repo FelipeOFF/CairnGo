@@ -56,6 +56,10 @@ make_doctor_fixture() {
     --metadata '{"gsd":{"req":"AUTH-02","phase":1,"milestone":"v1.0"}}' --silent)"
   DOC_P2="$(bd create "API-01: Rate limiting" -t task -l phase-2,m-v1.0 \
     --metadata '{"gsd":{"req":"API-01","phase":2,"milestone":"v1.0"}}' --silent)"
+  # The cycle's own bead (phase 43): a healthy 4.0 repo has exactly one
+  # milestone carrier per open cycle, so the healthy fixture has one too.
+  DOC_MS="$(bd create "v1.0 — the fixture cycle" -t task -l m-v1.0,milestone \
+    -d "what the fixture cycle promises" --silent)"
   bd close "$DOC_A1" >/dev/null
   bd close "$DOC_A2" >/dev/null
   add_plan_beads .planning/phases/01-auth/01-01-PLAN.md "$DOC_A1, $DOC_A2"
@@ -156,7 +160,7 @@ wire_capability_ok() {
   # once. The four sites were edited in one change, from the branch that owns
   # cairn-doctor.py; the other branch never touches it, so there is one
   # writer and no merge to be silent about.
-  assert_json_eq "$output" '.checks | length' '24'
+  assert_json_eq "$output" '.checks | length' '25'
   # The exact ordered set, not "unique == ok": after 23-02 this fixture has
   # two ⊘ checks (cairn's own manifests are absent by construction), and an
   # assertion that merely tolerated extra values would stop proving anything.
@@ -633,9 +637,11 @@ PY
   done
   grep -qF "closed 6 via --close-completed" <<<"$output"
 
-  # bd agrees: one invocation left nothing open anywhere.
+  # bd agrees: one invocation left nothing open anywhere — except the
+  # cycle's own bead, which is not phase work and closes with the cycle.
   run bd list --all --json
-  assert_json_eq "$output" '[.[] | select(.status != "closed")] | length' '0'
+  assert_json_eq "$output" \
+    '[.[] | select(.status != "closed" and (.labels | index("milestone") | not))] | length' '0'
 
   # Re-run is clean and idempotent.
   bash "$CAIRN_SCRIPTS_DIR/cairn-map.sh" 1 >/dev/null
@@ -3235,7 +3241,7 @@ PY
   # assertion near the top of this file for why the merge, and not either
   # branch, is what made this literal wrong once, and why BOTH sites are
   # edited in one change.
-  assert_json_eq "$output" '.checks | length' '24'
+  assert_json_eq "$output" '.checks | length' '25'
   assert_json_eq "$output" '[.checks[].id] | index("claims-stale") != null' \
     'true'
 }
@@ -4190,4 +4196,73 @@ PY
     '[.checks[] | select(.id=="export-identity")] | .[0].status' 'not-applicable'
   assert_json_eq "$output" \
     '[.checks[] | select(.id=="export-identity")] | .[0].scope' 'no-input'
+}
+
+# --------------------------------------------------------------------------- #
+# milestone-carrier — one bead per open cycle (phase 43 / CARRY-02)
+# --------------------------------------------------------------------------- #
+
+@test "milestone-carrier: the healthy fixture has one, and orphans does not list it" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .status' 'ok'
+  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .detail' \
+    '1 open cycle(s), each with one milestone carrier'
+  # The carrier wears no phase-* label by definition; the orphans axis that
+  # reports phase-less open issues must not report it.
+  assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'ok'
+}
+
+@test "milestone-carrier: an open cycle without one warns with the bd create; closed, it is history" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  local straggler
+  straggler="$(bd create "NEXT-01: carried over" -t task -l phase-3,m-v1.1 \
+    --metadata '{"gsd":{"req":"NEXT-01","phase":3,"milestone":"v1.1"}}' --silent)"
+
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  # A warning in 4.0, not a failure: exit stays 0.
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .status' 'warn'
+  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .items | length' '1'
+  grep -qF 'm-v1.1: open cycle with no milestone carrier' <<<"$output"
+  grep -qF -- '-t task -l m-v1.1,milestone -d' <<<"$output"
+  grep -qF 'a warning in 4.0, a failure from 4.1' <<<"$output"
+
+  # Closed, the cycle is never asked: v1.1 has no carrier and no finding.
+  bd close "$straggler" >/dev/null
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .status' 'ok'
+}
+
+@test "milestone-carrier: two carriers for one cycle fail (exit 7) and both are named" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  local twin
+  twin="$(bd create "v1.0 — the other one" -t task -l m-v1.0,milestone --silent)"
+
+  beads_export_refresh
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .status' 'fail'
+  grep -qF 'm-v1.0: 2 milestone carriers' <<<"$output"
+  grep -qF "$DOC_MS" <<<"$output"
+  grep -qF "$twin" <<<"$output"
+  assert_json_eq "$output" '.failed' 'true'
 }
