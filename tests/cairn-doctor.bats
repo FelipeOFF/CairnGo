@@ -1220,6 +1220,11 @@ PY
   require_bd
   make_tmp_repo
   bd init -q --prefix doc --non-interactive >/dev/null 2>&1
+  # Desde a 4.1 um ciclo aberto sem carrier de milestone e' ✗ (phase 55):
+  # o repo migrado saudavel tem o seu — o bead que /cairn:milestone new
+  # cria. Sem ele este teste provaria o exit 7 do check certo, nao a
+  # auditoria que ele afirma.
+  bd create "v1.0 — the migrated cycle" -t task -l m-v1.0,milestone --silent >/dev/null
   bd create "Fase 1: auth" -t task -l phase-1,m-v1.0 --silent >/dev/null
   bd create "Signup" -t task -l phase-1,m-v1.0 \
     --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' \
