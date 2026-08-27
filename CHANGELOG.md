@@ -7,6 +7,14 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `cairn-bookkeep close N` num repo migrado: um `ROADMAP.md` que não nomeia
+  fase nenhuma (o índice arquivado da importação) é out-of-scope, não exit 4 —
+  e o fecho passa a fechar o **carrier da phase** depois de retirar a lease,
+  recusando com os ids quando a phase ainda tem bead aberto. O checkpoint do
+  `/cairn:autonomous` volta a usar o comando que documenta (CairnGo-km7a).
+
 ## [4.0.0] - 2026-08-27
 
 O cairn fala com o Jira e entrega uma phase como PR — e ganha um painel.

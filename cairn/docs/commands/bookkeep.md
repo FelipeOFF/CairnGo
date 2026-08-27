@@ -70,8 +70,28 @@ command starts fighting them.
 | 0 | done, or nothing to change |
 | 2 | usage error: bad flags, a phase number matching two checkbox lines, two footer lines inside the coverage section, a malformed `CAIRN_NOW` |
 | 3 | read mode found something to change (mirrors `cairn-map.py`'s "stale") |
-| 4 | no checkbox line for that phase number |
+| 4 | no checkbox line for that phase number, in a roadmap that names phases. A roadmap naming none is out-of-scope (see below), not exit 4 |
 | 5 | `bd` is not on PATH and `--no-tracker` was not passed. Returned **before** any write: the three files are byte-identical |
+
+## `close N` in a tracker-owned repo
+
+The file decides only while it names a phase. A `.planning/ROADMAP.md` that
+carries no phase checkbox at all is the index the import archived — this
+repository's own, after v1.7 — and `close N` treats it exactly like no
+roadmap: `documents.status = not-applicable`, scope `out-of-scope`, exit 0,
+nothing written. (Measured 2026-08-26: it used to die with exit 4 on every
+phase of a migrated repo, and the autonomous checkpoint closed carriers by
+hand.)
+
+What still closes with the phase, under `--apply`, in this order: the lease
+is retired, the worktree is cleaned, and the **phase carrier is closed**
+(`bd close <id> --reason "phase N closed by cairn-bookkeep"`), reported as
+`tracker :: carrier :: closed <id>` and under `tracker.carrier` in `--json`
+(`state`: `closed`, `already-closed`, `open-work`, `none`, `failed`). A
+non-closed bead of the phase besides the carrier leaves the carrier open and
+is named with its id — the exit does not change, because this command is not
+a gate; barring is `cairn-gate.sh`'s 6. A phase without a carrier is reported
+as `none`, never given one: creating it is `cairn-record`'s job.
 
 ## The STATE keys it writes, exhaustively
 
