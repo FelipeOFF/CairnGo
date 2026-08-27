@@ -1,0 +1,1 @@
+{"key": "DTP-150", "fields": {"summary": "A sub-task of some other story", "status": {"name": "To Do"}, "issuetype": {"name": "Sub-task", "subtask": true}, "parent": {"key": "DTP-999", "fields": {"issuetype": {"name": "Story"}}}}}

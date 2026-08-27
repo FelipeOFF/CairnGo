@@ -1,0 +1,1 @@
+{"key": "DTP-143", "fields": {"summary": "The link lives in the bead", "status": {"name": "To Do"}, "issuetype": {"name": "Sub-task", "subtask": true}, "parent": {"key": "DTP-142", "fields": {"issuetype": {"name": "Story"}}}}}

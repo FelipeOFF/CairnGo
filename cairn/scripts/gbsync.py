@@ -65,7 +65,7 @@ PUSH_ACTIONS = {"create", "update", "close"}
 VALID_STATUS = {"open", "in_progress", "closed"}
 USAGE = ("usage: gbsync.py <create|update|close> <bd_id> | pull "
          "[--since <iso>] | import (--query <q> | --project <KEY>) "
-         "[--backend <type>] [--dir <project_dir>] [--dry-run]")
+         "[--backend <type>] | refresh-map [--dir <project_dir>] [--dry-run]")
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
@@ -214,13 +214,65 @@ def enabled_backends(cfg):
 # --------------------------------------------------------------------------- #
 # PUSH:  bd -> tools
 # --------------------------------------------------------------------------- #
+# external_ref prefix -> backend type, as cairn's own writers spell them.
+REF_BACKENDS = {"jira": "jira", "gh": "github", "github": "github",
+                "gl": "gitlab", "gitlab": "gitlab", "linear": "linear"}
+
+
+def derive_idmap(idmap, cfg):
+    """Fold bd's own `external_ref` into the id-map (phase 44 / LINK-02).
+
+    The link lives in the bead — `jira-DTP-142` on a carrier — and travels
+    with Dolt; the id-map is a per-machine cache that used to be the only
+    record and is now DERIVED: for every issue whose external_ref prefix
+    names an enabled backend, entry[backend] = key, and the bead wins over
+    whatever the file said. Called on every push and pull, and by
+    `refresh-map` on its own. One bd list, never one per issue."""
+    wanted = {b.get("type") for b in enabled_backends(cfg)}
+    try:
+        out = subprocess.run(["bd", "list", "--all", "--limit", "0", "--json"],
+                             capture_output=True, text=True, check=True).stdout
+        issues = json.loads(out or "[]")
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
+        return idmap, 0
+    if not isinstance(issues, list):
+        issues = issues.get("issues", []) if isinstance(issues, dict) else []
+    changed = 0
+    for issue in issues:
+        ref = str(issue.get("external_ref") or "").strip()
+        prefix, _, key = ref.partition("-")
+        btype = REF_BACKENDS.get(prefix)
+        if not key or btype not in wanted:
+            continue
+        entry = idmap.setdefault(issue.get("id"), {})
+        if entry.get(btype) != key:
+            entry[btype] = key
+            changed += 1
+    return idmap, changed
+
+
+def do_refresh_map(base, cfg, dry_run=False):
+    idmap = load_json(base / "id-map.json", {})
+    before = json.dumps(idmap, sort_keys=True)
+    idmap, changed = derive_idmap(idmap, cfg)
+    if dry_run:
+        print(f"DRY-RUN: refresh-map would rewrite {changed} entr"
+              f"{'y' if changed == 1 else 'ies'} from external_ref")
+        return 0
+    if json.dumps(idmap, sort_keys=True) != before:
+        write_json(base / "id-map.json", idmap)
+    print(f"[gbsync] refresh-map: {changed} entr{'y' if changed == 1 else 'ies'} "
+          f"derived from external_ref ({len(idmap)} bd id(s) mapped)")
+    return 0
+
+
 def do_push(action, bd_id, base, cfg, dry_run=False):
     backends = enabled_backends(cfg)
     if not backends:
         print("[gbsync] no enabled backends — nothing to mirror")
         return 0
     issue = bd_fetch(bd_id)
-    idmap = load_json(base / "id-map.json", {})
+    idmap, _ = derive_idmap(load_json(base / "id-map.json", {}), cfg)
     entry = idmap.setdefault(bd_id, {})
     if dry_run:
         for b in backends:
@@ -268,7 +320,7 @@ def do_pull(base, cfg, since_override, dry_run=False):
     if not backends:
         print("[gbsync] no enabled backends — nothing to pull")
         return 0
-    idmap = load_json(base / "id-map.json", {})
+    idmap, _ = derive_idmap(load_json(base / "id-map.json", {}), cfg)
     state = load_json(base / "state.json", {})
     last_pull = state.setdefault("last_pull", {})
     conflicts = load_json(base / "conflicts.json", [])
@@ -472,6 +524,8 @@ def main():
         die(f"no {base/'sync.json'} — run /cairn:sync-config first")
 
     action = args[0]
+    if action == "refresh-map":
+        sys.exit(do_refresh_map(base, cfg, dry_run))
     if action == "pull":
         sys.exit(do_pull(base, cfg, since, dry_run))
     elif action == "import":
@@ -486,7 +540,7 @@ def main():
             die(f"usage: gbsync.py {action} <bd_id> [--dry-run]")
         sys.exit(do_push(action, args[1], base, cfg, dry_run))
     else:
-        die(f"unknown action '{action}' (use create|update|close|pull|import)")
+        die(f"unknown action '{action}' (use create|update|close|pull|import|refresh-map)")
 
 
 if __name__ == "__main__":

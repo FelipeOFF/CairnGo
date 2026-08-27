@@ -631,3 +631,32 @@ PY
   fi
   [ "$status" -eq 0 ]
 }
+
+# --------------------------------------------------------------------------- #
+# refresh-map — the id-map is derived from external_ref (phase 44 / LINK-02)
+# --------------------------------------------------------------------------- #
+
+@test "refresh-map derives id-map entries from external_ref, and the bead wins over the file" {
+  require_bd
+  make_tmp_repo
+  make_bd_fixture "$PWD"
+  make_jira_sync_config
+  bd update "$BD_EPIC" --external-ref jira-CHN-42 >/dev/null
+  bd update "$BD_CHILD_OPEN" --external-ref gh-7 >/dev/null
+  # A stale cache entry that disagrees with the bead.
+  printf '{"%s": {"jira": "CHN-1"}}\n' "$BD_EPIC" > .cairn/id-map.json
+
+  run bash "$CAIRN_SCRIPTS_DIR/gbsync.sh" refresh-map --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  grep -qF "DRY-RUN: refresh-map would rewrite 1 entry" <<<"$output"
+  grep -qF '"CHN-1"' .cairn/id-map.json
+
+  run bash "$CAIRN_SCRIPTS_DIR/gbsync.sh" refresh-map --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "1 entry derived from external_ref" <<<"$output"
+  run jq -r --arg id "$BD_EPIC" '.[$id].jira' .cairn/id-map.json
+  [ "$output" = "CHN-42" ]
+  # gh-7 names a backend that is not enabled here: not mapped.
+  run jq -r --arg id "$BD_CHILD_OPEN" '.[$id]' .cairn/id-map.json
+  [ "$output" = "null" ]
+}

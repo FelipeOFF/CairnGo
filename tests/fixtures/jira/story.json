@@ -1,0 +1,1 @@
+{"key": "DTP-142", "fields": {"summary": "Cairn talks to Jira", "status": {"name": "To Do"}, "issuetype": {"name": "Story", "subtask": false}, "parent": {"key": "DTP-100", "fields": {"issuetype": {"name": "Epic"}}}}}
