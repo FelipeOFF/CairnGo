@@ -660,3 +660,109 @@ PY
   run jq -r --arg id "$BD_CHILD_OPEN" '.[$id]' .cairn/id-map.json
   [ "$output" = "null" ]
 }
+
+# --------------------------------------------------------------------------- #
+# the hierarchy model — carriers only, with a parent (phase 45 / MIRROR-01)
+# --------------------------------------------------------------------------- #
+
+# A jira backend in the hierarchy model, pointed at a stub adapter that logs
+# every event and answers a create with a fresh key.
+make_hierarchy_jira() {
+  mkdir -p .cairn
+  cat > .cairn/sync.json <<'JSON'
+{"backends": [{"type": "jira", "enabled": true, "adapter": "jira", "model": "hierarchy",
+  "config": {"base_url": "https://example.atlassian.net", "project_key": "CHN",
+             "issue_types": {"milestone": "Story", "phase": "Sub-task"}}}]}
+JSON
+  STUB_ADAPTERS_DIR="$BATS_TEST_TMPDIR/adapters"
+  mkdir -p "$STUB_ADAPTERS_DIR"
+  cat > "$STUB_ADAPTERS_DIR/jira.py" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys
+event = json.load(sys.stdin)
+with open(os.path.join(os.path.dirname(__file__), "calls.log"), "a") as fh:
+    fh.write(json.dumps(event) + "\n")
+if event["action"] == "create":
+    print("CHN-9" if event.get("level") == "milestone" else "CHN-10")
+else:
+    print(event.get("external_id") or "")
+PY
+  export CAIRN_ADAPTERS_DIR="$STUB_ADAPTERS_DIR"
+}
+
+# A cycle: its carrier (epic cached), a phase carrier, a requirement.
+make_cycle_beads() {
+  bd init -q --prefix hy --non-interactive >/dev/null 2>&1
+  HY_MS="$(bd create "v1.0 — the cycle" -t task -l m-v1.0,milestone \
+    --metadata '{"gsd":{"jira":{"epic":"CHN-100"}}}' --silent)"
+  HY_PH="$(bd create "The phase" -t task -l m-v1.0,phase-1 --silent)"
+  HY_REQ="$(bd create "REQ-01: a requirement" -t task -l m-v1.0,phase-1 \
+    --metadata '{"gsd":{"req":"REQ-01","phase":1,"milestone":"v1.0"}}' --silent)"
+}
+
+@test "hierarchy: a requirement is never pushed — skip, adapter untouched, exit 0" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_REQ" --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  [ "$output" = "DRY-RUN: jira skip $HY_REQ (not a carrier)" ]
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_REQ" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "not a carrier" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+}
+
+@test "hierarchy: the cycle's carrier goes up as a milestone-level item under its epic, and the key lands in the bead" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_MS" --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  [ "$output" = "DRY-RUN: jira create $HY_MS -> (new) [milestone, parent CHN-100]" ]
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_MS" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  run jq -r '.level + " " + .parent + " " + .action' "$STUB_ADAPTERS_DIR/calls.log"
+  [ "$output" = "milestone CHN-100 create" ]
+  # The link lives in the bead, and the cache follows.
+  grep -qF '"external_ref": "jira-CHN-9"' <<<"$(bd show "$HY_MS" --json)"
+  run jq -r --arg id "$HY_MS" '.[$id].jira' .cairn/id-map.json
+  [ "$output" = "CHN-9" ]
+}
+
+@test "hierarchy: a phase carrier needs the cycle linked first, then goes up under the story" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_PH" --dir "$PWD"
+  [ "$status" -eq 2 ]
+  grep -qF "phase carrier with no parent: link the cycle first" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+
+  bd update "$HY_MS" --external-ref jira-CHN-9 >/dev/null
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" create "$HY_PH" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  run jq -r '.level + " " + .parent' "$STUB_ADAPTERS_DIR/calls.log"
+  [ "$output" = "phase CHN-9" ]
+  grep -qF '"external_ref": "jira-CHN-10"' <<<"$(bd show "$HY_PH" --json)"
+}
+
+@test "hierarchy: import refuses (exit 2) and points at the link" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" import --project CHN --dir "$PWD"
+  [ "$status" -eq 2 ]
+  grep -qF "cairn-jira.py link --from-json" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+}

@@ -142,6 +142,7 @@ DEFAULT_ISSUE_TYPE = "Task"
 DEFAULT_EMAIL_ENV = "JIRA_EMAIL"
 DEFAULT_TOKEN_ENV = "JIRA_API_TOKEN"
 DEFAULT_TRANSITIONS = {"in_progress": "In Progress", "closed": "Done"}
+DEFAULT_ISSUE_TYPES = {"milestone": "Story", "phase": "Sub-task"}
 
 USAGE = ("usage: cairn-jira.py {detect | apply --key PREFIX [--base-url URL] "
          "| decline | link --from-json FILE (--milestone M | --phase N) "
@@ -355,14 +356,23 @@ def jira_backend(key, base_url, previous):
     transitions = prev_config.get("transitions")
     if not isinstance(transitions, dict):
         transitions = dict(DEFAULT_TRANSITIONS)
+    issue_types = prev_config.get("issue_types")
+    if not isinstance(issue_types, dict):
+        issue_types = dict(DEFAULT_ISSUE_TYPES)
     return {
         "type": "jira",
         "enabled": True,
         "adapter": "jira",
+        # The hierarchy model (phase 45): cairn mirrors its cycle as a Story
+        # and its phases as Sub-tasks under it, and nothing else. A backend
+        # written by this script is born in that model; a hand-written one
+        # without the key keeps the flat mirror.
+        "model": "hierarchy",
         "config": {
             "base_url": base_url,
             "project_key": key,
             "issue_type": prev_config.get("issue_type") or DEFAULT_ISSUE_TYPE,
+            "issue_types": issue_types,
             "email_env": prev_config.get("email_env") or DEFAULT_EMAIL_ENV,
             "token_env": prev_config.get("token_env") or DEFAULT_TOKEN_ENV,
             "transitions": transitions,

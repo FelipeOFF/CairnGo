@@ -217,6 +217,66 @@ def enabled_backends(cfg):
 # external_ref prefix -> backend type, as cairn's own writers spell them.
 REF_BACKENDS = {"jira": "jira", "gh": "github", "github": "github",
                 "gl": "gitlab", "gitlab": "gitlab", "linear": "linear"}
+# ...and the prefix a backend's key is written with, when this dispatcher
+# is the one writing it (a card it just created for a carrier).
+REF_PREFIX = {"jira": "jira", "github": "gh", "gitlab": "gl", "linear": "linear"}
+DEFAULT_LEVEL_TYPES = {"milestone": "Story", "phase": "Sub-task"}
+
+
+def source():
+    """cairn_source, imported on first use — the classification of a bead
+    (carrier of a cycle, carrier of a phase, or neither) lives there, once."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cairn_source
+    return cairn_source
+
+
+def hierarchical(backend):
+    """The hierarchy model (phase 45 / MIRROR-01, D-01): a backend that
+    declares `"model": "hierarchy"` receives ONLY carriers — the cycle's bead
+    as a milestone-level item under its cached epic, a phase's bead as a
+    phase-level item under the cycle's item — and never a requirement, a
+    plan record, a quick or a lease. The model is cairn's; the adapter maps
+    levels to its own types. A backend without the key keeps the flat
+    mirror it always had."""
+    return backend.get("model") == "hierarchy"
+
+
+def classify(root, bd_id, btype):
+    """(level, parent_key, issue) for a hierarchy push, or (None, None,
+    issue) when the bead is not a carrier. The parent of a milestone-level
+    item is the epic cached under metadata.gsd.<backend>.epic; the parent of
+    a phase-level item is the key of the cycle's own carrier for this
+    backend (its external_ref), or None when the cycle is not linked yet."""
+    cs = source()
+    issue = next((i for i in cs.issues(root) if i.get("id") == bd_id), None)
+    if issue is None:
+        return None, None, None
+    if cs.is_milestone_carrier(issue):
+        epic = (cs.gsd(issue).get(btype) or {}).get("epic")
+        return "milestone", epic or None, issue
+    if cs.is_carrier(issue) and cs.issue_phases(issue):
+        parent = None
+        for key in cs.issue_milestones(issue):
+            for c in cs.milestone_carriers(root, key):
+                ref = str(c.get("external_ref") or "")
+                prefix, _, ext = ref.partition("-")
+                if ext and REF_BACKENDS.get(prefix) == btype:
+                    parent = ext
+        return "phase", parent, issue
+    return None, None, issue
+
+
+def record_ref(root, bd_id, btype, ext):
+    """A card this dispatcher just created is a link, and the link lives in
+    the bead: write external_ref <prefix>-<key> when the bead has none."""
+    prefix = REF_PREFIX.get(btype)
+    if not prefix:
+        return
+    subprocess.run(["bd", "-C", str(root), "update", bd_id,
+                    "--external-ref", f"{prefix}-{ext}"],
+                   capture_output=True, text=True)
+    source().invalidate(root)
 
 
 def derive_idmap(idmap, cfg):
@@ -283,9 +343,18 @@ def do_push(action, bd_id, base, cfg, dry_run=False):
                       f"(adapter '{b.get('adapter', btype)}' not found)")
                 continue
             ext = entry.get(btype)
+            if hierarchical(b):
+                level, parent, _ = classify(base.parent, bd_id, btype)
+                if level is None:
+                    print(f"DRY-RUN: {btype} skip {bd_id} (not a carrier)")
+                    continue
+                print(f"DRY-RUN: {btype} {action} {bd_id} -> {ext or '(new)'} "
+                      f"[{level}, parent {parent or '(none)'}]")
+                continue
             print(f"DRY-RUN: {btype} {action} {bd_id} -> {ext or '(new)'}")
         return 0
     results = []
+    root = base.parent
     for b in backends:
         btype = b.get("type", "?")
         adapter = resolve_adapter(b.get("adapter", btype))
@@ -298,11 +367,26 @@ def do_push(action, bd_id, base, cfg, dry_run=False):
             "labels": issue["labels"], "external_id": entry.get(btype),
             "config": b.get("config", {}),
         }
+        if hierarchical(b):
+            level, parent, _ = classify(root, bd_id, btype)
+            if level is None:
+                results.append((btype, "skip", "not a carrier — the hierarchy "
+                                "model mirrors cycles and phases only"))
+                continue
+            if level == "phase" and not parent and not entry.get(btype):
+                results.append((btype, "FAIL", "phase carrier with no parent: "
+                                "link the cycle first (cairn-jira.py link "
+                                "--milestone)"))
+                continue
+            event.update({"level": level, "parent": parent,
+                          "external_key": entry.get(btype)})
         ext, err = run_adapter(adapter, event)
         if err:
             results.append((btype, "FAIL", err))
             continue
         if ext:
+            if hierarchical(b) and not entry.get(btype):
+                record_ref(root, bd_id, btype, ext)
             entry[btype] = ext
         results.append((btype, "ok", f"{action} -> {ext or entry.get(btype, '?')}"))
     write_json(base / "id-map.json", idmap)
@@ -424,6 +508,11 @@ def do_import(base, cfg, query, project, backend_type, dry_run=False):
         die("multiple enabled backends — pick one with --backend <type>")
     b = backends[0]
     btype = b.get("type", "?")
+    if hierarchical(b):
+        die(f"{btype} runs the hierarchy model: a card does not become a bead, "
+            "it LINKS to an existing carrier — save the card JSON and run "
+            "cairn-jira.py link --from-json <file> (--milestone vX.Y | "
+            "--phase N), or /cairn:jira link in a session", 2)
     adapter = resolve_adapter(b.get("adapter", btype))
     if not adapter:
         die(f"adapter '{b.get('adapter', btype)}' not found")

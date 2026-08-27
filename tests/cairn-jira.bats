@@ -164,7 +164,9 @@ seed_jira_signals() {
   # guards is the critical one in the threat register: a token VALUE written
   # into a committed file. There is no field here that could hold one.
   assert_json_eq "$cfg" '.backends[0].config | keys | join(",")' \
-    'base_url,email_env,issue_type,project_key,token_env,transitions'
+    'base_url,email_env,issue_type,issue_types,project_key,token_env,transitions'
+  assert_json_eq "$cfg" '.backends[0].model' 'hierarchy'
+  assert_json_eq "$cfg" '.backends[0].config.issue_types | to_entries | map(.key + "=" + .value) | join(",")' 'milestone=Story,phase=Sub-task'
   assert_json_eq "$cfg" '.backends[0].config.email_env' "JIRA_EMAIL"
   assert_json_eq "$cfg" '.backends[0].config.token_env' "JIRA_API_TOKEN"
   assert_json_eq "$cfg" \

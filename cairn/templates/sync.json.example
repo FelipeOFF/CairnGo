@@ -25,10 +25,12 @@
       "type": "jira",
       "enabled": false,
       "adapter": "jira",
+      "model": "hierarchy",
       "config": {
         "base_url": "https://yourorg.atlassian.net",
         "project_key": "PROJ",
         "issue_type": "Task",
+        "issue_types": { "milestone": "Story", "phase": "Sub-task" },
         "email_env": "JIRA_EMAIL",
         "token_env": "JIRA_API_TOKEN",
         "transitions": { "in_progress": "In Progress", "closed": "Done" }

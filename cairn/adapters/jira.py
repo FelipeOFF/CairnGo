@@ -61,6 +61,7 @@ except ValueError:
 # Jira project keys: uppercase, digits and underscore after the first letter.
 # Anything else (spaces, JQL operators) is refused rather than interpolated.
 PROJECT_KEY = re.compile(r"^[A-Z][A-Z0-9_]{1,30}$")
+DEFAULT_LEVEL_TYPES = {"milestone": "Story", "phase": "Sub-task"}
 
 
 def cfg_auth(cfg):
@@ -142,12 +143,25 @@ def push(event, cfg):
     action = event["action"]
     trans = cfg.get("transitions", {})
     if action == "create" or (action == "update" and not ext):
-        body = {"fields": {
+        # Hierarchy model (phase 45): the dispatcher says which LEVEL the
+        # bead is and under which parent; cfg.issue_types maps the level to
+        # this site's type names. Flat model: one type for everything.
+        level = event.get("level")
+        if level:
+            types = dict(DEFAULT_LEVEL_TYPES)
+            types.update(cfg.get("issue_types") or {})
+            issuetype = types.get(level) or cfg.get("issue_type", "Task")
+        else:
+            issuetype = cfg.get("issue_type", "Task")
+        fields = {
             "project": {"key": cfg["project_key"]},
             "summary": event["title"],
             "description": adf(event["body"]),
-            "issuetype": {"name": cfg.get("issue_type", "Task")},
-        }}
+            "issuetype": {"name": issuetype},
+        }
+        if event.get("parent"):
+            fields["parent"] = {"key": event["parent"]}
+        body = {"fields": fields}
         key = api(cfg, "POST", "/rest/api/3/issue", body).get("key", "")
         if event["status"] == "in_progress":
             transition(cfg, key, trans.get("in_progress"))
