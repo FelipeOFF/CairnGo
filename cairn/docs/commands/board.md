@@ -37,7 +37,16 @@ phase), and per row a **copy** button with the exact `bd` command and an
 required), `lease-release` (`N` or `bead:<id>`), `stop` (`N`, `bead:<id>`,
 or nothing for everything — writes `.cairn/stop` through `cairn-stop.py
 request` and releases that lease; a running loop reads the flag at its next
-boundary and stops clean, never by kill) and `stop-clear`. Each runs the
+boundary and stops clean, never by kill) and `stop-clear`.
+
+**Trend and CI** (phase 51): `GET /api/trend` serves cairn-trend's
+first-pass verdict per cycle plus closed-per-day per phase of the open
+cycle (from bd `closed_at`; time in DOING is not measured, and the block
+says so), drawn as inline SVG. `GET /api/ci` runs `gh run list` for the
+current branch and lists the open `gh:run` gates — from this process only,
+never from cairn-status or cairn-land, and only when `git.review_state` is
+`gh` (cached 60 s in `.cairn/ci-cache.json` with `fetched_at`); off, the
+block reads `CI desligada · /cairn:config git.review_state gh`. Each runs the
 deterministic CLI as an argv list with `BEADS_ACTOR=board`, mirrors itself
 through gbsync when `.cairn/sync.json` exists (the post-bd-write hook only
 sees the session's own `bd` commands), appends one line to

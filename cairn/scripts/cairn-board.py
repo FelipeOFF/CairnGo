@@ -39,6 +39,13 @@ ENDPOINTS
     GET  /api/status     cairn-status.py --json, verbatim, plus `board`
                          {fetched_at, generated}
     GET  /api/fragment   the board region as HTML, plus the live blocks
+    GET  /api/trend      {cycles, phases, not_measured} — cairn-trend's
+                         first-pass verdict per cycle plus closed-per-day
+                         per phase of the open cycle, from bd (phase 51)
+    GET  /api/ci         {enabled, switch, branch, runs, gates, errors} —
+                         `gh run list` for the current branch, ONLY when
+                         git.review_state is `gh`, cached 60 s under
+                         .cairn/ci-cache.json; off says so (phase 51)
     GET  /healthz        "ok"
     POST /api/action     {action, id, reason?} — claim | close | reopen |
                          gate-check | gate-resolve | lease-release, each
@@ -78,6 +85,11 @@ CAIRN_STATUS = os.environ.get("CAIRN_STATUS", str(SCRIPTS_DIR / "cairn-status.py
 CAIRN_LEASE = os.environ.get("CAIRN_LEASE", str(SCRIPTS_DIR / "cairn-lease.py"))
 CAIRN_GBSYNC = os.environ.get("CAIRN_GBSYNC", str(SCRIPTS_DIR / "gbsync.sh"))
 CAIRN_STOP = os.environ.get("CAIRN_STOP", str(SCRIPTS_DIR / "cairn-stop.py"))
+CAIRN_TREND = os.environ.get("CAIRN_TREND", str(SCRIPTS_DIR / "cairn-trend.py"))
+CAIRN_CONFIG = os.environ.get("CAIRN_CONFIG", str(SCRIPTS_DIR / "cairn-config.py"))
+CAIRN_GH = os.environ.get("CAIRN_GH", "gh")
+TREND_TTL = 60.0
+CI_TTL = float(os.environ.get("CAIRN_BOARD_CI_TTL") or 60.0)
 TEMPLATE = PLUGIN_ROOT / "templates" / "status-board.html"
 LIVE_MARK = "<!-- cairn:live:blocks -->"
 BOARD_START = "<!-- cairn:generated:board:start -->"
@@ -397,6 +409,8 @@ def live_blocks(root, data):
                + (f'<ul>{"".join(rows)}</ul>' if rows
                   else '<p class="live-empty">nothing to claim or close.</p>')
                + '</section>')
+    out.append(trend_block(root))
+    out.append(ci_block(root))
     out.append('</div>')
     return "\n".join(out)
 
@@ -404,7 +418,7 @@ def live_blocks(root, data):
 LIVE_CSS = """
 <style>
 /* the live blocks — data in mono where it is data, tone over decoration */
-.live { display: grid; gap: clamp(20px, 3vw, 36px); margin-top: clamp(28px, 4vw, 48px); }
+.live { display: grid; align-items: start; gap: clamp(20px, 3vw, 36px); margin-top: clamp(28px, 4vw, 48px); }
 @media (min-width: 900px) { .live { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .live-block > .panel-h { margin: 0 0 10px; }
 .live-block h3 { font: 400 var(--t-xs)/1.2 var(--sans); color: var(--bone-dim); margin: 18px 0 6px; }
@@ -428,6 +442,14 @@ LIVE_CSS = """
 .why { font: 400 var(--t-xs)/1.2 var(--mono); color: var(--bone); background: color-mix(in srgb, var(--bone) 6%, transparent); border: 1px solid color-mix(in srgb, var(--bone) 18%, transparent); border-radius: 4px; padding: 4px 8px; width: 12rem; max-width: 100%; }
 .why:focus { outline: none; border-color: color-mix(in srgb, var(--amber) 60%, transparent); }
 .why.is-missing { border-color: color-mix(in srgb, var(--oxide) 70%, transparent); }
+.spark { display: inline-block; vertical-align: middle; }
+.live-block li.has-spark { align-items: center; }
+.spark polyline, .spark line { fill: none; stroke: var(--lichen); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.spark line { stroke: var(--bone-dim); }
+.live-k.is-ok { color: var(--lichen); }
+.live-k.is-bad { color: var(--oxide); }
+.live-link { font: 400 var(--t-xs)/1 var(--mono); color: var(--bone-dim); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--bone) 25%, transparent); }
+.live-link:hover { color: var(--bone); }
 .live-status { font: 400 var(--t-xs)/1.4 var(--mono); color: var(--bone-dim); max-width: var(--measure); margin: 0 auto; padding: 18px var(--pad) 0; }
 .live-status.is-off { color: var(--oxide); }
 </style>
@@ -539,6 +561,205 @@ LIVE_JS = """
 })();
 </script>
 """
+
+
+# --------------------------------------------------------------------------- #
+# trend and CI — history, and the one block that reaches the forge (phase 51)
+# --------------------------------------------------------------------------- #
+_TREND = {"at": 0.0, "model": None}
+_CI = {"at": 0.0, "model": None}
+
+
+def trend_model(root):
+    """{cycles: what cairn-trend says, phases: closed-per-day per phase of the
+    open cycle, from bd}. 'Time in DOING' is deliberately absent: bd keeps
+    no entry-into-in_progress stamp, and a number derived from updated_at
+    would measure the last edit, not the work."""
+    if time.time() - _TREND["at"] < TREND_TTL and _TREND["model"] is not None:
+        return _TREND["model"]
+    trend = run_json([sys.executable, CAIRN_TREND, "--json"], root, {})
+    cycles = []
+    for c in (trend.get("cycles") or []) if isinstance(trend, dict) else []:
+        num = den = 0
+        for e in c.get("entries") or []:
+            r = e.get("score_ratio")
+            if isinstance(r, list) and len(r) == 2 and r[1]:
+                num += r[0]; den += r[1]
+        cycles.append({"cycle": c.get("cycle"), "coverage": c.get("coverage"),
+                       "ratio": (num / den) if den else None,
+                       "comparable": c.get("cycle") in (trend.get("comparable") or [])})
+    issues = run_json(["bd", "-C", str(root), "list", "--all", "--limit", "0",
+                       "--json"], root, [])
+    phases = {}
+    open_keys = set()
+    for i in issues if isinstance(issues, list) else []:
+        labels = i.get("labels") or []
+        ms = [l[2:] for l in labels if l.startswith("m-")]
+        if i.get("status") != "closed":
+            open_keys.update(ms)
+    for i in issues if isinstance(issues, list) else []:
+        labels = i.get("labels") or []
+        ms = [l[2:] for l in labels if l.startswith("m-")]
+        if not (set(ms) & open_keys):
+            continue
+        for l in labels:
+            if l.startswith("phase-") and l[6:].isdigit():
+                n = int(l[6:])
+                row = phases.setdefault(n, {"phase": n, "title": None, "open": 0,
+                                            "closed": 0, "closed_by_day": {}})
+                if i.get("status") == "closed":
+                    row["closed"] += 1
+                    day = (i.get("closed_at") or "")[:10]
+                    if day:
+                        row["closed_by_day"][day] = row["closed_by_day"].get(day, 0) + 1
+                else:
+                    row["open"] += 1
+                gsd = (i.get("metadata") or {}).get("gsd") if isinstance(i.get("metadata"), dict) else None
+                if not gsd and not any(x.startswith("plan-") for x in labels) \
+                        and "." not in (i.get("id") or "").split("-", 1)[-1]:
+                    row["title"] = i.get("title")
+    model = {"cycles": cycles, "phases": [phases[k] for k in sorted(phases)],
+             "disambiguator": trend.get("disambiguator") if isinstance(trend, dict) else None,
+             "not_measured": ["time in DOING: bd keeps no entry-into-in_progress stamp"]}
+    _TREND.update(at=time.time(), model=model)
+    return model
+
+
+def review_switch(root):
+    try:
+        proc = subprocess.run([sys.executable, CAIRN_CONFIG, "get", "git.review_state",
+                               "--project-dir", str(root)],
+                              capture_output=True, text=True, cwd=str(root), timeout=30)
+        return (proc.stdout or "").strip() or "off"
+    except (OSError, subprocess.SubprocessError):
+        return "off"
+
+
+def ci_model(root):
+    """The CI block's data (TREND-02): only when git.review_state is `gh`,
+    only from THIS process — cairn-status and cairn-land stay structurally
+    offline — and cached under .cairn/ci-cache.json with fetched_at."""
+    if time.time() - _CI["at"] < CI_TTL and _CI["model"] is not None:
+        return _CI["model"]
+    switch = review_switch(root)
+    if switch != "gh":
+        model = {"enabled": False, "switch": switch,
+                 "note": ("CI desligada · /cairn:config git.review_state gh"
+                          if switch == "off" else
+                          f"CI via {switch}: not wired in the board yet "
+                          "(gh only for now)")}
+        _CI.update(at=time.time(), model=model)
+        return model
+    try:
+        branch = subprocess.run(["git", "-C", str(root), "branch", "--show-current"],
+                                capture_output=True, text=True, timeout=30).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        branch = ""
+    runs, errors = [], []
+    fields = "databaseId,name,status,conclusion,headSha,url,createdAt,displayTitle,headBranch"
+    try:
+        proc = subprocess.run([CAIRN_GH, "run", "list", "--branch", branch or "HEAD",
+                               "--limit", "6", "--json", fields],
+                              capture_output=True, text=True, cwd=str(root), timeout=60)
+        if proc.returncode == 0:
+            runs = json.loads(proc.stdout or "[]")
+        else:
+            errors.append((proc.stderr or proc.stdout).strip()[:300] or f"gh exited {proc.returncode}")
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        errors.append(f"gh could not run: {exc}")
+    gates = []
+    for g in open_gates(root):
+        if str(g.get("type") or "") == "gh:run":
+            gates.append({"id": g.get("id"), "await_id": g.get("await_id"),
+                          "blocks": g.get("blocks") or g.get("blocked"),
+                          "reason": g.get("reason") or g.get("title")})
+    model = {"enabled": True, "switch": "gh", "branch": branch,
+             "fetched_at": now_iso(), "runs": runs if isinstance(runs, list) else [],
+             "gates": gates, "errors": errors}
+    try:
+        (root / ".cairn").mkdir(parents=True, exist_ok=True)
+        (root / ".cairn" / "ci-cache.json").write_text(json.dumps(model, indent=2) + "\n")
+    except OSError:
+        pass
+    _CI.update(at=time.time(), model=model)
+    return model
+
+
+def sparkline(points, width=160, height=28):
+    """One polyline over `points` (ints), no axis, no fill — a line and the
+    number beside it is all a per-phase daily count needs."""
+    if not points or max(points) == 0:
+        return f'<svg class="spark" width="{width}" height="{height}" viewBox="0 0 {width} {height}" aria-hidden="true"><line x1="0" y1="{height-2}" x2="{width}" y2="{height-2}"></line></svg>'
+    top = max(points)
+    n = len(points)
+    xs = [(i * (width - 2) / max(1, n - 1)) + 1 for i in range(n)]
+    ys = [height - 2 - (p / top) * (height - 6) for p in points]
+    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    return (f'<svg class="spark" width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+            f'aria-hidden="true"><polyline points="{pts}"></polyline></svg>')
+
+
+def trend_block(root):
+    m = trend_model(root)
+    rows = []
+    comp = [c for c in m["cycles"] if c.get("ratio") is not None]
+    if comp:
+        w, h = 160, 28
+        xs = [(i * (w - 2) / max(1, len(comp) - 1)) + 1 for i in range(len(comp))]
+        ys = [h - 2 - c["ratio"] * (h - 6) for c in comp]
+        pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+        labels = " · ".join(f"{c['cycle']} {round(c['ratio'] * 100)}%" for c in comp)
+        rows.append(f'<li class="has-spark"><span class="live-k">first pass</span> '
+                    f'<svg class="spark" width="{w}" height="{h}" viewBox="0 0 {w} {h}" aria-hidden="true">'
+                    f'<polyline points="{pts}"></polyline></svg> '
+                    f'<span class="live-v live-dim">{esc(labels)}</span></li>')
+        if m.get("disambiguator"):
+            rows.append(f'<li><span class="live-v live-dim">{esc(str(m["disambiguator"])[:200])}</span></li>')
+    from datetime import timedelta
+    today = datetime.now(timezone.utc).date()
+    days = [(today - timedelta(days=13 - i)).isoformat() for i in range(14)]
+    for ph in m["phases"]:
+        series = [ph["closed_by_day"].get(d, 0) for d in days]
+        total = ph["closed"] + ph["open"]
+        rows.append(f'<li class="has-spark"><span class="live-k">phase {ph["phase"]}</span> '
+                    f'{sparkline(series)} '
+                    f'<span class="live-v"><span class="n">{ph["closed"]}</span>/{total} closed'
+                    f'{" · " + esc(ph["title"]) if ph.get("title") else ""}</span></li>')
+    note = "; ".join(m.get("not_measured") or [])
+    return ('<section class="live-block" id="live-trend"><h2 class="panel-h">trend</h2>'
+            + (f'<ul>{"".join(rows)}</ul>' if rows else '<p class="live-empty">no history yet.</p>')
+            + (f'<p class="live-empty">not measured: {esc(note)}</p>' if note else '')
+            + '<p class="live-empty">14 days per phase, from bd closed_at; first pass from cairn-trend.</p>'
+            + '</section>')
+
+
+def ci_block(root):
+    m = ci_model(root)
+    if not m.get("enabled"):
+        return ('<section class="live-block" id="live-ci"><h2 class="panel-h">ci</h2>'
+                f'<p class="live-empty">{esc(m.get("note"))}</p></section>')
+    rows = []
+    for r in m.get("runs") or []:
+        state = r.get("conclusion") or r.get("status") or "?"
+        cls = {"success": "is-ok", "failure": "is-bad"}.get(state, "")
+        rows.append(f'<li><span class="live-k {cls}">{esc(state)}</span> '
+                    f'<span class="live-v">{esc(r.get("name") or r.get("displayTitle") or "run")} '
+                    f'<span class="live-dim">{esc(str(r.get("headSha") or "")[:7])} · '
+                    f'{esc(str(r.get("createdAt") or "")[:16])}</span></span>'
+                    + (f' <a class="live-link" href="{esc(r.get("url"))}">open</a>' if r.get("url") else "")
+                    + '</li>')
+    for g in m.get("gates") or []:
+        rows.append(f'<li><span class="live-k">gate {esc(g.get("id"))}</span> '
+                    f'<span class="live-v">{esc(g.get("reason") or "")}'
+                    f'{" · run " + esc(g.get("await_id")) if g.get("await_id") else " · no run matched yet (bd gate discover)"}'
+                    f'{" · blocks " + esc(g.get("blocks")) if g.get("blocks") else ""}</span> '
+                    f'{act_button("gate-check", "gh:run", "check")}</li>')
+    for e in m.get("errors") or []:
+        rows.append(f'<li><span class="live-k is-bad">gh</span> <span class="live-v">{esc(e)}</span></li>')
+    return ('<section class="live-block" id="live-ci"><h2 class="panel-h">ci</h2>'
+            f'<p class="live-empty">branch {esc(m.get("branch") or "?")} · fetched {esc((m.get("fetched_at") or "")[11:19])} · via gh</p>'
+            + (f'<ul>{"".join(rows)}</ul>' if rows else '<p class="live-empty">no run on this branch.</p>')
+            + '</section>')
 
 
 # --------------------------------------------------------------------------- #
@@ -724,6 +945,12 @@ def make_handler(root, snapshot):
                                     "generated": data.get("generated"),
                                     "error": error}
                 return self.send(200, json.dumps(payload),
+                                 "application/json; charset=utf-8")
+            if path == "/api/trend":
+                return self.send(200, json.dumps(trend_model(root)),
+                                 "application/json; charset=utf-8")
+            if path == "/api/ci":
+                return self.send(200, json.dumps(ci_model(root)),
                                  "application/json; charset=utf-8")
             if path == "/api/fragment":
                 if data is None:

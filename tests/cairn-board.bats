@@ -243,3 +243,83 @@ post_action() {  # post_action <url> <json> [extra curl args...]
   [ "$output" = "200" ]
   [ ! -f "$BOARD_ROOT/.cairn/stop" ]
 }
+
+# --------------------------------------------------------------------------- #
+# trend and CI (phase 51 / TREND-01, TREND-02)
+# --------------------------------------------------------------------------- #
+
+@test "/api/trend carries cycles and per-phase closed-per-day, and the trend block draws them" {
+  make_board_repo
+  # An open cycle with one phase: one bead closed today, one still open.
+  local done; done="$(bd create "Phase 1 carrier" -t task -l phase-1,m-v1.0 --silent)"
+  bd create "REQ-01: still open" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"REQ-01","phase":1,"milestone":"v1.0"}}' --silent >/dev/null
+  bd close "$done" >/dev/null
+  run bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  local url; url="$(jq -r '.url' <<<"$output")"
+  run curl -s "${url}api/trend"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.cycles | type' 'array'
+  assert_json_eq "$output" '.phases | type' 'array'
+  assert_json_eq "$output" '.not_measured | length' '1'
+  assert_json_eq "$output" '.phases[0].phase' '1'
+  assert_json_eq "$output" '.phases[0].closed' '1'
+  assert_json_eq "$output" '.phases[0].open' '1'
+  assert_json_eq "$output" '.phases[0].title' 'Phase 1 carrier'
+  assert_json_eq "$output" '[.phases[0].closed_by_day[]] | add' '1'
+  run curl -s "${url}api/fragment"
+  grep -qF 'id="live-trend"' <<<"$output"
+  grep -qF 'class="spark"' <<<"$output"
+  grep -qF 'not measured: time in DOING' <<<"$output"
+}
+
+@test "the CI block is off by default and says how to turn it on; with review_state=gh it asks gh (stubbed) and caches" {
+  make_board_repo
+  run bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  local url; url="$(jq -r '.url' <<<"$output")"
+  run curl -s "${url}api/ci"
+  assert_json_eq "$output" '.enabled' 'false'
+  run curl -s "${url}api/fragment"
+  grep -qF 'CI desligada' <<<"$output"
+  grep -qF '/cairn:config git.review_state gh' <<<"$output"
+  bash "$BOARD" stop --project-dir "$BOARD_ROOT" >/dev/null
+
+  # A gh stand-in on the CAIRN_GH seam: one run, JSON out.
+  local stub="$BATS_TEST_TMPDIR/gh"
+  cat > "$stub" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$(dirname "$0")/gh.log"
+echo '[{"databaseId": 42, "name": "ci", "status": "completed", "conclusion": "success", "headSha": "abcdef1234567", "url": "https://example.test/run/42", "createdAt": "2026-08-27T10:00:00Z", "displayTitle": "ci", "headBranch": "main"}]'
+SH
+  chmod +x "$stub"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set git.review_state gh --project-dir "$BOARD_ROOT" >/dev/null
+  run env CAIRN_GH="$stub" bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  url="$(jq -r '.url' <<<"$output")"
+  run curl -s "${url}api/ci"
+  assert_json_eq "$output" '.enabled' 'true'
+  assert_json_eq "$output" '.runs[0].conclusion' 'success'
+  assert_json_eq "$output" '.fetched_at | type' 'string'
+  grep -qF "run list --branch" "$BATS_TEST_TMPDIR/gh.log"
+  run jq -r '.runs[0].databaseId' "$BOARD_ROOT/.cairn/ci-cache.json"
+  [ "$output" = "42" ]
+  run curl -s "${url}api/fragment"
+  grep -qF 'id="live-ci"' <<<"$output"
+  grep -qF '>success</span>' <<<"$output"
+  # Cached: a second read within the TTL does not call gh again.
+  curl -s "${url}api/ci" >/dev/null
+  [ "$(grep -c 'run list' "$BATS_TEST_TMPDIR/gh.log")" -eq 1 ]
+}
+
+@test "a gh that fails is a line in the CI block, never a 500" {
+  make_board_repo
+  local stub="$BATS_TEST_TMPDIR/gh"
+  printf '#!/usr/bin/env bash\necho "gh: not logged in" >&2\nexit 4\n' > "$stub"; chmod +x "$stub"
+  bash "$CAIRN_SCRIPTS_DIR/cairn-config.sh" set git.review_state gh --project-dir "$BOARD_ROOT" >/dev/null
+  run env CAIRN_GH="$stub" bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  local url; url="$(jq -r '.url' <<<"$output")"
+  run curl -s -o "$BATS_TEST_TMPDIR/ci.json" -w '%{http_code}' "${url}api/ci"
+  [ "$output" = "200" ]
+  assert_json_eq "$(cat "$BATS_TEST_TMPDIR/ci.json")" '.errors[0]' 'gh: not logged in'
+  run curl -s "${url}api/fragment"
+  grep -qF 'gh: not logged in' <<<"$output"
+}

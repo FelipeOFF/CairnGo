@@ -36,7 +36,12 @@ command and an action button that runs it: claim, close (with a reason),
 gate check and resolve, lease release, and **stop** — the request a running
 `/cairn:autonomous` or `/cairn:implement` honours at its next boundary
 (`.cairn/stop`, never a kill); the block says "stop requested" until the
-lease goes. Every action is the deterministic
+lease goes. Two more blocks close the page: **trend** (cairn-trend's
+first-pass verdict per cycle, and closed-per-day per phase of the open cycle,
+drawn inline) and **CI** — `gh run list` for the current branch and the open
+`gh:run` gates, fetched by this process only and only when
+`git.review_state` is `gh`; off, the block says `CI desligada —
+/cairn:config git.review_state gh`. Every action is the deterministic
 CLI run by the server with `BEADS_ACTOR=board`, mirrored through gbsync
 when `.cairn/sync.json` exists, and logged to `.cairn/board.log`; a `POST`
 from any page that is not this board's own port is refused (403). `GET
