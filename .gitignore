@@ -6,6 +6,10 @@ __pycache__/
 # is stamped with when it was fetched; committing it would ship a stale answer
 # that looks current on somebody else's machine.
 .cairn/pr-cache.json
+# The live board's port/pid record and its log (cairn-board.py start) — per
+# machine, one running server per checkout.
+.cairn/board.json
+.cairn/board.log
 # On-demand clone of the pinned GSD tag (cairn-inventory.py). The pinned tag
 # commit is the invalidation key: a cache whose HEAD diverges dies with exit 6
 # and --refresh rebuilds it. Never committed — it is an external corpus of
