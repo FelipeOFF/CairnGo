@@ -339,3 +339,75 @@ STUBEOF
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF "$CAIRN_REPO_ROOT/tests"
 }
+
+#-----------------------------------------------------------------------------
+# The HOME the suite runs in (phase 53 / SPOOL-01, CairnGo-r7mw)
+#
+# Every bd a test runs enqueues a metrics event under $HOME/.beads/eventsData,
+# and the only switch bd honours is $HOME/.config/bd/config.yaml — so the
+# runner pins HOME. TMPDIR is pointed at the test's own tmp so the pinned
+# directory under test is never the developer's real one.
+#-----------------------------------------------------------------------------
+
+@test "the runner pins a HOME with bd metrics off, says so on stderr, and keeps stdout to the argv" {
+  make_runner_fixture
+  stub_parallel_prereqs
+  stub_bats 0
+  local pinned="$BATS_TEST_TMPDIR/cairn-test-home-$(id -u)"
+
+  run env PATH="$STUB" TMPDIR="$BATS_TEST_TMPDIR" "$STUB/bash" "$RUNNER" \
+    --print-command --jobs 2 --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "HOME pinned at $pinned" <<<"$output"
+  grep -qF "disabled: true" "$pinned/.config/bd/config.yaml"
+  grep -qF "notice_shown: true" "$pinned/.config/bd/config.yaml"
+
+  # stdout is still exactly the argv: the pin is a stderr note, never a token.
+  run "$STUB/bash" -c "PATH='$STUB' TMPDIR='$BATS_TEST_TMPDIR' '$RUNNER' \
+    --print-command --jobs 2 --project-dir '$ROOT' 2>/dev/null"
+  [ "$status" -eq 0 ]
+  refute_in_output "HOME"
+  assert_j_flag 2
+}
+
+@test "the pinned HOME carries ~/.tool-versions when the real HOME has one, and nothing else" {
+  make_runner_fixture
+  stub_parallel_prereqs
+  stub_bats 0
+  local fake="$BATS_TEST_TMPDIR/real-home"
+  mkdir -p "$fake"
+  printf 'python 3.12.0\n' > "$fake/.tool-versions"
+  printf '{"secret": true}\n' > "$fake/.claude.json"
+  local pinned="$BATS_TEST_TMPDIR/cairn-test-home-$(id -u)"
+
+  run env PATH="$STUB" TMPDIR="$BATS_TEST_TMPDIR" HOME="$fake" "$STUB/bash" \
+    "$RUNNER" --print-command --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$pinned/.tool-versions")" = "python 3.12.0" ]
+  [ ! -e "$pinned/.claude.json" ]
+}
+
+@test "bats runs under the pinned HOME, with CAIRN_TEST_HOME naming it" {
+  make_runner_fixture
+  stub_parallel_prereqs
+  cat > "$STUB/bats" <<STUBEOF
+#!/usr/bin/env bash
+echo "stub-bats HOME=\$HOME CAIRN_TEST_HOME=\$CAIRN_TEST_HOME"
+exit 0
+STUBEOF
+  chmod +x "$STUB/bats"
+  local pinned="$BATS_TEST_TMPDIR/cairn-test-home-$(id -u)"
+
+  run env PATH="$STUB" TMPDIR="$BATS_TEST_TMPDIR" "$STUB/bash" "$RUNNER" \
+    --jobs 1 --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  grep -qF "stub-bats HOME=$pinned CAIRN_TEST_HOME=$pinned" <<<"$output"
+}
+
+@test "--check-env reports the pinned HOME under home" {
+  make_runner_fixture
+  run env PATH="$STUB" TMPDIR="$BATS_TEST_TMPDIR" "$STUB/bash" "$RUNNER" \
+    --check-env --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.home' "$BATS_TEST_TMPDIR/cairn-test-home-$(id -u)"
+}

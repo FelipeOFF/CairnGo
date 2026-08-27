@@ -87,6 +87,23 @@ A bats killed by a signal reports a negative returncode in Python; it is
 converted to the shell's own 128+N so the number that leaves this script is
 the number a shell would have reported.
 
+THE HOME THE SUITE RUNS IN (v4.1, CairnGo-r7mw)
+----------------------------------------------
+Every `bd` a test runs enqueues an anonymous-metrics event under
+`$HOME/.beads/eventsData` — measured 2026-08-27 on the developer's machine:
+259,653 `.evtq` files, 1.0 GB, every one a `cli_command` event the suite
+helped write. And bd offers exactly one switch for it: `metrics.disabled` in
+`$HOME/.config/bd/config.yaml`. No environment variable turns it off
+(BEADS_METRICS_DISABLED, BD_METRICS_DISABLED, BEADS_NO_METRICS, DO_NOT_TRACK
+were all tried), and XDG_CONFIG_HOME is ignored. So the runner pins HOME:
+bats runs with HOME set to a directory this runner owns, rewritten every run,
+carrying a bd config with metrics off and — the lesson tests/helpers.bash
+make_pinned_home() learned the hard way — a copy of ~/.tool-versions, because
+an empty HOME kills an asdf-managed python3 with exit 126 before a single
+line of cairn runs. The pinned path is announced on stderr and exported as
+CAIRN_TEST_HOME, so a test can tell it came through this door. stdout of
+--print-command is unchanged: it is still exactly the argv.
+
 Usage:
     cairn-test.py [--jobs N] [--print-command] [--check-env]
                   [--project-dir DIR] [paths...]
@@ -140,6 +157,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 EXIT_OK = 0
@@ -343,6 +361,7 @@ def env_report(root, flag):
     blockers = parallel_blockers()
     return {
         "bats": shutil.which("bats"),
+        "home": str(pinned_home()),
         "jobs": jobs,
         "jobs_source": source,
         "parallel_binary": parallel_binary_name(),
@@ -350,6 +369,35 @@ def env_report(root, flag):
         "blockers": blockers,
         "measured_cost": MEASURED_COST,
     }
+
+
+BD_CONFIG = "metrics:\n    disabled: true\n    notice_shown: true\n"
+
+
+def pinned_home():
+    """The HOME bats runs under: one directory per user, outside the repo,
+    rewritten on every run so it never drifts from what this function says.
+
+    Two things and nothing else live in it. `.config/bd/config.yaml` with
+    metrics off (`notice_shown` too, or bd prints its first-run notice into
+    the output of whichever test happens to run first) and a copy of
+    `~/.tool-versions` when the real HOME has one — the version manager's
+    manifest, so an asdf-shimmed python3 still resolves. Deliberately NOT
+    copied: ~/.claude.json, ~/.gitconfig, anything else; widening the pin
+    would give back the contamination it exists to prevent.
+    """
+    home = Path(tempfile.gettempdir()) / f"cairn-test-home-{os.getuid()}"
+    (home / ".config" / "bd").mkdir(parents=True, exist_ok=True)
+    (home / ".config" / "bd" / "config.yaml").write_text(BD_CONFIG,
+                                                          encoding="utf-8")
+    real = Path(os.environ.get("HOME") or "~").expanduser()
+    versions = real / ".tool-versions"
+    target = home / ".tool-versions"
+    # Not when HOME already IS the pinned directory — the suite testing this
+    # runner runs under it, and copying a file onto itself is an error.
+    if versions.is_file() and versions.resolve() != target.resolve():
+        shutil.copyfile(versions, target)
+    return home
 
 
 def bats_exit_code(returncode):
@@ -415,6 +463,9 @@ def main():
         warn_blockers(blockers, jobs)
 
     argv = compose(bats, jobs, blockers, targets)
+    home = pinned_home()
+    note(f"HOME pinned at {home} (bd metrics off — the suite never feeds "
+         "~/.beads/eventsData)")
 
     if args.print_command:
         print(shlex.join(argv))
@@ -425,8 +476,9 @@ def main():
     else:
         note(f"running serial (jobs resolved to {jobs} from {source})")
 
+    env = dict(os.environ, HOME=str(home), CAIRN_TEST_HOME=str(home))
     try:
-        proc = subprocess.run(argv)
+        proc = subprocess.run(argv, env=env)
     except OSError as e:
         die(f"could not execute {bats}: {e}", EXIT_NO_BATS)
     code = bats_exit_code(proc.returncode)

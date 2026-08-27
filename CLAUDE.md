@@ -122,6 +122,16 @@ Rodar arquivos avulsos localmente durante o desenvolvimento é certo e barato
 (os 4 arquivos de uma onda levam ~16s a `-j 8`). O que não se faz é gastar a
 sessão esperando a suíte completa em série.
 
+**O runner pina o `HOME`.** Cada `bd` enfileira um evento de métricas anônimas
+em `~/.beads/eventsData` (medido 2026-08-27: 259.653 arquivos `.evtq`, 1,0 GB —
+a fila do `bd metrics`, não histórico de issue; o bd a drena sozinho quando
+alcança a rede). O único interruptor que o bd honra é
+`~/.config/bd/config.yaml` (`metrics.disabled`), então `cairn-test.sh` roda o
+bats com `HOME` num diretório próprio (`$TMPDIR/cairn-test-home-<uid>`, com o
+`.tool-versions` copiado e as métricas desligadas) e exporta
+`CAIRN_TEST_HOME`. Na sua máquina, `bd metrics off` desliga de vez, e
+`rm -rf ~/.beads/eventsData` é seguro — é só a fila.
+
 ## Architecture Overview
 
 _Add a brief overview of your project architecture_

@@ -7,6 +7,16 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `cairn-test.sh` roda o bats com `HOME` pinado num diretório próprio
+  (`$TMPDIR/cairn-test-home-<uid>`): `~/.config/bd/config.yaml` com as
+  métricas do bd desligadas e o `.tool-versions` copiado. Medido em
+  2026-08-27: cada `bd` da suíte enfileirava um evento em
+  `~/.beads/eventsData` (259.653 arquivos, 1,0 GB), e nenhuma env var nem
+  `XDG_CONFIG_HOME` desliga isso — só o config no `HOME`. O caminho sai no
+  stderr, em `--check-env` (`home`) e em `CAIRN_TEST_HOME` (CairnGo-r7mw).
+
 ### Fixed
 
 - `cairn-bookkeep close N` num repo migrado: um `ROADMAP.md` que não nomeia
