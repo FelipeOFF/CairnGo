@@ -2259,10 +2259,10 @@ EOF
   # claims-stale.
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .id] | sort | join(",")' \
-    'maps-fresh,phase-landed,release-versions,state-dialect,test-parallel'
+    'jira-links,maps-fresh,phase-landed,release-versions,state-dialect,test-parallel'
   assert_json_eq "$output" \
     '[.checks[] | select(.status == "not-applicable") | .scope] | sort | join(",")' \
-    'out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope'
+    'out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope,out-of-scope'
 }
 
 # --------------------------------------------------------------------------- #
