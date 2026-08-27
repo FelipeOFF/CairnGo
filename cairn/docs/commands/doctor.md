@@ -509,7 +509,7 @@ this routine health-check flow — see its own section below.
      spending exit 7 on lag is how exit 7 stops meaning anything.
 
      The finding routes to enabling `export.auto` plus `git-add` in
-     `.beads/config.yaml`, then `bd export --all -o .beads/issues.jsonl` and
+     `.beads/config.yaml`, then `bd export -o .beads/issues.jsonl` and
      committing the file. **Green here means the issue records have a way
      back, never the database**: the JSONL carries no Dolt branch, no commit
      history and no working set, so full recovery still needs a Dolt remote.

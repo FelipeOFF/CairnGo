@@ -3820,6 +3820,12 @@ def check_issues_recoverable(root, issues):
     tracked = git_tracked_beads_exports(root)
     if not tracked:
         promised = beads_export_promised(root)
+        # The advice says `bd export -o`, never `--all`: measured 2026-08-26
+        # on bd 1.1.0, `--all` drags the `bd remember` memories into the
+        # file, the committed export never carried one, and with them in it
+        # bd's own auto-export refuses to overwrite ("shrink guard: N
+        # record(s) outside auto-export scope") on every write that follows
+        # (CairnGo-9926). Issues only is what a clone needs back.
         common = (f"{len(live)} issue(s) live only on this machine — git "
                   f"tracks no export under .beads/, and the database itself "
                   f"is ignored, so a clean clone recovers NONE of them")
@@ -3828,14 +3834,14 @@ def check_issues_recoverable(root, issues):
                     "detail": (f"{common}. AND THE CONFIG SAYS OTHERWISE: "
                                f"export.auto is true, so bd is configured to "
                                f"produce the file a clone would restore from, "
-                               f"and git carries none. Run `bd export --all "
+                               f"and git carries none. Run `bd export "
                                f"-o .beads/issues.jsonl` and commit it; set "
                                f"git-add so it stays committed"),
                     "items": ["export.auto is true and no export is tracked"]}
         return {"id": "issues-recoverable", "status": "warn",
                 "detail": (f"{common}. Enable bd's export (export.auto plus "
                            f"git-add in .beads/config.yaml), run `bd export "
-                           f"--all -o .beads/issues.jsonl`, and commit the "
+                           f"-o .beads/issues.jsonl`, and commit the "
                            f"file"),
                 "items": [f"{len(live)} issue(s) with no tracked export"]}
     exported, unreadable = beads_export_ids(root, tracked)
@@ -3847,7 +3853,7 @@ def check_issues_recoverable(root, issues):
                 "detail": (f"the tracked export is behind the store by "
                            f"{len(missing)} issue(s) — a clone recovers "
                            f"{len(exported & live)} of {len(live)}. Re-run "
-                           f"`bd export --all -o .beads/issues.jsonl` and "
+                           f"`bd export -o .beads/issues.jsonl` and "
                            f"commit it{more}"),
                 "items": [f"absent from the export: {i}" for i in shown] +
                          ([f"unreadable line(s) in {p}" for p in unreadable]

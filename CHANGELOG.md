@@ -19,6 +19,11 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- O finding `issues-recoverable` do doctor aconselhava `bd export --all`, que
+  no bd 1.1.0 arrasta as memórias do `bd remember` para o arquivo e faz o
+  auto-export do bd recusar sobrescrever (`shrink guard`). O conselho passa a
+  `bd export -o .beads/issues.jsonl`, e um bats refuta `--all` na mensagem
+  (CairnGo-9926).
 - `cairn-bookkeep close N` num repo migrado: um `ROADMAP.md` que não nomeia
   fase nenhuma (o índice arquivado da importação) é out-of-scope, não exit 4 —
   e o fecho passa a fechar o **carrier da phase** depois de retirar a lease,
