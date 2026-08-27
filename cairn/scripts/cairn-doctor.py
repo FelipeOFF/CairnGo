@@ -1950,6 +1950,17 @@ def check_jira_links(root, issues):
                 items.append(f"epic drift: {jkey}'s parent is {live} now, "
                              f"and {c.get('id')} caches {cached} — re-link "
                              "to refresh the cache")
+    for iss in issues:
+        mirror = cairn_source.gsd(iss).get("mirror") or {}
+        pending = mirror.get("pending") if isinstance(mirror, dict) else None
+        waiting = [e for e in (pending or []) if e.get("backend") == "jira"]
+        if waiting:
+            warns += 1
+            what = ", ".join(f"{e.get('action')} {e.get('key') or ''}".strip()
+                             for e in waiting[:3])
+            items.append(f"pending: {iss.get('id')} has {len(waiting)} mirror "
+                         f"write(s) waiting ({what}) — /cairn:jira flush "
+                         "applies them in a session")
     if skipped:
         items.append(f"existence of {len(linked)} linked key(s) not checked — "
                      f"{skipped}; in a session, /cairn:jira audit asks the "

@@ -110,6 +110,9 @@ the mode; with neither `new` nor `complete`, ask which one.
    X.Y.Z"`. Exit 6 is a refusal with ids: a non-closed bead of the cycle
    other than the carrier — back to step 2. Exit 4 means the cycle has no
    carrier, or two; `/cairn:doctor`'s `milestone-carrier` check says which.
+   With a `jira` backend the story follows the cycle (`--apply` fires the
+   mirror close); with no token in the shell it waits on the bead —
+   `/cairn:jira flush` sends it.
 
    **In a tracker-owned repo there is nothing to archive** — the closed beads
    ARE the archive, queryable by `bd list -l m-<X.Y> --all` forever. Run

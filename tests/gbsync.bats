@@ -766,3 +766,63 @@ make_cycle_beads() {
   grep -qF "cairn-jira.py link --from-json" <<<"$output"
   [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
 }
+
+@test "hierarchy: a comment reaches the linked card with its text; unlinked, it is skipped" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" comment "$HY_MS" --text "Plano 01 registrado: x" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "not linked — nothing to comment on" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+
+  bd update "$HY_MS" --external-ref jira-CHN-9 >/dev/null
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" comment "$HY_MS" --text "Plano 01 registrado: x" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  run jq -r '.action + "|" + .external_id + "|" + .text' "$STUB_ADAPTERS_DIR/calls.log"
+  [ "$output" = "comment|CHN-9|Plano 01 registrado: x" ]
+
+  # A requirement never gets a comment either.
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" comment "$HY_REQ" --text "nope" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "not a carrier" <<<"$output"
+}
+
+@test "hierarchy: with no credentials in the shell the write is QUEUED on the bead, not attempted" {
+  require_bd
+  make_tmp_repo
+  make_hierarchy_jira
+  make_cycle_beads
+  # Declare the env var names the backend needs, and leave them unset.
+  python3 - <<'PY'
+import json
+p = ".cairn/sync.json"; d = json.load(open(p))
+d["backends"][0]["config"].update({"email_env": "HY_EMAIL", "token_env": "HY_TOKEN"})
+json.dump(d, open(p, "w"))
+PY
+  bd update "$HY_MS" --external-ref jira-CHN-9 >/dev/null
+
+  run env -u HY_EMAIL -u HY_TOKEN python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" close "$HY_MS" --dir "$PWD" --dry-run
+  [ "$status" -eq 0 ]
+  grep -qF "(queued: no credentials)" <<<"$output"
+
+  run env -u HY_EMAIL -u HY_TOKEN python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" close "$HY_MS" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "close queued on the bead (no HY_EMAIL/HY_TOKEN in the shell)" <<<"$output"
+  [ ! -e "$STUB_ADAPTERS_DIR/calls.log" ]
+  run env -u HY_EMAIL -u HY_TOKEN python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" comment "$HY_MS" --text "Fechado: done" --dir "$PWD"
+  [ "$status" -eq 0 ]
+
+  local meta; meta="$(bd show "$HY_MS" --json | jq -c '.[0].metadata.gsd.mirror.pending')"
+  [ "$(jq 'length' <<<"$meta")" = "2" ]
+  [ "$(jq -r '.[0].action + " " + .[0].key + " " + .[0].backend' <<<"$meta")" = "close CHN-9 jira" ]
+  [ "$(jq -r '.[1].text' <<<"$meta")" = "Fechado: done" ]
+
+  # With the credentials present the same write goes to the adapter.
+  run env HY_EMAIL=x HY_TOKEN=y python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" close "$HY_MS" --dir "$PWD"
+  [ "$status" -eq 0 ]
+  run jq -r '.action' "$STUB_ADAPTERS_DIR/calls.log"
+  [ "$output" = "close" ]
+}

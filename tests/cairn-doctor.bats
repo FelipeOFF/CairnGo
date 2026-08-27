@@ -4391,3 +4391,23 @@ SH
   assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .status' 'ok'
   assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .items | length' '0'
 }
+
+@test "jira-links: a queued mirror write is a warning that names the flush" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_doctor_fixture
+  stamp_state_milestone
+  make_jira_backend
+  make_jira_fetch_stub
+  bd update "$DOC_MS" --external-ref jira-DTP-142 --metadata \
+    '{"gsd":{"jira":{"story":"DTP-142","epic":"DTP-100"},"mirror":{"pending":[{"backend":"jira","action":"close","key":"DTP-142","at":"2026-08-27T00:00:00Z"}]}}}' >/dev/null
+  bd create "Phase 2 carrier" -t task -l phase-2,m-v1.0 --external-ref jira-DTP-143 --silent >/dev/null
+
+  beads_export_refresh
+  run env CAIRN_JIRA_FETCH="$JIRA_FETCH" bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="jira-links") | .status' 'warn'
+  local items; items="$(jq -r '.checks[] | select(.id=="jira-links") | .items[]' <<<"$output")"
+  grep -qF "pending: $DOC_MS has 1 mirror write(s) waiting (close DTP-142) — /cairn:jira flush" <<<"$items"
+}

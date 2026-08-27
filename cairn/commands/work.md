@@ -49,7 +49,10 @@ bare phase number `<N>` drives claims, labels, and `cairn-map`; the flags go
    and it should be empty when the phase is complete; report anything still
    open. Labels use the unpadded phase number (`phase-3`, never `phase-03`) —
    strip any leading zero from `<N>` before building the label.
-6. Refresh the phase's generated map so it reflects the closes:
+6. A closed carrier mirrors to its card when `.cairn/sync.json` has a
+   backend; with no token in the shell the write waits on the bead — run
+   `/cairn:jira flush` to send it.
+7. Refresh the phase's generated map so it reflects the closes:
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" "$N"
    ```

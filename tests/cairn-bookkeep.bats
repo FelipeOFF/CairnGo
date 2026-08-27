@@ -1962,3 +1962,29 @@ make_cycle_fixture() {
   echo "$output" | grep -qF "0 milestone carrier(s)"
   echo "$output" | grep -qF "milestone-carrier"
 }
+
+@test "milestone --apply fires the mirror close on the carrier, via gbsync, only with a sync config" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_cycle_fixture
+  local stub log; stub="$BATS_TEST_TMPDIR/gbsync.sh"; log="$BATS_TEST_TMPDIR/gbsync.log"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\necho "[gbsync] push close ok"\n' "$log" > "$stub"
+  chmod +x "$stub"
+
+  # No sync.json: no mirror, no call.
+  run env CAIRN_GBSYNC="$stub" bash "$BOOKKEEP" milestone --release 1.0.0 --apply --json \
+    --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.mirror' 'null'
+  [ ! -e "$log" ]
+
+  # Re-open the carrier, add a sync config, close again: the mirror fires.
+  bd update "$CYC_CARRIER" --status open >/dev/null
+  mkdir -p .cairn && echo '{"backends": []}' > .cairn/sync.json
+  run env CAIRN_GBSYNC="$stub" bash "$BOOKKEEP" milestone --release 1.0.0 --apply --json \
+    --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.mirror.ok' 'true'
+  grep -qF "close $CYC_CARRIER --dir" "$log"
+}

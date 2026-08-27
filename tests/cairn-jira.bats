@@ -566,3 +566,29 @@ make_link_fixture() {
   [ "$status" -eq 4 ]
   grep -qF "m-v9.9 has 0 milestone carrier(s)" <<<"$output"
 }
+
+@test "pending lists the queued mirror writes per bead, and --clear drops them" {
+  require_bd
+  make_tmp_repo
+  make_link_fixture
+  bd update "$LNK_PH" --external-ref jira-DTP-143 --metadata \
+    '{"gsd":{"mirror":{"pending":[{"backend":"jira","action":"close","key":"DTP-143","at":"2026-08-27T00:00:00Z"}]}}}' >/dev/null
+
+  run JIRA pending --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" 'length' '1'
+  assert_json_eq "$output" '.[0].bead' "$LNK_PH"
+  assert_json_eq "$output" '.[0].pending[0].action' 'close'
+
+  run JIRA pending
+  [ "$status" -eq 0 ]
+  grep -qF "jira close DTP-143" <<<"$output"
+
+  run JIRA pending --clear "$LNK_PH" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.count' '1'
+  run JIRA pending --json
+  assert_json_eq "$output" 'length' '0'
+  # The ref survived the clear; only the queue went.
+  grep -qF '"external_ref": "jira-DTP-143"' <<<"$(bd show "$LNK_PH" --json)"
+}

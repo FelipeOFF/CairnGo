@@ -63,7 +63,8 @@ ADAPTERS_DIR = Path(os.environ.get("CAIRN_ADAPTERS_DIR")
                     or Path(__file__).resolve().parent.parent / "adapters")
 PUSH_ACTIONS = {"create", "update", "close"}
 VALID_STATUS = {"open", "in_progress", "closed"}
-USAGE = ("usage: gbsync.py <create|update|close> <bd_id> | pull "
+USAGE = ("usage: gbsync.py <create|update|close> <bd_id> | comment <bd_id> "
+         "--text <t> | pull "
          "[--since <iso>] | import (--query <q> | --project <KEY>) "
          "[--backend <type>] | refresh-map [--dir <project_dir>] [--dry-run]")
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -267,6 +268,45 @@ def classify(root, bd_id, btype):
     return None, None, issue
 
 
+def credentials_missing(cfg):
+    """The env var NAMES a backend declares (email_env / token_env /
+    pat_env) that are not set in this shell — the reason a hierarchy write
+    is queued on the bead instead of attempted (phase 45, D-02/C-04). A
+    backend that declares none is assumed reachable."""
+    names = [cfg.get(k) for k in ("email_env", "token_env", "pat_env")
+             if cfg.get(k)]
+    return [n for n in names if not os.environ.get(n)]
+
+
+def enqueue_pending(root, bd_id, btype, action, extra=None):
+    """Append one write to metadata.gsd.mirror.pending on the bead, by
+    read-modify-write (bd replaces a provided top-level key wholesale). The
+    queue is what /cairn:jira flush applies in a session, and what the
+    doctor shows meanwhile."""
+    try:
+        out = subprocess.run(["bd", "-C", str(root), "show", bd_id, "--json"],
+                             capture_output=True, text=True, check=True).stdout
+        data = json.loads(out or "[]")
+    except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
+        return False
+    issue = data[0] if isinstance(data, list) else data
+    meta = issue.get("metadata") if isinstance(issue.get("metadata"), dict) else {}
+    gsd = meta.get("gsd") if isinstance(meta.get("gsd"), dict) else {}
+    mirror = gsd.get("mirror") if isinstance(gsd.get("mirror"), dict) else {}
+    pending = mirror.get("pending") if isinstance(mirror.get("pending"), list) else []
+    entry = {"backend": btype, "action": action, "at": now_iso()}
+    entry.update(extra or {})
+    pending.append(entry)
+    mirror["pending"] = pending
+    gsd["mirror"] = mirror
+    meta["gsd"] = gsd
+    proc = subprocess.run(["bd", "-C", str(root), "update", bd_id,
+                           "--metadata", json.dumps(meta)],
+                          capture_output=True, text=True)
+    source().invalidate(root)
+    return proc.returncode == 0
+
+
 def record_ref(root, bd_id, btype, ext):
     """A card this dispatcher just created is a link, and the link lives in
     the bead: write external_ref <prefix>-<key> when the bead has none."""
@@ -326,7 +366,7 @@ def do_refresh_map(base, cfg, dry_run=False):
     return 0
 
 
-def do_push(action, bd_id, base, cfg, dry_run=False):
+def do_push(action, bd_id, base, cfg, dry_run=False, text=None):
     backends = enabled_backends(cfg)
     if not backends:
         print("[gbsync] no enabled backends — nothing to mirror")
@@ -348,8 +388,14 @@ def do_push(action, bd_id, base, cfg, dry_run=False):
                 if level is None:
                     print(f"DRY-RUN: {btype} skip {bd_id} (not a carrier)")
                     continue
+                queued = " (queued: no credentials)" \
+                    if credentials_missing(b.get("config", {})) else ""
                 print(f"DRY-RUN: {btype} {action} {bd_id} -> {ext or '(new)'} "
-                      f"[{level}, parent {parent or '(none)'}]")
+                      f"[{level}, parent {parent or '(none)'}]{queued}")
+                continue
+            if action == "comment":
+                print(f"DRY-RUN: {btype} skip {bd_id} (comment needs the "
+                      "hierarchy model)")
                 continue
             print(f"DRY-RUN: {btype} {action} {bd_id} -> {ext or '(new)'}")
         return 0
@@ -360,6 +406,9 @@ def do_push(action, bd_id, base, cfg, dry_run=False):
         adapter = resolve_adapter(b.get("adapter", btype))
         if not adapter:
             results.append((btype, "skip", f"adapter '{b.get('adapter', btype)}' not found"))
+            continue
+        if action == "comment" and not hierarchical(b):
+            results.append((btype, "skip", "comment needs the hierarchy model"))
             continue
         event = {
             "action": action, "bd_id": issue["bd_id"], "title": issue["title"],
@@ -380,6 +429,25 @@ def do_push(action, bd_id, base, cfg, dry_run=False):
                 continue
             event.update({"level": level, "parent": parent,
                           "external_key": entry.get(btype)})
+            if action == "comment" and not entry.get(btype):
+                results.append((btype, "skip", "not linked — nothing to "
+                                "comment on"))
+                continue
+            missing = credentials_missing(b.get("config", {}))
+            if missing:
+                # No road to the tracker: queue, never fail, never forget.
+                extra = {"key": entry.get(btype)}
+                if text is not None:
+                    extra["text"] = text
+                ok = enqueue_pending(root, bd_id, btype, action, extra)
+                results.append((btype, "queued" if ok else "FAIL",
+                                f"{action} queued on the bead (no "
+                                f"{'/'.join(missing)} in the shell) — "
+                                "/cairn:jira flush applies it"
+                                if ok else "could not queue on the bead"))
+                continue
+            if text is not None:
+                event["text"] = text
         ext, err = run_adapter(adapter, event)
         if err:
             results.append((btype, "FAIL", err))
@@ -600,6 +668,7 @@ def main():
     since = take_flag(args, "--since")
     query = take_flag(args, "--query")
     project_key = take_flag(args, "--project")
+    text = take_flag(args, "--text")
     backend = take_flag(args, "--backend")
     dry_run = "--dry-run" in args
     if dry_run:
@@ -624,12 +693,16 @@ def main():
         if bool(query) == bool(project_key):
             die("import needs exactly one of --query <q> or --project <KEY>")
         sys.exit(do_import(base, cfg, query, project_key, backend, dry_run))
+    elif action == "comment":
+        if len(args) != 2 or not (text or "").strip():
+            die("usage: gbsync.py comment <bd_id> --text <text> [--dry-run]")
+        sys.exit(do_push("comment", args[1], base, cfg, dry_run, text=text))
     elif action in PUSH_ACTIONS:
         if len(args) != 2:
             die(f"usage: gbsync.py {action} <bd_id> [--dry-run]")
         sys.exit(do_push(action, args[1], base, cfg, dry_run))
     else:
-        die(f"unknown action '{action}' (use create|update|close|pull|import|refresh-map)")
+        die(f"unknown action '{action}' (use create|update|close|comment|pull|import|refresh-map)")
 
 
 if __name__ == "__main__":

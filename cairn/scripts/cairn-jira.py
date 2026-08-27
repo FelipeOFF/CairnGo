@@ -557,10 +557,10 @@ def write_gsd_jira(root, bd_id, jira):
         gsd.pop("jira", None)
     else:
         gsd["jira"] = jira
-    if gsd:
-        meta["gsd"] = gsd
-    else:
-        meta.pop("gsd", None)
+    # Always send the `gsd` key, even empty: bd merges top-level keys and
+    # replaces a PROVIDED key wholesale, so `{}` changes nothing while
+    # `{"gsd": {}}` is the clear (measured, bd 1.1.0).
+    meta["gsd"] = gsd
     bd_cmd(root, ["update", bd_id, "--metadata", json.dumps(meta)])
 
 
@@ -699,6 +699,58 @@ def cmd_links(args, root):
     sys.exit(EXIT_OK)
 
 
+def pending_model(root):
+    """[{bead, title, pending: [...]}] — every bead with mirror writes
+    waiting in metadata.gsd.mirror.pending (phase 45, D-02)."""
+    out = []
+    for iss in source().issues(root):
+        mirror = source().gsd(iss).get("mirror") or {}
+        pending = mirror.get("pending") if isinstance(mirror, dict) else None
+        if pending:
+            out.append({"bead": iss.get("id"), "title": iss.get("title"),
+                        "external_ref": iss.get("external_ref") or None,
+                        "pending": pending})
+    return sorted(out, key=lambda x: x["bead"] or "")
+
+
+def cmd_pending(args, root):
+    if not source().bd_available():
+        die("'bd' not found on PATH", EXIT_NO_HELPER)
+    if args.clear:
+        meta = carrier_metadata(root, args.clear)
+        gsd = meta.get("gsd") if isinstance(meta.get("gsd"), dict) else {}
+        mirror = gsd.get("mirror") if isinstance(gsd.get("mirror"), dict) else {}
+        n = len(mirror.get("pending") or [])
+        mirror.pop("pending", None)
+        if mirror:
+            gsd["mirror"] = mirror
+        else:
+            gsd.pop("mirror", None)
+        meta["gsd"] = gsd   # sent even when empty — see write_gsd_jira()
+        bd_cmd(root, ["update", args.clear, "--metadata", json.dumps(meta)])
+        source().invalidate(root)
+        if args.json:
+            print(json.dumps({"cleared": args.clear, "count": n}))
+        else:
+            print(f"[cairn-jira] cleared {n} pending write(s) on {args.clear}")
+        sys.exit(EXIT_OK)
+    model = pending_model(root)
+    if args.json:
+        print(json.dumps(model))
+        sys.exit(EXIT_OK)
+    if not model:
+        print("[cairn-jira] no pending mirror writes")
+        sys.exit(EXIT_OK)
+    for row in model:
+        print(f"[cairn-jira] {row['bead']} ({row['external_ref'] or 'unlinked'}): "
+              f"{row['title']}")
+        for e in row["pending"]:
+            extra = f" — {e['text'][:60]}" if e.get("text") else ""
+            print(f"[cairn-jira]   {e.get('backend')} {e.get('action')} "
+                  f"{e.get('key') or ''}{extra} ({e.get('at')})")
+    sys.exit(EXIT_OK)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="cairn-jira",
@@ -742,7 +794,14 @@ def build_parser():
                        help="the cycle (default: the open one)")
     links.set_defaults(func=cmd_links)
 
-    for p in (detect, apply_, decline, link, unlink, links):
+    pending = sub.add_parser("pending", help="mirror writes waiting on beads "
+                                             "(no credentials when they were "
+                                             "made); --clear after a flush")
+    pending.add_argument("--clear", metavar="BEAD",
+                         help="drop the queue of this bead (after applying it)")
+    pending.set_defaults(func=cmd_pending)
+
+    for p in (detect, apply_, decline, link, unlink, links, pending):
         p.add_argument("--project-dir", metavar="DIR",
                        help="project root the .cairn/ directory hangs off "
                             "(default: $CLAUDE_PROJECT_DIR or cwd)")

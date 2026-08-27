@@ -8,6 +8,7 @@
 /cairn:jira link [KEY] [--milestone vX.Y | --phase N]
 /cairn:jira unlink (--milestone vX.Y | --phase N)
 /cairn:jira links
+/cairn:jira flush
 /cairn:jira audit
 ```
 
@@ -53,6 +54,10 @@ epic. A phase with no Sub-task → offer one under the cycle's story. No MCP
 and no token → "create it in Jira and come back with the key".
 
 **`unlink`** clears the ref and the cached epic; Jira is untouched.
+**`flush`** sends the mirror writes the scripts queued on beads when no token
+was in the shell (`metadata.gsd.mirror.pending`: a close → transition, an
+update → title/description, a comment → comment) through the MCP,
+automatically, then clears the queue with `cairn-jira.sh pending --clear`.
 **`links`** prints story, epic and one sub-task per phase. **`audit`** runs
 the doctor and routes its `milestone-carrier` and `jira-links` findings;
 `jira-links` is out-of-scope until `.cairn/sync.json` has a `jira` backend.

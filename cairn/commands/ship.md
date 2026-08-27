@@ -19,5 +19,9 @@ Pre-ship gate, then ship:
    GSD plugin installed alongside cairn can still run its own release workflow
    through the declared passthrough, `/cairn:gsd ship`.
 
+Before pushing, `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-jira.sh" pending`
+when `.cairn/sync.json` has a backend: a queued mirror write is a card the
+tracker still shows open — `/cairn:jira flush` sends it.
+
 Never push with non-closed issues on a phase marked done. The git pre-push
 shim installed by `/cairn:init` enforces this same gate outside the agent.

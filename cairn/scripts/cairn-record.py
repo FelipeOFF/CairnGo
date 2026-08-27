@@ -269,6 +269,48 @@ def resolve_plan_record(phase, plan, milestone, root):
     return issues[0]["id"] if issues else None
 
 
+def first_paragraph(text, limit=600):
+    para = (text or "").strip().split("\n\n", 1)[0].strip()
+    return para if len(para) <= limit else para[:limit - 1].rstrip() + "…"
+
+
+def mirror_comment(args, root, issue, body, mode):
+    """A plan opened or a summary closed reaches the phase's card as a
+    comment (phase 45 / MIRROR-03, C-01/C-02) — through gbsync, explicitly,
+    because this script writes bd by subprocess and the post-bd-write hook
+    never sees it. Only when .cairn/sync.json exists; never fatal: the
+    record is the fact, the mirror is a courtesy, and a failure is said."""
+    if args.kind not in ("plan", "summary") or not args.phase:
+        return None
+    if not os.path.isfile(os.path.join(root, ".cairn", "sync.json")):
+        return None
+    carrier = resolve_phase_carrier(args.phase, args.milestone, root)
+    if not carrier:
+        return None
+    if args.kind == "plan":
+        title = args.title or ("Phase %s plan %s" % (args.phase, args.plan))
+        text = "Plano %s registrado: %s\n\n%s" % (args.plan, title,
+                                                    first_paragraph(body))
+    else:
+        text = "Fechado: %s\n\nregistro completo no bead %s" % (
+            first_paragraph(body), issue)
+    gbsync = os.environ.get("CAIRN_GBSYNC") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "gbsync.sh")
+    try:
+        proc = subprocess.run(["bash", gbsync, "comment", carrier, "--text",
+                               text, "--dir", root],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("%s mirror: gbsync comment could not run (%s)"
+              % (TAG_PREFIX, exc), file=sys.stderr)
+        return {"carrier": carrier, "ok": False}
+    if proc.returncode != 0:
+        print("%s mirror: gbsync comment exited %s: %s"
+              % (TAG_PREFIX, proc.returncode,
+                 (proc.stderr or proc.stdout).strip()[:200]), file=sys.stderr)
+    return {"carrier": carrier, "ok": proc.returncode == 0}
+
+
 def main():
     parser = argparse.ArgumentParser(prog="cairn-record.py", add_help=True,
                                      usage=USAGE)
@@ -354,10 +396,11 @@ def main():
         bd(["update", issue, "--notes", body], root)
         bd(["close", issue], root)
 
+    mirror = mirror_comment(args, root, issue, body, mode)
     if args.as_json:
         print(json.dumps({"kind": args.kind, "issue": issue, "field": field,
                           "mode": mode, "phase": args.phase,
-                          "plan": args.plan}))
+                          "plan": args.plan, "mirror": mirror}))
     else:
         print("%s %s -> %s.%s (%s)"
               % (TAG_PREFIX, args.kind, issue, field, mode))

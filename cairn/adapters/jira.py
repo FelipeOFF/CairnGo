@@ -178,6 +178,13 @@ def push(event, cfg):
         if ext:
             transition(cfg, ext, trans.get("closed", "Done"))
         return ext or ""
+    if action == "comment":
+        if not ext:
+            print("jira adapter: comment needs a linked card", file=sys.stderr)
+            sys.exit(1)
+        api(cfg, "POST", f"/rest/api/3/issue/{ext}/comment",
+            {"body": adf(event.get("text") or "")})
+        return ext
     print(f"unknown action {action}", file=sys.stderr)
     sys.exit(1)
 

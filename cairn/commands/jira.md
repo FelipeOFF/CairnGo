@@ -1,6 +1,6 @@
 ---
 description: Link this cycle to Jira — Story ↔ milestone, Sub-task ↔ phase, 1:1, written to the bead's external_ref; the only door that talks to the Atlassian MCP
-argument-hint: <link [KEY] [--milestone vX.Y | --phase N] | unlink (--milestone vX.Y | --phase N) | links | audit>
+argument-hint: <link [KEY] [--milestone vX.Y | --phase N] | unlink (--milestone vX.Y | --phase N) | links | flush | audit>
 group: sync
 ---
 
@@ -132,6 +132,31 @@ The whole cycle in one read: the milestone's story and epic, then one line
 per phase with its sub-task or `(unlinked)`. Present the script's lines as
 they are; `--json` gives the same model for anything that needs it.
 
+## `flush`
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-jira.sh" pending --json
+```
+
+Mirror writes the scripts could not send — no token in the shell when a
+carrier closed, a plan was recorded, a title changed — wait on the bead
+(`metadata.gsd.mirror.pending`), and the doctor shows them. This verb is the
+session applying them through the MCP, **automatically and without
+asking** (D: transitions and comments mirror something the user already
+did; only creation asks). Per entry, by `action`:
+
+| action | MCP | how |
+|---|---|---|
+| `close` | `getTransitionsForJiraIssue` then `transitionJiraIssue` | pick the transition whose target is the backend's `transitions.closed` name (`Done` by default) |
+| `update` | `editJiraIssue` | `summary` = the bead's title, `description` = its description |
+| `comment` | `addCommentToJiraIssue` | the entry's `text`, verbatim |
+
+Apply a bead's entries in order, then clear them —
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-jira.sh" pending --clear <bead>` —
+and say what went out. An entry the MCP refuses stays queued; say why and
+move to the next bead. No MCP either → say the queue is still waiting and
+which shell variables would let the scripts send it.
+
 ## `audit`
 
 ```bash
@@ -147,4 +172,5 @@ a session, fetch the key through the MCP and say what you found — the script
 will have said `skipped`, and this is the one place that can close that gap.
 
 Next: `/cairn:status` shows the `⧉` on the cycle and its phases;
-`/cairn:doctor` keeps the links honest.
+`/cairn:doctor` keeps the links honest; `/cairn:jira flush` sends what the
+scripts could not.

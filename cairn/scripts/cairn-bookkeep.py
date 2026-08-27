@@ -2206,6 +2206,22 @@ def cmd_milestone(args):
     payload["applied"] = True
     human.append(f"closed {carrier['id']} — the cycle is history now; "
                  "/cairn:milestone new opens the next one")
+    # The story follows the cycle (phase 45 / MIRROR-02): this close was a
+    # subprocess the post-bd-write hook never saw, so the mirror is fired
+    # here, explicitly, and only when a sync config exists. Never fatal.
+    if (root / ".cairn" / "sync.json").is_file():
+        gbsync = os.environ.get("CAIRN_GBSYNC") or sibling("gbsync.sh")
+        try:
+            proc = subprocess.run(["bash", gbsync, "close", carrier["id"],
+                                   "--dir", str(root)],
+                                  capture_output=True, text=True, timeout=60)
+            tail = (proc.stdout or proc.stderr).strip().splitlines()
+            payload["mirror"] = {"ok": proc.returncode == 0,
+                                 "detail": tail[-1] if tail else ""}
+            human.append(f"mirror: {tail[-1] if tail else 'gbsync close ran'}")
+        except (OSError, subprocess.SubprocessError) as exc:
+            payload["mirror"] = {"ok": False, "detail": str(exc)}
+            human.append(f"mirror: gbsync close could not run ({exc})")
     emit(payload, args.json, human)
     sys.exit(EXIT_OK)
 

@@ -363,3 +363,49 @@ print('parent' in (d[0] if d else {}))
 \""
   [ "$output" = "False" ]
 }
+
+# --------------------------------------------------------------------------- #
+# the record mirrors to the card as a comment (phase 45 / MIRROR-03)
+# --------------------------------------------------------------------------- #
+
+# A gbsync stand-in on the CAIRN_GBSYNC seam: logs its argv, exits 0.
+make_gbsync_stub() {
+  GBSYNC_STUB="$BATS_TEST_TMPDIR/gbsync.sh"
+  GBSYNC_LOG="$BATS_TEST_TMPDIR/gbsync.log"
+  cat > "$GBSYNC_STUB" <<EOS
+#!/usr/bin/env bash
+printf 'CALL: %s\n' "\$*" >> "$GBSYNC_LOG"
+EOS
+  chmod +x "$GBSYNC_STUB"
+}
+
+@test "record: plan e summary viram comentario no carrier via gbsync, so' com sync.json" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  make_gbsync_stub
+
+  # Sem sync.json: nenhum espelho, nenhuma chamada.
+  run bash -c "printf 'corpo do plano\n\nsegundo paragrafo\n' | CAIRN_GBSYNC='$GBSYNC_STUB' python3 '$RECORD' plan --phase 1 --plan 01 --title 'Onda 1' --json"
+  [ "$status" -eq 0 ]
+  grep -qF '"mirror": null' <<<"$output"
+  [ ! -e "$GBSYNC_LOG" ]
+
+  mkdir -p .cairn && echo '{"backends": []}' > .cairn/sync.json
+  run bash -c "printf 'corpo do plano\n\nsegundo paragrafo\n' | CAIRN_GBSYNC='$GBSYNC_STUB' python3 '$RECORD' plan --phase 1 --plan 02 --title 'Onda 2' --json"
+  [ "$status" -eq 0 ]
+  grep -qF "\"carrier\": \"$REC_PHASE\"" <<<"$output"
+  grep -qF "comment $REC_PHASE --text Plano 02 registrado: Onda 2" "$GBSYNC_LOG"
+  grep -qF "corpo do plano" "$GBSYNC_LOG"
+  ! grep -qF "segundo paragrafo" "$GBSYNC_LOG"
+
+  run bash -c "echo 'o que a onda entregou' | CAIRN_GBSYNC='$GBSYNC_STUB' python3 '$RECORD' summary --phase 1 --plan 02"
+  [ "$status" -eq 0 ]
+  grep -qF "comment $REC_PHASE --text Fechado: o que a onda entregou" "$GBSYNC_LOG"
+  grep -qF "registro completo no bead" "$GBSYNC_LOG"
+
+  # Um contexto nao e' plano nem summary: nada e' espelhado.
+  run bash -c "echo 'contexto' | CAIRN_GBSYNC='$GBSYNC_STUB' python3 '$RECORD' context --phase 1"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^CALL: ' "$GBSYNC_LOG")" -eq 2 ]
+}
