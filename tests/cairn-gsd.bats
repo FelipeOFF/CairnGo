@@ -654,9 +654,16 @@ free_of_timestamp_keys() {
   #     bead e' a fonte, com o cairn-record que o substitui.
   # De quebra: 'milestone' entrou em NO_PHASE_EXEMPT, o lease-stale nomeia
   # leases de bead, e jira_fetch valida a chave antes de qualquer URL.
+  # ATUALIZADO 2026-08-27 pela phase 54 (DOCTOR-01, CairnGo-9926): o
+  # finding issues-recoverable aconselhava `bd export --all`, que no bd
+  # 1.1.0 arrasta as memorias do `bd remember` para o export e trava o
+  # auto-export ("shrink guard"). Os dois ramos passam a `bd export -o`,
+  # com o comentario que diz por que — seis linhas, texto de conselho,
+  # nenhuma checagem nova. O primeiro push da phase saiu SEM este pin
+  # (run 33108429234, cancelada); este e' o fix-up.
   local doctor="$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
-  local pinned_blob="7e3defd9e00ea425e8a58b3e8625332437a4f3fa"
-  local pinned_lines=4836
+  local pinned_blob="9184069a07e6bf64367fb63a9600eed504ed5625"
+  local pinned_lines=4842
   [ -f "$doctor" ]
   local blob lines
   blob="$(git hash-object "$doctor")"
