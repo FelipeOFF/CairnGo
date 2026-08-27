@@ -661,9 +661,15 @@ free_of_timestamp_keys() {
   # com o comentario que diz por que — seis linhas, texto de conselho,
   # nenhuma checagem nova. O primeiro push da phase saiu SEM este pin
   # (run 33108429234, cancelada); este e' o fix-up.
+  # ATUALIZADO 2026-08-27 pela phase 55 (DOCTOR-02, CairnGo-76u8), a
+  # release 4.1.0: o check milestone-carrier deixa de avisar e passa a
+  # REPROVAR um ciclo aberto sem carrier — a D-02 da phase 43 deu
+  # exatamente uma release (4.0) para quem fez upgrade com ciclo aberto
+  # criar o bead, e ela passou. O item perde a frase datada e ganha "the
+  # bead /cairn:new and /cairn:milestone new create". Nenhum check novo.
   local doctor="$CAIRN_SCRIPTS_DIR/cairn-doctor.py"
-  local pinned_blob="9184069a07e6bf64367fb63a9600eed504ed5625"
-  local pinned_lines=4842
+  local pinned_blob="20f59c24119c916a51cc3527b155fdaf850a270b"
+  local pinned_lines=4841
   [ -f "$doctor" ]
   local blob lines
   blob="$(git hash-object "$doctor")"

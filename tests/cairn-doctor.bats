@@ -4220,7 +4220,7 @@ PY
   assert_json_eq "$output" '.checks[] | select(.id=="orphans") | .status' 'ok'
 }
 
-@test "milestone-carrier: an open cycle without one warns with the bd create; closed, it is history" {
+@test "milestone-carrier: an open cycle without one fails with the bd create; closed, it is history" {
   require_bd
   make_tmp_repo
   make_gsd_fixture "$PWD"
@@ -4232,13 +4232,15 @@ PY
 
   beads_export_refresh
   run bash "$CAIRN_SCRIPTS_DIR/cairn-doctor.sh" --json
-  # A warning in 4.0, not a failure: exit stays 0.
-  [ "$status" -eq 0 ]
-  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .status' 'warn'
+  # A failure since 4.1 (it warned for exactly one release, 4.0, so a cycle
+  # opened under 3.x could create the bead first): exit 7.
+  [ "$status" -eq 7 ]
+  assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .status' 'fail'
   assert_json_eq "$output" '.checks[] | select(.id=="milestone-carrier") | .items | length' '1'
   grep -qF 'm-v1.1: open cycle with no milestone carrier' <<<"$output"
   grep -qF -- '-t task -l m-v1.1,milestone -d' <<<"$output"
-  grep -qF 'a warning in 4.0, a failure from 4.1' <<<"$output"
+  grep -qF '/cairn:milestone new create' <<<"$output"
+  refute_in_output 'a warning in 4.0'
 
   # Closed, the cycle is never asked: v1.1 has no carrier and no finding.
   bd close "$straggler" >/dev/null

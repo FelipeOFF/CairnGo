@@ -7,7 +7,27 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-08-27
+
+As arestas que a 4.0 deixou: quatro beads de backlog, um por phase (52–55),
+corridos por `/cairn:autonomous --sequential` sobre o próprio cairn — e a
+release em que o carrier de milestone deixa de ser aviso.
+
+O que a 4.0 pediu e esta cobra: um ciclo aberto sem carrier de milestone agora
+é ✗ no doctor (a 4.0 deu exatamente uma release de carência para quem fez
+upgrade com ciclo aberto sob 3.x). O resto é o cairn consertando o próprio
+uso: o `bookkeep close N` que o checkpoint do autonomous manda rodar morria
+com exit 4 em todo repo migrado (o ROADMAP.md arquivado ainda parecia input)
+e não fechava o carrier da phase; a suíte enfileirava um evento de métricas
+do bd a cada teste no `HOME` de quem a rodava; e o doctor aconselhava um
+`bd export --all` que trava o auto-export do bd.
+
 ### Changed
+
+- **`milestone-carrier`** (doctor): ciclo aberto sem carrier é ✗ fail
+  (exit 7), com o `bd create` que resolve no item — o mesmo bead que
+  `/cairn:new` e `/cairn:milestone new` criam. Era ⚠ na 4.0, por uma
+  release, de propósito (CairnGo-76u8).
 
 - `cairn-test.sh` roda o bats com `HOME` pinado num diretório próprio
   (`$TMPDIR/cairn-test-home-<uid>`): `~/.config/bd/config.yaml` com as
@@ -29,6 +49,21 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   e o fecho passa a fechar o **carrier da phase** depois de retirar a lease,
   recusando com os ids quando a phase ainda tem bead aberto. O checkpoint do
   `/cairn:autonomous` volta a usar o comando que documenta (CairnGo-km7a).
+
+### Upgrading
+
+- **Ciclo aberto sem carrier de milestone → o doctor reprova.** Rode
+  `/cairn:doctor`: o item `milestone-carrier` imprime o `bd create` exato
+  (`-l m-vX.Y,milestone`, título = nome do ciclo, descrição = o que ele
+  promete). Um comando, e o verde volta. Ciclos fechados não são
+  perguntados.
+- **`cairn-bookkeep close N --apply` agora fecha o carrier da phase.** Se
+  você fechava o carrier à mão depois do checkpoint, pare: o comando faz os
+  dois (retira a lease, fecha o carrier) e, com bead aberto na phase, deixa o
+  carrier aberto e nomeia os ids em `tracker :: carrier :: NOT closed`.
+- **A suíte roda com `HOME` pinado.** Um teste que dependia de algo no seu
+  `HOME` real (além do `.tool-versions`) passa a vê-lo vazio — o que já era o
+  caso na CI. `CAIRN_TEST_HOME` diz onde a suíte está.
 
 ## [4.0.0] - 2026-08-27
 

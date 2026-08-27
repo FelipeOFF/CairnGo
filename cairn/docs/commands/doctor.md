@@ -152,14 +152,14 @@ this routine health-check flow — see its own section below.
      says how many were suppressed, because a count that quietly reaches zero
      is indistinguishable from an axis somebody switched off.
    - **label-pairs** (⚠) — step 3 above (`--fix-labels`).
-   - **milestone-carrier** (⚠ none; ✗ two or more) — every OPEN cycle (an
-     `m-*` label with at least one non-closed bead) has exactly one milestone
-     carrier: the bead with the marker label `milestone` + `m-vX.Y` and no
-     `phase-N`, created by `/cairn:milestone new`. **None** → run the `bd
-     create` the item prints (a warning in 4.0, a failure from 4.1 — the
-     carrier is a 4.0 contract, and a cycle opened under 3.x gets one release
-     to catch up). **Two or more** → one cycle, one bead: close or relabel the
-     extra, then re-run. Closed cycles are history and are never asked.
+   - **milestone-carrier** (✗) — every OPEN cycle (an `m-*` label with at
+     least one non-closed bead) has exactly one milestone carrier: the bead
+     with the marker label `milestone` + `m-vX.Y` and no `phase-N`, created
+     by `/cairn:milestone new`. **None** → run the `bd create` the item
+     prints (a failure since 4.1; 4.0 only warned, so a cycle opened under
+     3.x had one release to catch up). **Two or more** → one cycle, one
+     bead: close or relabel the extra, then re-run. Closed cycles are history
+     and are never asked.
    - **planning-writes** (⊘ out-of-scope; ⚠) — a `.md` file git sees as new
      or modified under `.planning/phases/` in a repo that has `.beads/`: a
      document written where the bead is the source. Record it with the

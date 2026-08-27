@@ -207,10 +207,9 @@ and "something never ran" are different questions and get different keys.
 7b. milestone-carrier  (CARRY-02, phase 43) every OPEN cycle — an m-*
                     label with at least one non-closed issue — has exactly
                     one milestone carrier (label `milestone` + m-*, no
-                    phase-*). None -> warn in 4.0, with the bd create that
-                    resolves it (a failure from 4.1: the carrier is the
-                    contract for cycles opened from 4.0 on, and a cycle
-                    opened under 3.x deserves one release to catch up).
+                    phase-*). None -> fail since 4.1, with the bd create
+                    that resolves it (it warned for exactly one release,
+                    4.0, so a cycle opened under 3.x could catch up).
                     Two or more -> fail, always: two beads claiming to be
                     the same cycle is an inconsistency, not a gap. Closed
                     cycles are history and are never asked.
@@ -1770,13 +1769,14 @@ def check_milestone_carrier(issues):
     open bead is asked the question too. Closed cycles are never asked —
     v1.1..v3.3 of this repository have no carrier and never will.
 
-    The severity split is deliberate and dated. Zero carriers is a WARN in
-    4.0 because the carrier is a 4.0 contract, and a repository that
-    upgrades mid-cycle would otherwise go from green to exit 7 without
-    having done anything wrong; the item carries the exact bd create that
-    closes the gap. From 4.1 it becomes a failure. Two carriers is a FAIL
-    already: that is two beads disagreeing about what the cycle is, and
-    the doctor exists to refuse that out loud.
+    Zero carriers is a FAIL since 4.1, and the item carries the exact bd
+    create that closes the gap — the same bead /cairn:new and
+    /cairn:milestone new create. It was a WARN for exactly one release
+    (4.0), because the carrier is a 4.0 contract and a repository that
+    upgraded mid-cycle would otherwise have gone from green to exit 7
+    without having done anything wrong. Two carriers is a FAIL: that is two
+    beads disagreeing about what the cycle is, and the doctor exists to
+    refuse that out loud.
     """
     open_keys = set()
     for iss in issues:
@@ -1795,20 +1795,19 @@ def check_milestone_carrier(issues):
             missing.append(
                 f"m-{key}: open cycle with no milestone carrier — "
                 f"bd create \"<cycle name>\" -t task -l m-{key},milestone "
-                f"-d \"<what the cycle promises>\" (a warning in 4.0, a "
-                f"failure from 4.1)")
+                f"-d \"<what the cycle promises>\" — the bead /cairn:new "
+                f"and /cairn:milestone new create")
         elif len(carriers) > 1:
             ids = ", ".join(i.get("id", "?") for i in carriers)
             doubled.append(f"m-{key}: {len(carriers)} milestone carriers "
                            f"({ids}) — one cycle, one bead; close or "
                            f"relabel the extra")
     items = doubled + missing
-    if doubled:
-        status = "fail"
-    elif missing:
-        status = "warn"
-    else:
-        status = "ok"
+    # Both are failures since 4.1. 4.0 let a missing carrier warn for one
+    # release, so a repository that upgraded mid-cycle under 3.x could
+    # create the bead without going from green to exit 7 for having done
+    # nothing wrong; that release has passed (CairnGo-76u8, phase 55).
+    status = "fail" if items else "ok"
     n = len(open_keys)
     detail = (f"{n} open cycle(s), each with one milestone carrier"
               if status == "ok"
