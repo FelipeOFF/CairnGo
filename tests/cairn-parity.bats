@@ -268,6 +268,10 @@ wire_new_repo() {
   make_tmp_repo
   make_gsd_fixture "$PWD"
   bd init -q --prefix par --non-interactive >/dev/null 2>&1
+  # A repo wired at 4.0 is born with its cycle's carrier (phase 43): the
+  # milestone is a bead, not only a label, and /cairn:new creates it.
+  bd create "v1 — the first cycle" --id par-000 -t task -l m-v1,milestone \
+    -d "what the first cycle promises" --silent >/dev/null
   bd create "AUTH-01: User can sign up with email and password" --id par-001 \
     -t task -l m-v1,phase-1 \
     --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1"}}' \

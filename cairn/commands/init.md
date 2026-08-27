@@ -201,9 +201,11 @@ idempotent by construction, and running it when the value is already there
 changes nothing. If this step is ever skipped, `/cairn:doctor` reports it and
 names this exact command; it is not left to memory.
 
-After the roadmap exists, follow the `cairn` skill: create one bd issue per
-requirement, stamped with the `gsd` metadata and the `m-<milestone>` +
-`phase-<N>` label pair. Inspect a phase any time with
+After the roadmap exists, follow the `cairn` skill: give the cycle its
+carrier (one bead labelled `m-<milestone>,milestone`, no `phase-N`, titled
+with the cycle's name — the doctor's `milestone-carrier` check asks for it),
+then create one bd issue per requirement, stamped with the `gsd` metadata
+and the `m-<milestone>` + `phase-<N>` label pair. Inspect a phase any time with
 `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-map.sh" <N>`, which prints its
 requirement↔issue table straight from bd. Then the
 normal loop — `/cairn:plan 1`, `/cairn:work 1`, `/cairn:verify 1`, … — runs

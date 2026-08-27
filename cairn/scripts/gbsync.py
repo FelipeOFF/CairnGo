@@ -221,7 +221,6 @@ REF_BACKENDS = {"jira": "jira", "gh": "github", "github": "github",
 # ...and the prefix a backend's key is written with, when this dispatcher
 # is the one writing it (a card it just created for a carrier).
 REF_PREFIX = {"jira": "jira", "github": "gh", "gitlab": "gl", "linear": "linear"}
-DEFAULT_LEVEL_TYPES = {"milestone": "Story", "phase": "Sub-task"}
 
 
 def source():
