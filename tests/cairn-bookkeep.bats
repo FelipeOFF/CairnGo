@@ -1854,3 +1854,111 @@ PY
   refute_in_output "tracker :: map ::"
   refute_in_output "FAILED (None)"
 }
+
+# --------------------------------------------------------------------------- #
+# milestone — close the cycle's own bead (phase 43 / CARRY-03, D-04)
+# --------------------------------------------------------------------------- #
+
+# One closed phase and the cycle's carrier: a cycle with nothing open but
+# its own bead, which is the state `complete` reaches after the gate.
+refute_contains_json() {
+  if grep -qF -- "$1" <<<"$2"; then
+    echo "unexpectedly found '$1'" >&2
+    return 1
+  fi
+}
+
+make_cycle_fixture() {
+  bd init -q --prefix cyc --non-interactive >/dev/null 2>&1
+  CYC_DONE="$(bd create "AUTH-01: Signup" -t task -l phase-1,m-v1.0 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' --silent)"
+  CYC_CARRIER="$(bd create "v1.0 — the fixture cycle" -t task -l m-v1.0,milestone \
+    -d "what the cycle promises" --silent)"
+  bd close "$CYC_DONE" >/dev/null
+}
+
+@test "milestone: read mode names rename + close, exits 3, writes nothing" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_cycle_fixture
+
+  run bash "$BOOKKEEP" milestone --release 1.1.0 --planning-dir "$PWD/.planning"
+  [ "$status" -eq 3 ]
+  echo "$output" | grep -qF "rename m-v1.0 -> m-v1.1"
+  echo "$output" | grep -qF "close $CYC_CARRIER --reason \"release 1.1.0\""
+  echo "$output" | grep -qF "2 write(s) planned"
+
+  local shown; shown="$(bd show "$CYC_CARRIER" --json)"
+  grep -qF '"m-v1.0"' <<<"$shown"
+  grep -qF '"status": "open"' <<<"$shown"
+}
+
+@test "milestone --apply with the label's own version: no rename, carrier closed" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_cycle_fixture
+
+  run bash "$BOOKKEEP" milestone --release 1.0.2 --apply --json \
+    --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.rename' 'false'
+  assert_json_eq "$output" '.applied' 'true'
+  assert_json_eq "$output" '.steps | length' '1'
+  assert_json_eq "$output" '.steps[0].step' 'close'
+
+  local shown; shown="$(bd show "$CYC_CARRIER" --json)"
+  grep -qF '"status": "closed"' <<<"$shown"
+  grep -qF '"m-v1.0"' <<<"$shown"
+  grep -qF 'release 1.0.2' <<<"$shown"
+}
+
+@test "milestone --apply with a diverging version renames the whole cycle first" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_cycle_fixture
+
+  run bash "$BOOKKEEP" milestone --release 1.1.0 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF "closed $CYC_CARRIER"
+
+  local shown; shown="$(bd show "$CYC_CARRIER" --json)"
+  grep -qF '"status": "closed"' <<<"$shown"
+  grep -qF '"m-v1.1"' <<<"$shown"
+  refute_contains_json '"m-v1.0"' "$shown"
+  grep -qF 'v1.1 — the fixture cycle' <<<"$shown"
+  # The closed requirement moved with the cycle, metadata included.
+  shown="$(bd show "$CYC_DONE" --json)"
+  grep -qF '"m-v1.1"' <<<"$shown"
+  grep -qF '"milestone": "v1.1"' <<<"$shown"
+}
+
+@test "milestone: a non-closed bead of the cycle is a refusal (exit 6) with the id" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_cycle_fixture
+  local straggler
+  straggler="$(bd create "API-01: never started" -t task -l phase-2,m-v1.0 --silent)"
+
+  run bash "$BOOKKEEP" milestone --release 1.0.0 --apply --planning-dir "$PWD/.planning"
+  [ "$status" -eq 6 ]
+  echo "$output" | grep -qF "refusing: 1 non-closed bead(s)"
+  echo "$output" | grep -qF "$straggler"
+  grep -qF '"status": "open"' <<<"$(bd show "$CYC_CARRIER" --json)"
+}
+
+@test "milestone: a cycle without a carrier is exit 4 and points at the doctor" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  bd init -q --prefix cyc --non-interactive >/dev/null 2>&1
+  bd create "API-01: open work" -t task -l phase-2,m-v1.0 --silent >/dev/null
+
+  run bash "$BOOKKEEP" milestone --release 1.0.0 --planning-dir "$PWD/.planning"
+  [ "$status" -eq 4 ]
+  echo "$output" | grep -qF "0 milestone carrier(s)"
+  echo "$output" | grep -qF "milestone-carrier"
+}

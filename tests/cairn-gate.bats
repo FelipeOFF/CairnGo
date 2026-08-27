@@ -482,3 +482,17 @@ make_gate_stub() {
   [ "$status" -eq 6 ]
   grep -qF "PUSH BLOCKED" <<<"$output"
 }
+
+@test "the milestone carrier is not phase work: open, it never blocks the gate" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_gate_fixture
+  local carrier
+  carrier="$(bd create "v1.0 — the fixture cycle" -t task -l m-v1.0,milestone --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-gate.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "ok — no open issues" <<<"$output"
+  refute_in_output "$carrier"
+}

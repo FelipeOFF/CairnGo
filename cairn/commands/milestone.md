@@ -94,12 +94,29 @@ the mode; with neither `new` nor `complete`, ask which one.
      Until `new` re-adds a phase label, `/cairn:doctor` shows the carried
      issue as a transient orphan warn — expected; it clears when the next
      milestone's roadmap places it.
-3. **Close the cycle. In a tracker-owned repo there is nothing to archive** —
-   the closed beads ARE the archive, queryable by `bd list -l m-<X.Y> --all`
-   forever. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh"`; where
-   the planning documents do not exist it reports `documents:
-   not-applicable / out-of-scope` and exits 0, which is the correct answer and
-   not a skipped step.
+3. **Decide the final version, then close the cycle's own bead.** The
+   label chosen at `new` was the intent; the version that ships is decided
+   here, by the CHANGELOG's contract criterion (a contract change is a
+   major, a new surface a minor, the rest a patch). Ask the user for it,
+   then let the script turn the answer into bd writes:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh" milestone --release <X.Y.Z>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh" milestone --release <X.Y.Z> --apply
+   ```
+   Read mode names the writes and exits 3: a `cairn-relabel rename` of the
+   whole cycle when `m-vX.Y` differs from the open label (every bead, the
+   carrier's title included — `.cairn/id-map.json`, branches and the journal
+   are reported, not touched), then `bd close <carrier> --reason "release
+   X.Y.Z"`. Exit 6 is a refusal with ids: a non-closed bead of the cycle
+   other than the carrier — back to step 2. Exit 4 means the cycle has no
+   carrier, or two; `/cairn:doctor`'s `milestone-carrier` check says which.
+
+   **In a tracker-owned repo there is nothing to archive** — the closed beads
+   ARE the archive, queryable by `bd list -l m-<X.Y> --all` forever. Run
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-bookkeep.sh"`; where the
+   planning documents do not exist it reports `documents: not-applicable /
+   out-of-scope` and exits 0, which is the correct answer and not a skipped
+   step.
 
    **Only a repo that still carries an unimported `.planning/` has anything to
    move**: its `ROADMAP`/`REQUIREMENTS` and phase dirs go to

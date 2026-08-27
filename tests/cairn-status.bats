@@ -1791,7 +1791,7 @@ LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
   # here, in the one line this test says is where it is declared.
   local keys
   keys="$(jq -c 'keys' <<<"$output")"
-  [ "$keys" = '["blocked","counts","doing","groups","landing","lease","milestone","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+  [ "$keys" = '["blocked","counts","doing","groups","landing","lease","milestone","milestone_carrier","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
 
   # Shape of the pre-existing keys is untouched.
   assert_json_eq "$output" '.counts.ready' '2'
@@ -2169,4 +2169,53 @@ assert len(items) == 1, p["conflicts"]
   local after_output="$output"
 
   diff <(jq -S . <<<"$before_output") <(jq -S . <<<"$after_output")
+}
+
+# --------------------------------------------------------------------------- #
+# milestone carrier — header, not lane (phase 43 / CARRY-03, D-01)
+# --------------------------------------------------------------------------- #
+
+@test "milestone carrier: off the lanes, named in the header, a sibling key in --json" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+  local carrier
+  carrier="$(bd create "v1.0 — the fixture cycle" -t task -l m-v1.0,milestone \
+    -d "what the cycle promises" --silent)"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  # bd would hand the carrier out as ready; the board does not.
+  assert_json_eq "$output" '.counts.ready' '2'
+  assert_json_eq "$output" '[.ready[].id] | index("'"$carrier"'")' 'null'
+  # `milestone` keeps its string contract; the carrier is a sibling key.
+  assert_json_eq "$output" '.milestone' 'v1.0'
+  assert_json_eq "$output" '.milestone_carrier.id' "$carrier"
+  assert_json_eq "$output" '.milestone_carrier.name' 'v1.0 — the fixture cycle'
+  # The group label is the carrier's title (it already carries the key).
+  assert_json_eq "$output" '.open_milestones[0].label' 'v1.0 — the fixture cycle'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 100
+  [ "$status" -eq 0 ]
+  grep -qF "the fixture cycle" <<<"$output"
+  refute_in_output "$carrier"
+
+  # --plain is frozen byte for byte: MILESTONE stays the key, no carrier row.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  grep -qF "$(printf 'MILESTONE\tv1.0')" <<<"$output"
+  refute_in_output "$carrier"
+}
+
+@test "milestone carrier: without one, --json says null and the label is the bare key" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_status_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  assert_json_eq "$output" '.milestone_carrier' 'null'
+  assert_json_eq "$output" '.open_milestones[0].label' 'v1.0'
 }

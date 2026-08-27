@@ -642,6 +642,14 @@ def is_lease_issue(iss):
     return "lease" in as_str_list(iss.get("labels"))
 
 
+def hidden_from_lanes(iss):
+    """The two beads that are real bd issues and never work: the phase-lease
+    bookkeeping issue and the milestone carrier (phase 43, D-01 — the cycle's
+    own bead, shown in the header and nowhere on the lanes; nothing claims
+    it, and a READY row for it would be an invitation to)."""
+    return is_lease_issue(iss) or cairn_source.is_milestone_carrier(iss)
+
+
 def in_done_phase(iss, done_set):
     """True when the issue is phase-labeled and EVERY phase label points at
     a roadmap-complete phase — an open issue the roadmap says was already
@@ -2294,14 +2302,33 @@ def state_frontmatter(planning_dir):
 # preocupação escrita em MILESTONE_IN_PROGRESS acima; agora há um.
 
 
+def milestone_carrier_slot(root, milestone, bd_ok):
+    """data["milestone_carrier"]: `{id, name}` of the open cycle's own bead,
+    or None (phase 43, C-01). `milestone` itself stays the string it always
+    was — autonomous.md, cairn-parallel and the bats read it — so the
+    carrier is a sibling key, not a new shape for an old one. One carrier is
+    the contract; with two, the first by id is shown and the doctor is the
+    one that complains."""
+    if not (bd_ok and milestone):
+        return None
+    carriers = cairn_source.milestone_carriers(root, milestone)
+    if not carriers:
+        return None
+    return {"id": carriers[0].get("id"),
+            "name": (carriers[0].get("title") or "").strip()}
+
+
 def bd_milestones(root):
     """[{key, label, open, first, last}] do BD — a mesma forma que
     disk_roadmap_milestones() devolve, derivada em vez de lida.
 
-    `label` é a própria chave: o roteiro escrevia um nome de vitrine
-    (`v1.5 Legible State`) que o label `m-v1.5` não carrega, e inventar um
-    seria escrever markdown de novo, do lado de dentro. `open` é o ciclo com
-    trabalho aberto — um só, pela mesma definição de milestone().
+    `label` é a chave, e — desde a phase 43 — o nome do ciclo quando o bd o
+    tem: `v4.0 — <título do carrier de milestone>`. Antes disso o roteiro
+    escrevia um nome de vitrine (`v1.5 Legible State`) que o label `m-v1.5`
+    não carregava, e inventar um seria escrever markdown de novo; agora o
+    nome é um bead, e lê-lo é ler o bd. Um ciclo sem carrier (os fechados,
+    v1.1..v3.3) continua sendo só a chave. `open` é o ciclo com trabalho
+    aberto — um só, pela mesma definição de milestone().
     """
     if not bd_tracked(root):
         return []
@@ -2310,7 +2337,15 @@ def bd_milestones(root):
     for key in cairn_source.milestones(root):
         nums = sorted(n for n in cairn_source.milestone_phases(root, key)
                       if isinstance(n, (int, float)))
-        out.append({"key": key, "label": key, "open": key == current,
+        carriers = cairn_source.milestone_carriers(root, key)
+        name = (carriers[0].get("title") or "").strip() if carriers else ""
+        # The carrier's title carries the key by convention (`v4.0 — …`,
+        # and `cairn-relabel rename` rewrites that prefix); a title that
+        # does not is prefixed here, so the group row never spells the
+        # version twice and never omits it.
+        label = (name if name.startswith(key)
+                 else f"{key} — {name}" if name else key)
+        out.append({"key": key, "label": label, "open": key == current,
                     "first": nums[0] if nums else None,
                     "last": nums[-1] if nums else None})
     return out
@@ -3180,6 +3215,9 @@ def phase_slot(data):
                                  "completed": 0, "title": None}
 
 
+FOOTER_MILESTONE_CELLS = 48
+
+
 def meta_parts(data, style, include_done=True):
     """`phase X/Y title · milestone · done: N` as spans (segments drop out
     when unknown).
@@ -3203,7 +3241,16 @@ def meta_parts(data, style, include_done=True):
             head.append((f" {style.asciify(phase['title'])}", SGR_DIM))
         parts.append(head)
     if has_roadmap or data.get("open_milestones"):
-        parts.append([(style.asciify(milestone_label(data)), None)])
+        # The label carries the cycle's NAME since phase 43, and a name is
+        # as long as its author made it: measured on this repository, the
+        # footer went to 114 cells under --width 100. The group row above
+        # prints the full label; the footer keeps the key and as much of
+        # the name as FOOTER_MILESTONE_CELLS allows, cut with the style's
+        # own ellipsis, so the one line that states the position never
+        # wraps.
+        label = truncate(style.asciify(milestone_label(data)),
+                         FOOTER_MILESTONE_CELLS, style.ell)
+        parts.append([(label, None)])
     if include_done:
         parts.append([("done: ", None),
                       (str(data["counts"]["closed"]), SGR_GREEN)])
@@ -4629,10 +4676,10 @@ def main():
             # work. Exclude it before phase_model(), the stale-marker
             # cross-check, or the data dict ever sees it, so it can never
             # appear on any lane or inflate the done count (D-05).
-            ready = [i for i in ready if not is_lease_issue(i)]
-            doing = [i for i in doing if not is_lease_issue(i)]
-            blocked = [i for i in blocked if not is_lease_issue(i)]
-            closed = [i for i in closed if not is_lease_issue(i)]
+            ready = [i for i in ready if not hidden_from_lanes(i)]
+            doing = [i for i in doing if not hidden_from_lanes(i)]
+            blocked = [i for i in blocked if not hidden_from_lanes(i)]
+            closed = [i for i in closed if not hidden_from_lanes(i)]
             n_closed = len(closed)
             bd_ok = True
     else:
@@ -4741,6 +4788,7 @@ def main():
         # Empty means neither the roadmap nor the tracker declares an open
         # cycle, which is a fact the board states out loud rather than
         # papering over — see milestone_label().
+        "milestone_carrier": milestone_carrier_slot(root, milestone, bd_ok),
         "open_milestones": [{"key": ms["key"], "label": ms["label"]}
                             for ms in milestones if ms["open"]],
         # `null` QUANDO NAO HA CICLO ABERTO, e a distincao e' o ponto (v3.1).
