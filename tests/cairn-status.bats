@@ -1791,7 +1791,7 @@ LEASE_SH="$CAIRN_SCRIPTS_DIR/cairn-lease.sh"
   # here, in the one line this test says is where it is declared.
   local keys
   keys="$(jq -c 'keys' <<<"$output")"
-  [ "$keys" = '["blocked","counts","doing","groups","landing","lease","milestone","milestone_carrier","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
+  [ "$keys" = '["blocked","counts","doing","groups","jira","landing","lease","milestone","milestone_carrier","next","next_commands","note","open_milestones","parallelism","phase","phases","ready","stale_complete","sync"]' ]
 
   # Shape of the pre-existing keys is untouched.
   assert_json_eq "$output" '.counts.ready' '2'
@@ -2218,4 +2218,59 @@ assert len(items) == 1, p["conflicts"]
   [ "$status" -eq 0 ]
   assert_json_eq "$output" '.milestone_carrier' 'null'
   assert_json_eq "$output" '.open_milestones[0].label' 'v1.0'
+}
+
+# --------------------------------------------------------------------------- #
+# the link on the board — from the carriers' external_ref (phase 44 / LINK-04)
+# --------------------------------------------------------------------------- #
+
+# A linked cycle: the milestone carrier carries the Story (and the cached
+# epic), the phase-2 carrier carries the Sub-task, and the requirement
+# carries nothing of its own. Every phase-2 bead but the carrier is stamped
+# with gsd.req so phase_carrier() has exactly one answer.
+make_linked_fixture() {
+  bd init -q --prefix lb --non-interactive >/dev/null 2>&1
+  LB_MS="$(bd create "v1.0 — the linked cycle" -t task -l m-v1.0,milestone \
+    --external-ref jira-DTP-142 \
+    --metadata '{"gsd":{"jira":{"story":"DTP-142","epic":"DTP-100"}}}' --silent)"
+  LB_PH="$(bd create "The link lives in the bead" -t task -l m-v1.0,phase-2 \
+    --external-ref jira-DTP-143 --silent)"
+  LB_REQ="$(bd create "LINK-01: a requirement of phase 2" -t task -p 1 -l m-v1.0,phase-2 \
+    --metadata '{"gsd":{"req":"LINK-01","phase":2,"milestone":"v1.0"}}' --silent)"
+  LB_DONE="$(bd create "AUTH-01: shipped in phase 1" -t task -l m-v1.0,phase-1 \
+    --metadata '{"gsd":{"req":"AUTH-01","phase":1,"milestone":"v1.0"}}' --silent)"
+  bd close "$LB_DONE" >/dev/null
+}
+
+@test "the link on the board: cycle header, phase row, inherited on the task, and the jira block" {
+  require_bd
+  make_tmp_repo
+  make_gsd_fixture "$PWD"
+  make_linked_fixture
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --json
+  [ "$status" -eq 0 ]
+  # The phase's card is its carrier's external_ref, raw.
+  assert_json_eq "$output" '.phases[] | select(.number==2) | .tracker' 'jira-DTP-143'
+  assert_json_eq "$output" '.phases[] | select(.number==1) | .tracker' 'null'
+  # The cycle's card is its carrier's, on the open milestone entry.
+  assert_json_eq "$output" '.open_milestones[0].tracker' 'jira-DTP-142'
+  # The jira block: keys only, ready for the panel.
+  assert_json_eq "$output" '.jira.milestone.story' 'DTP-142'
+  assert_json_eq "$output" '.jira.milestone.epic' 'DTP-100'
+  assert_json_eq "$output" '.jira.phases["2"]' 'DTP-143'
+  assert_json_eq "$output" '.jira.phases | length' '1'
+  # The requirement inherits for DISPLAY only: --json never invents a ref.
+  assert_json_eq "$output" '.ready[] | select(.id=="'"$LB_REQ"'") | .external_ref' 'null'
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --width 140 --color=never
+  [ "$status" -eq 0 ]
+  grep -qF "⧉ DTP-142" <<<"$output"
+  # Twice: the phase row, and the requirement's row under it.
+  [ "$(grep -cF '⧉ DTP-143' <<<"$output")" -ge 2 ]
+
+  # --plain is frozen: no card anywhere.
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-status.sh" --plain
+  [ "$status" -eq 0 ]
+  refute_in_output "DTP-14"
 }

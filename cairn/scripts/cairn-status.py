@@ -1454,9 +1454,10 @@ def bd_phase_rows(root):
     them a second time here would put one source under two names and let the
     board disagree with itself about which phase waits on which.
 
-    `tracker` stays None for the same reason it is None on a roadmap with no
-    `**Tracker:**` line — the datum is absent, and absence is said, never
-    filled in.
+    `tracker` is left None here and filled by phase_model() from the phase
+    carrier's own `external_ref` (phase 44) — one site for both sources, so
+    a roadmap still waiting to be imported and a migrated repo read the card
+    off the same bead.
     """
     if not bd_tracked(root):
         return {}
@@ -1742,6 +1743,15 @@ def phase_model(planning_dir, issues=None, bd_ok=True, landing=None):
     out = []
     for n in sorted(rows):
         row = dict(rows[n])
+        # The phase's card comes from its carrier bead (phase 44 / LINK-04):
+        # `external_ref` on the phase carrier, raw, prefix and all. It wins
+        # over a `**Tracker:**` line, which only exists while a ROADMAP.md
+        # still waiting to be imported is the source — in a migrated repo
+        # there is no such line to read, and the bead is the only record.
+        bd_ref = ((cairn_source.phase_carrier(root, n) or {})
+                  .get("external_ref") or None) if bd_ok else None
+        if bd_ref:
+            row["tracker"] = bd_ref
         pdir = dirs.get(n)
         row["dir"] = str(pdir.relative_to(root)) if pdir else None
         row["landed"] = phase_landing(landing, n)
@@ -2221,7 +2231,8 @@ def phase_groups(model, milestones, issues):
         if not items:
             continue
         groups.append({"type": "milestone", "key": ms["key"],
-                       "label": ms["label"], "items": items})
+                       "label": ms["label"], "tracker": ms.get("tracker"),
+                       "items": items})
 
     if not any(ms["open"] for ms in milestones):
         # NO OPEN CYCLE (Phase 22, CairnGo-uz6). Without this, a roadmap that
@@ -2302,6 +2313,50 @@ def state_frontmatter(planning_dir):
 # preocupação escrita em MILESTONE_IN_PROGRESS acima; agora há um.
 
 
+def attach_milestone_trackers(root, milestones, bd_ok):
+    """Every milestone entry gets a `tracker` key — the milestone carrier's
+    raw external_ref, or None — whichever source produced the list (phase
+    44 / LINK-04). The roadmap on disk never carried a cycle-level card, so
+    the disk list arrives without the key; the bead is the only place a
+    cycle's Story lives, and this is the one site that reads it for the
+    board's cycle header."""
+    for ms in milestones:
+        ref = None
+        if bd_ok and bd_tracked(root) and ms.get("key"):
+            carriers = cairn_source.milestone_carriers(root, ms["key"])
+            ref = (carriers[0].get("external_ref") or None) if carriers else None
+        ms["tracker"] = ms.get("tracker") or ref
+    return milestones
+
+
+def jira_key(ref):
+    """The Jira half of an external_ref, or None when the ref is not one:
+    `jira-DTP-142` -> `DTP-142`; `gh-9` -> None."""
+    ref = str(ref or "").strip()
+    return ref[len("jira-"):] if ref.startswith("jira-") else None
+
+
+def jira_block(root, milestone, phases, bd_ok):
+    """data["jira"] (phase 44 / LINK-04): the cycle's links as keys, ready
+    for the panel — {milestone: {story, epic}, phases: {"N": key}}. Only
+    `jira-` refs count; a phase whose carrier carries a gh-N has no Jira
+    key and is simply absent from `phases`. None when there is no open
+    cycle to speak of."""
+    if not (bd_ok and milestone):
+        return None
+    carriers = cairn_source.milestone_carriers(root, milestone)
+    story = jira_key(carriers[0].get("external_ref")) if carriers else None
+    epic = ((cairn_source.gsd(carriers[0]).get("jira") or {}).get("epic")
+            if carriers else None)
+    keys = {}
+    for p in phases:
+        key = jira_key(p.get("tracker"))
+        if key:
+            keys[str(p["number"])] = key
+    return {"milestone": {"story": story, "epic": epic or None},
+            "phases": keys}
+
+
 def milestone_carrier_slot(root, milestone, bd_ok):
     """data["milestone_carrier"]: `{id, name}` of the open cycle's own bead,
     or None (phase 43, C-01). `milestone` itself stays the string it always
@@ -2339,6 +2394,7 @@ def bd_milestones(root):
                       if isinstance(n, (int, float)))
         carriers = cairn_source.milestone_carriers(root, key)
         name = (carriers[0].get("title") or "").strip() if carriers else ""
+        tracker = (carriers[0].get("external_ref") or None) if carriers else None
         # The carrier's title carries the key by convention (`v4.0 — …`,
         # and `cairn-relabel rename` rewrites that prefix); a title that
         # does not is prefixed here, so the group row never spells the
@@ -2346,6 +2402,7 @@ def bd_milestones(root):
         label = (name if name.startswith(key)
                  else f"{key} — {name}" if name else key)
         out.append({"key": key, "label": label, "open": key == current,
+                    "tracker": tracker,
                     "first": nums[0] if nums else None,
                     "last": nums[-1] if nums else None})
     return out
@@ -2911,7 +2968,8 @@ def group_rows(data, max_rows):
     by_number = {p["number"]: p for p in (data.get("phases") or [])}
     rows = []
     for group in data.get("groups") or []:
-        rows.append({"kind": "group", "label": group["label"]})
+        rows.append({"kind": "group", "label": group["label"],
+                     "tracker": group.get("tracker")})
         for bucket in group["items"]:
             n = bucket["phase"]
             if n is not None and n in by_number:
@@ -3016,11 +3074,15 @@ def issue_body_spans(lane, iss, style):
                   (" " + clean(iss["assignee"]), None)]
     if iss.get("_stale"):
         spans += [("  ", None), (style.g_stale + "done-phase", SGR_DIM)]
-    if iss.get("external_ref"):
-        key = tracker_key(iss["external_ref"])
-        if key:
-            spans += [("  ", None), (style.g_card, SGR_DIM),
-                      (" " + key, SGR_DIM)]
+    # A task's own card, or — display only — its phase's: a requirement has
+    # no Jira card of its own (the hierarchy stops at the Sub-task), so it
+    # shows the phase's key, which main() put on `_card` and trim_issue()
+    # never copies into --json as if it were the task's own external_ref.
+    key = (tracker_key(iss["external_ref"]) if iss.get("external_ref")
+           else iss.get("_card"))
+    if key:
+        spans += [("  ", None), (style.g_card, SGR_DIM),
+                  (" " + key, SGR_DIM)]
     spans += landing_spans(iss.get("_landed"), style)
     return spans
 
@@ -3139,9 +3201,14 @@ def render_groups(data, width, max_rows, style):
     for row in rows:
         if row["kind"] == "group":
             lines.append("")
-            lines.append(render_spans(
-                [(GROUP_INDENT + style.asciify(clean(row["label"])),
-                  SGR_BOLD)], style))
+            spans = [(GROUP_INDENT + style.asciify(clean(row["label"])),
+                      SGR_BOLD)]
+            # The cycle's own card (its Story), same glyph as a task's.
+            key = tracker_key(row["tracker"]) if row.get("tracker") else None
+            if key:
+                spans += [("  ", None), (style.g_card, SGR_DIM),
+                          (" " + key, SGR_DIM)]
+            lines.append(render_spans(spans, style))
             continue
         if row["kind"] == "more":
             lines.append(render_spans(
@@ -4721,7 +4788,8 @@ def main():
     fm = state_frontmatter(planning_dir)
     # ONE read of the milestone list, shared with phase_groups() below: two
     # reads of the same source are two things that can disagree.
-    milestones = roadmap_milestones(planning_dir)
+    milestones = attach_milestone_trackers(root, roadmap_milestones(planning_dir),
+                                           bd_ok)
     # CairnGo-fp7, fechado aqui. Até a v1.7 esta linha era
     # `fm["milestone"] or roadmap_milestone(...)`: o STATE.md primeiro, o
     # roteiro depois, e render_plain() publicando o resultado verbatim na
@@ -4770,8 +4838,17 @@ def main():
     # The per-task landing, written ONCE onto the raw issue (underscore key,
     # exactly like `_stale` above) so the human render and trim_issue() below
     # answer out of the same computed value instead of each doing its own.
+    phase_card = {p["number"]: p["tracker"] for p in phases if p.get("tracker")}
     for iss in ready + doing + blocked:
         iss["_landed"] = issue_landing(iss, landing)
+        # Only a REQUIREMENT inherits its phase's card (phase 44, D: the
+        # hierarchy stops at the Sub-task, and a CAT-NN has no card of its
+        # own to show). A task without gsd.req — a plan record, a child, a
+        # stray — shows nothing it does not carry.
+        if not iss.get("external_ref") and cairn_source.issue_req(iss):
+            ns = issue_phase_ns(iss)
+            if len(ns) == 1 and next(iter(ns)) in phase_card:
+                iss["_card"] = tracker_key(phase_card[next(iter(ns))])
 
     data = {
         "ready": [trim_issue(i) for i in ready],
@@ -4789,7 +4866,9 @@ def main():
         # cycle, which is a fact the board states out loud rather than
         # papering over — see milestone_label().
         "milestone_carrier": milestone_carrier_slot(root, milestone, bd_ok),
-        "open_milestones": [{"key": ms["key"], "label": ms["label"]}
+        "jira": jira_block(root, milestone, phases, bd_ok),
+        "open_milestones": [{"key": ms["key"], "label": ms["label"],
+                             "tracker": ms.get("tracker")}
                             for ms in milestones if ms["open"]],
         # `null` QUANDO NAO HA CICLO ABERTO, e a distincao e' o ponto (v3.1).
         #
