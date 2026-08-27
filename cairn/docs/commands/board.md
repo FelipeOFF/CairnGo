@@ -29,11 +29,20 @@ is hidden — and swaps the fragment only when it changed. On top of the
 board, the live blocks: **now** (held leases, the last journal moves across
 the repo's worktrees), **attention** (open `gh:run` gates, blocked work,
 the next action), **Jira** (the cycle's story and epic, one sub-task per
-phase), and a **copy** button per row with the exact `bd` command.
+phase), and per row a **copy** button with the exact `bd` command and an
+**action** button that runs it.
 
-Read only in this phase: nothing on the page writes; `POST` is 405. Actions
-arrive in phase 49, the trend and CI blocks in phase 51. No CDN, no
-external font, no new dependency; the process never reaches the network.
+**Actions** (`POST /api/action`, `{action, id, reason?}`): `claim`,
+`close` (reason required), `reopen`, `gate-check`, `gate-resolve` (reason
+required), `lease-release` (`N` or `bead:<id>`). Each runs the
+deterministic CLI as an argv list with `BEADS_ACTOR=board`, mirrors itself
+through gbsync when `.cairn/sync.json` exists (the post-bd-write hook only
+sees the session's own `bd` commands), appends one line to
+`.cairn/board.log`, and invalidates the snapshot so the next poll shows the
+write. No token, by decision: the server binds the loopback and refuses
+(403) a `POST` whose `Origin`/`Host` are not this board's own port; a local
+`curl` without `Origin` passes. The trend and CI blocks arrive in phase 51.
+No CDN, no external font, no new dependency.
 
 ## Related
 

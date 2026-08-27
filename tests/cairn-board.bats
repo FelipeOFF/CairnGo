@@ -122,3 +122,100 @@ make_board_repo() {
   [ "$status" -eq 0 ]
   grep -qF 'id="live-now"' <<<"$output"
 }
+
+# --------------------------------------------------------------------------- #
+# actions — the panel writes through the CLIs (phase 49 / ACT-01, ACT-02)
+# --------------------------------------------------------------------------- #
+
+post_action() {  # post_action <url> <json> [extra curl args...]
+  local url="$1" body="$2"; shift 2
+  curl -s -o "$BATS_TEST_TMPDIR/resp.json" -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' "$@" --data "$body" "${url}api/action"
+}
+
+@test "POST /api/action: claim and close run the CLI as board, log a line, and the next poll sees it" {
+  make_board_repo
+  run bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  [ "$status" -eq 0 ]
+  local url; url="$(jq -r '.url' <<<"$output")"
+
+  run post_action "$url" "{\"action\":\"claim\",\"id\":\"$BD_STANDALONE\"}"
+  [ "$output" = "200" ]
+  assert_json_eq "$(cat "$BATS_TEST_TMPDIR/resp.json")" '.ok' 'true'
+  run bd show "$BD_STANDALONE" --json
+  grep -qF '"status": "in_progress"' <<<"$output"
+  grep -qF '"assignee": "board"' <<<"$output"
+  grep -qF "action claim $BD_STANDALONE exit 0 actor board" "$BOARD_ROOT/.cairn/board.log"
+  run curl -s "${url}api/status"
+  assert_json_eq "$output" '.counts.doing' '1'
+
+  # close needs a reason; with one, it closes.
+  run post_action "$url" "{\"action\":\"close\",\"id\":\"$BD_STANDALONE\"}"
+  [ "$output" = "400" ]
+  grep -qF "close needs a reason" "$BATS_TEST_TMPDIR/resp.json"
+  run post_action "$url" "{\"action\":\"close\",\"id\":\"$BD_STANDALONE\",\"reason\":\"done from the board\"}"
+  [ "$output" = "200" ]
+  run bd show "$BD_STANDALONE" --json
+  grep -qF '"status": "closed"' <<<"$output"
+  # reopen undoes it.
+  run post_action "$url" "{\"action\":\"reopen\",\"id\":\"$BD_STANDALONE\"}"
+  [ "$output" = "200" ]
+  run bd show "$BD_STANDALONE" --json
+  grep -qF '"status": "open"' <<<"$output"
+
+  # A CLI refusal is 409 with the reason, not a crash.
+  run post_action "$url" "{\"action\":\"claim\",\"id\":\"$BD_CHILD_CLOSED\"}"
+  [ "$output" = "409" ]
+  assert_json_eq "$(cat "$BATS_TEST_TMPDIR/resp.json")" '.ok' 'false'
+  # An id that is not one is 400, and never reaches a shell.
+  run post_action "$url" '{"action":"claim","id":"x; rm -rf /"}'
+  [ "$output" = "400" ]
+  run post_action "$url" '{"action":"explode","id":"brd-1"}'
+  [ "$output" = "400" ]
+}
+
+@test "POST /api/action is refused from another origin or host, and a local curl without Origin passes" {
+  make_board_repo
+  run bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  local url port; url="$(jq -r '.url' <<<"$output")"; port="$(jq -r '.port' <<<"$output")"
+
+  run post_action "$url" '{"action":"gate-check"}' -H "Origin: http://evil.example:$port"
+  [ "$output" = "403" ]
+  run post_action "$url" '{"action":"gate-check"}' -H "Origin: http://127.0.0.1:1"
+  [ "$output" = "403" ]
+  run post_action "$url" '{"action":"gate-check"}' -H "Host: evil.example:$port"
+  [ "$output" = "403" ]
+  run post_action "$url" '{"action":"gate-check"}' -H "Origin: http://127.0.0.1:$port"
+  [ "$output" = "200" ]
+  run post_action "$url" '{"action":"gate-check"}' -H "Origin: http://localhost:$port" -H "Host: localhost:$port"
+  [ "$output" = "200" ]
+  run post_action "$url" '{"action":"gate-check"}'
+  [ "$output" = "200" ]
+  # GET stays free of the check.
+  run curl -s -o /dev/null -w '%{http_code}' -H "Origin: http://evil.example" "${url}api/status"
+  [ "$output" = "200" ]
+}
+
+@test "an action mirrors through gbsync when a sync config exists, and releases a lease by key" {
+  make_board_repo
+  local stub log; stub="$BATS_TEST_TMPDIR/gbsync.sh"; log="$BATS_TEST_TMPDIR/gbsync.log"
+  printf '#!/usr/bin/env bash\nprintf "CALL: %%s\\n" "$*" >> "%s"\necho "[gbsync] ok"\n' "$log" > "$stub"; chmod +x "$stub"
+  mkdir -p .cairn && echo '{"backends": []}' > .cairn/sync.json
+  bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 2 --project-dir "$BOARD_ROOT" >/dev/null
+  run env CAIRN_GBSYNC="$stub" bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  local url; url="$(jq -r '.url' <<<"$output")"
+
+  run post_action "$url" "{\"action\":\"claim\",\"id\":\"$BD_STANDALONE\"}"
+  [ "$output" = "200" ]
+  assert_json_eq "$(cat "$BATS_TEST_TMPDIR/resp.json")" '.mirror.ok' 'true'
+  grep -qF "CALL: update $BD_STANDALONE --dir" "$log"
+
+  run post_action "$url" '{"action":"lease-release","id":"2"}'
+  [ "$output" = "200" ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" status 2 --project-dir "$BOARD_ROOT" --json
+  assert_json_eq "$output" '.held' 'false'
+  # The page carries the action controls.
+  run curl -s "$url"
+  grep -qF 'class="act" data-action="claim"' <<<"$output"
+  grep -qF 'class="why"' <<<"$output"
+}

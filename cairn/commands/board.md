@@ -31,7 +31,11 @@ refreshed by polling (5 s while something runs, slower when idle, paused in
 a hidden tab) — plus the blocks a snapshot cannot carry: what is running
 now (leases, the journal's last moves across the repo's worktrees), what
 needs attention (open `gh:run` gates, blocked work, the next action), the
-cycle's Jira links, and a copy button per row with the exact `bd` command.
-**Read only in this phase**: every button copies a command for the terminal;
-nothing on the page writes. `GET /api/status` is `cairn-status --json`
-verbatim, for anything else that wants the model.
+cycle's Jira links, and per row both a copy button with the exact `bd`
+command and an action button that runs it: claim, close (with a reason),
+gate check and resolve, lease release. Every action is the deterministic
+CLI run by the server with `BEADS_ACTOR=board`, mirrored through gbsync
+when `.cairn/sync.json` exists, and logged to `.cairn/board.log`; a `POST`
+from any page that is not this board's own port is refused (403). `GET
+/api/status` is `cairn-status --json` verbatim, for anything else that
+wants the model.

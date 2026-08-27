@@ -34,12 +34,22 @@ files (the cache directory of the previous version stays on disk):
 `stop` then `start` moves it to the new one. Nothing is ever written under
 the plugin's own directory.
 
-ENDPOINTS (GET only — every POST is 405 in this phase; actions are phase 49)
-    /                the page
-    /api/status      cairn-status.py --json, verbatim, plus `board`
-                     {fetched_at, generated}
-    /api/fragment    the board region as HTML, plus the live blocks
-    /healthz         "ok"
+ENDPOINTS
+    GET  /               the page
+    GET  /api/status     cairn-status.py --json, verbatim, plus `board`
+                         {fetched_at, generated}
+    GET  /api/fragment   the board region as HTML, plus the live blocks
+    GET  /healthz        "ok"
+    POST /api/action     {action, id, reason?} — claim | close | reopen |
+                         gate-check | gate-resolve | lease-release, each
+                         run as the deterministic CLI (argv, never a shell)
+                         with BEADS_ACTOR=board, mirrored through gbsync
+                         when .cairn/sync.json exists (the post-bd-write
+                         hook never sees this process), one line per action
+                         in .cairn/board.log. 403 unless Origin/Host name
+                         this board's own port (ACT-02, no token by
+                         decision); 400 on a malformed request; 409 when
+                         the CLI refused, with its stderr.
 
 NO NETWORK LEAVES THIS PROCESS. It binds the loopback and calls sibling
 scripts; it never reaches a forge or a tracker itself (phase 51 adds gh
@@ -51,6 +61,7 @@ status script unavailable.
 import argparse
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -65,6 +76,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = SCRIPTS_DIR.parent
 CAIRN_STATUS = os.environ.get("CAIRN_STATUS", str(SCRIPTS_DIR / "cairn-status.py"))
 CAIRN_LEASE = os.environ.get("CAIRN_LEASE", str(SCRIPTS_DIR / "cairn-lease.py"))
+CAIRN_GBSYNC = os.environ.get("CAIRN_GBSYNC", str(SCRIPTS_DIR / "gbsync.sh"))
 TEMPLATE = PLUGIN_ROOT / "templates" / "status-board.html"
 LIVE_MARK = "<!-- cairn:live:blocks -->"
 BOARD_START = "<!-- cairn:generated:board:start -->"
@@ -251,6 +263,15 @@ def copy_button(cmd):
             f'title="{esc(cmd)}">copy</button>')
 
 
+def act_button(action, ident, label, needs_reason=False):
+    """An action control (phase 49): one click runs the CLI; an action
+    that needs a reason reads it from the input beside it."""
+    field = (f'<input class="why" type="text" placeholder="reason" '
+             f'aria-label="reason for {esc(label)}">' if needs_reason else "")
+    return (f'{field}<button type="button" class="act" data-action="{esc(action)}" '
+            f'data-id="{esc(ident)}">{esc(label)}</button>')
+
+
 def live_blocks(root, data):
     """The four blocks appended after the board region: attention, now,
     jira, commands. Every button copies a command for the terminal; no
@@ -268,10 +289,12 @@ def live_blocks(root, data):
         what = f"{g.get('type') or 'gate'} gate {gid}"
         blocks = g.get("blocks") or g.get("blocked") or ""
         reason = g.get("reason") or g.get("title") or ""
+        gtype = str(g.get("type") or "gh:run")
         rows.append(f'<li><span class="live-k">{esc(what)}</span> '
                     f'<span class="live-v">{esc(reason)}'
                     f'{" · blocks " + esc(blocks) if blocks else ""}</span> '
-                    f'{copy_button("bd gate check --type=" + str(g.get("type") or "gh:run"))} '
+                    f'{act_button("gate-check", gtype, "check")} '
+                    f'{act_button("gate-resolve", gid, "resolve", needs_reason=True)} '
                     f'{copy_button("bd gate resolve " + str(gid) + " -r \"\"")}</li>')
     if lanes["blocked"]:
         ids = ", ".join(str(i.get("id")) for i in lanes["blocked"][:6])
@@ -295,9 +318,12 @@ def live_blocks(root, data):
         who = (f"phase {e.get('phase')}" if e.get("phase") is not None
                else f"bead {e.get('bead')}")
         stale = " (stale)" if e.get("stale") else ""
+        key = (str(e.get("phase")) if e.get("phase") is not None
+               else f"bead:{e.get('bead')}")
         rows.append(f'<li><span class="live-k">{esc(who)}{stale}</span> '
                     f'<span class="live-v">{esc(e.get("holder") or "")} since '
-                    f'{esc((e.get("acquired_at") or "")[:19])}</span></li>')
+                    f'{esc((e.get("acquired_at") or "")[:19])}</span> '
+                    f'{act_button("lease-release", key, "release")}</li>')
     journal = journal_tail(root)
     jrows = []
     for r in journal:
@@ -343,13 +369,17 @@ def live_blocks(root, data):
     # --- commands --------------------------------------------------------
     rows = []
     for i in lanes["ready"][:12]:
-        rows.append(f'<li><span class="live-k">{esc(i.get("id"))}</span> '
+        iid = str(i.get("id"))
+        rows.append(f'<li><span class="live-k">{esc(iid)}</span> '
                     f'<span class="live-v">{esc(i.get("title"))}</span> '
-                    f'{copy_button("bd update " + str(i.get("id")) + " --claim")}</li>')
+                    f'{act_button("claim", iid, "claim")} '
+                    f'{copy_button("bd update " + iid + " --claim")}</li>')
     for i in lanes["doing"][:12]:
-        rows.append(f'<li><span class="live-k">{esc(i.get("id"))}</span> '
+        iid = str(i.get("id"))
+        rows.append(f'<li><span class="live-k">{esc(iid)}</span> '
                     f'<span class="live-v">{esc(i.get("title"))}</span> '
-                    f'{copy_button("bd close " + str(i.get("id")) + " --reason=\"\"")}</li>')
+                    f'{act_button("close", iid, "close", needs_reason=True)} '
+                    f'{copy_button("bd close " + iid + " --reason=\"\"")}</li>')
     out.append('<section class="live-block" id="live-commands"><h2 class="panel-h">commands</h2>'
                + (f'<ul>{"".join(rows)}</ul>' if rows
                   else '<p class="live-empty">nothing to claim or close.</p>')
@@ -375,9 +405,16 @@ LIVE_CSS = """
 .live-dim { color: var(--bone-dim); }
 .live-empty { font: 400 var(--t-s)/1.4 var(--sans); color: var(--bone-dim); margin: 0; }
 .live-journal li { padding: 4px 0; border-top: 0; }
-.copy { font: 400 var(--t-xs)/1 var(--mono); color: var(--bone); background: color-mix(in srgb, var(--bone) 10%, transparent); border: 1px solid color-mix(in srgb, var(--bone) 18%, transparent); border-radius: 4px; padding: 5px 9px; cursor: pointer; margin-left: auto; }
-.copy:hover, .copy:focus-visible { background: color-mix(in srgb, var(--bone) 18%, transparent); outline: none; }
-.copy.is-done { color: var(--lichen); border-color: color-mix(in srgb, var(--lichen) 60%, transparent); }
+.copy, .act { font: 400 var(--t-xs)/1 var(--mono); color: var(--bone); background: color-mix(in srgb, var(--bone) 10%, transparent); border: 1px solid color-mix(in srgb, var(--bone) 18%, transparent); border-radius: 4px; padding: 5px 9px; cursor: pointer; }
+.copy { margin-left: auto; }
+.act { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.copy:hover, .copy:focus-visible, .act:hover, .act:focus-visible { background: color-mix(in srgb, var(--bone) 18%, transparent); outline: none; }
+.copy.is-done, .act.is-done { color: var(--lichen); border-color: color-mix(in srgb, var(--lichen) 60%, transparent); }
+.act.is-failed { color: var(--oxide); border-color: color-mix(in srgb, var(--oxide) 60%, transparent); }
+.act[disabled] { opacity: .6; cursor: progress; }
+.why { font: 400 var(--t-xs)/1.2 var(--mono); color: var(--bone); background: color-mix(in srgb, var(--bone) 6%, transparent); border: 1px solid color-mix(in srgb, var(--bone) 18%, transparent); border-radius: 4px; padding: 4px 8px; width: 12rem; max-width: 100%; }
+.why:focus { outline: none; border-color: color-mix(in srgb, var(--amber) 60%, transparent); }
+.why.is-missing { border-color: color-mix(in srgb, var(--oxide) 70%, transparent); }
 .live-status { font: 400 var(--t-xs)/1.4 var(--mono); color: var(--bone-dim); max-width: var(--measure); margin: 0 auto; padding: 18px var(--pad) 0; }
 .live-status.is-off { color: var(--oxide); }
 </style>
@@ -408,6 +445,11 @@ LIVE_JS = """
     clearTimeout(timer); due = Date.now() + ms;
     timer = setTimeout(poll, ms);
   }
+  function refresh() {
+    fetch('/api/fragment', { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (html) {
+      main.innerHTML = html; wire();
+    });
+  }
   function poll() {
     if (document.visibilityState !== 'visible' || inflight) return;
     inflight = true;
@@ -417,11 +459,7 @@ LIVE_JS = """
       if (status) { status.dataset.at = new Date().toTimeString().slice(0, 8); status.classList.remove('is-off'); }
       if (s !== lastSig) {
         lastChange = Date.now();
-        if (lastSig !== null) {
-          fetch('/api/fragment', { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (html) {
-            main.innerHTML = html; wire();
-          });
-        }
+        if (lastSig !== null) refresh();   // the first poll is the page itself
         lastSig = s;
       }
       schedule(cadence(d));
@@ -443,9 +481,40 @@ LIVE_JS = """
     ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta);
     ta.select(); try { document.execCommand('copy'); } catch (e) {} document.body.removeChild(ta);
   }
+  function act(btn) {
+    var why = btn.previousElementSibling;
+    var reason = (why && why.classList.contains('why')) ? why.value.trim() : '';
+    if (why && why.classList.contains('why') && !reason) {
+      why.classList.add('is-missing'); why.focus(); return;
+    }
+    var label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'running';
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: btn.dataset.action, id: btn.dataset.id, reason: reason }) })
+    .then(function (r) { return r.json(); }).then(function (res) {
+      btn.disabled = false;
+      if (res.ok) {
+        btn.textContent = 'done'; btn.classList.add('is-done');
+        // The write is done: show it now, and let the next poll settle the
+        // signature. (Resetting the signature would trip the first-poll
+        // guard above and never swap — measured in the browser.)
+        setTimeout(function () { refresh(); poll(); }, 400);
+      } else {
+        btn.textContent = 'failed'; btn.classList.add('is-failed');
+        btn.title = (res.error || res.stderr || res.stdout || '').trim();
+        setTimeout(function () { btn.textContent = label; btn.classList.remove('is-failed'); }, 4000);
+      }
+    }).catch(function () { btn.disabled = false; btn.textContent = 'failed'; btn.classList.add('is-failed'); });
+  }
   function wire() {
     main.querySelectorAll('button.copy').forEach(function (b) {
       b.addEventListener('click', function () { copyText(b.dataset.cmd, b); });
+    });
+    main.querySelectorAll('button.act').forEach(function (b) {
+      b.addEventListener('click', function () { act(b); });
+    });
+    main.querySelectorAll('input.why').forEach(function (i) {
+      i.addEventListener('input', function () { i.classList.remove('is-missing'); });
     });
   }
   document.addEventListener('visibilitychange', function () {
@@ -457,6 +526,101 @@ LIVE_JS = """
 })();
 </script>
 """
+
+
+# --------------------------------------------------------------------------- #
+# actions — the panel writes through the CLIs, never around them (phase 49)
+# --------------------------------------------------------------------------- #
+ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*-[A-Za-z0-9.]+$")
+LEASE_KEY_RE = re.compile(r"^(\d+|bead:[A-Za-z][A-Za-z0-9_.-]*-[A-Za-z0-9.]+)$")
+MIRROR_VERB = {"claim": "update", "close": "close", "reopen": "update"}
+
+
+def action_argv(root, action, ident, reason):
+    """The exact CLI for one action, as an argv list — never a shell string.
+    None means the request does not name a valid action; a (None, msg)
+    pair is a refusal with its reason."""
+    if action in ("claim", "close", "reopen"):
+        if not ID_RE.match(ident or ""):
+            return None, "id is not a bead id"
+        if action == "claim":
+            return ["bd", "-C", str(root), "update", ident, "--claim"], None
+        if action == "close":
+            if not (reason or "").strip():
+                return None, "close needs a reason"
+            return ["bd", "-C", str(root), "close", ident,
+                    f"--reason={reason.strip()}"], None
+        return ["bd", "-C", str(root), "update", ident, "--status", "open",
+                "--assignee", ""], None
+    if action == "gate-check":
+        gtype = (reason or "gh:run").strip()
+        if not re.match(r"^[a-z:]+$", gtype):
+            return None, "gate type is not a type"
+        return ["bd", "-C", str(root), "gate", "check", f"--type={gtype}"], None
+    if action == "gate-resolve":
+        if not ID_RE.match(ident or ""):
+            return None, "id is not a gate id"
+        if not (reason or "").strip():
+            return None, "resolving a gate needs a reason"
+        return ["bd", "-C", str(root), "gate", "resolve", ident,
+                f"--reason={reason.strip()}"], None
+    if action == "lease-release":
+        if not LEASE_KEY_RE.match(ident or ""):
+            return None, "lease key is neither a phase number nor bead:<id>"
+        return [sys.executable, CAIRN_LEASE, "release", ident,
+                "--project-dir", str(root)], None
+    return None, f"unknown action {action!r}"
+
+
+def run_action(root, snapshot, action, ident, reason):
+    argv, err = action_argv(root, action, ident, reason)
+    if argv is None:
+        return {"ok": False, "action": action, "id": ident, "error": err}, 400
+    env = dict(os.environ, BEADS_ACTOR="board", CLAUDE_PROJECT_DIR=str(root))
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              cwd=str(root), env=env, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "action": action, "id": ident,
+                "error": f"could not run: {exc}"}, 500
+    result = {"ok": proc.returncode == 0, "action": action, "id": ident,
+              "exit": proc.returncode, "stdout": (proc.stdout or "")[-1200:],
+              "stderr": (proc.stderr or "")[-1200:], "mirror": None}
+    # The post-bd-write hook only sees the session's own `bd` commands: a
+    # write from this process mirrors itself, explicitly, when a sync
+    # config exists. Never fatal — the bead write is the fact.
+    verb = MIRROR_VERB.get(action)
+    if result["ok"] and verb and (root / ".cairn" / "sync.json").is_file():
+        try:
+            m = subprocess.run(["bash", CAIRN_GBSYNC, verb, ident, "--dir",
+                                str(root)], capture_output=True, text=True,
+                               cwd=str(root), timeout=120)
+            tail = (m.stdout or m.stderr).strip().splitlines()
+            result["mirror"] = {"ok": m.returncode == 0,
+                                "detail": tail[-1] if tail else ""}
+        except (OSError, subprocess.SubprocessError) as exc:
+            result["mirror"] = {"ok": False, "detail": str(exc)}
+    with open(root / ".cairn" / "board.log", "a", encoding="utf-8") as fh:
+        fh.write(f"{now_iso()} action {action} {ident or '-'} exit "
+                 f"{proc.returncode} actor board\n")
+    snapshot.fetched_at = 0.0    # the next read sees the write
+    return result, (200 if result["ok"] else 409)
+
+
+def same_origin(headers, port):
+    """ACT-02 (no token by decision): the bind is the loopback, and a POST
+    has to come from THIS page — Origin, when the browser sends one, must
+    be this port on 127.0.0.1 or localhost, and Host must name the same. A
+    page served from anywhere else, on any other port, gets 403. A local
+    curl without Origin is the operator and passes."""
+    allowed = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    host = (headers.get("Host") or "").strip()
+    if host not in allowed:
+        return False
+    origin = (headers.get("Origin") or "").strip()
+    if origin and origin not in {f"http://{h}" for h in allowed}:
+        return False
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -479,9 +643,33 @@ def make_handler(root, snapshot):
             self.wfile.write(raw)
 
         def do_POST(self):
-            self.send(405, "read only in this phase — actions arrive in phase 49\n")
+            path = self.path.split("?", 1)[0]
+            if path != "/api/action":
+                return self.send(405, "only POST /api/action writes\n")
+            port = self.server.server_address[1]
+            if not same_origin(self.headers, port):
+                return self.send(403, json.dumps({"ok": False, "error":
+                                 "origin or host is not this board"}),
+                                 "application/json; charset=utf-8")
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, OSError):
+                return self.send(400, json.dumps({"ok": False, "error": "bad JSON"}),
+                                 "application/json; charset=utf-8")
+            if not isinstance(body, dict):
+                return self.send(400, json.dumps({"ok": False, "error": "bad JSON"}),
+                                 "application/json; charset=utf-8")
+            result, code = run_action(root, snapshot, str(body.get("action") or ""),
+                                      str(body.get("id") or ""),
+                                      str(body.get("reason") or ""))
+            return self.send(code, json.dumps(result),
+                             "application/json; charset=utf-8")
 
-        do_PUT = do_DELETE = do_PATCH = do_POST
+        def do_PUT(self):
+            self.send(405, "only POST /api/action writes\n")
+
+        do_DELETE = do_PATCH = do_PUT
 
         def do_GET(self):
             path = self.path.split("?", 1)[0]
