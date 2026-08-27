@@ -170,6 +170,29 @@ def is_carrier(issue):
             and not is_child_id(issue.get("id", "")))
 
 
+MILESTONE_MARKER = "milestone"
+
+
+def is_milestone_carrier(issue):
+    """Portador do CICLO (v4.0): label marcador `milestone` (mesmo padrão de
+    `lease` e `backlog`) + `m-vX.Y`, e NENHUM `phase-N`. O título é o nome do
+    ciclo, a descrição é a promessa, `external_ref` é o vínculo externo quando
+    houver. Exigido só para ciclos abertos a partir da v4.0; os anteriores
+    ficam como história sem portador."""
+    return (MILESTONE_MARKER in labels(issue)
+            and not issue_phases(issue)
+            and bool(issue_milestones(issue)))
+
+
+def milestone_carriers(root, key):
+    """Portadores do ciclo `key`, em ordem de id. UM é o contrato; zero e dois
+    são achados do doctor, e é ele quem decide o que dizer sobre cada caso —
+    este módulo só responde quantos há."""
+    return sorted((i for i in issues(root)
+                   if is_milestone_carrier(i) and key in issue_milestones(i)),
+                  key=lambda i: i.get("id", ""))
+
+
 # --- as perguntas que se faziam ao ROADMAP.md ---------------------------------
 
 class _AllMilestones:

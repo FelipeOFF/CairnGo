@@ -31,6 +31,24 @@ the mode; with neither `new` nor `complete`, ask which one.
    corroboration all read it. A phase without a carrier has no name, and the
    board says so rather than borrowing a requirement's title.
 
+   Give the **milestone** a carrier too — always, with or without an
+   external tracker. It is one bead with the marker label `milestone` and
+   the `m-<new-milestone>` label, **no** `phase-N`, no `gsd` stamp; its
+   title is the cycle's name and its description is the cycle's promise:
+
+   ```bash
+   bd create "<cycle name>" -t task -l m-<new-milestone>,milestone \
+     -d "<what this cycle promises>"
+   ```
+
+   Until it exists the cycle has no name, no promise and nowhere to hang an
+   outside link (`external_ref` is a field of this bead, filled in by the
+   Jira link when there is one). `/cairn:doctor` reports an open cycle
+   without one; `/cairn:status` reads the header from it; `complete` closes
+   it last, after the gate passes. The label chosen here is the **intent** —
+   the final version is decided at close, and `complete` renames the whole
+   cycle when they diverge.
+
    **A `.planning/` still waiting to be imported is the exception, and the
    only one.** If this repo has one, it is the INPUT of a GSD that has not
    been migrated yet: run `/cairn:migrate` first, and open the cycle after —

@@ -94,6 +94,14 @@ to promote a real piece of work because they think the rule forbids it.
   The `bd` JSON carries no `parent` key (measured, bd 1.1.0), which is why
   hierarchy is read off the id and never off a field.
 
+  A fifth kind wears **no** `phase-N` at all: the **milestone carrier** —
+  marker label `milestone` + `m-vX.Y`, title = the cycle's name, description
+  = its promise, `external_ref` = its outside link when there is one. One
+  per cycle, created by `/cairn:milestone new`, closed last by `complete`;
+  required for every cycle opened from v4.0 on (older cycles are history and
+  carry none). It is not work: nothing claims it, the lanes hide it, the
+  gate ignores it, and `cairn-relabel rename` moves it with the cycle.
+
 ## The records — what used to be documents
 
 Planning prose is recorded on beads through one boundary,

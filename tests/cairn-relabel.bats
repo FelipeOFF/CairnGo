@@ -140,3 +140,86 @@ refute_contains() {
   assert_json_eq "$(show_json "$RL_PHASE2")" '.[0].labels | join(",")' "phase-2"
   assert_json_eq "$(show_json "$RL_PHASE2")" '.[0].metadata.gsd.phase' "2"
 }
+
+# --------------------------------------------------------------------------- #
+# rename — the whole cycle moves (phase 43 / CARRY-04)
+# --------------------------------------------------------------------------- #
+
+# A milestone carrier for the v1.0 cycle: marker label `milestone`, no phase.
+make_cycle_carrier() {
+  RL_CARRIER="$(bd create "v1.0 — the first cycle" -t task -l m-v1.0,milestone \
+    -d "what v1.0 promises" --silent)"
+}
+
+@test "rename is a dry run by default: lists the cycle, writes nothing" {
+  require_bd
+  make_tmp_repo
+  make_relabel_fixture
+  make_cycle_carrier
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-relabel.sh" rename m-v1.0 m-v1.1
+  [ "$status" -eq 0 ]
+  # Both beads of the cycle are listed; the carrier gets the title rewrite,
+  # the requirement gets gsd.milestone, and nothing else is a candidate.
+  grep -qF "DRY-RUN: $RL_PAIRED m-v1.0 -> m-v1.1 gsd.milestone=v1.1" <<<"$output"
+  grep -qF "DRY-RUN: $RL_CARRIER m-v1.0 -> m-v1.1 title 'v1.1 — the first cycle'" <<<"$output"
+  refute_contains "$RL_PLAIN" "$output"
+  grep -qF "not touched: git branches, .cairn/id-map.json" <<<"$output"
+  grep -qF "2 issue(s) would change (dry-run; pass --apply to write)" <<<"$output"
+
+  # Nothing moved.
+  local shown; shown="$(show_json "$RL_CARRIER")"
+  grep -qF '"m-v1.0"' <<<"$shown"
+  refute_contains '"m-v1.1"' "$shown"
+  grep -qF 'v1.0 — the first cycle' <<<"$shown"
+}
+
+@test "rename --apply moves labels, gsd.milestone and the carrier title, and nothing else" {
+  require_bd
+  make_tmp_repo
+  make_relabel_fixture
+  make_cycle_carrier
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-relabel.sh" rename v1.0 v1.1 --apply
+  [ "$status" -eq 0 ]
+  grep -qF "rename: 2 issue(s) updated" <<<"$output"
+
+  # The requirement: label swapped, gsd.milestone rewritten, gsd.req kept.
+  local shown; shown="$(show_json "$RL_PAIRED")"
+  grep -qF '"m-v1.1"' <<<"$shown"
+  refute_contains '"m-v1.0"' "$shown"
+  grep -qF '"milestone": "v1.1"' <<<"$shown"
+  grep -qF '"req": "AUTH-01"' <<<"$shown"
+
+  # The carrier: label swapped, title prefix rewritten, still no gsd stamp.
+  shown="$(show_json "$RL_CARRIER")"
+  grep -qF '"m-v1.1"' <<<"$shown"
+  grep -qF 'v1.1 — the first cycle' <<<"$shown"
+  refute_contains '"gsd"' "$shown"
+
+  # An issue outside the cycle is not a candidate and gains no metadata.
+  shown="$(show_json "$RL_PLAIN")"
+  refute_contains '"m-v1.1"' "$shown"
+  refute_contains '"gsd"' "$shown"
+}
+
+@test "rename refuses (exit 2) an empty source, a no-op, and a target already in use" {
+  require_bd
+  make_tmp_repo
+  make_relabel_fixture
+  make_cycle_carrier
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-relabel.sh" rename m-v9.9 m-v1.1
+  [ "$status" -eq 2 ]
+  grep -qF "no issue carries m-v9.9" <<<"$output"
+
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-relabel.sh" rename m-v1.0 m-v1.0
+  [ "$status" -eq 2 ]
+
+  local other; other="$(bd create "Already v1.1" -t task -l m-v1.1,phase-9 --silent)"
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-relabel.sh" rename m-v1.0 m-v1.1 --apply
+  [ "$status" -eq 2 ]
+  grep -qF "$other already carries m-v1.1" <<<"$output"
+  # The refusal wrote nothing.
+  grep -qF '"m-v1.0"' <<<"$(show_json "$RL_CARRIER")"
+}
