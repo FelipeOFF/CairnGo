@@ -115,6 +115,14 @@ the order is what keeps the parallel half from writing where it must not.
 
 ### 1. Plan — in the main checkout, one phase at a time
 
+**Read the stop flag first**, here and at every boundary below:
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-stop.sh" check` exits `3` when a
+stop was requested (from the board, or `cairn-stop.sh request`). Then stop
+clean: release the claims that no longer reflect live work, report the
+phase and step you reached, and leave the flag for the operator to clear
+(`cairn-stop.sh clear`). Never in the middle of a merge — a merge in
+progress finishes or is reverted first.
+
 `/cairn:plan N` for every phase of the batch, sequentially, in the main
 checkout, **before any worktree exists**. Without `--interactive`, run it
 non-interactively (skip discussion questions; record assumptions instead). Each
@@ -258,7 +266,9 @@ Nothing in this moment happens inside a worktree.
    still carrying a violation in that list, and reacting only to exit 6 would
    let it through. Detecting something nobody reads is the same as not
    detecting it.
-2. **Merge one branch at a time**, `git merge --no-ff <branch>`, plain. A git
+2. **Merge one branch at a time**, `git merge --no-ff <branch>`, plain —
+   checking the stop flag before each one (a request stops the run after
+   the merge in flight, never inside it). A git
    conflict is a stop rule: hand it to the operator with the branch and the
    paths, and do not attempt to resolve it.
 
@@ -306,7 +316,9 @@ Nothing in this moment happens inside a worktree.
    unmerged commits is retained and reported with the command to inspect it —
    including the tree of a phase that failed in moment 3.
 
-Then take the next batch: back to step 0.3, until no phase is pending.
+Then take the next batch: back to step 0.3, until no phase is pending —
+`batch --json` carries `stop_requested`, and `true` there ends the run at
+this boundary with the report above.
 
 ### `--sequential`
 

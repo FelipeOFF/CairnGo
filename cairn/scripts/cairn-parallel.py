@@ -1346,6 +1346,19 @@ def config_int(top, key, fallback, minimum):
     return value if value >= minimum else fallback
 
 
+def stop_requested(top):
+    """cairn-stop.py check, through the sibling script: True when a global
+    request is on file (a per-phase request is the phase's own business)."""
+    proc = run_script(str(Path(__file__).resolve().parent / "cairn-stop.py"),
+                      ["check", "--json", "--project-dir", str(top)], top,
+                      "cairn-stop.py")
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return False
+    return bool(data.get("requested")) and data.get("phase") in (None, "")
+
+
 def cmd_batch(args, top):
     if args.max is not None and args.max < 1:
         die(f"--max must be at least 1 (got {args.max})\n" + USAGE,
@@ -1456,6 +1469,9 @@ def cmd_batch(args, top):
         "cycle_note": cycle_note,
         "selected": selected,
         "deferred": deferred,
+        # Phase 50: a stop request applies to the whole run; the loop
+        # reads it here before it takes the next batch.
+        "stop_requested": stop_requested(top),
     }
     result["announcement"] = build_announcement(result)
 

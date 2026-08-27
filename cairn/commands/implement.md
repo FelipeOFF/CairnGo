@@ -71,7 +71,12 @@ so every push has somewhere to land and every gate has a run to watch.
 
 ## 3. The frontier, in parallel
 
-Loop until no bead of the scope is open:
+Loop until no bead of the scope is open — and before every turn, read the
+stop flag: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-stop.sh" check --phase
+"$N"` exits `3` when a stop was requested for this phase or for everything.
+Then stop clean: let the implementers already running finish or report,
+merge nothing new, release the claims that no longer reflect live work, say
+where you stopped, and leave the PR as a draft.
 
 1. **Frontier:** `bd ready -l m-<milestone>,phase-<N> --json` (the cycle's
    label pair, unpadded number). Drop what is already claimed by a live
@@ -97,7 +102,9 @@ Loop until no bead of the scope is open:
    `ROADMAP.md`, `REQUIREMENTS.md`; what to report (commits, tests run, what
    failed); and the `response_language` copied from `prepare-bead`.
 4. **When an implementer finishes, a merger subagent lands it** — in the
-   main checkout, on the PR branch, one bead at a time:
+   main checkout, on the PR branch, one bead at a time, after the stop
+   flag is read once more (a request stops before this merge, never inside
+   it):
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/cairn-parallel.sh" reconcile --beads \
      --base phase/<N>-<slug> --json

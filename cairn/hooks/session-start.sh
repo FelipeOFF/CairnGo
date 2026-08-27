@@ -62,6 +62,13 @@ fi
 #    que cairn e' uma PONTE entre um GSD em disco e o bd. Cairn e' o sistema:
 #    `.beads/` basta, e `.planning/` e' material a importar — nunca destino.
 #***************************************************************************
+# 5. A stop request (phase 50) belongs to the run it was made for: one found at
+#    session start predates this session and would stop the first loop for
+#    nothing. Say it was cleared, so the operator knows it did not survive.
+if [ -f "$PROJECT_DIR/.cairn/stop" ]; then
+  rm -f "$PROJECT_DIR/.cairn/stop"
+  echo "[cairn] a stop request from a previous session was cleared (.cairn/stop) — request again from the board if it still applies."
+fi
 if [ -d "$PROJECT_DIR/.beads" ]; then
   # Um `.planning/` ao lado do `.beads/` e' conteudo do GSD que ainda pode nao
   # ter sido importado. O nudge nomeia a rota, e nada aqui pede arquivo.

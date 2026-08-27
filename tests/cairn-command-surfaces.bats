@@ -330,6 +330,7 @@ EOF
       release) echo "release engineering for cairn's OWN repo; routed by the doctor's release-versions check" ;;
       test) echo "the bats suite runner for cairn's OWN repo; routed by the doctor's test-parallel check" ;;
       trend) echo "first-pass verdict history across cycles; a maintainer report, not a project verb" ;;
+      stop) echo "the stop flag a running loop honours at its next boundary (phase 50): written by the board's stop action (or cairn-stop.sh request from a terminal) and read by /cairn:autonomous and /cairn:implement through cairn-stop.sh check, and by cairn-lease status and cairn-parallel batch as stop_requested — a signal file with one reader, never a session verb" ;;
       wrap) echo "the derivation tool itself; invoked by /cairn:help and by the docs regeneration" ;;
 
       # The six the `cairn-*.py` glob used to miss (GUARD-02). Five are

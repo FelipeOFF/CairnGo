@@ -566,7 +566,29 @@ def status_entry(phase, issue_id, lease):
         "heartbeat_at": lease.get("heartbeat_at"),
         "stale": held and is_stale(lease.get("heartbeat_at")),
         "ttl_hours": LEASE_TTL_SECONDS // 3600,
+        # Phase 50: the stop flag, read by cairn-stop.py's one reader.
+        "stop_requested": bool(stop_flag_for(phase)),
     }
+
+
+def stop_flag_for(phase):
+    """The .cairn/stop request that applies to this lease's key, via
+    cairn-stop.py's own reader (never re-parsed here). None when the
+    sibling is missing, which is the same as no request."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "cairn_stop", str(Path(__file__).resolve().parent / "cairn-stop.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception:  # noqa: BLE001 — a missing sibling is "no request"
+        return None
+    root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    try:
+        root = _STATUS_ROOT or root
+    except NameError:
+        pass
+    return mod.stop_requested(root, phase)
 
 
 def print_status_human(entry):
@@ -889,10 +911,15 @@ def build_parser():
     return parser
 
 
+_STATUS_ROOT = None
+
+
 def main():
+    global _STATUS_ROOT
     parser = build_parser()
     args = parser.parse_args()
     root = resolve_root(args.project_dir)
+    _STATUS_ROOT = str(root)
     if shutil.which("bd") is None:
         die("'bd' not found on PATH", EXIT_NO_BD)
     args.func(args, root)

@@ -77,6 +77,7 @@ PLUGIN_ROOT = SCRIPTS_DIR.parent
 CAIRN_STATUS = os.environ.get("CAIRN_STATUS", str(SCRIPTS_DIR / "cairn-status.py"))
 CAIRN_LEASE = os.environ.get("CAIRN_LEASE", str(SCRIPTS_DIR / "cairn-lease.py"))
 CAIRN_GBSYNC = os.environ.get("CAIRN_GBSYNC", str(SCRIPTS_DIR / "gbsync.sh"))
+CAIRN_STOP = os.environ.get("CAIRN_STOP", str(SCRIPTS_DIR / "cairn-stop.py"))
 TEMPLATE = PLUGIN_ROOT / "templates" / "status-board.html"
 LIVE_MARK = "<!-- cairn:live:blocks -->"
 BOARD_START = "<!-- cairn:generated:board:start -->"
@@ -314,6 +315,17 @@ def live_blocks(root, data):
 
     # --- now -------------------------------------------------------------
     rows = []
+    stop_flag = run_json([sys.executable, CAIRN_STOP, "check", "--json",
+                          "--project-dir", str(root)], root, {})
+    if stop_flag.get("requested"):
+        target = stop_flag.get("phase")
+        rows.append(f'<li class="live-stop"><span class="live-k is-next">stop requested</span> '
+                    f'<span class="live-v">{esc((stop_flag.get("ts") or "")[11:19])} by '
+                    f'{esc(stop_flag.get("actor"))} for '
+                    f'{esc("phase " + str(target) if target else "everything")}'
+                    f'{" · " + esc(stop_flag.get("reason")) if stop_flag.get("reason") else ""}'
+                    f' — the loop stops at its next boundary</span> '
+                    f'{act_button("stop-clear", "", "clear")}</li>')
     for e in leases_now(root):
         who = (f"phase {e.get('phase')}" if e.get("phase") is not None
                else f"bead {e.get('bead')}")
@@ -323,6 +335,7 @@ def live_blocks(root, data):
         rows.append(f'<li><span class="live-k">{esc(who)}{stale}</span> '
                     f'<span class="live-v">{esc(e.get("holder") or "")} since '
                     f'{esc((e.get("acquired_at") or "")[:19])}</span> '
+                    f'{act_button("stop", key, "stop")} '
                     f'{act_button("lease-release", key, "release")}</li>')
     journal = journal_tail(root)
     jrows = []
@@ -569,6 +582,19 @@ def action_argv(root, action, ident, reason):
             return None, "lease key is neither a phase number nor bead:<id>"
         return [sys.executable, CAIRN_LEASE, "release", ident,
                 "--project-dir", str(root)], None
+    if action == "stop-clear":
+        return [sys.executable, CAIRN_STOP, "clear", "--project-dir", str(root)], None
+    if action == "stop":
+        # Phase 50: the flag the loop honours at its next boundary — and the
+        # lease goes too (the grilling's contract), so the front is free.
+        if ident and not LEASE_KEY_RE.match(ident):
+            return None, "stop target is neither a phase number nor bead:<id>"
+        argv = [sys.executable, CAIRN_STOP, "request", "--actor", "board",
+                "--reason", (reason or "requested from the board").strip(),
+                "--project-dir", str(root)]
+        if ident:
+            argv += ["--phase", ident]
+        return argv, None
     return None, f"unknown action {action!r}"
 
 
@@ -586,6 +612,12 @@ def run_action(root, snapshot, action, ident, reason):
     result = {"ok": proc.returncode == 0, "action": action, "id": ident,
               "exit": proc.returncode, "stdout": (proc.stdout or "")[-1200:],
               "stderr": (proc.stderr or "")[-1200:], "mirror": None}
+    if result["ok"] and action == "stop" and ident:
+        rel = subprocess.run([sys.executable, CAIRN_LEASE, "release", ident,
+                              "--project-dir", str(root)],
+                             capture_output=True, text=True, cwd=str(root),
+                             env=env, timeout=60)
+        result["lease_released"] = rel.returncode == 0
     # The post-bd-write hook only sees the session's own `bd` commands: a
     # write from this process mirrors itself, explicitly, when a sync
     # config exists. Never fatal — the bead write is the fact.

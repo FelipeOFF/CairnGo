@@ -219,3 +219,27 @@ post_action() {  # post_action <url> <json> [extra curl args...]
   grep -qF 'class="act" data-action="claim"' <<<"$output"
   grep -qF 'class="why"' <<<"$output"
 }
+
+@test "stop from the board writes the flag, releases the lease, and the now block says so until cleared" {
+  make_board_repo
+  bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" acquire 2 --project-dir "$BOARD_ROOT" >/dev/null
+  run bash "$BOARD" start --project-dir "$BOARD_ROOT" --json
+  local url; url="$(jq -r '.url' <<<"$output")"
+  run curl -s "$url"
+  grep -qF 'data-action="stop" data-id="2"' <<<"$output"
+
+  run post_action "$url" '{"action":"stop","id":"2","reason":"enough for today"}'
+  [ "$output" = "200" ]
+  assert_json_eq "$(cat "$BATS_TEST_TMPDIR/resp.json")" '.lease_released' 'true'
+  run jq -r '.phase + " " + .actor' "$BOARD_ROOT/.cairn/stop"
+  [ "$output" = "2 board" ]
+  run bash "$CAIRN_SCRIPTS_DIR/cairn-lease.sh" status 2 --project-dir "$BOARD_ROOT" --json
+  assert_json_eq "$output" '.held' 'false'
+  run curl -s "${url}api/fragment"
+  grep -qF 'stop requested' <<<"$output"
+  grep -qF 'enough for today' <<<"$output"
+
+  run post_action "$url" '{"action":"stop-clear"}'
+  [ "$output" = "200" ]
+  [ ! -f "$BOARD_ROOT/.cairn/stop" ]
+}

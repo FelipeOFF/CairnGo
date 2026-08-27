@@ -34,7 +34,10 @@ phase), and per row a **copy** button with the exact `bd` command and an
 
 **Actions** (`POST /api/action`, `{action, id, reason?}`): `claim`,
 `close` (reason required), `reopen`, `gate-check`, `gate-resolve` (reason
-required), `lease-release` (`N` or `bead:<id>`). Each runs the
+required), `lease-release` (`N` or `bead:<id>`), `stop` (`N`, `bead:<id>`,
+or nothing for everything — writes `.cairn/stop` through `cairn-stop.py
+request` and releases that lease; a running loop reads the flag at its next
+boundary and stops clean, never by kill) and `stop-clear`. Each runs the
 deterministic CLI as an argv list with `BEADS_ACTOR=board`, mirrors itself
 through gbsync when `.cairn/sync.json` exists (the post-bd-write hook only
 sees the session's own `bd` commands), appends one line to

@@ -33,7 +33,10 @@ now (leases, the journal's last moves across the repo's worktrees), what
 needs attention (open `gh:run` gates, blocked work, the next action), the
 cycle's Jira links, and per row both a copy button with the exact `bd`
 command and an action button that runs it: claim, close (with a reason),
-gate check and resolve, lease release. Every action is the deterministic
+gate check and resolve, lease release, and **stop** — the request a running
+`/cairn:autonomous` or `/cairn:implement` honours at its next boundary
+(`.cairn/stop`, never a kill); the block says "stop requested" until the
+lease goes. Every action is the deterministic
 CLI run by the server with `BEADS_ACTOR=board`, mirrored through gbsync
 when `.cairn/sync.json` exists, and logged to `.cairn/board.log`; a `POST`
 from any page that is not this board's own port is refused (403). `GET

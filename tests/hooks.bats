@@ -737,3 +737,17 @@ print((datetime.now(timezone.utc) - timedelta(hours=5)).isoformat())
   grep -qF "phase 2" <<<"$output"
   grep -qF "$holder" <<<"$output"
 }
+
+@test "session-start: a stop flag from a previous session is cleared, and said" {
+  require_bd
+  make_tmp_repo
+  make_recorders
+  mkdir -p .beads .cairn
+  echo '{"ts":"2026-01-01T00:00:00Z","actor":"board","phase":null,"reason":"old"}' > .cairn/stop
+
+  run env CLAUDE_PROJECT_DIR="$PWD" CAIRN_LEASE="$LEASE_STUB" \
+      bash "$CAIRN_HOOKS_DIR/session-start.sh"
+  [ "$status" -eq 0 ]
+  grep -qF "a stop request from a previous session was cleared" <<<"$output"
+  [ ! -f .cairn/stop ]
+}

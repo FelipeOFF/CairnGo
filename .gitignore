@@ -10,6 +10,8 @@ __pycache__/
 # machine, one running server per checkout.
 .cairn/board.json
 .cairn/board.log
+# The stop request a running loop honours at its next boundary (cairn-stop.py).
+.cairn/stop
 # On-demand clone of the pinned GSD tag (cairn-inventory.py). The pinned tag
 # commit is the invalidation key: a cache whose HEAD diverges dies with exit 6
 # and --refresh rebuilds it. Never committed — it is an external corpus of
