@@ -22,13 +22,13 @@ corrected by hand, which is exactly what guarantees the next drift.
 
 | Command | Description |
 |---|---|
-| [`/cairn:plan`](./commands/plan.md) | Plan a phase — GSD plan-phase plus beads map reconciliation |
-| [`/cairn:work`](./commands/work.md) | Execute a phase — claim its beads, run GSD execute-phase, close on success |
+| [`/cairn:plan`](./commands/plan.md) | Plan a phase — context, research and one plan record per wave, all on beads |
+| [`/cairn:work`](./commands/work.md) | Execute a phase — claim each plan record's beads, do the work, close the record with its summary and the beads with their reason |
 | [`/cairn:quick`](./commands/quick.md) | Tracked side-quest — stamped quick issue with discovered-from provenance, then GSD quick |
-| [`/cairn:verify`](./commands/verify.md) | Verify a phase's work — GSD verify-work cross-checked against beads |
+| [`/cairn:verify`](./commands/verify.md) | Verify a phase's work — every plan record's summary checked against the code and the beads, the verdict recorded on the carrier |
 | [`/cairn:ship`](./commands/ship.md) | Ship — verify every completed phase's beads are closed, then GSD ship / push |
 | [`/cairn:milestone`](./commands/milestone.md) | Milestone lifecycle — new (roadmap + stamped issues + maps) or complete (gate → reconcile → archive → compact) |
-| [`/cairn:autonomous`](./commands/autonomous.md) | Run every remaining phase hands-off — the full cairn loop per phase, doctor between phases, ship gate at the end |
+| [`/cairn:autonomous`](./commands/autonomous.md) | Run every remaining phase hands-off — the full cairn loop per phase (map → plan → claim → execute → close → verify), doctor between phases, ship gate at the end |
 
 ## View
 
@@ -76,7 +76,7 @@ corrected by hand, which is exactly what guarantees the next drift.
 | Command | Description |
 |---|---|
 | [`/cairn:bd`](./commands/bd.md) | Run any beads (bd) command directly — raw passthrough |
-| [`/cairn:gsd`](./commands/gsd.md) | Run any GSD command directly — raw passthrough |
+| [`/cairn:gsd`](./commands/gsd.md) | Run a command from an external GSD install — raw passthrough, and cairn does not require one |
 | [`/cairn:ctx`](./commands/ctx.md) | Run a context-mode operation directly — raw passthrough to the ctx_* tools |
 
 ## Wrapped GSD commands
@@ -90,15 +90,15 @@ cairn ships **41** commands: **13** wrap a `/gsd:*` command (listed below, deriv
 
 | Command | Wraps | Description |
 |---|---|---|
-| [`/cairn:ai-integration-phase`](./commands/ai-integration-phase.md) | `/gsd:ai-integration-phase` | Generate the AI design contract (AI-SPEC.md) for a phase that builds an AI system — GSD ai-integration-phase, with its requirements tracked |
-| [`/cairn:discuss-phase`](./commands/discuss-phase.md) | `/gsd:discuss-phase` | Gather phase context before planning — GSD discuss-phase, with the phase's beads claimed and the CONTEXT reconciled against them |
-| [`/cairn:mvp-phase`](./commands/mvp-phase.md) | `/gsd:mvp-phase` | Plan a phase as a vertical MVP slice — GSD mvp-phase, with the PLAN's beads frontmatter filled and the map reconciled |
-| [`/cairn:plan-review-convergence`](./commands/plan-review-convergence.md) | `/gsd:plan-review-convergence` | Replan until cross-AI review concerns are resolved — GSD plan-review-convergence, with the beads linkage re-resolved after every rewrite |
-| [`/cairn:secure-phase`](./commands/secure-phase.md) | `/gsd:secure-phase` | Retroactively verify a completed phase's threat mitigations — GSD secure-phase, and an unmitigated threat becomes a tracked issue rather than a note |
-| [`/cairn:spec-phase`](./commands/spec-phase.md) | `/gsd:spec-phase` | Clarify WHAT a phase delivers, with ambiguity scoring — GSD spec-phase, and every requirement the SPEC names gets a stamped issue |
-| [`/cairn:ui-phase`](./commands/ui-phase.md) | `/gsd:ui-phase` | Generate the UI design contract (UI-SPEC.md) for a frontend phase — GSD ui-phase, with its requirements tracked as stamped issues |
-| [`/cairn:ultraplan-phase`](./commands/ultraplan-phase.md) | `/gsd:ultraplan-phase` | Offload planning to the ultraplan cloud and import it back — GSD ultraplan-phase, and the imported PLAN gets the beads frontmatter it arrives without |
-| [`/cairn:validate-phase`](./commands/validate-phase.md) | `/gsd:validate-phase` | Retroactively fill validation gaps on a completed phase — GSD validate-phase, and any issue the audit re-opens is re-opened in bd too |
+| [`/cairn:ai-integration-phase`](./commands/ai-integration-phase.md) | `/gsd:ai-integration-phase` | Record the AI design contract for a phase that builds an AI system — the AI-SPEC on the phase carrier, with its requirements and evals tracked |
+| [`/cairn:discuss-phase`](./commands/discuss-phase.md) | `/gsd:discuss-phase` | Gather phase context before planning — the decisions recorded on the phase carrier, and the phase's beads reconciled against them |
+| [`/cairn:mvp-phase`](./commands/mvp-phase.md) | `/gsd:mvp-phase` | Plan a phase as a vertical MVP slice — the plan recorded on beads, the tracer wave first, and the map reconciled |
+| [`/cairn:plan-review-convergence`](./commands/plan-review-convergence.md) | `/gsd:plan-review-convergence` | Replan until cross-AI review concerns are resolved — the plan records rewritten, the convergence log on the carrier, the requirement linkage re-resolved after every rewrite |
+| [`/cairn:secure-phase`](./commands/secure-phase.md) | `/gsd:secure-phase` | Retroactively verify a completed phase's threat mitigations — the security review recorded on the carrier, and an unmitigated threat a tracked issue rather than a note |
+| [`/cairn:spec-phase`](./commands/spec-phase.md) | `/gsd:spec-phase` | Clarify WHAT a phase delivers, with ambiguity scoring — the SPEC recorded on the phase carrier, and every requirement it names a stamped issue |
+| [`/cairn:ui-phase`](./commands/ui-phase.md) | `/gsd:ui-phase` | Record the UI design contract for a frontend phase — the UI-SPEC on the phase carrier, with its requirements tracked as stamped issues |
+| [`/cairn:ultraplan-phase`](./commands/ultraplan-phase.md) | `/gsd:ultraplan-phase` | Offload planning to the ultraplan cloud and import it back — the imported plan lands as plan records that name the requirements they advance |
+| [`/cairn:validate-phase`](./commands/validate-phase.md) | `/gsd:validate-phase` | Retroactively fill validation gaps on a completed phase — the verification recorded on the carrier, and any issue the audit re-opens re-opened in bd too |
 
 **Structural — changes the phase list itself, so labels move**
 

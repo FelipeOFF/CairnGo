@@ -420,7 +420,11 @@ EOF
   # que testar. Sair dela e' o sinal, nos dois sentidos: quem entra herda a
   # decisao acima e precisa ser escrito aqui; quem sai ganhou um executavel
   # proprio e a pergunta "isto ja merece oraculo?" volta a valer.
-  local expected="ai-integration-phase cleanup mvp-phase new plan plan-review-convergence review-backlog secure-phase spec-phase ui-phase ultraplan-phase validate-phase verify"
+  # Phase 46 esvaziou a lista de dez de uma vez: a familia phase (e plan,
+  # verify) passou a gravar pelo cairn-record.sh, ganhou comportamento
+  # observavel e um oraculo proprio — tests/cairn-record-commands.bats, que
+  # mede em cada md o kind gravado e a ausencia de escrita em .planning/.
+  local expected="cleanup new review-backlog"
 
   local file refs actual=""
   for file in "$CAIRN_REPO_ROOT"/cairn/commands/*.md; do

@@ -409,3 +409,26 @@ EOS
   [ "$status" -eq 0 ]
   [ "$(grep -c '^CALL: ' "$GBSYNC_LOG")" -eq 2 ]
 }
+
+@test "record: os kinds de desenho escrevem cada um a sua secao do design, sem apagar as outras" {
+  require_bd
+  make_tmp_repo
+  make_record_fixture
+  echo "o que se decidiu" | python3 "$RECORD" context --phase 1
+  echo "o que se pesquisou" | python3 "$RECORD" research --phase 1
+  echo "o que a fase entrega" | python3 "$RECORD" spec --phase 1
+  run bd_field "$REC_PHASE" design
+  grep -qF "## CONTEXT" <<<"$output"
+  grep -qF "o que se decidiu" <<<"$output"
+  grep -qF "## RESEARCH" <<<"$output"
+  grep -qF "## SPEC" <<<"$output"
+  grep -qF "o que a fase entrega" <<<"$output"
+
+  # Regravar um kind substitui SO' a sua secao.
+  echo "decisao revista" | python3 "$RECORD" context --phase 1
+  run bd_field "$REC_PHASE" design
+  grep -qF "decisao revista" <<<"$output"
+  refute_output_has "o que se decidiu"
+  grep -qF "o que se pesquisou" <<<"$output"
+  [ "$(grep -c '^## CONTEXT' <<<"$output")" -eq 1 ]
+}

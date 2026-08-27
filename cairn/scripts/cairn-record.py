@@ -118,15 +118,20 @@ USAGE = ("usage: cairn-record.py <kind> --phase <N> [--plan <P>] "
 # campo proprio a cada um exigiria seis campos que o bd nao tem, e a saida
 # seria inventar formato — o que este milestone recusa. Eles compartilham
 # `design` e se distinguem pelo kind no cabecalho do corpo.
+# "section" (phase 46): os seis kinds de desenho dividem `design`, e um `set`
+# de um apagaria o outro — um spec gravado depois do context levaria o
+# context junto. Cada kind escreve a SUA secao (`## KIND`), substituindo a
+# anterior do mesmo kind e preservando as demais; o campo inteiro continua
+# legivel como um documento so'.
 KINDS = {
     "plan":         ("plan",  "description",         "create"),
     "summary":      ("plan",  "notes",               "close"),
-    "context":      ("phase", "design",              "set"),
-    "research":     ("phase", "design",              "set"),
-    "patterns":     ("phase", "design",              "set"),
-    "spec":         ("phase", "design",              "set"),
-    "ui-spec":      ("phase", "design",              "set"),
-    "ai-spec":      ("phase", "design",              "set"),
+    "context":      ("phase", "design",              "section"),
+    "research":     ("phase", "design",              "section"),
+    "patterns":     ("phase", "design",              "section"),
+    "spec":         ("phase", "design",              "section"),
+    "ui-spec":      ("phase", "design",              "section"),
+    "ai-spec":      ("phase", "design",              "section"),
     "verification": ("phase", "acceptance_criteria", "set"),
     "review":       ("phase", "notes",               "append"),
     "log":          ("phase", "notes",               "append"),
@@ -311,6 +316,42 @@ def mirror_comment(args, root, issue, body, mode):
     return {"carrier": carrier, "ok": proc.returncode == 0}
 
 
+SECTION_RE = r"^## ([A-Z][A-Z-]*)\s*$"
+
+
+def replace_section(text, kind, body):
+    """`text` with the `## KIND` section replaced by `body` (appended when
+    absent); every other `## X` section is kept byte for byte. A field that
+    was written before sections existed (no `## ` heading at all) becomes
+    the first section, under the kind that is being written — nothing is
+    lost, and the next write finds a heading to replace."""
+    import re
+    head = "## " + kind.upper()
+    lines = (text or "").splitlines()
+    if not any(re.match(SECTION_RE, ln) for ln in lines):
+        return head + "\n" + body.strip() + "\n" if not text.strip() \
+            else head + "\n" + body.strip() + "\n"
+    out, i, replaced = [], 0, False
+    while i < len(lines):
+        m = re.match(SECTION_RE, lines[i])
+        if m and m.group(1) == kind.upper():
+            out.append(head)
+            out.append(body.strip())
+            out.append("")
+            i += 1
+            while i < len(lines) and not re.match(SECTION_RE, lines[i]):
+                i += 1
+            replaced = True
+            continue
+        out.append(lines[i])
+        i += 1
+    if not replaced:
+        if out and out[-1].strip():
+            out.append("")
+        out += [head, body.strip(), ""]
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(prog="cairn-record.py", add_help=True,
                                      usage=USAGE)
@@ -390,6 +431,11 @@ def main():
         bd(["update", issue, "--description", body], root)
     elif mode == "set":
         bd(["update", issue, FIELD_FLAG[field], body], root)
+    elif mode == "section":
+        current = bd_json(["show", issue], root)
+        current = (current[0] if isinstance(current, list) else current) or {}
+        merged = replace_section(current.get(field) or "", args.kind, body)
+        bd(["update", issue, FIELD_FLAG[field], merged], root)
     elif mode == "append":
         bd(["update", issue, "--append-notes", body], root)
     elif mode == "close":

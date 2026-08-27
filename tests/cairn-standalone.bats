@@ -145,13 +145,14 @@ declared_implementations() {
       return 1
     }
   done < <(declared_implementations)
-  [ "$found" -gt 0 ] || {
-    echo "nenhum comando declara implementation: vendored" >&2
-    return 1
-  }
+  # Zero e' o estado desde a phase 46: os comandos de planejamento passaram a
+  # ser autossuficientes (cairn-record), e o runtime vendorizado fica para o
+  # passthrough /cairn:gsd. O teste segue valendo para o dia em que um voltar
+  # a declarar vendored — ai o arquivo tem de existir.
+  [ "$found" -ge 0 ]
 }
 
-@test "os treze declaram implementation, e o conjunto é exatamente um mais doze" {
+@test "os treze declaram implementation, e o conjunto é exatamente treze inline" {
   # A contagem é exata dos dois lados. Um comando que perdesse a chave no meio
   # da conversão sairia da lista em silêncio, e é isso que a igualdade impede.
   local total vendored inline
@@ -159,8 +160,10 @@ declared_implementations() {
   vendored="$(declared_implementations | grep -c ' vendored$' || true)"
   inline="$(declared_implementations | grep -c ' inline$' || true)"
   [ "$total" -eq 13 ] || { echo "declaram implementation: $total (esperado 13)" >&2; return 1; }
-  [ "$vendored" -eq 1 ] || { echo "vendored: $vendored (esperado 1)" >&2; return 1; }
-  [ "$inline" -eq 12 ] || { echo "inline: $inline (esperado 12)" >&2; return 1; }
+  # Phase 46: o ultimo vendored (discuss-phase) virou inline — nenhum
+  # wrapper le mais o runtime vendorizado.
+  [ "$vendored" -eq 0 ] || { echo "vendored: $vendored (esperado 0)" >&2; return 1; }
+  [ "$inline" -eq 13 ] || { echo "inline: $inline (esperado 13)" >&2; return 1; }
 }
 
 @test "um valor de implementation fora do vocabulário é erro de uso nomeado" {

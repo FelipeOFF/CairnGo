@@ -269,8 +269,15 @@ add_cairn_command() {
     }
     checked=$((checked + 1))
   done
-  [ "$checked" -gt 0 ] || {
-    echo "nenhum comando vendored foi checado — o teste nao mediu nada" >&2
+  # Desde a phase 46 NENHUM wrapper le o runtime vendorizado (os comandos de
+  # planejamento sao autossuficientes e gravam pelo cairn-record), entao
+  # zero checados e' o estado esperado — desde que zero seja tambem o numero
+  # de comandos que DECLARAM vendored. Um declarado e nao checado e' o que o
+  # teste nao pode deixar passar.
+  local declared
+  declared="$(jq -r '[.wrappers[] | select(.implementation == "vendored")] | length' <<<"$listing")"
+  [ "$checked" -eq "$declared" ] || {
+    echo "declarados vendored: $declared, checados: $checked — o teste nao mediu o que devia" >&2
     return 1
   }
 }
