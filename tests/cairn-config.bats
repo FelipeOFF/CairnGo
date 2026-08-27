@@ -206,7 +206,7 @@ make_config_fixture() {
   # precisely so the structural inventories over cairn-land.py and
   # cairn-status.py keep proving those two make no network call.
   assert_json_eq "$output" '[.keys[].key] | sort | join(",")' \
-    'agents.response_language,autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,git.control_branches,git.review_state,jira.link,ship.pr_scope,test.jobs'
+    'agents.response_language,autonomous.max_cycles,autonomous.max_parallel,bookkeep.auto_commit,git.control_branches,git.review_state,jira.link,ship.auto_merge,ship.pr_scope,test.jobs'
   assert_json_eq "$output" '[.keys[] | select(.key | test("sync_push"))] | length' '0'
 
   # Every key names the executable that reads it. An empty reader is the
@@ -753,4 +753,22 @@ JSONEOF
   run bash "$CONFIG" set test.jobs 0 --project-dir "$ROOT"
   [ "$status" -eq 3 ]
   grep -qF "must be at least 1" <<<"$output"
+}
+
+@test "ship.auto_merge: bool, default false, a real JSON boolean on disk, junk exits 3 (phase 47)" {
+  make_config_fixture
+
+  run bash "$CONFIG" get ship.auto_merge --project-dir "$ROOT"
+  [ "$output" = "false" ]
+
+  run bash "$CONFIG" set ship.auto_merge true --project-dir "$ROOT"
+  [ "$status" -eq 0 ]
+  run jq -r '.ship.auto_merge | type' "$ROOT/.cairn/config.json"
+  [ "$output" = "boolean" ]
+  run bash "$CONFIG" get ship.auto_merge --project-dir "$ROOT"
+  [ "$output" = "true" ]
+
+  run bash "$CONFIG" set ship.auto_merge talvez --project-dir "$ROOT"
+  [ "$status" -eq 3 ]
+  grep -qF "takes a boolean" <<<"$output"
 }
