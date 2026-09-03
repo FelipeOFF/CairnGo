@@ -54,7 +54,7 @@ stdin:
   "title": "…",
   "body": "…",
   "status": "open|in_progress|closed",
-  "labels": ["phase-3"],
+  "labels": ["m-v5.1", "ready-for-agent"],
   "external_id": "42 or null",
   "config": { /* this backend's config block from sync.json */ }
 }

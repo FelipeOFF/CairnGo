@@ -7,6 +7,14 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`cairn-status`** is lanes from bd (READY ∩ `ready-for-agent`, DOING,
+  BLOCKED). No GSD/phase footer, no journal. Open cycles come from `m-v*`
+  labels (CairnGo-kcso).
+- **gbsync hierarchy** (Jira): spec → Epic, ticket → Story, `m-vX.Y` →
+  Fix Version, `bd dep` → Blocks. Untyped beads are skipped (CairnGo-7vih).
+
 ## [5.0.0] - 2026-09-03
 
 Breaking: cairn is spec-driven development on beads, not a GSD command zoo.
