@@ -4,12 +4,9 @@
 # cairn-init           #
 ########################
 
-# cairn-init — the deterministic half of /cairn:init.
-# Wires git + beads so the cairn integration can activate. GSD arrives as a
-# declared plugin dependency, and installing the bd binary (if missing) is the
-# interactive job of the /cairn:init command — this script assumes bd is already
-# on PATH and stops with guidance if it isn't.
-# The .planning/ tree is created interactively by /cairn:new inside Claude.
+# cairn-init — the deterministic half of /cairn-init.
+# Wires git + beads. Installing the bd binary (if missing) is the interactive
+# job of the /cairn-init command — this script assumes bd is already on PATH.
 #
 # Usage:  cairn-init.sh [target-dir]   (defaults to current dir)
 set -euo pipefail
@@ -17,7 +14,7 @@ set -euo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIR="${1:-$PWD}"
 cd "$DIR"
-echo "▸ bootstrapping GSD<->beads in: $DIR"
+echo "▸ bootstrapping cairn (beads hub) in: $DIR"
 
 # 1. git repo
 if [ -d .git ]; then
@@ -117,120 +114,30 @@ else
   echo "  ✓ journal partitions set to merge=union"
 fi
 
-# 5. git pre-push ship gate — a tiny shim that runs cairn-gate.sh and blocks
-#    the push ONLY on exit 6 (open bd issues in completed phases). Exit 5
-#    (bd unavailable) warns but never blocks. Idempotent: re-runs refresh the
-#    shim in place. Chainable beads-style: a pre-existing foreign pre-push
-#    hook is moved to pre-push.old and the shim runs it first.
-# Tier 3 of the shim's gate resolution below, and the same pointer the
-# capability bundle shims already read. Rewritten on every init so an upgrade
-# refreshes it, and gitignored above so no tracked file names a home directory.
 mkdir -p .cairn
 printf '%s\n' "$PLUGIN_ROOT" > .cairn/plugin-root
-HOOKS_DIR="$(git rev-parse --git-path hooks 2>/dev/null || echo .git/hooks)"
-mkdir -p "$HOOKS_DIR"
-SHIM="$HOOKS_DIR/pre-push"
-SHIM_MARKER="cairn pre-push gate"
-if [ -f "$SHIM" ] && ! grep -qF "$SHIM_MARKER" "$SHIM"; then
-  # Never clobber a pre-push.old that chains an EARLIER foreign hook: cairn
-  # chained hook X aside, another tool later wrote a fresh pre-push, and a
-  # re-run would silently delete X. Refuse and let the user consolidate.
-  if [ -f "$SHIM.old" ] && ! grep -qF "$SHIM_MARKER" "$SHIM.old"; then
-    echo "  ✗ both $SHIM and $SHIM.old exist and neither is the cairn shim —" >&2
-    echo "    refusing to overwrite pre-push.old (it chains an earlier hook)." >&2
-    echo "    Merge the two hooks manually, then re-run cairn-init.sh." >&2
-    exit 1
-  fi
-  mv "$SHIM" "$SHIM.old"
-  echo "  ✓ existing pre-push hook moved to pre-push.old (chained — runs first)"
-fi
-cat > "$SHIM" <<SHIM_EOF
-#!/usr/bin/env bash
-# ${SHIM_MARKER} — installed by cairn-init.sh; re-run cairn-init.sh to refresh.
-# Blocks a push ONLY when cairn-gate exits 6 (completed GSD phases with open
-# bd issues). Exit 5 = bd unavailable -> warn but NEVER block (availability
-# failure is not a gate failure); any other gate error never blocks either.
-# Bypass once with: git push --no-verify
+echo "  ✓ .cairn/plugin-root"
 
-# Chain: a pre-existing pre-push hook was moved aside at install; run it first.
-OLD="\$(dirname "\$0")/pre-push.old"
-if [ -x "\$OLD" ]; then
-  "\$OLD" "\$@" || exit \$?
-fi
-
-# Pin the gate to THIS repo: cairn-gate prefers \$CLAUDE_PROJECT_DIR over the
-# cwd, so a 'git -C /other/repo push' from a Claude session would otherwise
-# gate the session's project instead of the repo being pushed.
-REPO_ROOT="\$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-
-# The gate is RESOLVED at push time, never baked at install time. Measured
-# 2026-08-07 (CairnGo-pg9): this line used to carry the absolute path of the
-# scripts dir that ran the init — one machine's home directory, in a tracked
-# file, pointing at the plugin version installed THAT DAY. It never failed
-# loudly, because a plugin cache directory does not disappear; it just ran a
-# gate five releases old on every push of this repository, in silence.
-# Same tiers the capability bundle shims use, first hit wins:
-#   1. \$CAIRN_GATE                explicit override, or a deliberately pinned build
-#   2. <repo>/cairn/scripts        the repo being pushed IS a cairn checkout
-#   3. <repo>/.cairn/plugin-root   gitignored pointer, rewritten by every init
-#   4. \$CLAUDE_PLUGIN_ROOT        running inside a /cairn:* session
-GATE="\${CAIRN_GATE:-}"
-if [ -z "\$GATE" ]; then
-  for cand in \\
-    "\$REPO_ROOT/cairn/scripts/cairn-gate.sh" \\
-    "\$(head -1 "\$REPO_ROOT/.cairn/plugin-root" 2>/dev/null)/scripts/cairn-gate.sh" \\
-    "\${CLAUDE_PLUGIN_ROOT:-}/scripts/cairn-gate.sh"; do
-    if [ -f "\$cand" ]; then GATE="\$cand"; break; fi
-  done
-fi
-if ! command -v "\$GATE" >/dev/null 2>&1 && [ ! -e "\$GATE" ]; then
-  echo "[cairn] pre-push: cairn-gate not found (\$GATE) — ship gate skipped" >&2
-  exit 0
-fi
-rc=0
-if command -v "\$GATE" >/dev/null 2>&1; then
-  "\$GATE" --planning-dir "\$REPO_ROOT/.planning" || rc=\$?
+# Tracker templates for Matt skills (do not clobber user edits).
+mkdir -p docs/agents
+if [ ! -f docs/agents/issue-tracker.md ]; then
+  cp "$PLUGIN_ROOT/templates/issue-tracker-beads.md" docs/agents/issue-tracker.md
+  echo "  ✓ docs/agents/issue-tracker.md"
 else
-  bash "\$GATE" --planning-dir "\$REPO_ROOT/.planning" || rc=\$?
+  echo "  ✓ docs/agents/issue-tracker.md already present"
 fi
-if [ "\$rc" -eq 6 ]; then
-  echo "[cairn] PUSH BLOCKED — completed phases still have open bd issues (listed above)." >&2
-  echo "        Close them (bd close <id> --reason=...) or bypass once: git push --no-verify" >&2
-  exit 6
-fi
-if [ "\$rc" -eq 5 ]; then
-  echo "[cairn] warning: bd unavailable — ship gate skipped, push allowed." >&2
-fi
-exit 0
-SHIM_EOF
-chmod +x "$SHIM"
-echo "  ✓ pre-push ship gate installed (cairn-gate; blocks only on exit 6)"
-
-# 6. Vendored GSD runtime — the plugin carries its own since v1.6, so this
-#    checks THIS INSTALL rather than recommending someone else's plugin. An
-#    external gsd-core is no longer a dependency; it is something
-#    /cairn:doctor asks you to uninstall, because two lineages answering
-#    /gsd:* and /cairn:* at once is the defect the vendoring closed.
-RUNTIME="$(cd "$(dirname "$0")/.." && pwd)/gsd"
-if [ -f "$RUNTIME/MANIFEST.json" ] && [ -d "$RUNTIME/commands" ]; then
-  echo "  ✓ vendored GSD runtime present (no external plugin needed)"
+if [ ! -f docs/agents/triage-labels.md ]; then
+  cp "$PLUGIN_ROOT/templates/triage-labels.md" docs/agents/triage-labels.md
+  echo "  ✓ docs/agents/triage-labels.md"
 else
-  echo "  ! vendored GSD runtime missing under $RUNTIME — this cairn install"
-  echo "    is incomplete. Reinstall: claude plugin install cairn@cairngo"
+  echo "  ✓ docs/agents/triage-labels.md already present"
 fi
-
 cat <<'NEXT'
 
-▸ next step (inside Claude Code):
-    /cairn:new              # interactive — creates .planning/ + ROADMAP,
-                            # then the bd issues and the phase↔beads maps
-
-  From there the loop runs in one namespace:
-    /cairn:plan 1           # plans the phase and sets each PLAN's beads:
-    /cairn:work 1           # claim -> in_progress -> close per plan
-    /cairn:verify 1         # UAT against what the phase promised
-    /cairn:status           # READY / DOING / BLOCKED, and the next action
-
-  A repo that already has .planning/ or .beads/ history: /cairn:migrate.
-  Health of the wiring, any time: /cairn:doctor.
+▸ next:
+    /cairn-implement        # grill → spec → tickets → implement (bd is the hub)
+    /cairn-status           # READY / DOING / BLOCKED
+    /cairn-doctor           # graph health
+    /cairn-sync-config      # optional Jira / GitHub / … spoke
 NEXT
+exit 0

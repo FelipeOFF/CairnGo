@@ -2,14 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-
-env:
-  # The gsd-core release cairn's capability manifest is validated against.
-  # Bumping it is a one-line, reviewable change — which is the point of pinning
-  # rather than tracking the repo's default branch (which is 'next').
-  GSD_CORE_REF: v1.10.0
 
 jobs:
   test:
@@ -17,33 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch gsd-core (pinned) for the capability validator
-        # A shallow clone of the tag is all this needs: gsd-core git-tracks the
-        # generated capability-validator.cjs and its only dependency
-        # (loop-host-contract.cjs), so no npm install and no tsc build are
-        # involved. The rest of the runtime library is built on demand and is
-        # not required to validate a manifest.
-        run: |
-          git clone --depth 1 --branch "$GSD_CORE_REF" \
-            https://github.com/open-gsd/gsd-core.git "$RUNNER_TEMP/gsd-core"
-          echo "GSD_CORE_DIR=$RUNNER_TEMP/gsd-core" >> "$GITHUB_ENV"
-          # Turn the local-dev "validator absent -> skip" into a hard failure.
-          # A validation that silently skips in CI is not a validation.
-          echo "CAIRN_REQUIRE_GSD_VALIDATOR=1" >> "$GITHUB_ENV"
-
       - name: Install bd (beads)
         # The installer tracks beads' default branch, so this job's bd version
-        # moves without anyone here changing a line — and it already turned
-        # this repository red once: bd 1.2.1 added a guard refusing to
-        # reassign an issue claimed by another actor, which is the ordinary
-        # case for a lease (an agent acquires, a hook releases), and
-        # session-stop stopped releasing anything.
-        #
-        # The version is printed, not pinned, and that is deliberate: pinning
-        # would make CI stop noticing exactly this class of break, which is
-        # the one worth noticing. cairn-lease.py tolerates both shapes
-        # instead (plain first, --force only on the reassign guard), so a
-        # newer bd is a report here rather than a surprise in the field.
+        # moves without anyone here changing a line. The version is printed,
+        # not pinned: pinning would hide the class of break worth noticing.
         run: |
           curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -58,18 +29,13 @@ jobs:
         #   # bats warning: Executed 0 instead of expected 2 tests
         #   exit 1
         # It runs ZERO tests and fails loudly, so a broken install here turns CI
-        # red rather than passing a suite that never ran. Installing it is still
-        # required; the failure mode just is not the quiet one.
-        # Nearly every test here builds a throwaway git repo and
-        # a bd database, so the suite is dominated by per-test setup and splits
-        # across cores well. Measured locally: tests/cairn-map.bats 64s serial
-        # -> 33s at -j 6.
+        # red rather than passing a suite that never ran.
         run: |
           sudo npm install -g bats
           sudo apt-get update -qq && sudo apt-get install -y -qq parallel
 
       - name: Lint Python scripts
-        run: python3 -m py_compile cairn/scripts/*.py cairn/adapters/*.py cairn/capability/scripts/*.py benchmarks/scripts/*.py
+        run: python3 -m py_compile cairn/scripts/*.py cairn/adapters/*.py benchmarks/scripts/*.py
 
       - name: Run tests
         # One door, here and locally: cairn-test.sh resolves the job count,
@@ -80,10 +46,6 @@ jobs:
         # --jobs 4 stays explicit: GitHub's standard runner has 4 cores, and a
         # job count above the core count buys nothing here because the
         # bottleneck is per-test `git init` and `bd init`, not CPU.
-        #
-        # `parallel --version` stays too. It is what makes the log say which
-        # of the two paths this run took: with it present the composed command
-        # carries `-j 4`, without it the runner drops the flag and says so.
         run: |
           bd version
           parallel --version | head -1
