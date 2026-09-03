@@ -503,19 +503,6 @@ print("identical")
   [ "$status" -eq 0 ]
 }
 
-@test "the /cairn:config command offers the language and says which file wins when the two disagree" {
-  local cmd="$CAIRN_REPO_ROOT/cairn/commands/config.md"
-  [ -f "$cmd" ]
-
-  grep -qF "agents.response_language" "$cmd"
-  # The default has to be named as the default, not left as the first item of
-  # a list — "inglês nunca é o silêncio de uma chave ausente".
-  grep -qF "the default is English" "$cmd"
-  # Breaks if the two doors start telling different stories about precedence,
-  # which is the disagreement the subordination exists to prevent.
-  grep -qF "that value governs" "$cmd"
-  grep -qF "GSD's key outranks this one" "$cmd"
-}
 
 @test "the human render of a propagating set names the other file, and of a non-propagating one says why" {
   make_config_fixture
@@ -701,38 +688,6 @@ JSONEOF
   [ "$output" = "none" ]
 }
 
-@test "the /cairn:config command delegates to the script and declares what it leaves out" {
-  local cmd="$CAIRN_REPO_ROOT/cairn/commands/config.md"
-  [ -f "$cmd" ]
-
-  # A thin wrapper: the current values come from `list --json` and the write
-  # goes through `set` — no prose reimplementation of either.
-  grep -qF 'scripts/cairn-config.sh" list --json' "$cmd"
-  grep -qF 'scripts/cairn-config.sh" set <key> <value>' "$cmd"
-
-  # One batch with the current value pre-selected, in named sections — the
-  # /gsd:config shape, mirrored rather than reinvented.
-  grep -qF "AskUserQuestion" "$cmd"
-  grep -qF "pre-selected" "$cmd"
-  grep -qF "Bookkeeping" "$cmd"
-  grep -qF "Autonomous run" "$cmd"
-  grep -qF "Tests" "$cmd"
-
-  # Both doors said out loud: half of AUTO-05 is exactly this sentence being
-  # true and being told to the user.
-  grep -qF "editing it by hand reaches exactly the same place" "$cmd"
-
-  # What is NOT offered, why, and where the decision lives.
-  grep -qF "cairn.sync_push" "$cmd"
-  grep -qF "post-bd-write.sh:126-152" "$cmd"
-  grep -qF "CairnGo-gbu" "$cmd"
-
-  # And the three config commands are told apart in one place.
-  local help="$CAIRN_REPO_ROOT/cairn/commands/help.md"
-  grep -qF "/cairn:config" "$help"
-  grep -qF "/cairn:sync-config" "$help"
-  grep -qF "/cairn:context-config" "$help"
-}
 
 @test "the nullable int: null means available CPUs, a number means that number, zero is refused" {
   make_config_fixture

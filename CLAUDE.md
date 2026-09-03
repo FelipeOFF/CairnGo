@@ -60,19 +60,14 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-**A suíte completa roda na CI, não bloqueando a sessão.** São 1161 testes em 51
-arquivos; em série passa de uma hora e a execução inteira para junto. A CI já
-existe para isso: `.github/workflows/ci.yml` roda a suíte em toda
-`pull_request`, com `--jobs 4`, mais o lint de python e o validador de
-capability.
+**A suíte completa roda na CI, não bloqueando a sessão.** `.github/workflows/ci.yml`
+roda a suíte em toda `pull_request`, com `--jobs 4`, mais o lint de python.
 
 A regra, então:
 
-1. **Sempre exista uma PR aberta para o trabalho corrente** — a da fase contra
-   a branch de milestone (`/cairn:implement <N>` abre essa PR como draft, a
-   partir da branch em que você está, quando `ship.pr_scope=phase`), ou a de
-   milestone (`feat/vX.Y/<slug>`) contra `master`. Todo push nela
-   dispara a suíte.
+1. **Sempre exista uma PR aberta para o trabalho corrente** — `/cairn-implement`
+   entrega uma PR por spec (worktrees por ticket, merge na branch da PR). Todo
+   push nela dispara a suíte.
 2. **Todo push prende o bead seguinte a um gate `gh:run`.** A espera pela CI é
    estado rastreado, não disciplina de memória: com o gate aberto, o bead
    bloqueado não aparece em `bd ready`, então ninguém empilha trabalho sobre

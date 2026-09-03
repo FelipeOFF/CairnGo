@@ -2,27 +2,26 @@
 
 ## Ground rules
 
-- **Thin glue.** cairn never forks, vendors or patches GSD, beads or
-  context-mode. Integration goes through their sanctioned surfaces only:
-  the GSD capability manifest, the `bd` CLI (`--json`), the `ctx_*` tools.
+- **Thin glue.** Specs and tickets live on `bd`. Optional spokes (Jira,
+  GitHub, GitLab, Asana, Azure Boards) go through `cairn/adapters/`
+  (`adapters/_contract.md`). Matt's grill / to-spec / to-tickets skills are
+  orchestrated, not vendored.
 - **Scripts over prose.** Anything deterministic (validation, generation,
   gating, sync) is a CLI script in `cairn/scripts/`, invoked by the prose
   commands. If a SKILL.md sentence can be a script check, make it one.
-- **Generated artifacts stay generated.** `NN-BEADS-MAP.md` content between
-  the `<!-- cairn:generated:start -->` / `<!-- cairn:generated:end -->` markers
-  is written only by `cairn-map.sh`.
 
 ## Repo layout
 
 | Path | What |
 |---|---|
-| `cairn/commands/*.md` | `/cairn:*` slash commands (prose, thin wrappers) |
+| `cairn/commands/cairn-*.md` | hyphenated slash commands (`/cairn-implement`, …) |
 | `cairn/skills/*/SKILL.md` | conventions the agent follows |
-| `cairn/hooks/` | Claude Code hooks (SessionStart, PostToolUse, Stop) |
-| `cairn/capability/` | GSD capability bundle — manifest, loop-point prompt fragments, bundled gate scripts |
+| `cairn/references/` | addenda (Matt-on-beads, …) |
+| `cairn/templates/` | tracker docs copied into a project by init |
+| `cairn/hooks/` | Claude Code / Grok hooks (SessionStart, …) |
 | `cairn/scripts/` | deterministic CLI scripts — the tested surface |
 | `cairn/adapters/*.py` | sync adapters (stdin/stdout contract: `adapters/_contract.md`) |
-| `cairn/docs/` | full guides (architecture, migration, sync, context) |
+| `cairn/docs/` | full guides |
 | `tests/` | bats suite + fixture helpers |
 
 ## Tests
@@ -44,10 +43,9 @@ run, and runs nothing.
   for the integration tests, a real `bd` binary (`brew install beads`).
   Tests that need `bd` skip cleanly when it is missing.
 - **Optional:** GNU `parallel` (`brew install parallel` /
-  `apt-get install parallel`). Without it the suite runs serial —
-  `tests/cairn-map.bats` alone is 64s serial against 33s at `-j 6`. Without
-  it, `bats -j` does **not** fall back to serial; it runs zero tests and
-  exits 1, which is why the runner removes the flag rather than passing it
+  `apt-get install parallel`). Without it, `bats -j` does **not** fall back
+  to serial; it runs zero tests and exits 1, which is why the runner removes
+  the flag rather than passing it
   through. `cairn-doctor.sh` reports its absence as a warning, never a
   failure.
 - The seam: tests invoke scripts by their CLI against disposable fixture

@@ -1,6 +1,6 @@
 ---
 name: cairn-sync
-description: Use when a repo has .cairn/sync.json with an enabled backend — mirrors bd (beads) issues two-way (hub-and-spoke) to GitHub Issues, GitLab, Jira, Asana, and/or Azure Boards. bd is the hub/source of truth. PUSH fires on bd lifecycle events; PULL reconciles external edits back to bd on demand. Complements the cairn skill.
+description: Use when a repo has .cairn/sync.json with an enabled backend — mirrors bd specs/tickets two-way to Jira (Epic/Story), GitHub, GitLab, Asana, Azure Boards. PUSH after bd create/claim/close; PULL via /cairn-sync-pull.
 ---
 
 # cairn sync (bd ↔ external work-management tools)
@@ -14,14 +14,14 @@ integration with mirroring to GitHub Issues, GitLab, Jira, Asana, and Azure Boar
 Apply this skill **only when** `.cairn/sync.json` exists in the repo AND has
 at least one backend with `"enabled": true`. Otherwise ignore it (bd-only). If
 the file is missing, the user has not opted in — do not create it implicitly;
-point them at `/cairn:sync-config`.
+point them at `/cairn-sync-config`.
 
 ## Two directions
 
 | Direction | When | Command |
 |---|---|---|
 | **PUSH** bd → tools | on each bd lifecycle event | `bash ${plugin}/scripts/gbsync.sh <create\|update\|close> <bd_id>` |
-| **PULL** tools → bd | on demand (you, or a cron) | `/cairn:sync-pull` → `gbsync.sh pull` |
+| **PULL** tools → bd | on demand (you, or a cron) | `/cairn-sync-pull` → `gbsync.sh pull` |
 
 `${plugin}` = `${CLAUDE_PLUGIN_ROOT}` when running as a hook/command, else the
 plugin's install path.
@@ -31,12 +31,9 @@ plugin's install path.
 When following the `cairn` lifecycle, run the matching mirror **right after**
 the bd write succeeds:
 
-- **issue created** (e.g. during `/gsd:new-project` issue creation):
-  `gbsync.sh create <bd_id>`
-- **claimed / in_progress** (start of `/gsd:execute-phase`):
-  after `bd update <id> --claim`, run `gbsync.sh update <bd_id>`
-- **closed** (plan complete):
-  after `bd close <id>`, run `gbsync.sh close <bd_id>`
+- **issue created** (spec or ticket): `gbsync.sh create <bd_id>`
+- **claimed / in_progress**: after `bd update <id> --claim`, `gbsync.sh update <bd_id>`
+- **closed**: after `bd close <id>`, `gbsync.sh close <bd_id>`
 
 The dispatcher fans the event to every enabled backend and records the
 `bd-id ↔ external-id` mapping in `.cairn/id-map.json`. A failing backend is
@@ -44,7 +41,7 @@ logged and skipped; it does not block the others or the bd write.
 
 ## PULL — reconcile external edits back to bd
 
-Run `/cairn:sync-pull` (or `gbsync.sh pull`) when someone may have edited
+Run `/cairn-sync-pull` (or `gbsync.sh pull`) when someone may have edited
 issues in an external tool. For each mapped item the dispatcher asks the adapter
 for the tool's current state and applies **last-writer-wins by `updated_at`**:
 

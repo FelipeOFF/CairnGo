@@ -7,6 +7,25 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-09-03
+
+Breaking: cairn is spec-driven development on beads, not a GSD command zoo.
+
+### Changed
+
+- **Loop** is grill → spec → tickets → implement via `/cairn-implement [ref]`.
+  Specs and tickets live only on `bd`. `CONTEXT.md` in this loop is an error.
+- **Slash names** are hyphenated (`/cairn-implement`), not `/cairn:plan`.
+- **Commands kept:** init, implement, status, doctor, sync-config, sync-pull.
+- **Spoke map (Jira):** spec = Epic, ticket = Story/Task, `bd dep` = blocks,
+  `m-vX.Y` = Fix Version. Same shape on the other bundled adapters.
+- Plugin **5.0.0**. No GSD runtime, no context-mode plugin dependency.
+
+### Removed
+
+- Vendored `cairn/gsd/`, GSD capability, ~37 `/cairn:*` commands, cairn-context
+  in the daily loop, phase-N as the axis of new work, pre-push GSD ship gate.
+
 ## [4.1.0] - 2026-08-27
 
 As arestas que a 4.0 deixou: quatro beads de backlog, um por phase (52–55),

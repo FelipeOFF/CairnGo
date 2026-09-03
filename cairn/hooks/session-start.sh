@@ -1,26 +1,15 @@
 #!/usr/bin/env bash
 # cairn SessionStart hook.
-# Four jobs:
-#   1. First-run bootstrap nudge — if beads (bd) isn't installed yet, inject a
-#      one-time offer so Claude can prompt the user and install it. GSD ships as
-#      a declared plugin dependency, so it is already auto-installed; only the
-#      bd *binary* needs this hook (a binary can't be a plugin dependency).
-#   2. Migration discovery — .planning/ without .beads/ (or both present but no
-#      generated NN-BEADS-MAP.md) gets a one-line /cairn:migrate nudge.
-#   3. Integration-active reminder — when the repo has BOTH .planning/ (GSD) and
-#      .beads/ (beads), inject the cairn convention reminder.
-#   4. Lease heartbeat (D-03) — best-effort, backgrounded renewal of any phase
-#      lease this worktree already holds. renew's own STATE.md active_phase
-#      resolution decides which phase, if any, gets renewed; this hook never
-#      acquires or creates a lease as a side effect of merely starting a
-#      session.
-# Anything printed to stdout is injected into the session as additional context.
+# 1. Offer to install bd when it is missing.
+# 2. Write .cairn/plugin-root so commands resolve the plugin without
+#    CLAUDE_PLUGIN_ROOT in the agent shell.
+# 3. Remind v5 conventions when .beads/ is present.
+# stdout is injected into the session as additional context.
 set -euo pipefail
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(dirname "$HOOK_DIR")"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-CAIRN_LEASE="${CAIRN_LEASE:-$PLUGIN_ROOT/scripts/cairn-lease.sh}"
 DATA_DIR="${CLAUDE_PLUGIN_DATA:-}"
 SKIP_MARKER="${DATA_DIR:+$DATA_DIR/bd-install.skip}"
 
@@ -69,28 +58,16 @@ if [ -f "$PROJECT_DIR/.cairn/stop" ]; then
   rm -f "$PROJECT_DIR/.cairn/stop"
   echo "[cairn] a stop request from a previous session was cleared (.cairn/stop) — request again from the board if it still applies."
 fi
+mkdir -p "$PROJECT_DIR/.cairn"
+printf '%s\n' "$PLUGIN_ROOT" > "$PROJECT_DIR/.cairn/plugin-root"
+
 if [ -d "$PROJECT_DIR/.beads" ]; then
-  # Um `.planning/` ao lado do `.beads/` e' conteudo do GSD que ainda pode nao
-  # ter sido importado. O nudge nomeia a rota, e nada aqui pede arquivo.
-  if [ -d "$PROJECT_DIR/.planning" ]; then
-    echo "[cairn] a .planning/ directory is present — that is a GSD project to IMPORT, not a source cairn writes to. If it has not been migrated yet, run /cairn:migrate; after that it is history."
-  fi
-  # Always emit the cairn-specific glue — the part beads does not know on its own.
   cat <<'MSG'
-[cairn] This repo is tracked by beads, and cairn conventions apply:
-  • every bd issue carries the label PAIR m-<milestone> + phase-<N> (unpadded);
-    list a phase's work with: bd list -l m-<milestone>,phase-<N>
-  • every issue carries the metadata stamp {"gsd": {"req", "phase", "milestone"}};
-    (gsd.req, gsd.milestone) is the dedup key — never create a second issue for
-    the same requirement in the same milestone
-  • planning prose is RECORDED on beads via cairn-record.sh (plan, summary,
-    context, research, verification, review, log) — cairn writes no markdown
-  • a summary is not a new artifact: it CLOSES the record the plan opened
-  • ask about a phase with `bd show`/`bd list` or cairn-map.sh <N> (a printed
-    view, never a file)
-  • execute: claim -> in_progress -> close each plan's bd ids
-  • the bead is the source; a `.planning/` document only wins while it is
-    still waiting to be imported
+[cairn] beads hub is active (v5). Specs and tickets live on bd.
+  • /cairn-implement [ref] — grill → spec → tickets → implement
+  • /cairn-status — READY / DOING / BLOCKED
+  • CONTEXT.md in this loop is an error; glossary/ADRs go on the spec bead
+  • optional spoke: /cairn-sync-config (Jira Epic=spec, Story=ticket)
 MSG
 
   # beads installs its OWN Claude integration on `bd init` (a `bd prime`
@@ -108,28 +85,6 @@ Run `bd prime` for the full bd command reference and session-close protocol.
 MSG
   fi
 
-  # context-mode is a cairn dependency, so the integration is on by default.
-  # .cairn/context.json is optional tuning, not a gate.
-  cat <<'MSG'
-[cairn] context-mode intent-aware memory is active (context-mode is a dependency;
-.cairn/context.json tunes it, defaults apply without it). Use the `cairn-context`
-skill conventions when the ctx_* tools are present:
-  • index during execution under source label gb/<bd_id>/<phase>
-  • recall scoped to the active task: ctx_search(source: "<bd_id>")  (/cairn:recall)
-  • stream logs/test output via ctx_execute_file (don't persist them)
-  • on phase transition: ctx_stats checkpoint, switch scope to the new phase label
-  • capacity guard: if ctx_stats tokens exceed the threshold (default 150k), advise
-    splitting the active bd issue into sub-tasks (bd create + bd dep add)
-  • scope-by-label only — this layer NEVER calls ctx_purge (manual/user-only)
-MSG
-
-  # 4. lease heartbeat — best-effort, backgrounded renewal of any lease this
-  #    worktree already holds (D-03). No phase argument: renew resolves the
-  #    active phase itself. This line must never appear outside the `.beads/`
-  #    guard above — a repo without it is not tracked by cairn. Backgrounded
-  #    (nohup + &) so a slow/hanging bd call can never delay session start,
-  #    matching post-bd-write.sh's fire-and-forget pattern (T-15-06).
-  command -v bd >/dev/null 2>&1 && nohup bash "$CAIRN_LEASE" renew --project-dir "$PROJECT_DIR" >/dev/null 2>&1 &
 fi
 
 exit 0

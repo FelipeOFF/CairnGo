@@ -8,6 +8,17 @@ it; the adapter does the HTTP. Adapters may be written in any language
 bd is the **source of truth**. Sync is hub-and-spoke: every tool talks to bd,
 never to another tool.
 
+**v5 graph (Jira is the reference mapping; other adapters follow the shape):**
+
+| bead | Jira | notes |
+|---|---|---|
+| spec (`cairn.kind=spec`) | Epic | parent |
+| ticket (`cairn.kind=ticket`) | Story/Task | child of the spec's Epic |
+| `bd dep` (blocks) | issue link *blocks* | |
+| label `m-vX.Y` | Fix Version | optional |
+
+Linear is not bundled. Do not invent a second source of truth on the spoke.
+
 ## Invocation
 
 The dispatcher passes one JSON object on **stdin** and reads the result from
