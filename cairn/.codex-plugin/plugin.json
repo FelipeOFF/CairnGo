@@ -1,0 +1,28 @@
+{
+  "name": "cairn",
+  "version": "5.1.0+codex.20260904215329",
+  "description": "Spec-driven development on beads: interview, spec, tickets and implementation, with optional tracker sync.",
+  "author": {
+    "name": "Felipe Oliveira (FelipeOFF)",
+    "url": "https://github.com/FelipeOFF"
+  },
+  "repository": "https://github.com/FelipeOFF/CairnGo",
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CairnGo",
+    "shortDescription": "Spec-driven development on beads",
+    "longDescription": "Keep specs and tickets on bd. Interview with cairn grill, implement an existing spec with cairn implement, and inspect the board with cairn status. Optional spokes mirror the beads graph.",
+    "developerName": "Felipe Oliveira",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $cairn:grill to refine this idea into a spec.",
+      "Use $cairn:implement to work on an existing spec.",
+      "Use $cairn:status to show the project board."
+    ]
+  }
+}
