@@ -61,7 +61,7 @@ except ValueError:
 # Jira project keys: uppercase, digits and underscore after the first letter.
 # Anything else (spaces, JQL operators) is refused rather than interpolated.
 PROJECT_KEY = re.compile(r"^[A-Z][A-Z0-9_]{1,30}$")
-DEFAULT_LEVEL_TYPES = {"milestone": "Story", "phase": "Sub-task"}
+DEFAULT_LEVEL_TYPES = {"spec": "Epic", "ticket": "Story"}
 
 
 def cfg_auth(cfg):
@@ -143,9 +143,8 @@ def push(event, cfg):
     action = event["action"]
     trans = cfg.get("transitions", {})
     if action == "create" or (action == "update" and not ext):
-        # Hierarchy model (phase 45): the dispatcher says which LEVEL the
-        # bead is and under which parent; cfg.issue_types maps the level to
-        # this site's type names. Flat model: one type for everything.
+        # v5 hierarchy: dispatcher sets level spec|ticket; cfg.issue_types
+        # maps those to this site's type names. Flat model: one type.
         level = event.get("level")
         if level:
             types = dict(DEFAULT_LEVEL_TYPES)
@@ -161,10 +160,21 @@ def push(event, cfg):
         }
         if event.get("parent"):
             fields["parent"] = {"key": event["parent"]}
+        versions = event.get("fix_versions") or []
+        if versions:
+            fields["fixVersions"] = [{"name": v} for v in versions]
         body = {"fields": fields}
         key = api(cfg, "POST", "/rest/api/3/issue", body).get("key", "")
         if event["status"] == "in_progress":
             transition(cfg, key, trans.get("in_progress"))
+        for blocker in event.get("blocked_by") or []:
+            if not blocker or not key:
+                continue
+            api(cfg, "POST", "/rest/api/3/issueLink", {
+                "type": {"name": "Blocks"},
+                "inwardIssue": {"key": key},
+                "outwardIssue": {"key": blocker},
+            })
         return key
     if action == "update":
         api(cfg, "PUT", f"/rest/api/3/issue/{ext}",

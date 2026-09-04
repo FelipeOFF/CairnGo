@@ -224,46 +224,174 @@ REF_PREFIX = {"jira": "jira", "github": "gh", "gitlab": "gl", "linear": "linear"
 
 
 def source():
-    """cairn_source, imported on first use — the classification of a bead
-    (carrier of a cycle, carrier of a phase, or neither) lives there, once."""
+    """cairn_source, imported on first use — still used to invalidate the
+    issue cache after a write. Classification itself is v5 cairn.kind."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import cairn_source
     return cairn_source
 
 
 def hierarchical(backend):
-    """The hierarchy model (phase 45 / MIRROR-01, D-01): a backend that
-    declares `"model": "hierarchy"` receives ONLY carriers — the cycle's bead
-    as a milestone-level item under its cached epic, a phase's bead as a
-    phase-level item under the cycle's item — and never a requirement, a
-    plan record, a quick or a lease. The model is cairn's; the adapter maps
-    levels to its own types. A backend without the key keeps the flat
-    mirror it always had."""
+    """A backend with `"model": "hierarchy"` mirrors specs and tickets
+    (v5 spoke map). Flat backends keep the one-type-for-everything mirror."""
     return backend.get("model") == "hierarchy"
 
 
+def _parse_json(stdout):
+    out = (stdout or "").strip()
+    starts = [i for i in (out.find("["), out.find("{")) if i >= 0]
+    if not starts:
+        return []
+    data = json.loads(out[min(starts):])
+    if data is None:
+        return []
+    return data if isinstance(data, list) else [data]
+
+
+def _bd_show(root, bd_id):
+    try:
+        out = subprocess.run(
+            ["bd", "-C", str(root), "show", bd_id, "--json"],
+            capture_output=True, text=True, check=True).stdout
+        rows = _parse_json(out)
+        return rows[0] if rows else None
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
+        return None
+
+
+def cairn_kind(issue):
+    meta = issue.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            meta = {}
+    cairn = (meta or {}).get("cairn") if isinstance(meta, dict) else {}
+    kind = (cairn or {}).get("kind")
+    if kind:
+        return kind
+    t = str(issue.get("issue_type") or issue.get("type") or "").lower()
+    if t == "epic":
+        return "spec"
+    return None
+
+
+def parent_bd_id(issue):
+    p = issue.get("parent")
+    if isinstance(p, dict):
+        p = p.get("id")
+    if p:
+        return str(p)
+    iid = str(issue.get("id") or "")
+    if "." in iid:
+        return iid.rsplit(".", 1)[0]
+    return None
+
+
+def ref_for(issue, btype):
+    ref = str(issue.get("external_ref") or "")
+    prefix, _, key = ref.partition("-")
+    if key and REF_BACKENDS.get(prefix) == btype:
+        return key
+    return None
+
+
+def fix_versions(issue):
+    out = []
+    for lab in issue.get("labels") or []:
+        lab = str(lab)
+        if lab.startswith("m-") and len(lab) > 2:
+            out.append(lab[2:])
+    return out
+
+
+def _blocker_id_from_dep_row(row, bd_id):
+    """Id of the bead that blocks `bd_id`, from a dep-list or show JSON row.
+
+    bd 1.1.0 hydrates `bd dep list --json` as the blocker issue (`id` +
+    `dependency_type`). Storage/edge shape uses `depends_on_id`. Parent-child
+    must not count: on 1.2.2 `bd show` puts the spec parent in
+    `dependencies` and leaves `blocked_by` empty, so `x or y` would pick the
+    Epic key (CI 33815460444).
+    """
+    if row is None:
+        return None
+    if not isinstance(row, dict):
+        val = str(row)
+        return val if val and val != str(bd_id) else None
+    dtype = str(row.get("dependency_type") or row.get("type") or "")
+    if dtype in ("parent-child", "parent", "child", "discovered-from",
+                 "related", "relates_to", "tracks"):
+        return None
+    if row.get("depends_on_id"):
+        return str(row["depends_on_id"])
+    rid = row.get("id")
+    if rid and str(rid) != str(bd_id):
+        return str(rid)
+    return None
+
+
+def blocker_keys(root, issue, btype, idmap):
+    """Spoke keys of beads that block this one (`bd dep` → Jira Blocks)."""
+    bd_id = str(issue.get("id") or "")
+    ids = []
+    try:
+        proc = subprocess.run(
+            ["bd", "-C", str(root), "dep", "list", bd_id,
+             "--type", "blocks", "--json"],
+            capture_output=True, text=True)
+        if proc.returncode == 0:
+            for row in _parse_json(proc.stdout):
+                bid = _blocker_id_from_dep_row(row, bd_id)
+                if bid and bid not in ids:
+                    ids.append(bid)
+    except (FileNotFoundError, ValueError):
+        pass
+    if not ids:
+        parent = parent_bd_id(issue)
+        for key in ("blocked_by", "depends_on", "dependencies"):
+            raw = issue.get(key)
+            if raw is None:
+                continue
+            if not isinstance(raw, list):
+                raw = [raw]
+            for item in raw:
+                bid = _blocker_id_from_dep_row(item, bd_id)
+                if bid and bid != parent and bid not in ids:
+                    ids.append(bid)
+    keys = []
+    for dep_id in ids:
+        mapped = (idmap.get(dep_id) or {}).get(btype)
+        if mapped:
+            keys.append(mapped)
+            continue
+        other = _bd_show(root, dep_id)
+        if other is not None:
+            ref = ref_for(other, btype)
+            if ref:
+                keys.append(ref)
+    return keys
+
+
 def classify(root, bd_id, btype):
-    """(level, parent_key, issue) for a hierarchy push, or (None, None,
-    issue) when the bead is not a carrier. The parent of a milestone-level
-    item is the epic cached under metadata.gsd.<backend>.epic; the parent of
-    a phase-level item is the key of the cycle's own carrier for this
-    backend (its external_ref), or None when the cycle is not linked yet."""
-    cs = source()
-    issue = next((i for i in cs.issues(root) if i.get("id") == bd_id), None)
+    """(level, parent_key, issue) for a hierarchy push.
+
+    spec → level 'spec', no parent. ticket → level 'ticket', parent = the
+    spec's spoke key for this backend. Anything else is skipped."""
+    issue = _bd_show(root, bd_id)
     if issue is None:
         return None, None, None
-    if cs.is_milestone_carrier(issue):
-        epic = (cs.gsd(issue).get(btype) or {}).get("epic")
-        return "milestone", epic or None, issue
-    if cs.is_carrier(issue) and cs.issue_phases(issue):
-        parent = None
-        for key in cs.issue_milestones(issue):
-            for c in cs.milestone_carriers(root, key):
-                ref = str(c.get("external_ref") or "")
-                prefix, _, ext = ref.partition("-")
-                if ext and REF_BACKENDS.get(prefix) == btype:
-                    parent = ext
-        return "phase", parent, issue
+    kind = cairn_kind(issue)
+    if kind == "spec":
+        return "spec", None, issue
+    if kind == "ticket":
+        parent_key = None
+        pid = parent_bd_id(issue)
+        if pid:
+            parent = _bd_show(root, pid)
+            if parent is not None:
+                parent_key = ref_for(parent, btype)
+        return "ticket", parent_key, issue
     return None, None, issue
 
 
@@ -383,14 +511,16 @@ def do_push(action, bd_id, base, cfg, dry_run=False, text=None):
                 continue
             ext = entry.get(btype)
             if hierarchical(b):
-                level, parent, _ = classify(base.parent, bd_id, btype)
+                level, parent, raw = classify(base.parent, bd_id, btype)
                 if level is None:
-                    print(f"DRY-RUN: {btype} skip {bd_id} (not a carrier)")
+                    print(f"DRY-RUN: {btype} skip {bd_id} (not a spec or ticket)")
                     continue
                 queued = " (queued: no credentials)" \
                     if credentials_missing(b.get("config", {})) else ""
+                fv = ",".join(fix_versions(raw or {}))
+                extra = f", fix {fv}" if fv else ""
                 print(f"DRY-RUN: {btype} {action} {bd_id} -> {ext or '(new)'} "
-                      f"[{level}, parent {parent or '(none)'}]{queued}")
+                      f"[{level}, parent {parent or '(none)'}{extra}]{queued}")
                 continue
             if action == "comment":
                 print(f"DRY-RUN: {btype} skip {bd_id} (comment needs the "
@@ -416,18 +546,19 @@ def do_push(action, bd_id, base, cfg, dry_run=False, text=None):
             "config": b.get("config", {}),
         }
         if hierarchical(b):
-            level, parent, _ = classify(root, bd_id, btype)
+            level, parent, raw = classify(root, bd_id, btype)
             if level is None:
-                results.append((btype, "skip", "not a carrier — the hierarchy "
-                                "model mirrors cycles and phases only"))
+                results.append((btype, "skip", "not a spec or ticket"))
                 continue
-            if level == "phase" and not parent and not entry.get(btype):
-                results.append((btype, "FAIL", "phase carrier with no parent: "
-                                "link the cycle first (cairn-jira.py link "
-                                "--milestone)"))
+            if level == "ticket" and not parent and not entry.get(btype):
+                results.append((btype, "FAIL", "ticket with no parent: "
+                                "link the spec first"))
                 continue
             event.update({"level": level, "parent": parent,
-                          "external_key": entry.get(btype)})
+                          "external_key": entry.get(btype),
+                          "fix_versions": fix_versions(raw or {}),
+                          "blocked_by": blocker_keys(
+                              root, raw or {}, btype, idmap)})
             if action == "comment" and not entry.get(btype):
                 results.append((btype, "skip", "not linked — nothing to "
                                 "comment on"))
@@ -619,9 +750,8 @@ def do_import(base, cfg, query, project, backend_type, dry_run=False):
     btype = b.get("type", "?")
     if hierarchical(b):
         die(f"{btype} runs the hierarchy model: a card does not become a bead, "
-            "it LINKS to an existing carrier — save the card JSON and run "
-            "cairn-jira.py link --from-json <file> (--milestone vX.Y | "
-            "--phase N), or /cairn:jira link in a session", 2)
+            "it LINKS to an existing spec/ticket — set external_ref on the "
+            "bead (jira-<KEY>) or /cairn-implement the spoke key", 2)
     adapter = resolve_adapter(b.get("adapter", btype))
     if not adapter:
         die(f"adapter '{b.get('adapter', btype)}' not found")
