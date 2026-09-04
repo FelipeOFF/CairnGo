@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-09-04
+
+Plugin **5.1.0**. Grill is its own command. Claude Code gets `/cairn:implement`.
+
 ### Added
 
 - **`/cairn-grill`** interviews onto a spec bead and stops. It does not
@@ -16,7 +20,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Claude short slash files** (`implement.md`, `grill.md`, `init.md`, …)
   so Claude Code registers `/cairn:implement` alongside
   `/cairn:cairn-implement`. Grok keeps `/cairn-implement`. Existing
-  installs pick this up only after a plugin update (plugin **5.1.0**).
+  installs pick this up only after a plugin update.
 
 ### Changed
 
@@ -26,6 +30,13 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   labels (CairnGo-kcso).
 - **gbsync hierarchy** (Jira): spec → Epic, ticket → Story, `m-vX.Y` →
   Fix Version, `bd dep` → Blocks. Untyped beads are skipped (CairnGo-7vih).
+
+### Fixed
+
+- **gbsync `take_flag`** no longer swallows the next token. `pull --since
+  --dry-run` is a usage error, not a live pull. `pull` and `refresh-map`
+  reject leftover argv. `--since` that is not ISO8601 dies;
+  `1970-01-01T00:00:00Z` stays valid.
 
 ## [5.0.0] - 2026-09-03
 
