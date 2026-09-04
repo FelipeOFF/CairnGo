@@ -1,5 +1,5 @@
 {
-  "description": "cairn hooks — SessionStart context injection + migration nudges; PostToolUse (Bash) fire-and-forget mirror push / phase-map refresh after bd lifecycle writes; Stop warning for in_progress issues still assigned to the current actor.",
+  "description": "cairn hooks \u2014 SessionStart context injection + migration nudges; PostToolUse (Bash) fire-and-forget mirror push / phase-map refresh after bd lifecycle writes; Stop warning for in_progress issues still assigned to the current actor.",
   "hooks": {
     "SessionStart": [
       {
@@ -15,7 +15,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|run_terminal_command|run_terminal_cmd",
         "hooks": [
           {
             "type": "command",

@@ -45,6 +45,8 @@ for skill in skills:
         assert package / 'references/codex.md' in targets, skill
 for document in [*skills, package / 'references/codex.md']:
     for target in re.findall(r'\]\(([^)]+)\)', document.read_text()):
+        if target.startswith(('https://', 'http://', '#')):
+            continue
         resource = (document.parent / target).resolve()
         assert resource.is_relative_to(package), (document, target)
         assert resource.is_file(), (document, target)

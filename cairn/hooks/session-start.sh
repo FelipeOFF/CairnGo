@@ -4,15 +4,17 @@
 # 2. Write .cairn/plugin-root so commands resolve the plugin without
 #    CLAUDE_PLUGIN_ROOT in the agent shell.
 # 3. Remind v5 conventions when .beads/ is present.
-# stdout is injected into the session as additional context.
+# A single JSON response injects the context into all supported runtimes.
 set -euo pipefail
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_ROOT="$(dirname "$HOOK_DIR")"
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-DATA_DIR="${CLAUDE_PLUGIN_DATA:-}"
+CAIRN_ROOT="$(dirname "$HOOK_DIR")"
+# Only assignments serialized with shlex.quote enter eval.
+CONTEXT="$(python3 "$CAIRN_ROOT/scripts/cairn-hook-context.py" 2>/dev/null)" || exit 0
+eval "$CONTEXT"
 SKIP_MARKER="${DATA_DIR:+$DATA_DIR/bd-install.skip}"
 
+session_start() {
 #***************************************************************************
 # 1. beads bootstrap — only nudges when bd is missing and not skipped
 #***************************************************************************
@@ -25,8 +27,9 @@ the first installer that fits their machine:
   • macOS / Linux (recommended):  brew install beads
   • Node.js users:                npm install -g @beads/bd
   • portable fallback:            curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
-Then verify with `bd version`. If the user declines, create an empty file at
-$CLAUDE_PLUGIN_DATA/bd-install.skip so this stops nagging. Or just run /cairn:init,
+Then verify with `bd version`. If the user declines, create bd-install.skip in
+the active plugin data directory (PLUGIN_DATA / GROK_PLUGIN_DATA /
+CLAUDE_PLUGIN_DATA). Or run /cairn-init,
 which walks the whole setup (git + beads + GSD + first project) end to end.
 MSG
   fi
@@ -59,7 +62,7 @@ if [ -f "$PROJECT_DIR/.cairn/stop" ]; then
   echo "[cairn] a stop request from a previous session was cleared (.cairn/stop) — request again from the board if it still applies."
 fi
 mkdir -p "$PROJECT_DIR/.cairn"
-printf '%s\n' "$PLUGIN_ROOT" > "$PROJECT_DIR/.cairn/plugin-root"
+printf '%s\n' "$CAIRN_ROOT" > "$PROJECT_DIR/.cairn/plugin-root"
 
 if [ -d "$PROJECT_DIR/.beads" ]; then
   cat <<'MSG'
@@ -71,13 +74,19 @@ if [ -d "$PROJECT_DIR/.beads" ]; then
   • optional spoke: /cairn-sync-config (Jira Epic=spec, Story=ticket)
 MSG
 
-  # beads installs its OWN Claude integration on `bd init` (a `bd prime`
-  # SessionStart hook + a BEADS INTEGRATION block in CLAUDE.md) that already
+  case "$CAIRN_HOOK_AGENT" in
+    codex) PROFILE_DOC="AGENTS.md"; PROFILE_HOOKS=".codex/hooks.json" ;;
+    grok) PROFILE_DOC="GROK.md"; PROFILE_HOOKS=".grok/settings.json" ;;
+    *) PROFILE_DOC="CLAUDE.md"; PROFILE_HOOKS=".claude/settings.json" ;;
+  esac
+
+  # beads installs its OWN integration on `bd init` (a `bd prime`
+  # SessionStart hook + a BEADS INTEGRATION block in the agent instructions) that already
   # injects bd basics, the "use bd for all tracking" rule, and the session-close
   # protocol. Only restate those when that integration ISN'T present — otherwise
   # we'd double up at every SessionStart.
-  if grep -q "BEGIN BEADS INTEGRATION" "$PROJECT_DIR/CLAUDE.md" 2>/dev/null \
-     || grep -q "bd prime" "$PROJECT_DIR/.claude/settings.json" 2>/dev/null; then
+  if grep -q "BEGIN BEADS INTEGRATION" "$PROJECT_DIR/$PROFILE_DOC" 2>/dev/null \
+     || grep -q "bd prime" "$PROJECT_DIR/$PROFILE_HOOKS" 2>/dev/null; then
     echo "  (bd basics, the all-tracking rule, and session-close come from beads' own \`bd prime\` hook — not repeated here.)"
   else
     cat <<'MSG'
@@ -88,4 +97,15 @@ MSG
 
 fi
 
+}
+
+# Leading "[cairn]" text looks like JSON to Codex; encode the whole context once.
+MESSAGE="$(session_start)" || true
+if [ -n "$MESSAGE" ]; then
+  python3 -c '
+import json, sys
+print(json.dumps({"hookSpecificOutput": {
+    "hookEventName": "SessionStart", "additionalContext": sys.argv[1]}}))
+' "$MESSAGE" 2>/dev/null || true
+fi
 exit 0

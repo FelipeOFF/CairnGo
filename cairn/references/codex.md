@@ -60,8 +60,47 @@ and [matt-on-beads.md](matt-on-beads.md); do not invent a missing tool or skill.
 For ticketing, create small end-to-end slices with acceptance criteria and
 explicit blockers, then implement the unblocked frontier.
 
-Do not depend on Claude's `PostToolUse` matcher for Codex shell calls. Run the
-documented sync action after a successful bd write when sync is enabled and
-authorized. Avoid duplicating an action already performed by an active hook.
+Codex normalizes shell calls to `tool_name: "Bash"` and `tool_input.command`
+for `PostToolUse`; the shared hook handles these writes automatically when
+sync is configured. If hooks are inactive, run the documented sync action
+explicitly after an authorized successful bd write. Avoid duplicating an
+action already performed by a hook.
 Plugin installation does not grant permission to commit, push or sync; use
 the repository's active profile and the user's authorization.
+
+
+## Hook context and output
+
+The three registered hooks use `scripts/cairn-hook-context.py`. Detection
+prefers the current payload over inherited environment variables, in order:
+
+1. Grok's `hookEventName` (`session_start`, `post_tool_use`, `stop`).
+2. Codex's `turn_id` (Stop and PostToolUse).
+3. Grok's `GROK_HOOK_EVENT`, `GROK_SESSION_ID`, `GROK_WORKSPACE_ROOT` or
+   `GROK_PLUGIN_ROOT`.
+4. Codex's `PLUGIN_ROOT` or `CODEX_THREAD_ID`.
+5. Claude Code's `CLAUDECODE`; otherwise `unknown`.
+
+`CLAUDE_PLUGIN_ROOT` is a compatibility alias injected by all three runtimes,
+so it locates the hook in the shared manifest but does not identify the agent.
+No per-run setup is needed. Grok's camelCase tool fields override snake_case
+aliases; its terminal tool names join `Bash` in the PostToolUse matcher.
+
+The payload's `cwd` selects the project. Without it, Grok uses
+`GROK_WORKSPACE_ROOT`, `GROK_PROJECT_DIR`, then `CLAUDE_PROJECT_DIR`; Claude
+and unknown use `CLAUDE_PROJECT_DIR`; Codex uses the working directory.
+The working directory is the final fallback. Background sync jobs retain
+that resolved project. Native `PLUGIN_DATA` / `GROK_PLUGIN_DATA` take priority
+over `CLAUDE_PLUGIN_DATA` for the matching runtime.
+
+Stop is silent when clean and otherwise emits one JSON `systemMessage`,
+combining issue and lease warnings without blocking or closing issues. This
+is also the safe fallback for an unknown agent. SessionStart emits one
+`hookSpecificOutput` with `hookEventName: "SessionStart"` and
+`additionalContext`; PostToolUse queues emit one `systemMessage`. Plain text
+beginning with `[cairn]` would be treated as malformed JSON by Codex.
+
+The Stop schema was checked against [Codex 0.153.3](https://github.com/openai/codex/blob/rust-v0.153.3/codex-rs/hooks/src/schema.rs),
+[Claude Code's JSON contract](https://code.claude.com/docs/en/hooks#json-output),
+and [Grok's hook runner](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-agent/src/hooks/runner/mod.rs).
+Stop must not emit `hookSpecificOutput` or a blocking `decision`.
