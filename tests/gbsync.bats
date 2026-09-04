@@ -366,6 +366,96 @@ PYEOF
   done
 }
 
+@test "gbsync take_flag refuses a flag as its value and leaves it in args" {
+  run python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import gbsync
+args = ["pull", "--since", "--dry-run"]
+try:
+    gbsync.take_flag(args, "--since")
+except SystemExit as e:
+    assert e.code != 0, e
+    assert "--dry-run" in args, args
+    raise SystemExit(0)
+raise SystemExit("take_flag accepted a flag as a value")
+' "$CAIRN_SCRIPTS_DIR"
+  [ "$status" -eq 0 ]
+}
+
+@test "gbsync pull --since --dry-run is a usage error, not a live pull" {
+  make_tmp_repo
+  make_sync_config
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull --since --dry-run --dir "$PWD"
+  [ "$status" -ne 0 ]
+  grep -qF -- "--since needs a value" <<<"$output"
+  grep -qF -- "got the flag '--dry-run'" <<<"$output"
+  if grep -qF "Traceback" <<<"$output"; then
+    echo "take_flag raised instead of dying" >&2
+    return 1
+  fi
+  [ ! -e .cairn/state.json ]
+  [ ! -e .cairn/conflicts.json ]
+}
+
+@test "gbsync pull --since epoch ISO stays dry-run" {
+  make_tmp_repo
+  make_sync_config
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull \
+      --since 1970-01-01T00:00:00Z --dry-run --dir "$PWD"
+  [ "$status" -eq 0 ]
+  grep -qF "DRY-RUN:" <<<"$output"
+  [ ! -e .cairn/state.json ]
+}
+
+@test "gbsync pull --since with a non-ISO value is a usage error" {
+  make_tmp_repo
+  make_sync_config
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull --since bogus --dry-run --dir "$PWD"
+  [ "$status" -ne 0 ]
+  grep -qF -- "--since needs an ISO8601 timestamp" <<<"$output"
+  grep -qF "bogus" <<<"$output"
+  [ ! -e .cairn/state.json ]
+}
+
+@test "gbsync pull rejects unknown leftover argv" {
+  make_tmp_repo
+  make_sync_config
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull --dry-runn --dir "$PWD"
+  [ "$status" -ne 0 ]
+  grep -qF "usage: gbsync.py pull" <<<"$output"
+  [ ! -e .cairn/state.json ]
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull garbage --dir "$PWD"
+  [ "$status" -ne 0 ]
+  grep -qF "usage: gbsync.py pull" <<<"$output"
+  [ ! -e .cairn/state.json ]
+}
+
+@test "gbsync refresh-map rejects leftover argv" {
+  make_tmp_repo
+  make_sync_config
+
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" refresh-map extra --dir "$PWD"
+  [ "$status" -ne 0 ]
+  grep -qF "usage: gbsync.py refresh-map" <<<"$output"
+}
+
+@test "gbsync missing sync.json names /cairn-sync-config" {
+  make_tmp_repo
+  run python3 "$CAIRN_SCRIPTS_DIR/gbsync.py" pull --dir "$PWD"
+  [ "$status" -ne 0 ]
+  grep -qF "/cairn-sync-config" <<<"$output"
+  if grep -qF "/cairn:sync-config" <<<"$output"; then
+    echo "gbsync still points at /cairn:sync-config" >&2
+    return 1
+  fi
+}
+
 @test "gbsync import requires exactly one of --query / --project" {
   make_tmp_repo
   make_jira_sync_config

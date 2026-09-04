@@ -17,6 +17,8 @@ Spec-driven development on beads. The plugin is the conductor: it orients
 
 `ref` is a bd id, a spoke key (`PROJ-123`), a `m-vX.Y` label, or a title.
 
+Slash names are hyphenated (`/cairn-init`). Claude Code also registers `/cairn:cairn-init` (`plugin:filename`). Use the qualified form if the hyphenated name does not resolve.
+
 ## Model
 
 - **spec** — parent bead (`cairn.kind=spec`). Body in description, glossary/ADRs in `design`.

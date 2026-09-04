@@ -532,7 +532,7 @@ print("identical")
   assert_json_eq "$output" '[.elsewhere[].path] | sort | join(",")' \
     '.cairn/context.json,.cairn/sync.json,.planning/config.json'
   assert_json_eq "$output" '[.elsewhere[] | select(.path == ".cairn/sync.json") | .written_by][0]' \
-    '/cairn:sync-config'
+    '/cairn-sync-config'
   assert_json_eq "$output" '[.elsewhere[] | select(.path == ".cairn/context.json") | .written_by][0]' \
     '/cairn:context-config'
   # cairn.enabled stays where the thing that activates the capability reads it.

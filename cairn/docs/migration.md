@@ -1,5 +1,9 @@
 # Migrating an existing project to cairn
 
+> **v5:** `/cairn:migrate` was removed. Bootstrap with `/cairn-init`. Claude
+> Code also registers `/cairn:cairn-init`. See [commands.md](./commands.md).
+> The rest of this page describes the pre-5.0 GSD migration flow.
+
 > You already use GSD, or beads, or both — and you want cairn's unified
 > lifecycle without redoing anything. This is the guide. One command does it:
 >

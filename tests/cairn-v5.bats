@@ -10,6 +10,24 @@ load 'helpers'
   done
 }
 
+@test "skill cairn names both hyphenated and Claude qualified slash forms" {
+  grep -q '/cairn-init' "$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"
+  grep -q '/cairn:cairn-init' "$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"
+}
+
+@test "commands.md lists the six hyphenated commands, not the GSD zoo" {
+  local f="$CAIRN_REPO_ROOT/cairn/docs/commands.md"
+  grep -q '| `/cairn-init` |' "$f"
+  grep -qF '| `/cairn-implement [ref]` |' "$f"
+  grep -q '| `/cairn-status` |' "$f"
+  grep -q '| `/cairn-doctor` |' "$f"
+  grep -q '| `/cairn-sync-config` |' "$f"
+  grep -q '| `/cairn-sync-pull` |' "$f"
+  grep -q '/cairn:cairn-init' "$f"
+  run grep -E '\| `/cairn:plan` \||\| `/cairn:migrate` \|' "$f"
+  [ "$status" -ne 0 ]
+}
+
 @test "skill cairn does not teach phase-N as the loop" {
   run grep -E 'phase-<N>|phase-N|/cairn:plan' "$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"
   [ "$status" -ne 0 ]

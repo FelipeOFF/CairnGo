@@ -51,6 +51,8 @@ After every `bd create` / `--claim` / `bd close`, if `.cairn/sync.json` has an e
 - `/cairn-doctor` — health of the v5 graph
 - `/cairn-sync-config` / `/cairn-sync-pull` — optional spoke
 
+Slash names are hyphenated (`/cairn-init`). Grok registers the filename, so that is what you type there. Claude Code registers plugin commands as `plugin:filename`, so the fully-qualified form is `/cairn:cairn-init`. Official Claude docs say the plugin prefix is optional when the short name does not collide; `/cairn-init` does not collide with a builtin. If the slash menu does not resolve the hyphenated name, use the qualified form.
+
 ## Spoke map (Jira is the reference)
 
 spec → Epic · ticket → Story/Task · `bd dep` → blocks · `m-vX.Y` → Fix Version
