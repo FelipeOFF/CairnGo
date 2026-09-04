@@ -4,14 +4,14 @@
 
 <p align="center">
   <a href="https://github.com/FelipeOFF/CairnGo/actions/workflows/ci.yml"><img src="https://github.com/FelipeOFF/CairnGo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-5.0.0-blue" alt="Version 5.0.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-5.1.0-blue" alt="Version 5.1.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
 
 **Spec-driven development on [beads](https://github.com/gastownhall/beads).**
-One door — `/cairn-implement` — runs grill → spec → tickets → implement. Specs and tickets live on `bd`. Optional spokes (Jira, GitHub, GitLab, Asana, Azure Boards) mirror that graph. There is no `.planning/` destination and no `CONTEXT.md` as the plan.
+`/cairn-grill` interviews onto a spec bead. `/cairn-implement` tickets and implements. Specs and tickets live on `bd`. Optional spokes (Jira, GitHub, GitLab, Asana, Azure Boards) mirror that graph. There is no `.planning/` destination and no `CONTEXT.md` as the plan.
 
-Works in **Grok** and Claude Code (`/cairn-implement`, hyphen, not colon).
+Grok: `/cairn-implement`. Claude Code: `/cairn:implement` (also `/cairn:cairn-implement`).
 
 ## Install
 
@@ -31,8 +31,8 @@ Needs `bd` ≥ 1.1.0 (`brew install beads`). `/cairn-init` offers to install it.
 
 ```text
 /cairn-init                 # git + bd, tracker templates
-/cairn-implement            # new idea: grill, spec bead, tickets, implement frontier
-/cairn-implement PROJ-123   # existing Jira epic / bd id / m-vX.Y — resume at the right step
+/cairn-grill                # new idea: interview, write the spec bead, stop
+/cairn-implement <spec>     # tickets + implement the frontier
 /cairn-status               # READY ∩ ready-for-agent / DOING / BLOCKED
 /cairn-doctor               # graph health
 /cairn-sync-config          # optional spoke

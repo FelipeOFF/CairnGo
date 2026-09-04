@@ -1,7 +1,7 @@
 {
   "name": "cairn",
-  "version": "5.0.0",
-  "description": "Spec-driven development on beads. /cairn-implement runs grill → spec → tickets → implement. Specs and tickets live on bd; optional spokes (Jira, GitHub, GitLab, Asana, Azure Boards) mirror the graph. CONTEXT.md is not the plan.",
+  "version": "5.1.0",
+  "description": "Spec-driven development on beads. /cairn-grill interviews onto a spec bead; /cairn-implement tickets and implements. Claude Code: /cairn:grill, /cairn:implement. Specs and tickets live on bd; optional spokes mirror the graph. CONTEXT.md is not the plan.",
   "author": {
     "name": "Felipe Oliveira (FelipeOFF)",
     "url": "https://github.com/FelipeOFF"

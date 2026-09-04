@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "CairnGo — spec-driven development on beads",
-    "version": "5.0.0"
+    "version": "5.1.0"
   },
   "plugins": [
     {
       "name": "cairn",
       "source": "./cairn",
-      "description": "Cairn — SDD on beads. /cairn-init wires the repo; /cairn-implement grills, specs, tickets and implements, storing everything on bd. Optional Jira (and other) spokes mirror specs as Epics and tickets as Stories.",
+      "description": "Cairn — SDD on beads. /cairn-grill interviews onto a spec bead; /cairn-implement tickets and implements. Optional Jira (and other) spokes mirror specs as Epics and tickets as Stories.",
       "category": "workflow",
       "tags": [
         "cairn",

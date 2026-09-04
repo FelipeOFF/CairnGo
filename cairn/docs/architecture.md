@@ -1,5 +1,9 @@
 # Cairn architecture — one lifecycle over three tools
 
+> **v5:** slash commands are hyphenated (`/cairn-init`, `/cairn-implement`).
+> Claude Code also registers `/cairn:cairn-init`. Names like `/cairn:plan` and
+> `/cairn:migrate` below are historical (pre-5.0). See [commands.md](./commands.md).
+
 > This document explains how cairn fuses GSD (planning), beads (issue tracking)
 > and context-mode (memory) into a single workflow: what owns which data, what
 > is enforced by code versus followed by convention, and where each moving part

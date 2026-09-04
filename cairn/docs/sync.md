@@ -189,18 +189,18 @@ review that file and fix by hand if the automatic resolution was wrong.
 ## 6. Quick start
 
 ```text
-# 1. Make sure the repo uses bd (and, for GSD wiring, GSD):
-/cairn:init
+# 1. Make sure the repo uses bd:
+/cairn-init
 
 # 2. Configure which tools to mirror to:
-/cairn:sync-config        # interactive; writes .cairn/sync.json
+/cairn-sync-config        # interactive; writes .cairn/sync.json
 
 # 3. Export the API tokens it tells you to (see §7). Then:
 #    - PUSH happens automatically during the cairn lifecycle, or manually:
 bash <plugin>/scripts/gbsync.sh update <bd_id>
 
 #    - PULL external edits back into bd, on demand:
-/cairn:sync-pull
+/cairn-sync-pull
 ```
 
 `<plugin>` is `${CLAUDE_PLUGIN_ROOT}` inside a command/hook, or the plugin's
@@ -298,9 +298,9 @@ Set `enabled: true` only for tools you use. Tokens are referenced by
 
 | Command | Does |
 |---|---|
-| `/cairn:init` | Bootstrap a repo: `git init` (if needed) + `bd init`. |
-| `/cairn:sync-config` | Interactively choose backends and write `sync.json`; tells you which env vars to export. |
-| `/cairn:sync-pull` | Reconcile external edits back into bd; summarizes conflicts. |
+| `/cairn-init` | Bootstrap a repo: `git init` (if needed) + `bd init`. |
+| `/cairn-sync-config` | Interactively choose backends and write `sync.json`; tells you which env vars to export. |
+| `/cairn-sync-pull` | Reconcile external edits back into bd; summarizes conflicts. |
 
 Raw dispatcher (what the commands call):
 
@@ -389,7 +389,7 @@ Full spec: [`adapters/_contract.md`](../adapters/_contract.md).
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `no .cairn/sync.json` | Run `/cairn:sync-config` first. |
+| `no .cairn/sync.json` | Run `/cairn-sync-config` first. |
 | `no enabled backends` | Set `"enabled": true` on a backend in `sync.json`. |
 | `missing … env var` from an adapter | Export the token env var named in that backend's config. |
 | One backend shows `FAIL`, others `ok` | A push failure is isolated per backend; read the error line, fix that backend, re-run. |

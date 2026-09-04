@@ -10,7 +10,7 @@ to correct. So: detect, SHOW what was found, ask once, and write everything
 from the confirmation.
 
 This script owns the two deterministic halves — the decision to ask, and the
-two writes. `/cairn:sync-config` owns the one sentence in between.
+two writes. `/cairn-sync-config` owns the one sentence in between.
 
 THERE IS EXACTLY ONE DETECTOR, AND IT IS NOT THIS FILE
 ------------------------------------------------------

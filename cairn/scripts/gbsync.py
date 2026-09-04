@@ -79,9 +79,9 @@ def now_iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def parse_ts(s):
+def parse_ts(s, default=EPOCH):
     if not s:
-        return EPOCH
+        return default
     s = str(s).strip().replace("Z", "+00:00")
     # Normalize a trailing numeric offset without a colon (e.g. +0000 -> +00:00),
     # which older datetime.fromisoformat rejects. Jira returns this form.
@@ -90,7 +90,7 @@ def parse_ts(s):
     try:
         return datetime.fromisoformat(s).astimezone(timezone.utc)
     except (ValueError, AttributeError):
-        return EPOCH
+        return default
 
 
 def load_json(path, default):
@@ -640,7 +640,7 @@ def do_pull(base, cfg, since_override, dry_run=False):
             missing = credentials_missing(b.get("config", {}))
             if missing:
                 results.append((btype, "skip", f"no {'/'.join(missing)} in "
-                                "the shell — in a session, /cairn:sync-pull "
+                                "the shell — in a session, /cairn-sync-pull "
                                 "reads through the MCP and records with "
                                 "cairn-jira.py seen"))
                 continue
@@ -743,7 +743,7 @@ def do_import(base, cfg, query, project, backend_type, dry_run=False):
         if not backends:
             die(f"backend '{backend_type}' is not enabled in sync.json")
     if not backends:
-        die("no enabled backends — run /cairn:sync-config first")
+        die("no enabled backends — run /cairn-sync-config first")
     if len(backends) > 1:
         die("multiple enabled backends — pick one with --backend <type>")
     b = backends[0]
@@ -820,7 +820,9 @@ def take_flag(args, flag, default=None):
 
     A value-taking flag given as the LAST argument is a usage error, never
     an IndexError traceback: 'gbsync.py import --query' must print how to
-    call it, like every other bad invocation here.
+    call it, like every other bad invocation here. A next token that itself
+    starts with '--' is the same class of error: `pull --since --dry-run`
+    must not swallow --dry-run as a timestamp.
     """
     if flag not in args:
         return default
@@ -828,6 +830,8 @@ def take_flag(args, flag, default=None):
     if i + 1 >= len(args):
         die(f"{flag} needs a value\n{USAGE}")
     value = args[i + 1]
+    if value.startswith("--"):
+        die(f"{flag} needs a value, got the flag {value!r}\n{USAGE}")
     del args[i:i + 2]
     return value
 
@@ -846,16 +850,22 @@ def main():
         args.remove("--dry-run")
     if not args:
         die(USAGE)
+    if since and parse_ts(since, default=None) is None:
+        die(f"--since needs an ISO8601 timestamp, got {since!r}\n{USAGE}")
 
     base = Path(project_dir) / ".cairn"
     cfg = load_json(base / "sync.json", None)
     if cfg is None:
-        die(f"no {base/'sync.json'} — run /cairn:sync-config first")
+        die(f"no {base/'sync.json'} — run /cairn-sync-config first")
 
     action = args[0]
     if action == "refresh-map":
+        if len(args) != 1:
+            die("usage: gbsync.py refresh-map [--dry-run]")
         sys.exit(do_refresh_map(base, cfg, dry_run))
     if action == "pull":
+        if len(args) != 1:
+            die("usage: gbsync.py pull [--since <iso>] [--dry-run]")
         sys.exit(do_pull(base, cfg, since, dry_run))
     elif action == "import":
         if len(args) != 1:

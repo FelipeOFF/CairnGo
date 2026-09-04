@@ -203,7 +203,7 @@ every run.
 
 Config cairn keeps ELSEWHERE, listed by `list` and written by nobody here:
 
-    .cairn/sync.json        which backends bd mirrors to — /cairn:sync-config
+    .cairn/sync.json        which backends bd mirrors to — /cairn-sync-config
                             writes it, gbsync.py reads it
     .cairn/context.json     context-mode scope template and capacity
                             threshold — /cairn:context-config writes it
@@ -333,7 +333,7 @@ ELSEWHERE = [
         "path": ".cairn/sync.json",
         "what": "which backends bd mirrors to (GitHub/GitLab/Jira/Asana/"
                 "Azure Boards), and whether each is enabled",
-        "written_by": "/cairn:sync-config",
+        "written_by": "/cairn-sync-config",
         "read_by": "gbsync.py, cairn/hooks/post-bd-write.sh",
     },
     {
