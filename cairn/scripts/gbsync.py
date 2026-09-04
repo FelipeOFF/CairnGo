@@ -305,19 +305,62 @@ def fix_versions(issue):
     return out
 
 
+def _blocker_id_from_dep_row(row, bd_id):
+    """Id of the bead that blocks `bd_id`, from a dep-list or show JSON row.
+
+    bd 1.1.0 hydrates `bd dep list --json` as the blocker issue (`id` +
+    `dependency_type`). Storage/edge shape uses `depends_on_id`. Parent-child
+    must not count: on 1.2.2 `bd show` puts the spec parent in
+    `dependencies` and leaves `blocked_by` empty, so `x or y` would pick the
+    Epic key (CI 33815460444).
+    """
+    if row is None:
+        return None
+    if not isinstance(row, dict):
+        val = str(row)
+        return val if val and val != str(bd_id) else None
+    dtype = str(row.get("dependency_type") or row.get("type") or "")
+    if dtype in ("parent-child", "parent", "child", "discovered-from",
+                 "related", "relates_to", "tracks"):
+        return None
+    if row.get("depends_on_id"):
+        return str(row["depends_on_id"])
+    rid = row.get("id")
+    if rid and str(rid) != str(bd_id):
+        return str(rid)
+    return None
+
+
 def blocker_keys(root, issue, btype, idmap):
     """Spoke keys of beads that block this one (`bd dep` → Jira Blocks)."""
+    bd_id = str(issue.get("id") or "")
+    ids = []
+    try:
+        proc = subprocess.run(
+            ["bd", "-C", str(root), "dep", "list", bd_id,
+             "--type", "blocks", "--json"],
+            capture_output=True, text=True)
+        if proc.returncode == 0:
+            for row in _parse_json(proc.stdout):
+                bid = _blocker_id_from_dep_row(row, bd_id)
+                if bid and bid not in ids:
+                    ids.append(bid)
+    except (FileNotFoundError, ValueError):
+        pass
+    if not ids:
+        parent = parent_bd_id(issue)
+        for key in ("blocked_by", "depends_on", "dependencies"):
+            raw = issue.get(key)
+            if raw is None:
+                continue
+            if not isinstance(raw, list):
+                raw = [raw]
+            for item in raw:
+                bid = _blocker_id_from_dep_row(item, bd_id)
+                if bid and bid != parent and bid not in ids:
+                    ids.append(bid)
     keys = []
-    deps = issue.get("blocked_by") or issue.get("dependencies") or []
-    if isinstance(deps, str):
-        deps = [deps]
-    for dep in deps:
-        dep_id = dep
-        if isinstance(dep, dict):
-            dep_id = dep.get("id") or dep.get("depends_on_id")
-        if not dep_id:
-            continue
-        dep_id = str(dep_id)
+    for dep_id in ids:
         mapped = (idmap.get(dep_id) or {}).get(btype)
         if mapped:
             keys.append(mapped)
