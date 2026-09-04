@@ -1,6 +1,6 @@
 ---
 name: cairn
-description: Spec-driven development on beads. Use when the repo has `.beads/`, or the user runs /cairn-init, /cairn-implement, /cairn-status, /cairn-doctor, or asks to grill/spec/ticket/implement work with bd (and optional Jira or other spokes). Conducts grill → spec → tickets → implement. The bead is the source; CONTEXT.md in this loop is an error.
+description: Spec-driven development on beads. Use when the repo has `.beads/`, or the user runs /cairn-init, /cairn-grill, /cairn-implement, /cairn-status, /cairn-doctor, or asks to grill/spec/ticket/implement work with bd (and optional Jira or other spokes). Conducts grill → spec → tickets → implement. The bead is the source; CONTEXT.md in this loop is an error.
 ---
 
 # cairn
@@ -28,13 +28,13 @@ Triage labels (exactly one state + optional category): `needs-triage`, `needs-in
 
 ## Pipeline
 
-`/cairn-implement [ref]` is the door. Resolve `ref` in order: bd id, spoke key (`PROJ-123`), label `m-*`, title search.
+`/cairn-grill [ref]` interviews and writes the spec bead. `/cairn-implement [ref]` tickets and implements a spec that already exists. Resolve `ref` in order: bd id, spoke key (`PROJ-123`), label `m-*`, title search.
 
 | state | do |
 |---|---|
-| nothing / raw idea | grill → create spec on bd → tickets → implement the frontier |
-| hollow spec | grill / to-spec; write the body and `design` on that bead |
-| spec full, no tickets | to-tickets → child beads + deps, label `ready-for-agent` |
+| nothing / raw idea | `/cairn-grill` — do not implement |
+| hollow spec | `/cairn-grill <spec>` |
+| spec full, no tickets | `/cairn-implement` → to-tickets → child beads + deps, label `ready-for-agent` |
 | frontier tickets | implement-spec (worktrees, one PR, merge frontier as it opens) |
 | one ticket | that ticket, if blockers are closed |
 | epic / `m-vX.Y` | frontier of child specs |
@@ -46,12 +46,13 @@ After every `bd create` / `--claim` / `bd close`, if `.cairn/sync.json` has an e
 ## Commands
 
 - `/cairn-init` — git + bd, tracker templates, plugin-root
-- `/cairn-implement [ref]` — the door
+- `/cairn-grill [ref]` — interview, write the spec bead, stop
+- `/cairn-implement [ref]` — tickets + code for a spec that exists
 - `/cairn-status` — READY / DOING / BLOCKED
 - `/cairn-doctor` — health of the v5 graph
 - `/cairn-sync-config` / `/cairn-sync-pull` — optional spoke
 
-Slash names are hyphenated (`/cairn-init`). Grok registers the filename, so that is what you type there. Claude Code registers plugin commands as `plugin:filename`, so the fully-qualified form is `/cairn:cairn-init`. Official Claude docs say the plugin prefix is optional when the short name does not collide; `/cairn-init` does not collide with a builtin. If the slash menu does not resolve the hyphenated name, use the qualified form.
+Grok: `/cairn-init` (filename `cairn-init.md`). Claude Code: `/cairn:init` (filename `init.md`) and still `/cairn:cairn-init` from the hyphenated file. After a plugin update, both work. An already-copied install does not change until `grok plugin update` / Claude plugin update / reinstall from path.
 
 ## Spoke map (Jira is the reference)
 

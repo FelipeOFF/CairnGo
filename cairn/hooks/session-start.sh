@@ -64,7 +64,8 @@ printf '%s\n' "$PLUGIN_ROOT" > "$PROJECT_DIR/.cairn/plugin-root"
 if [ -d "$PROJECT_DIR/.beads" ]; then
   cat <<'MSG'
 [cairn] beads hub is active (v5). Specs and tickets live on bd.
-  • /cairn-implement [ref] — grill → spec → tickets → implement
+  • /cairn-grill [ref] — interview, write the spec bead
+  • /cairn-implement [ref] — tickets + code for a spec that exists
   • /cairn-status — READY / DOING / BLOCKED
   • CONTEXT.md in this loop is an error; glossary/ADRs go on the spec bead
   • optional spoke: /cairn-sync-config (Jira Epic=spec, Story=ticket)

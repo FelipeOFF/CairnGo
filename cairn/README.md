@@ -1,15 +1,16 @@
 # cairn
 
-Spec-driven development on beads. The plugin is the conductor: it orients
-`/cairn-implement` at grill → spec → tickets → implement, stores the work on
-`bd`, and optionally mirrors it.
+Spec-driven development on beads. The plugin is the conductor: `/cairn-grill`
+writes the spec bead, `/cairn-implement` tickets and implements, stores the
+work on `bd`, and optionally mirrors it.
 
 ## Commands
 
 | Slash | Role |
 |---|---|
 | `/cairn-init` | git + bd, `docs/agents/*`, `.cairn/plugin-root` |
-| `/cairn-implement [ref]` | the door |
+| `/cairn-grill [ref]` | interview, write the spec bead, stop |
+| `/cairn-implement [ref]` | tickets + code for a spec that exists |
 | `/cairn-status` | READY / DOING / BLOCKED |
 | `/cairn-doctor` | v5 graph health |
 | `/cairn-sync-config` | enable a spoke |
@@ -17,7 +18,7 @@ Spec-driven development on beads. The plugin is the conductor: it orients
 
 `ref` is a bd id, a spoke key (`PROJ-123`), a `m-vX.Y` label, or a title.
 
-Slash names are hyphenated (`/cairn-init`). Claude Code also registers `/cairn:cairn-init` (`plugin:filename`). Use the qualified form if the hyphenated name does not resolve.
+Grok: `/cairn-implement`. Claude Code: `/cairn:implement` (and still `/cairn:cairn-implement`). Update the installed plugin to pick up the short names.
 
 ## Model
 

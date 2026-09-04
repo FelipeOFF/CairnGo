@@ -28,4 +28,4 @@ Copy (do not overwrite if the user already edited them):
 
 ## 4. Next
 
-Offer `/cairn-implement` with the first piece of work. Do not create `.planning/` or `CONTEXT.md`.
+Offer `/cairn-grill` with the first piece of work. Do not create `.planning/` or `CONTEXT.md`.

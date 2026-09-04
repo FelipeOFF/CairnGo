@@ -135,7 +135,8 @@ fi
 cat <<'NEXT'
 
 ▸ next:
-    /cairn-implement        # grill → spec → tickets → implement (bd is the hub)
+    /cairn-grill            # interview, write the spec bead
+    /cairn-implement <id>   # tickets + implement (bd is the hub)
     /cairn-status           # READY / DOING / BLOCKED
     /cairn-doctor           # graph health
     /cairn-sync-config      # optional Jira / GitHub / … spoke

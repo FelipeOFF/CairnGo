@@ -7,8 +7,18 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`/cairn-grill`** interviews onto a spec bead and stops. It does not
+  create tickets or write code.
+- **Claude short slash files** (`implement.md`, `grill.md`, `init.md`, …)
+  so Claude Code registers `/cairn:implement` alongside
+  `/cairn:cairn-implement`. Grok keeps `/cairn-implement`. Existing
+  installs pick this up only after a plugin update (plugin **5.1.0**).
+
 ### Changed
 
+- **`/cairn-implement`** on a raw idea refuses and names `/cairn-grill`.
 - **`cairn-status`** is lanes from bd (READY ∩ `ready-for-agent`, DOING,
   BLOCKED). No GSD/phase footer, no journal. Open cycles come from `m-v*`
   labels (CairnGo-kcso).

@@ -1,9 +1,11 @@
 ---
-description: Grill, spec, ticket and implement — one door, starts at the right step
+description: Ticket and implement a spec that already exists
 argument-hint: "[ref]"
 ---
 
-Run the SDD loop on beads. Read `${PLUGIN_ROOT}/skills/cairn/SKILL.md` and `${PLUGIN_ROOT}/references/matt-on-beads.md` first.
+Run the SDD **implement** half on beads. Read `${PLUGIN_ROOT}/skills/cairn/SKILL.md` and `${PLUGIN_ROOT}/references/matt-on-beads.md` first.
+
+This command does **not** interview a raw idea. If there is nothing to implement yet, point at `/cairn-grill` and stop. Do not write code in that case.
 
 `PLUGIN_ROOT` = `$CAIRN_PLUGIN_ROOT` or `$GROK_PLUGIN_ROOT` or `$CLAUDE_PLUGIN_ROOT` or `head -1 .cairn/plugin-root`.
 
@@ -11,7 +13,7 @@ Run the SDD loop on beads. Read `${PLUGIN_ROOT}/skills/cairn/SKILL.md` and `${PL
 
 ## Resolve ref
 
-Empty → new work. Else try, in order:
+Empty → look at `bd ready` ∩ `ready-for-agent`. Else try, in order:
 
 1. `bd show <ref>` succeeds → that bead
 2. spoke key: `.cairn/id-map.json` or `bd list` / `external_ref` matching `<ref>`
@@ -22,8 +24,8 @@ Empty → new work. Else try, in order:
 
 | what you resolved | action |
 |---|---|
-| nothing / idea only | grill-with-docs + domain terms on a **new spec bead** (not CONTEXT.md). Then to-spec body on that bead. Then to-tickets as children. Then implement-spec on the frontier. |
-| spec (`cairn.kind=spec` or type epic, no `kind=ticket`) with empty description | grill / to-spec; `bd update --description` / `--design` |
+| nothing / idea only / unresolved ref | **stop.** Tell the user to run `/cairn-grill` with the idea. Do not create a spec. Do not write code. |
+| spec (`cairn.kind=spec` or type epic, no `kind=ticket`) with empty description | **stop.** `/cairn-grill <spec-id>` — the spec is hollow. |
 | spec with body, no children | to-tickets → `bd create --parent <spec>` + `bd dep`; label `ready-for-agent` |
 | spec or milestone with open children | implement-spec on **frontier**: `ready-for-agent` and `bd ready` |
 | ticket | implement that ticket if unblocked; else name the blockers |

@@ -1,29 +1,38 @@
 #!/usr/bin/env bats
 load 'helpers'
 
-@test "only hyphen cairn-* command files exist" {
-  local n
-  n="$(find "$CAIRN_REPO_ROOT/cairn/commands" -maxdepth 1 -name '*.md' | wc -l | tr -d ' ')"
-  [ "$n" = "6" ]
-  for f in cairn-init cairn-implement cairn-status cairn-doctor cairn-sync-config cairn-sync-pull; do
-    [ -f "$CAIRN_REPO_ROOT/cairn/commands/${f}.md" ]
+@test "hyphenated command files and Claude short aliases both exist" {
+  local cmd="$CAIRN_REPO_ROOT/cairn/commands"
+  local pair
+  for pair in init implement status doctor sync-config sync-pull grill; do
+    [ -f "$cmd/cairn-${pair}.md" ]
+    [ -f "$cmd/${pair}.md" ]
+    grep -q "cairn-${pair}.md" "$cmd/${pair}.md"
   done
 }
 
-@test "skill cairn names both hyphenated and Claude qualified slash forms" {
-  grep -q '/cairn-init' "$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"
-  grep -q '/cairn:cairn-init' "$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"
+@test "cairn-implement refuses a raw idea and names cairn-grill" {
+  grep -q '/cairn-grill' "$CAIRN_REPO_ROOT/cairn/commands/cairn-implement.md"
+  grep -qF 'does **not** interview a raw idea' "$CAIRN_REPO_ROOT/cairn/commands/cairn-implement.md"
+  grep -qF 'Do **not** implement code' "$CAIRN_REPO_ROOT/cairn/commands/cairn-grill.md"
+  grep -qF 'Do **not** create tickets' "$CAIRN_REPO_ROOT/cairn/commands/cairn-grill.md"
 }
 
-@test "commands.md lists the six hyphenated commands, not the GSD zoo" {
-  local f="$CAIRN_REPO_ROOT/cairn/docs/commands.md"
-  grep -q '| `/cairn-init` |' "$f"
-  grep -qF '| `/cairn-implement [ref]` |' "$f"
-  grep -q '| `/cairn-status` |' "$f"
-  grep -q '| `/cairn-doctor` |' "$f"
-  grep -q '| `/cairn-sync-config` |' "$f"
-  grep -q '| `/cairn-sync-pull` |' "$f"
+@test "skill cairn names hyphenated, Claude short, and doubled forms" {
+  local f="$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"
+  grep -q '/cairn-grill' "$f"
+  grep -q '/cairn-implement' "$f"
+  grep -q '/cairn:init' "$f"
   grep -q '/cairn:cairn-init' "$f"
+}
+
+@test "commands.md lists hyphenated and Claude short names, not the GSD zoo" {
+  local f="$CAIRN_REPO_ROOT/cairn/docs/commands.md"
+  grep -qF '| `/cairn-grill [ref]` |' "$f"
+  grep -qF '| `/cairn-implement [ref]` |' "$f"
+  grep -q '| `/cairn:grill` |' "$f"
+  grep -q '| `/cairn:implement` |' "$f"
+  grep -q 'grok plugin update' "$f"
   run grep -E '\| `/cairn:plan` \||\| `/cairn:migrate` \|' "$f"
   [ "$status" -ne 0 ]
 }
@@ -75,11 +84,11 @@ load 'helpers'
   python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["ok"]' <<<"$output"
 }
 
-@test "plugin.json is 5.0.0 without context-mode dependency" {
+@test "plugin.json is 5.1.0 without context-mode dependency" {
   python3 - "$CAIRN_REPO_ROOT/cairn/.claude-plugin/plugin.json" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
-assert p["version"]=="5.0.0"
+assert p["version"]=="5.1.0"
 deps=p.get("dependencies") or []
 assert not any((d.get("name") if isinstance(d,dict) else d)=="context-mode" for d in deps)
 PY
