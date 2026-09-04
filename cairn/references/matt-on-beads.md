@@ -3,6 +3,9 @@
 Cairn orchestrates grill-with-docs → to-spec → to-tickets → implement-spec.
 Those skills must **publish to bd**. They must **not** write planning files.
 
+Grill questions go through the harness Ask tool (Claude Code: `AskUserQuestion`;
+Grok: `ask_user_question`). A markdown `❓ Q1` block in chat is not the interview.
+
 ## Tracker
 
 Read `docs/agents/issue-tracker.md` if present (written by `/cairn-init`).

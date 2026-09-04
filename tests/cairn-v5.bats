@@ -18,6 +18,13 @@ load 'helpers'
   grep -qF 'Do **not** create tickets' "$CAIRN_REPO_ROOT/cairn/commands/cairn-grill.md"
 }
 
+@test "cairn-grill asks through AskUserQuestion and ask_user_question" {
+  local f="$CAIRN_REPO_ROOT/cairn/commands/cairn-grill.md"
+  grep -qF 'AskUserQuestion' "$f"
+  grep -qF 'ask_user_question' "$f"
+  grep -qF 'not in chat prose' "$f"
+}
+
 @test "skill cairn names hyphenated, Claude short, and doubled forms" {
   local f="$CAIRN_REPO_ROOT/cairn/skills/cairn/SKILL.md"
   grep -q '/cairn-grill' "$f"

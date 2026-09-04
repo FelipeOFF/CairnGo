@@ -25,7 +25,7 @@ Claude Code: update `cairn` from the marketplace, or reinstall the path. Restart
 
 | Slash | Claude Code | Role |
 |---|---|---|
-| `/cairn-grill [ref]` | `/cairn:grill` | interview, write the spec bead, stop |
+| `/cairn-grill [ref]` | `/cairn:grill` | interview via Ask / AskUserQuestion, write the spec bead, stop |
 | `/cairn-implement [ref]` | `/cairn:implement` | tickets + code for a spec that exists |
 | `/cairn-init` | `/cairn:init` | git + bd, `docs/agents/*`, `.cairn/plugin-root` |
 | `/cairn-status` | `/cairn:status` | READY / DOING / BLOCKED from bd |

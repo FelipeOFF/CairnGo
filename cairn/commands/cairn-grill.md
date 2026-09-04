@@ -11,6 +11,21 @@ Read `${PLUGIN_ROOT}/skills/cairn/SKILL.md` and `${PLUGIN_ROOT}/references/matt-
 
 `$ARGUMENTS` is optional `ref` (bd id, spoke key, `m-vX.Y`, title).
 
+## Ask through the harness — not in chat prose
+
+Every interview question goes through the harness question tool. A `❓ Q1` markdown block in the assistant message is an **error** for this command.
+
+| Harness | Tool |
+|---|---|
+| Claude Code | `AskUserQuestion` |
+| Grok | `ask_user_question` (the Ask tool) |
+
+Put the recommended option first and append `(Recommended)` to its label. Independent frontier questions may share one tool call. A question that depends on an unanswered one waits for the next round.
+
+Do **not** write `--description` / `--design` (and do **not** say the spec is done) until the frontier is empty and the user has answered through that tool.
+
+If the tool is missing from this session, say which harness you are on and that the Ask tool is unavailable, then ask **one** question in prose and wait. That fallback is last resort, not the default.
+
 ## Resolve ref
 
 Empty → new spec. Else the same order as `/cairn-implement`: `bd show`, spoke key, `m-*`, title search.
@@ -19,12 +34,10 @@ Empty → new spec. Else the same order as `/cairn-implement`: `bd show`, spoke 
 
 | what you resolved | action |
 |---|---|
-| nothing / idea | create a spec bead (`--type=epic`, `--metadata '{"cairn":{"kind":"spec"}}'`). Interview. Write `--description` and `--design` (`## GLOSSARY`, `## ADR`). Stop. |
-| spec with empty or thin description | interview on that bead; `bd update --description` / `--design`. Stop. |
-| spec that already has a body | show the body. Ask whether to reopen the interview or run `/cairn-implement <id>`. Do not start coding. |
+| nothing / idea | create a spec bead (`--type=epic`, `--metadata '{"cairn":{"kind":"spec"}}'`). Interview via the Ask tool. Write `--description` and `--design` (`## GLOSSARY`, `## ADR`). Stop. |
+| spec with empty or thin description | interview on that bead via the Ask tool; `bd update --description` / `--design`. Stop. |
+| spec that already has a body | show the body. Ask via the Ask tool whether to reopen the interview or run `/cairn-implement <id>`. Do not start coding. |
 | ticket | this is the wrong door. Name `/cairn-implement <id>`. |
-
-Use the harness question UI when it exists. One round can hold several independent questions; do not implement between rounds.
 
 When the frontier is empty, print the spec id and:
 

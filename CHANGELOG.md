@@ -10,7 +10,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **`/cairn-grill`** interviews onto a spec bead and stops. It does not
-  create tickets or write code.
+  create tickets or write code. Questions go through Claude Code
+  `AskUserQuestion` or Grok `ask_user_question` (Ask), not markdown in
+  the chat.
 - **Claude short slash files** (`implement.md`, `grill.md`, `init.md`, …)
   so Claude Code registers `/cairn:implement` alongside
   `/cairn:cairn-implement`. Grok keeps `/cairn-implement`. Existing

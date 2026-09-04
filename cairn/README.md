@@ -9,7 +9,7 @@ work on `bd`, and optionally mirrors it.
 | Slash | Role |
 |---|---|
 | `/cairn-init` | git + bd, `docs/agents/*`, `.cairn/plugin-root` |
-| `/cairn-grill [ref]` | interview, write the spec bead, stop |
+| `/cairn-grill [ref]` | interview via Ask / AskUserQuestion, write the spec bead, stop |
 | `/cairn-implement [ref]` | tickets + code for a spec that exists |
 | `/cairn-status` | READY / DOING / BLOCKED |
 | `/cairn-doctor` | v5 graph health |

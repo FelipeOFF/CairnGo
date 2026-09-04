@@ -28,7 +28,7 @@ Triage labels (exactly one state + optional category): `needs-triage`, `needs-in
 
 ## Pipeline
 
-`/cairn-grill [ref]` interviews and writes the spec bead. `/cairn-implement [ref]` tickets and implements a spec that already exists. Resolve `ref` in order: bd id, spoke key (`PROJ-123`), label `m-*`, title search.
+`/cairn-grill [ref]` interviews through the harness Ask tool (Claude Code: `AskUserQuestion`; Grok: `ask_user_question`) and writes the spec bead. `/cairn-implement [ref]` tickets and implements a spec that already exists. Resolve `ref` in order: bd id, spoke key (`PROJ-123`), label `m-*`, title search.
 
 | state | do |
 |---|---|
@@ -46,7 +46,7 @@ After every `bd create` / `--claim` / `bd close`, if `.cairn/sync.json` has an e
 ## Commands
 
 - `/cairn-init` — git + bd, tracker templates, plugin-root
-- `/cairn-grill [ref]` — interview, write the spec bead, stop
+- `/cairn-grill [ref]` — interview via Ask / AskUserQuestion, write the spec bead, stop
 - `/cairn-implement [ref]` — tickets + code for a spec that exists
 - `/cairn-status` — READY / DOING / BLOCKED
 - `/cairn-doctor` — health of the v5 graph
