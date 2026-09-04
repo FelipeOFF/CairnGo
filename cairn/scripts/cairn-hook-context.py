@@ -2,6 +2,7 @@
 """Read a hook envelope and print safely quoted shell context assignments."""
 import json
 import os
+from pathlib import Path
 import shlex
 import sys
 
@@ -42,6 +43,13 @@ def main():
         elif agent != "codex":
             project = env.get("CLAUDE_PROJECT_DIR")
     project = project or os.getcwd()
+    directory = Path(project).resolve()
+    # Stop at the nearest tracker or Git boundary, including linked worktrees.
+    # A nested repo without beads must never inherit its enclosing tracker.
+    for ancestor in (directory, *directory.parents):
+        if (ancestor / ".beads").is_dir() or (ancestor / ".git").exists():
+            project = str(ancestor)
+            break
     data = env.get("CLAUDE_PLUGIN_DATA", "")
     if agent == "grok":
         data = env.get("GROK_PLUGIN_DATA") or data

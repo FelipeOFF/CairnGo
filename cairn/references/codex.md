@@ -89,18 +89,24 @@ aliases; its terminal tool names join `Bash` in the PostToolUse matcher.
 The payload's `cwd` selects the project. Without it, Grok uses
 `GROK_WORKSPACE_ROOT`, `GROK_PROJECT_DIR`, then `CLAUDE_PROJECT_DIR`; Claude
 and unknown use `CLAUDE_PROJECT_DIR`; Codex uses the working directory.
-The working directory is the final fallback. Background sync jobs retain
-that resolved project. Native `PLUGIN_DATA` / `GROK_PLUGIN_DATA` take priority
+The working directory is the final fallback. From there, the nearest ancestor
+with `.beads/` or `.git` (file or directory) selects the project root. A nested
+repository without beads stops the search, so it never inherits its parent's
+tracker. If no marker exists, the selected directory stays unchanged.
+Background sync jobs retain that resolved project.
+Native `PLUGIN_DATA` / `GROK_PLUGIN_DATA` take priority
 over `CLAUDE_PLUGIN_DATA` for the matching runtime.
 
 Stop is silent when clean and otherwise emits one JSON `systemMessage`,
 combining issue and lease warnings without blocking or closing issues. This
 is also the safe fallback for an unknown agent. SessionStart emits one
 `hookSpecificOutput` with `hookEventName: "SessionStart"` and
-`additionalContext`; PostToolUse queues emit one `systemMessage`. Plain text
+`additionalContext` for Codex, Claude Code and unknown. Grok's SessionStart
+Observe gate extracts only `systemMessage`, so it receives the same reminder
+in that field. PostToolUse queues emit one `systemMessage`. Plain text
 beginning with `[cairn]` would be treated as malformed JSON by Codex.
 
 The Stop schema was checked against [Codex 0.153.3](https://github.com/openai/codex/blob/rust-v0.153.3/codex-rs/hooks/src/schema.rs),
 [Claude Code's JSON contract](https://code.claude.com/docs/en/hooks#json-output),
-and [Grok's hook runner](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-agent/src/hooks/runner/mod.rs).
+and [Grok's hook runner](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-hooks/src/runner/command.rs).
 Stop must not emit `hookSpecificOutput` or a blocking `decision`.

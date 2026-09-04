@@ -4,7 +4,7 @@
 # 2. Write .cairn/plugin-root so commands resolve the plugin without
 #    CLAUDE_PLUGIN_ROOT in the agent shell.
 # 3. Remind v5 conventions when .beads/ is present.
-# A single JSON response injects the context into all supported runtimes.
+# A single JSON response delivers context or a warning for the active runtime.
 set -euo pipefail
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,8 +104,11 @@ MESSAGE="$(session_start)" || true
 if [ -n "$MESSAGE" ]; then
   python3 -c '
 import json, sys
-print(json.dumps({"hookSpecificOutput": {
-    "hookEventName": "SessionStart", "additionalContext": sys.argv[1]}}))
-' "$MESSAGE" 2>/dev/null || true
+# Grok observes SessionStart: it extracts systemMessage, not additionalContext.
+response = ({"systemMessage": sys.argv[1]} if sys.argv[2] == "grok" else
+            {"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                    "additionalContext": sys.argv[1]}})
+print(json.dumps(response))
+' "$MESSAGE" "$CAIRN_HOOK_AGENT" 2>/dev/null || true
 fi
 exit 0

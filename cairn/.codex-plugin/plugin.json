@@ -1,6 +1,6 @@
 {
   "name": "cairn",
-  "version": "5.1.0+codex.20260904233727",
+  "version": "5.1.0+codex.20260904234559",
   "description": "Spec-driven development on beads: interview, spec, tickets and implementation, with optional tracker sync.",
   "author": {
     "name": "Felipe Oliveira (FelipeOFF)",

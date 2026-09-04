@@ -109,6 +109,51 @@ for issues, leases in (('invalid', 'invalid'), ('null', '[]'), ('[null,3]', '{}'
     assert invoke('session-stop.sh', {'cwd': str(project)}, {
         'HOOK_TEST_ISSUES': issues, 'HOOK_TEST_LEASES': leases}) == ''
 
+# A tool may execute in src/: all hooks must find the current worktree root.
+subdir = project / 'src/deep'
+subdir.mkdir(parents=True)
+log.unlink(missing_ok=True)
+output = invoke('session-stop.sh', {'cwd': str(subdir), 'turn_id': 'test'}, {
+    'CLAUDE_PROJECT_DIR': str(other), 'HOOK_TEST_ISSUES': '[{"id":"task-subdir"}]'})
+assert 'task-subdir' in output, output
+assert calls()[0]['args'][1] == str(project), calls()
+assert calls()[1]['args'][4] == str(project), calls()
+invoke('session-start.sh', {'cwd': str(subdir)}, {'PLUGIN_ROOT': '/installed/cairn'})
+assert (project / '.cairn/plugin-root').exists()
+assert not (subdir / '.cairn').exists()
+(project / '.cairn/sync.json').write_text('{"backends":[{"enabled":true}]}')
+log.unlink(missing_ok=True)
+invoke('post-bd-write.sh', {'cwd': str(subdir), 'turn_id': 'test', 'tool_name': 'Bash',
+                          'tool_input': {'command': 'bd update task-subdir --claim'}})
+deadline = time.monotonic() + 3
+while not calls() and time.monotonic() < deadline:
+    time.sleep(0.02)
+assert calls() == [{'args': ['sync', 'update', 'task-subdir', '--dir', str(project)],
+                   'cwd': str(project)}], calls()
+
+# A nearer .git file (linked worktree) or directory is a hard boundary even
+# without .beads: never walk into an enclosing project's tracker or sync.
+for marker_type in ('file', 'directory'):
+    nested = project / ('nested-' + marker_type)
+    nested_subdir = nested / 'src'
+    nested_subdir.mkdir(parents=True)
+    if marker_type == 'file':
+        (nested / '.git').write_text('gitdir: /fixture/linked-worktree')
+    else:
+        (nested / '.git').mkdir()
+    (project / '.cairn/stop').touch()
+    log.unlink(missing_ok=True)
+    assert context({'cwd': str(nested_subdir)})['PROJECT_DIR'] == str(nested)
+    assert invoke('session-stop.sh', {'cwd': str(nested_subdir)}, {
+        'CLAUDE_PROJECT_DIR': str(project)}) == ''
+    assert invoke('post-bd-write.sh', {'cwd': str(nested_subdir), 'tool_name': 'Bash',
+                  'tool_input': {'command': 'bd update task-parent --claim'}}) == ''
+    invoke('session-start.sh', {'cwd': str(nested_subdir)}, {'PLUGIN_ROOT': '/installed/cairn'})
+    assert calls() == [], calls()
+    assert (nested / '.cairn/plugin-root').exists()
+    assert not (nested_subdir / '.cairn').exists()
+    assert (project / '.cairn/stop').exists()
+
 # Payload signatures outrank inherited env; generic CLAUDE_PLUGIN_ROOT is no
 # proof of Claude. Shell quoting must make payload values data, never code.
 for payload, signals, expected in (
@@ -156,9 +201,15 @@ for agent, payload, signals, instruction in (
     (project / '.cairn').mkdir(exist_ok=True)
     (project / '.cairn/stop').touch()
     output = invoke('session-start.sh', {'cwd': str(project), **payload}, signals)
-    structured = json.loads(output)['hookSpecificOutput']
-    assert structured['hookEventName'] == 'SessionStart', structured
-    assert 'bd basics' in structured['additionalContext'], (agent, output)
+    structured = json.loads(output)
+    if agent == 'grok':
+        # Grok's Observe gate extracts systemMessage, not additionalContext.
+        assert set(structured) == {'systemMessage'}, structured
+        assert 'bd basics' in structured['systemMessage'], (agent, output)
+    else:
+        specific = structured['hookSpecificOutput']
+        assert specific['hookEventName'] == 'SessionStart', structured
+        assert 'bd basics' in specific['additionalContext'], (agent, output)
     assert not (project / '.cairn/stop').exists()
     assert Path((project / '.cairn/plugin-root').read_text().strip()) == hooks.parent
     assert not (other / '.cairn').exists()
