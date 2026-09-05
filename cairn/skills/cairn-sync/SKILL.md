@@ -9,6 +9,10 @@ Two-way, **hub-and-spoke** sync. bd (beads) is the hub and source of truth;
 every external tool syncs to bd, never tool-to-tool. Extends the `cairn`
 integration with mirroring to GitHub Issues, GitLab, Jira, Asana, and Azure Boards.
 
+On Codex, first read [the Codex adapter](../../references/codex.md) for resource
+paths and tool mapping. Setup and pull are `$cairn:sync-config` and
+`$cairn:sync-pull`; do not rely on Claude's shell hook to fire a PUSH.
+
 ## Activation gate
 
 Apply this skill **only when** `.cairn/sync.json` exists in the repo AND has

@@ -12,6 +12,7 @@
 `/cairn-grill` interviews onto a spec bead. `/cairn-implement` tickets and implements. Specs and tickets live on `bd`. Optional spokes (Jira, GitHub, GitLab, Asana, Azure Boards) mirror that graph. There is no `.planning/` destination and no `CONTEXT.md` as the plan.
 
 Grok: `/cairn-implement`. Claude Code: `/cairn:implement` (also `/cairn:cairn-implement`).
+Codex: `$cairn:implement`.
 
 ## Install
 
@@ -23,9 +24,19 @@ grok plugin install cairn --trust
 # Claude Code
 /plugin marketplace add FelipeOFF/CairnGo
 /plugin install cairn@cairngo
+
+# Codex — from a local checkout of this repository
+codex plugin marketplace add /path/to/CairnGo
+codex plugin add cairn@cairngo
 ```
 
 Needs `bd` ≥ 1.1.0 (`brew install beads`). `/cairn-init` offers to install it.
+
+For Codex, start a new thread after installation. All seven commands have
+native skill entries: `$cairn:init`, `$cairn:grill`, `$cairn:implement`,
+`$cairn:status`, `$cairn:doctor`, `$cairn:sync-config` and `$cairn:sync-pull`.
+The general `$cairn:cairn <verb>` and `$cairn:cairn-sync` skills remain available.
+See the [command reference](cairn/docs/commands.md) for arguments and roles.
 
 ## Loop
 

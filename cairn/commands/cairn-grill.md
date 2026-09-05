@@ -19,8 +19,12 @@ Every interview question goes through the harness question tool. A `❓ Q1` mark
 |---|---|
 | Claude Code | `AskUserQuestion` |
 | Grok | `ask_user_question` (the Ask tool) |
+| Codex | `request_user_input_async`, or `request_user_input` when the current mode allows it |
 
 Put the recommended option first and append `(Recommended)` to its label. Independent frontier questions may share one tool call. A question that depends on an unanswered one waits for the next round.
+
+On Codex, follow `references/codex.md`. An async question remains pending
+until the user replies; sending it or waiting for a while is not an answer.
 
 Do **not** write `--description` / `--design` (and do **not** say the spec is done) until the frontier is empty and the user has answered through that tool.
 

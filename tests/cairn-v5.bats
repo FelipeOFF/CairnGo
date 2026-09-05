@@ -55,7 +55,9 @@ load 'helpers'
 }
 
 @test "cairn-root.sh falls back to this checkout" {
-  run bash "$CAIRN_REPO_ROOT/cairn/scripts/cairn-root.sh"
+  cd "$BATS_TEST_TMPDIR"
+  run env CAIRN_PLUGIN_ROOT= GROK_PLUGIN_ROOT= CLAUDE_PLUGIN_ROOT= \
+    bash "$CAIRN_REPO_ROOT/cairn/scripts/cairn-root.sh"
   [ "$status" -eq 0 ]
   [ "$output" = "$CAIRN_REPO_ROOT/cairn" ]
 }

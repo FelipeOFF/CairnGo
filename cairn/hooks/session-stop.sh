@@ -19,9 +19,11 @@
 set -uo pipefail
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_ROOT="$(dirname "$HOOK_DIR")"
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-CAIRN_LEASE="${CAIRN_LEASE:-$PLUGIN_ROOT/scripts/cairn-lease.sh}"
+CAIRN_ROOT="$(dirname "$HOOK_DIR")"
+# Only assignments serialized with shlex.quote enter eval.
+CONTEXT="$(python3 "$CAIRN_ROOT/scripts/cairn-hook-context.py" 2>/dev/null)" || exit 0
+eval "$CONTEXT"
+CAIRN_LEASE="${CAIRN_LEASE:-$CAIRN_ROOT/scripts/cairn-lease.sh}"
 [ -d "$PROJECT_DIR/.beads" ] || exit 0
 command -v bd >/dev/null 2>&1 || exit 0
 
@@ -38,16 +40,14 @@ except Exception:
     raise SystemExit
 if not isinstance(issues, list):
     issues = [issues]
-ids = [i.get("id", "?") for i in issues
-       if "lease" not in (i.get("labels") or [])]
+ids = [str(i.get("id", "?")) for i in issues
+       if isinstance(i, dict) and "lease" not in (i.get("labels") or [])]
 if ids:
     print("[cairn] session ending with %d in_progress issue(s) still "
           "assigned to you: %s — bd close <id> --reason=..., pause per the "
           "cairn pause/resume rule, or hand off before stopping."
           % (len(ids), ", ".join(ids)))
 ' 2>/dev/null || true)"
-
-[ -n "$LINE" ] && echo "$LINE"
 
 # --- lease release (D-03) -----------------------------------------------
 # release --mine is worktree-scoped by holder identity, so it can never
@@ -60,11 +60,18 @@ try:
     result = json.load(sys.stdin) or {}
 except Exception:
     raise SystemExit
-phases = result.get("phases") or []
+phases = (result.get("phases") or []) if isinstance(result, dict) else []
 if phases:
     print("[cairn] session ending — released %d phase lease(s) you were "
           "holding: %s" % (len(phases), ", ".join(str(p) for p in phases)))
 ' 2>/dev/null || true)"
 
-[ -n "$LEASE_LINE" ] && echo "$LEASE_LINE"
+# Stop only accepts empty stdout or one JSON document. systemMessage is a
+# non-blocking warning in Codex, Claude Code and Grok (also safe when unknown).
+python3 -c '
+import json, sys
+lines = [line for line in sys.argv[1:] if line]
+if lines:
+    print(json.dumps({"systemMessage": "\n".join(lines)}))
+' "$LINE" "$LEASE_LINE" 2>/dev/null || true
 exit 0

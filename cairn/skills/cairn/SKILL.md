@@ -1,11 +1,22 @@
 ---
 name: cairn
-description: Spec-driven development on beads. Use when the repo has `.beads/`, or the user runs /cairn-init, /cairn-grill, /cairn-implement, /cairn-status, /cairn-doctor, or asks to grill/spec/ticket/implement work with bd (and optional Jira or other spokes). Conducts grill → spec → tickets → implement. The bead is the source; CONTEXT.md in this loop is an error.
+description: Spec-driven development on beads. Use when the repo has `.beads/`, or the user invokes $cairn:cairn, /cairn-init, /cairn-grill, /cairn-implement, /cairn-status, /cairn-doctor, or asks to grill/spec/ticket/implement work with bd (and optional Jira or other spokes). Conducts grill → spec → tickets → implement. The bead is the source; CONTEXT.md in this loop is an error.
 ---
 
 # cairn
 
 bd is the hub. Specs and tickets live on beads. Optional spokes (Jira, GitHub, GitLab, Asana, Azure Boards) mirror that graph; they are never the source.
+
+## Harness
+
+On **Codex**, every command has its own skill: `$cairn:init`, `$cairn:grill`,
+`$cairn:implement`, `$cairn:status`, `$cairn:doctor`, `$cairn:sync-config` and
+`$cairn:sync-pull`. The general `$cairn:cairn <verb> [arguments]` also works.
+Read [the Codex adapter](../../references/codex.md) before dispatching. It maps
+commands, installed resources, questions, shell calls and delegation.
+
+Paths such as `references/matt-on-beads.md` below are relative to the plugin
+root, two directories above this skill folder.
 
 ## Gate
 

@@ -8,6 +8,7 @@ Files live at `cairn/commands/`. Each verb has a hyphenated file (`cairn-impleme
 |---|---|---|
 | Grok | `/cairn-init` | `/init` (qualified `/cairn:init` if the short name collides) |
 | Claude Code | `/cairn:cairn-init` | `/cairn:init` |
+| Codex | `$cairn:init` (native skill) | `$cairn:init` |
 
 Type `/cairn-implement` on Grok. Type `/cairn:implement` on Claude Code. The doubled `/cairn:cairn-implement` still works after update, from the hyphenated file.
 
@@ -21,17 +22,25 @@ grok plugin install /path/to/CairnGo/cairn --trust
 
 Claude Code: update `cairn` from the marketplace, or reinstall the path. Restart the session (or reload plugins). `.cairn/plugin-root` should point at the new copy.
 
+Codex installs from `.agents/plugins/marketplace.json` with
+`codex plugin marketplace add /path/to/CairnGo` and
+`codex plugin add cairn@cairngo`. Start a new thread after installation.
+Each command has a native `$cairn:<verb> [arguments]` skill, listed below.
+The general `$cairn:cairn <verb> [arguments]` remains available. These route to
+the same command bodies; Codex uses skill mentions rather than custom slash
+commands. Interviews use the available question tool and wait for answers.
+
 ## Commands
 
-| Slash | Claude Code | Role |
-|---|---|---|
-| `/cairn-grill [ref]` | `/cairn:grill` | interview via Ask / AskUserQuestion, write the spec bead, stop |
-| `/cairn-implement [ref]` | `/cairn:implement` | tickets + code for a spec that exists |
-| `/cairn-init` | `/cairn:init` | git + bd, `docs/agents/*`, `.cairn/plugin-root` |
-| `/cairn-status` | `/cairn:status` | READY / DOING / BLOCKED from bd |
-| `/cairn-doctor` | `/cairn:doctor` | v5 spec/ticket graph health |
-| `/cairn-sync-config` | `/cairn:sync-config` | enable a spoke (writes `.cairn/sync.json`) |
-| `/cairn-sync-pull` | `/cairn:sync-pull` | pull spoke edits into bd (last-writer-wins) |
+| Slash | Claude Code | Codex | Role |
+|---|---|---|---|
+| `/cairn-grill [ref]` | `/cairn:grill` | `$cairn:grill` | interview via Ask / AskUserQuestion, write the spec bead, stop |
+| `/cairn-implement [ref]` | `/cairn:implement` | `$cairn:implement` | tickets + code for a spec that exists |
+| `/cairn-init` | `/cairn:init` | `$cairn:init` | git + bd, `docs/agents/*`, `.cairn/plugin-root` |
+| `/cairn-status` | `/cairn:status` | `$cairn:status` | READY / DOING / BLOCKED from bd |
+| `/cairn-doctor` | `/cairn:doctor` | `$cairn:doctor` | v5 spec/ticket graph health |
+| `/cairn-sync-config` | `/cairn:sync-config` | `$cairn:sync-config` | enable a spoke (writes `.cairn/sync.json`) |
+| `/cairn-sync-pull` | `/cairn:sync-pull` | `$cairn:sync-pull` | pull spoke edits into bd (last-writer-wins) |
 
 `/cairn-implement` on a raw idea stops and names `/cairn-grill`. It does not interview.
 

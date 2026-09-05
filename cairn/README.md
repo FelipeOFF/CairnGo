@@ -20,6 +20,13 @@ work on `bd`, and optionally mirrors it.
 
 Grok: `/cairn-implement`. Claude Code: `/cairn:implement` (and still `/cairn:cairn-implement`). Update the installed plugin to pick up the short names.
 
+Codex: `$cairn:<verb> [arguments]`, for example `$cairn:implement <spec>`.
+Install from the repository checkout with `codex plugin marketplace add
+/path/to/CairnGo`, then `codex plugin add cairn@cairngo`. Start a new thread.
+All seven verbs above have individual skills and use the same command bodies
+and scripts. `$cairn:cairn <verb>` remains available too; see the
+[Codex adapter](references/codex.md) for tool and path mapping.
+
 ## Model
 
 - **spec** — parent bead (`cairn.kind=spec`). Body in description, glossary/ADRs in `design`.
